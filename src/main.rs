@@ -6,6 +6,7 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use forge::core::ForgeError;
+use forge::doctor::{parse_target_level, render_report_human, run_doctor, RegistryObservation};
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
@@ -96,6 +97,15 @@ enum Commands {
         #[arg(long)]
         verify_native: bool,
     },
+    /// Inspect project health and evidence-based maturity without changing files.
+    Doctor {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Assessment target level overriding the manifest (`L0`..`L4`).
+        #[arg(long)]
+        target: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -163,6 +173,9 @@ fn main() -> ExitCode {
             *verify_native,
             cli.format,
         ),
+        Commands::Doctor { path, target } => {
+            cmd_doctor(&db_path, path, target.as_deref(), cli.format)
+        }
     };
 
     match result {
@@ -315,6 +328,42 @@ fn cmd_new(
         "native_note": generated.native_note,
     });
     Ok(as_output(format, human, json))
+}
+
+fn cmd_doctor(
+    db_path: &Path,
+    path: &Path,
+    target: Option<&str>,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let level = match target {
+        Some(raw) => Some(parse_target_level(raw)?),
+        None => None,
+    };
+    // Registry is consulted read-only for observation freshness; a project
+    // that is unknown there is still assessed from local evidence.
+    let observation = open_registry(db_path)
+        .ok()
+        .and_then(|registry| observation_for(registry, path));
+    let report = run_doctor(path, level, observation.as_ref())?;
+    let human = render_report_human(&report);
+    let json = serde_json::json!({"doctor": report});
+    Ok(as_output(format, human, json))
+}
+
+/// Best-effort read-only registry observation for `path`: matches the
+/// registered record whose canonical path equals `path`, if any.
+fn observation_for(registry: Registry, path: &Path) -> Option<RegistryObservation> {
+    let canonical = path.canonicalize().ok()?.display().to_string();
+    let record = registry
+        .list()
+        .ok()?
+        .into_iter()
+        .find(|p| p.path == canonical)?;
+    Some(RegistryObservation {
+        registered: true,
+        observed_at: Some(record.observed_at),
+    })
 }
 
 fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<Output, ForgeError> {

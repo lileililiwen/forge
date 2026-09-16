@@ -5,6 +5,7 @@
 //! without reinterpreting them.
 
 pub mod core;
+pub mod doctor;
 pub mod generate;
 pub mod import;
 pub mod profile;

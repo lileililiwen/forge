@@ -1,4 +1,4 @@
-current_spec: deterministic-project-generation
+current_spec: doctor-maturity-assessment
 
 # Forge handoff
 
@@ -50,11 +50,44 @@ work has started.
 
 ## Next change
 
-Implement [deterministic-project-generation](openspec/changes/deterministic-project-generation/proposal.md)
-only when implementation is requested. Its prerequisites
-(`profile-registry`, `project-import`) now have implementation
+Implement [doctor-maturity-assessment](openspec/changes/doctor-maturity-assessment/proposal.md)
+only when implementation is requested. Its prerequisite
+(`deterministic-project-generation`) now has implementation
 evidence, not merely proposals. Then follow the roadmap prerequisites.
 Later changes remain planning-only with zero implementation tasks completed.
+
+## Verification evidence (deterministic-project-generation, 2026-09-16)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 76 passed, 0 failed (40 unit incl. 11 new generate
+  normalization/rendering/failure/cancel/collision/preflight tests, 5 CLI
+  contract, 2 cross-surface regression, 10 import contract, 7 profile
+  contract, 12 new generate contract incl. explicit-vs-interactive
+  equivalence, nonempty/cancel/unknown/incompatible/id-collision failures,
+  missing-toolchain unverified reporting, native rust/node/dotnet/flutter
+  builds and python compile check).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new` for all five MVP profiles renders, registers
+  and lists with L1 maturity; repeat `new` on a nonempty destination exits
+  1 with `error[generation-conflict]`; piped interactive answers create the
+  same request as flags; `--verify-native` on rust-web reports native
+  `cargo build` + `cargo test` success; empty-PATH `--verify-native`
+  exits 1 with `error[toolchain-missing]` containing "not tested".
+- Native evidence (Forge unavailable): generated rust `cargo build` +
+  `cargo test` PASS; `npm run build` + `npm test` PASS; `dotnet build`
+  PASS (0 warnings, 0 errors); `flutter test` PASS (1 test); python
+  `compileall` PASS while `pytest`/`build` modules are absent, so only
+  rendering (not a pytest run) is claimed for python-service.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate deterministic-project-generation --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (12 files, implementation
+  + tests + archive + promoted specs only).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Generated scaffolds are dependency-free by design (offline-portable);
+  per-service framework packages remain per-service resolution, not part
+  of the scaffold claim.
 
 ## Verification evidence (project-import, 2026-09-16)
 
@@ -134,7 +167,7 @@ Later changes remain planning-only with zero implementation tasks completed.
 
 1. Run `node scripts/check-openspec-change-names.mjs` before selection; failure blocks status/instructions and implementation.
 2. Run `openspec list`, reconcile roadmap dependencies, and update the single pointer before work.
-3. Run `openspec status --change deterministic-project-generation` and `openspec instructions apply --change deterministic-project-generation`; read all selected artifacts and applicable local rules.
+3. Run `openspec status --change doctor-maturity-assessment` and `openspec instructions apply --change doctor-maturity-assessment`; read all selected artifacts and applicable local rules.
 4. Follow BFS analysis, structural pass, DFS requirement implementation, then BFS regression/completeness. Check tasks only against evidence.
 5. Run the actual local build/test/integration commands and applicable Gate before archive; record exact failures and next actions. Gate FAIL or unresolved REVIEW_REQUIRED blocks completion when a Gate is configured.
 6. Run the name checker and `openspec validate --all --strict --no-interactive`; review diffs and original impact surfaces.

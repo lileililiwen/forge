@@ -1,8 +1,23 @@
-current_spec: doctor-maturity-assessment
+current_spec: feature-lifecycle
 
 # Forge handoff
 
 ## Current state
+
+`doctor-maturity-assessment` implemented, verified and archived on 2026-09-16
+as `2026-09-16-doctor-maturity-assessment`; canonical specs promoted to
+[openspec/specs/doctor-maturity-assessment/spec.md](openspec/specs/doctor-maturity-assessment/spec.md).
+New in this cycle: `src/doctor` (read-only finding inventory with stable
+rule IDs, PASS/WARN/FAIL/UNAVAILABLE statuses, evidence, applicability and
+automatic/AI/manual remediation classes; versioned L0-L4 maturity policy
+descriptors with target-gated applicability so L0 prototypes are respected;
+registry-observation staleness via manifest-mtime comparison; unknown profile
+reported as unavailable findings, never a hard refusal), Core
+`--target L0..L4` parsing (`parse_target_level`), CLI `forge doctor [<path>]
+[--target]` (human/JSON, exit 0 with `healthy:false` on FAIL/UNAVAILABLE/
+unmet/stale; hard errors only for path/manifest IO via existing codes), and
+`healthy` defined as no FAIL/UNAVAILABLE, no unmet applicable controls and
+no stale observation.
 
 `core-manifest-registry` implemented, verified and archived on 2026-09-16
 as `2026-09-16-core-manifest-registry`; canonical specs promoted to
@@ -50,11 +65,39 @@ work has started.
 
 ## Next change
 
-Implement [doctor-maturity-assessment](openspec/changes/doctor-maturity-assessment/proposal.md)
+Implement [feature-lifecycle](openspec/changes/feature-lifecycle/proposal.md)
 only when implementation is requested. Its prerequisite
-(`deterministic-project-generation`) now has implementation
+(`doctor-maturity-assessment`) now has implementation
 evidence, not merely proposals. Then follow the roadmap prerequisites.
 Later changes remain planning-only with zero implementation tasks completed.
+
+## Verification evidence (doctor-maturity-assessment, 2026-09-16)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 93 passed, 0 failed (49 unit incl. 9 new doctor
+  inventory/maturity/stale/unavailable tests, 5 CLI contract, 2
+  cross-surface regression, 8 new doctor contract incl. stable
+  finding IDs with evidence/remediation classes, unavailable-inspector
+  reporting, repeatability without file changes, L2 missing-control
+  reporting, L4 recovery denial, L0 nonapplicability, stale-observation
+  reporting and generated-project registry freshness, 12 generate
+  contract, 10 import contract, 7 profile contract).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web` then `forge doctor`
+  reports PASS manifest/profile/features/drift/build/deployment with
+  `[UNAVAILABLE] repository` outside a git repo and verdict `not
+  healthy`; `--target L2` JSON reports unmet
+  L2-auth/admin/ci/driftwatch (deployment met via Dockerfile) and
+  L1-structure met after the forge.yaml-presence fix.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate doctor-maturity-assessment --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (10 files, implementation
+  + tests + archive + promoted specs only).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Doctor is local inspection in v0.1; DriftWatch execution evidence stays
+  deferred to v0.3 (`quality-policy-integration` and later).
 
 ## Verification evidence (deterministic-project-generation, 2026-09-16)
 
@@ -167,7 +210,7 @@ Later changes remain planning-only with zero implementation tasks completed.
 
 1. Run `node scripts/check-openspec-change-names.mjs` before selection; failure blocks status/instructions and implementation.
 2. Run `openspec list`, reconcile roadmap dependencies, and update the single pointer before work.
-3. Run `openspec status --change doctor-maturity-assessment` and `openspec instructions apply --change doctor-maturity-assessment`; read all selected artifacts and applicable local rules.
+3. Run `openspec status --change feature-lifecycle` and `openspec instructions apply --change feature-lifecycle`; read all selected artifacts and applicable local rules.
 4. Follow BFS analysis, structural pass, DFS requirement implementation, then BFS regression/completeness. Check tasks only against evidence.
 5. Run the actual local build/test/integration commands and applicable Gate before archive; record exact failures and next actions. Gate FAIL or unresolved REVIEW_REQUIRED blocks completion when a Gate is configured.
 6. Run the name checker and `openspec validate --all --strict --no-interactive`; review diffs and original impact surfaces.

@@ -1,0 +1,6 @@
+schema: 1
+
+project:
+  id: dual-project
+  name: Dual Project Legacy Copy
+  profile: rust-web

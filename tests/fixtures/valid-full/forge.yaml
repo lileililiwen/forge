@@ -1,0 +1,41 @@
+schema: 1
+
+project:
+  id: mortality-reflection
+  name: Mortality Reflection
+  profile: rust-web
+  maturity: L2
+  target_maturity: L3
+
+runtime:
+  language: rust
+  version: stable
+
+features:
+  auth: 2.1
+  admin: 1.4
+  postgres: 2.0
+  telemetry: 1.2
+  privacy: 1.0
+
+quality:
+  driftwatch: true
+
+ai:
+  spec: openspec
+  default_agent: opencode
+
+deployment:
+  type: docker
+  target: home-server-01
+
+distribution:
+  primary: github
+  mirrors:
+    - gitee
+
+docs:
+  source_language: en
+  translations:
+    zh-CN:
+      enabled: false

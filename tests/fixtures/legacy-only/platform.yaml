@@ -1,0 +1,6 @@
+schema: 1
+
+project:
+  id: legacy-only
+  name: Legacy Only
+  profile: rust-web

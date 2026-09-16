@@ -1,0 +1,6 @@
+schema: 99
+
+project:
+  id: future-project
+  name: Future Project
+  profile: rust-web

@@ -1,0 +1,6 @@
+schema: 1
+
+project:
+  id: tiny-prototype
+  name: Tiny Prototype
+  profile: rust-web

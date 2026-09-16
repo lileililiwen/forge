@@ -6,6 +6,7 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use forge::core::ForgeError;
+use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
@@ -75,6 +76,26 @@ enum Commands {
         #[command(subcommand)]
         command: ProfileCommands,
     },
+    /// Create a new project deterministically from pinned profile assets.
+    New {
+        /// Destination directory for the new project.
+        path: PathBuf,
+        /// Explicit profile id (e.g. `rust-web`); prompts when missing.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Explicit project id (default: kebab-cased directory name).
+        #[arg(long)]
+        id: Option<String>,
+        /// Explicit display name (default: project id).
+        #[arg(long)]
+        name: Option<String>,
+        /// Requested capability (repeatable, e.g. `--feature auth`).
+        #[arg(long = "feature")]
+        features: Vec<String>,
+        /// Run the profile's native build/test after generation.
+        #[arg(long)]
+        verify_native: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -125,6 +146,23 @@ fn main() -> ExitCode {
             cli.format,
         ),
         Commands::Profile { command } => cmd_profile(command, cli.format),
+        Commands::New {
+            path,
+            profile,
+            id,
+            name,
+            features,
+            verify_native,
+        } => cmd_new(
+            &db_path,
+            path,
+            profile.as_deref(),
+            id.as_deref(),
+            name.as_deref(),
+            features,
+            *verify_native,
+            cli.format,
+        ),
     };
 
     match result {
@@ -227,6 +265,55 @@ fn cmd_import(
     let proposal = inspect_import(path, profile)?;
     let human = render_proposal_human(&proposal);
     let json = serde_json::json!({"proposal": proposal});
+    Ok(as_output(format, human, json))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_new(
+    db_path: &Path,
+    path: &Path,
+    profile: Option<&str>,
+    id: Option<&str>,
+    name: Option<&str>,
+    features: &[String],
+    verify_native_flag: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let request = if profile.is_some() {
+        normalize_explicit(profile, id, name, features, path)?
+    } else {
+        let stdin = std::io::stdin();
+        let mut reader = std::io::BufReader::new(stdin.lock());
+        let mut writer = std::io::stderr();
+        parse_interactive(&mut reader, &mut writer, path, profile, id, name, features)?
+    };
+    let mut registry = open_registry(db_path)?;
+    let mut generated = generate(&mut registry, &request)?;
+    if verify_native_flag {
+        let report = verify_native(&request.profile, &request.destination, None)?;
+        generated.native_verified = report.verified;
+        generated.native_note = format!(
+            "native build '{}' and test '{}' succeeded for profile '{}'",
+            report.build_command, report.test_command, report.profile
+        );
+    }
+    let human = format!(
+        "created {} ({}) from {}@{}\nfiles: {}\n{}",
+        generated.record.id,
+        generated.record.path,
+        request.profile,
+        forge::generate::GENERATOR_VERSION,
+        generated.files.join(", "),
+        generated.native_note
+    );
+    let json = serde_json::json!({
+        "created": generated.record,
+        "profile": request.profile,
+        "generator": forge::generate::GENERATOR_VERSION,
+        "files": generated.files,
+        "native_verified": generated.native_verified,
+        "native_note": generated.native_note,
+    });
     Ok(as_output(format, human, json))
 }
 

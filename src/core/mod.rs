@@ -59,6 +59,15 @@ pub enum ForgeError {
     #[error("import conflict: {reason}; source and conflicting metadata left unchanged")]
     ImportConflict { reason: String },
 
+    #[error("generation conflict: {reason}; destination left unchanged")]
+    GenerationConflict { reason: String },
+
+    #[error("generation failed: {reason}; destination was cleaned and nothing was registered")]
+    GenerationFailed { reason: String },
+
+    #[error("generation cancelled: {reason}; no project or registry entry was created")]
+    GenerationCancelled { reason: String },
+
     #[error("registry error: {reason}")]
     Registry { reason: String },
 }
@@ -84,6 +93,9 @@ impl ForgeError {
             ForgeError::ToolchainMissing { .. } => "toolchain-missing",
             ForgeError::AmbiguousImport { .. } => "ambiguous-import",
             ForgeError::ImportConflict { .. } => "import-conflict",
+            ForgeError::GenerationConflict { .. } => "generation-conflict",
+            ForgeError::GenerationFailed { .. } => "generation-failed",
+            ForgeError::GenerationCancelled { .. } => "generation-cancelled",
             ForgeError::Registry { .. } => "registry-error",
         }
     }

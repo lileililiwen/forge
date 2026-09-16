@@ -51,6 +51,14 @@ pub enum ForgeError {
     #[error("toolchain '{toolchain}' required by profile '{profile}' is unavailable locally; profile was not tested")]
     ToolchainMissing { toolchain: String, profile: String },
 
+    #[error(
+        "ambiguous import: {detail}; re-run with an explicit --profile and no files were changed"
+    )]
+    AmbiguousImport { detail: String },
+
+    #[error("import conflict: {reason}; source and conflicting metadata left unchanged")]
+    ImportConflict { reason: String },
+
     #[error("registry error: {reason}")]
     Registry { reason: String },
 }
@@ -74,6 +82,8 @@ impl ForgeError {
             ForgeError::InvalidProfile { .. } => "invalid-profile",
             ForgeError::IncompatibleProfile { .. } => "incompatible-profile",
             ForgeError::ToolchainMissing { .. } => "toolchain-missing",
+            ForgeError::AmbiguousImport { .. } => "ambiguous-import",
+            ForgeError::ImportConflict { .. } => "import-conflict",
             ForgeError::Registry { .. } => "registry-error",
         }
     }

@@ -214,6 +214,46 @@ impl Registry {
         Ok(())
     }
 
+    /// Read-only identity pre-check for import adoption: reports the same
+    /// id/path collisions as registration without mutating any row, so the
+    /// caller can validate before writing a manifest file.
+    pub fn check_identity_available(
+        &self,
+        id: &str,
+        canonical_path: &str,
+    ) -> Result<(), ForgeError> {
+        let owner_of_id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT path FROM projects WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(owner) = owner_of_id {
+            if owner != canonical_path {
+                return Err(ForgeError::IdCollision { id: id.to_string() });
+            }
+        }
+
+        let owner_of_path: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM projects WHERE path = ?1",
+                params![canonical_path],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(owner) = owner_of_path {
+            if owner != id {
+                return Err(ForgeError::PathCollision {
+                    path: canonical_path.to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     fn insert_project(
         &mut self,
         op_id: i64,

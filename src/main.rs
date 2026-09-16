@@ -6,6 +6,7 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use forge::core::ForgeError;
+use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
 use std::path::{Path, PathBuf};
@@ -54,6 +55,21 @@ enum Commands {
         #[arg(long)]
         manifest: Option<PathBuf>,
     },
+    /// Inspect an existing repository and, on acceptance, adopt it.
+    Import {
+        /// Existing repository directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Explicit profile id resolving ambiguous detection.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Write the minimal manifest (when missing) and register.
+        #[arg(long)]
+        accept: bool,
+        /// Explicit project id overriding the directory-name default.
+        #[arg(long)]
+        id: Option<String>,
+    },
     /// Inspect versioned MVP profile descriptors and compatibility.
     Profile {
         #[command(subcommand)]
@@ -95,6 +111,19 @@ fn main() -> ExitCode {
         Commands::Register { path, manifest } => {
             cmd_register(&db_path, path, manifest.as_deref(), cli.format)
         }
+        Commands::Import {
+            path,
+            profile,
+            accept,
+            id,
+        } => cmd_import(
+            &db_path,
+            path,
+            profile.as_deref(),
+            *accept,
+            id.as_deref(),
+            cli.format,
+        ),
         Commands::Profile { command } => cmd_profile(command, cli.format),
     };
 
@@ -177,6 +206,27 @@ fn cmd_register(
     let p = registry.register(path, manifest)?;
     let human = format!("registered {} ({})", p.id, p.path);
     let json = serde_json::json!({"registered": p});
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_import(
+    db_path: &Path,
+    path: &Path,
+    profile: Option<&str>,
+    accept: bool,
+    id: Option<&str>,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    if accept {
+        let mut registry = open_registry(db_path)?;
+        let record = adopt_import(&mut registry, path, profile, id)?;
+        let human = format!("imported {} ({})", record.id, record.path);
+        let json = serde_json::json!({"imported": record});
+        return Ok(as_output(format, human, json));
+    }
+    let proposal = inspect_import(path, profile)?;
+    let human = render_proposal_human(&proposal);
+    let json = serde_json::json!({"proposal": proposal});
     Ok(as_output(format, human, json))
 }
 

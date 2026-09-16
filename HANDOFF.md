@@ -1,4 +1,4 @@
-current_spec: profile-registry
+current_spec: project-import
 
 # Forge handoff
 
@@ -17,19 +17,57 @@ open-time reconciliation), `src/main.rs` (thin CLI: `list`, `inspect`,
 [ADR 0001](docs/adr/0001-foundation-toolchain.md); build commands recorded
 in [README.md](README.md).
 
+`profile-registry` implemented, verified and archived on 2026-09-16 as
+`2026-09-16-profile-registry`; canonical specs promoted to
+[openspec/specs/profile-registry/spec.md](openspec/specs/profile-registry/spec.md).
+New in this cycle: `src/profile` (five versioned MVP descriptors with
+capabilities, packages, layout, conventions, build/test commands,
+deployment defaults and quality policies; `list`/`inspect`/`resolve`/`preflight`;
+descriptor validation naming the missing field), Core errors
+`unknown-profile`/`invalid-profile`/`incompatible-profile`/`toolchain-missing`,
+CLI `forge profile list|inspect|resolve|preflight` (human/JSON, stable
+`error[code]` diagnostics), and `register` gating on profile resolution
+plus feature compatibility before any row mutation.
+
 The machine-readable line above is the single current OpenSpec pointer. It
 selects the next eligible future implementation package; it does not claim
 work has started.
 
 ## Next change
 
-Implement [profile-registry](openspec/changes/profile-registry/proposal.md)
-only when implementation is requested. Its prerequisite
-(`core-manifest-registry`) now has implementation evidence, not merely a
-proposal. Then follow the roadmap prerequisites. Later changes remain
-planning-only with zero implementation tasks completed.
+Implement [project-import](openspec/changes/project-import/proposal.md)
+only when implementation is requested. Its prerequisites
+(`core-manifest-registry`, `profile-registry`) now have implementation
+evidence, not merely proposals. Then follow the roadmap prerequisites.
+Later changes remain planning-only with zero implementation tasks completed.
 
-## Verification evidence
+## Verification evidence (profile-registry, 2026-09-16)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 35 passed, 0 failed (21 unit incl. 8 new profile
+  descriptor/resolver/preflight tests, 5 CLI contract, 2 cross-surface
+  regression, 7 new profile contract incl. list/inspect/resolve/preflight,
+  flutter+postgres rejection, register gating and repeatability).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge profile list` shows all five MVP IDs at 0.1.0;
+  `profile inspect rust-web` JSON carries adapter/build/test metadata;
+  `profile resolve flutter-app --feature postgres` exits 1 with
+  `error[incompatible-profile]` suggesting a backend boundary; empty-PATH
+  `profile preflight rust-web` exits 1 with `error[toolchain-missing]`
+  without claiming the profile was tested.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate profile-registry --strict --no-interactive`: valid
+  pre-archive; `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (12 files, implementation
+  + tests + archive + promoted specs only).
+- Committed as `9a3b263`; no push performed.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Profile metadata alone does not establish working templates; native
+  toolchain generation validation is deferred to
+  `deterministic-project-generation`.
+
+## Prior verification evidence (core-manifest-registry)
 
 - `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
 - `cargo test`: 20 passed, 0 failed (13 unit, 5 CLI contract, 2

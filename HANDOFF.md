@@ -1,8 +1,26 @@
-current_spec: feature-lifecycle
+current_spec: project-upgrade-orchestration
 
 # Forge handoff
 
 ## Current state
+
+`feature-lifecycle` implemented, verified and archived on 2026-09-16
+as `2026-09-16-feature-lifecycle`; canonical specs promoted to
+[openspec/specs/feature-lifecycle/spec.md](openspec/specs/feature-lifecycle/spec.md).
+New in this cycle: `src/feature` (18-descriptor versioned catalog at
+tested `0.1.0` with compatibility derived from the MVP profile
+descriptors, dependencies, conflicts, install/upgrade strategies,
+validation policies, docs and tests; dependency-ordered deterministic
+plans with exact versions; add/remove/upgrade through manifest-only
+edits preserving all other sections plus deterministic `.forge/features`
+ownership receipts; reverse-dependency and user-edit preflight blocks
+with full preservation; atomic writes with restore-on-validation-failure;
+registry refresh so source/manifest/registry agree), Core errors
+`unknown-feature`/`incompatible-feature`/`feature-ownership-conflict`,
+CLI `forge feature list|inspect|resolve|add|remove|upgrade`
+(human/JSON, stable `error[code]` diagnostics), and `forge new`
+dependency-closure selection (`--feature admin` records `auth`+`admin`)
+while preserving the existing `incompatible-profile` contract.
 
 `doctor-maturity-assessment` implemented, verified and archived on 2026-09-16
 as `2026-09-16-doctor-maturity-assessment`; canonical specs promoted to
@@ -65,11 +83,42 @@ work has started.
 
 ## Next change
 
-Implement [feature-lifecycle](openspec/changes/feature-lifecycle/proposal.md)
+Implement [project-upgrade-orchestration](openspec/changes/project-upgrade-orchestration/proposal.md)
 only when implementation is requested. Its prerequisite
-(`doctor-maturity-assessment`) now has implementation
+(`feature-lifecycle`) now has implementation
 evidence, not merely proposals. Then follow the roadmap prerequisites.
 Later changes remain planning-only with zero implementation tasks completed.
+
+## Verification evidence (feature-lifecycle, 2026-09-16)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 115 passed, 0 failed (61 unit incl. 12 new feature
+  catalog/resolver/add/remove/upgrade/ownership/section-preservation
+  tests, 5 CLI contract, 2 cross-surface regression, 8 doctor contract,
+  10 new feature contract incl. catalog discovery, dep-ordered plans,
+  conflict/missing/unsupported failures before edits, add-then-upgrade
+  agreement, reverse-dep and ownership blocks with preservation,
+  exact-reinstall no-op, closure selection in `new`, repeatability,
+  12 generate contract, 10 import contract, 7 profile contract).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --feature admin` records
+  auth+admin 0.1.0; `feature resolve rust-web --feature billing` plans
+  auth,billing in order; `feature add billing` updates manifest+receipt+
+  registry; `feature remove auth` exits 1 with
+  `error[incompatible-feature]` naming admin,billing dependents and
+  preserving files; `forge doctor` still PASSes manifest/profile/
+  features-compatible on the feature-modified project.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate feature-lifecycle --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (12 files, implementation
+  + tests + archive + promoted specs only).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Package installation stays per-service native resolution (scaffolds are
+  dependency-free by design); declared policy validators are reported
+  per plan while DriftWatch execution evidence stays deferred to v0.3
+  (`quality-policy-integration` and later).
 
 ## Verification evidence (doctor-maturity-assessment, 2026-09-16)
 
@@ -210,7 +259,7 @@ Later changes remain planning-only with zero implementation tasks completed.
 
 1. Run `node scripts/check-openspec-change-names.mjs` before selection; failure blocks status/instructions and implementation.
 2. Run `openspec list`, reconcile roadmap dependencies, and update the single pointer before work.
-3. Run `openspec status --change feature-lifecycle` and `openspec instructions apply --change feature-lifecycle`; read all selected artifacts and applicable local rules.
+3. Run `openspec status --change project-upgrade-orchestration` and `openspec instructions apply --change project-upgrade-orchestration`; read all selected artifacts and applicable local rules.
 4. Follow BFS analysis, structural pass, DFS requirement implementation, then BFS regression/completeness. Check tasks only against evidence.
 5. Run the actual local build/test/integration commands and applicable Gate before archive; record exact failures and next actions. Gate FAIL or unresolved REVIEW_REQUIRED blocks completion when a Gate is configured.
 6. Run the name checker and `openspec validate --all --strict --no-interactive`; review diffs and original impact surfaces.

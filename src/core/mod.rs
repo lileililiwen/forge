@@ -68,6 +68,15 @@ pub enum ForgeError {
     #[error("generation cancelled: {reason}; no project or registry entry was created")]
     GenerationCancelled { reason: String },
 
+    #[error("unknown feature: '{id}' matches no catalog feature descriptor")]
+    UnknownFeature { id: String },
+
+    #[error("incompatible feature: {reason}")]
+    IncompatibleFeature { reason: String },
+
+    #[error("feature ownership conflict: {reason}")]
+    FeatureOwnershipConflict { reason: String },
+
     #[error("registry error: {reason}")]
     Registry { reason: String },
 }
@@ -96,6 +105,9 @@ impl ForgeError {
             ForgeError::GenerationConflict { .. } => "generation-conflict",
             ForgeError::GenerationFailed { .. } => "generation-failed",
             ForgeError::GenerationCancelled { .. } => "generation-cancelled",
+            ForgeError::UnknownFeature { .. } => "unknown-feature",
+            ForgeError::IncompatibleFeature { .. } => "incompatible-feature",
+            ForgeError::FeatureOwnershipConflict { .. } => "feature-ownership-conflict",
             ForgeError::Registry { .. } => "registry-error",
         }
     }

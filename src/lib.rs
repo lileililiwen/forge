@@ -6,6 +6,7 @@
 
 pub mod core;
 pub mod doctor;
+pub mod feature;
 pub mod generate;
 pub mod import;
 pub mod profile;

@@ -7,6 +7,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use forge::core::ForgeError;
 use forge::doctor::{parse_target_level, render_report_human, run_doctor, RegistryObservation};
+use forge::feature::{
+    add_feature, feature_catalog, inspect_feature, remove_feature, render_outcome_human,
+    render_plan_human, resolve_plan, upgrade_feature,
+};
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
@@ -106,6 +110,11 @@ enum Commands {
         #[arg(long)]
         target: Option<String>,
     },
+    /// Resolve and manage versioned features.
+    Feature {
+        #[command(subcommand)]
+        command: FeatureCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -129,6 +138,55 @@ enum ProfileCommands {
     Preflight {
         /// Profile id (e.g. `rust-web`).
         id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum FeatureCommands {
+    /// List all catalog features with tested versions and strategies.
+    List,
+    /// Inspect one catalog feature descriptor.
+    Inspect {
+        /// Feature id (e.g. `auth`).
+        id: String,
+    },
+    /// Resolve requested capabilities into a deterministic install plan without changing files.
+    Resolve {
+        /// Profile id (e.g. `rust-web`).
+        profile: String,
+        /// Requested capability (repeatable, e.g. `--feature admin`).
+        #[arg(long = "feature")]
+        features: Vec<String>,
+    },
+    /// Add a feature (plus missing dependencies) to a project.
+    Add {
+        /// Feature id (e.g. `auth`).
+        feature: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Explicit version (default: tested catalog version).
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Remove a feature from a project.
+    Remove {
+        /// Feature id (e.g. `auth`).
+        feature: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Upgrade a feature to the tested catalog version.
+    Upgrade {
+        /// Feature id (e.g. `auth`).
+        feature: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Explicit version (default: tested catalog version).
+        #[arg(long)]
+        version: Option<String>,
     },
 }
 
@@ -176,6 +234,7 @@ fn main() -> ExitCode {
         Commands::Doctor { path, target } => {
             cmd_doctor(&db_path, path, target.as_deref(), cli.format)
         }
+        Commands::Feature { command } => cmd_feature(&db_path, command, cli.format),
     };
 
     match result {
@@ -414,6 +473,113 @@ fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<Output, Forg
             Ok(as_output(format, human, json))
         }
     }
+}
+
+fn cmd_feature(
+    db_path: &Path,
+    command: &FeatureCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        FeatureCommands::List => {
+            let features = feature_catalog();
+            let mut human = format!(
+                "{:<18} {:<10} {:<24} {}",
+                "Feature", "Version", "Strategy", "Profiles"
+            );
+            for f in &features {
+                human.push_str(&format!(
+                    "\n{:<18} {:<10} {:<24} {}",
+                    f.id,
+                    f.version,
+                    f.install_strategy,
+                    f.compatible_profiles.join(",")
+                ));
+            }
+            let json = serde_json::json!({"features": features});
+            Ok(as_output(format, human, json))
+        }
+        FeatureCommands::Inspect { id } => {
+            let f = inspect_feature(id)?;
+            let human = render_feature_human(&f);
+            let json = serde_json::to_value(&f).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+        FeatureCommands::Resolve { profile, features } => {
+            let plan = resolve_plan(profile, features)?;
+            let human = render_plan_human(&plan);
+            let json = serde_json::json!({"plan": plan});
+            Ok(as_output(format, human, json))
+        }
+        FeatureCommands::Add {
+            target,
+            feature,
+            version,
+        } => {
+            let mut registry = open_registry(db_path)?;
+            let outcome = add_feature(&mut registry, target, feature, version.as_deref())?;
+            let human = render_outcome_human(&outcome);
+            let json = serde_json::json!({"feature": outcome});
+            Ok(as_output(format, human, json))
+        }
+        FeatureCommands::Remove { target, feature } => {
+            let mut registry = open_registry(db_path)?;
+            let outcome = remove_feature(&mut registry, target, feature)?;
+            let human = render_outcome_human(&outcome);
+            let json = serde_json::json!({"feature": outcome});
+            Ok(as_output(format, human, json))
+        }
+        FeatureCommands::Upgrade {
+            target,
+            feature,
+            version,
+        } => {
+            let mut registry = open_registry(db_path)?;
+            let outcome = upgrade_feature(&mut registry, target, feature, version.as_deref())?;
+            let human = render_outcome_human(&outcome);
+            let json = serde_json::json!({"feature": outcome});
+            Ok(as_output(format, human, json))
+        }
+    }
+}
+
+fn render_feature_human(f: &forge::feature::FeatureDescriptor) -> String {
+    [
+        format!("id: {}", f.id),
+        format!("version: {}", f.version),
+        format!("profiles: {}", f.compatible_profiles.join(", ")),
+        format!(
+            "depends: {}",
+            if f.depends.is_empty() {
+                "none".to_string()
+            } else {
+                f.depends.join(", ")
+            }
+        ),
+        format!(
+            "conflicts: {}",
+            if f.conflicts.is_empty() {
+                "none".to_string()
+            } else {
+                f.conflicts.join(", ")
+            }
+        ),
+        format!("install: {}", f.install_strategy),
+        format!("upgrade: {}", f.upgrade_strategy),
+        format!(
+            "validation: {}",
+            if f.validation.is_empty() {
+                "manifest re-parse and graph re-resolution".to_string()
+            } else {
+                f.validation.join(", ")
+            }
+        ),
+        format!("docs: {}", f.documentation),
+        format!("tests: {}", f.tests),
+    ]
+    .join("\n")
 }
 
 fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {

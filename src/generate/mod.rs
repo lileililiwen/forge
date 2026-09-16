@@ -97,11 +97,27 @@ fn derive_id(dest: &Path, id_override: Option<&str>) -> Result<String, ForgeErro
     }
 }
 
-fn check_request(profile: &str, id: &str, features: &[String]) -> Result<(), ForgeError> {
+fn check_request(profile: &str, id: &str, features: &[String]) -> Result<Vec<String>, ForgeError> {
     inspect_profile(profile)?;
+    // Capability membership first: preserves the `incompatible-profile`
+    // contract (including the flutter/server-side boundary hint) before
+    // dependency closure runs.
     resolve_profile(profile, features)?;
+    // Dependency closure: requested features pull their tested dependencies
+    // so new-project selection never ships a broken graph. Unknown catalog
+    // ids are reported here; capability mismatches already failed above.
+    for feature in features {
+        if crate::feature::inspect_feature(feature).is_err() {
+            return Err(ForgeError::IncompatibleProfile {
+                reason: format!(
+                    "profile '{profile}' does not support capability '{feature}'; no files were changed"
+                ),
+            });
+        }
+    }
+    let closed = crate::feature::resolve_feature_closure(profile, features)?;
     validate_project_id(id).map_err(|reason| ForgeError::GenerationFailed { reason })?;
-    Ok(())
+    Ok(closed)
 }
 
 /// Normalize explicit CLI flags into a [`CreationRequest`].
@@ -124,12 +140,12 @@ pub fn normalize_explicit(
         .map(str::to_string)
         .filter(|n| !n.trim().is_empty())
         .unwrap_or_else(|| id.clone());
-    check_request(profile, &id, &sorted_features)?;
+    let closed_features = check_request(profile, &id, &sorted_features)?;
     Ok(CreationRequest {
         profile: profile.to_string(),
         id,
         name,
-        features: sorted_features,
+        features: closed_features,
         destination: dest.to_path_buf(),
     })
 }
@@ -237,12 +253,12 @@ pub fn parse_interactive(
         out.dedup();
         out
     };
-    check_request(&profile, &id, &features)?;
+    let closed_features = check_request(&profile, &id, &features)?;
     Ok(CreationRequest {
         profile,
         id,
         name,
-        features,
+        features: closed_features,
         destination: dest.to_path_buf(),
     })
 }
@@ -503,7 +519,7 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
 /// Rendered file bytes for a request, sorted by path. Used to prove
 /// flag/interactive equivalence and repeatability.
 pub fn render_files(request: &CreationRequest) -> Result<Vec<(String, String)>, ForgeError> {
-    check_request(&request.profile, &request.id, &request.features)?;
+    let _ = check_request(&request.profile, &request.id, &request.features)?;
     template_files(request)
 }
 
@@ -581,7 +597,7 @@ pub fn generate(
     registry: &mut Registry,
     request: &CreationRequest,
 ) -> Result<GeneratedProject, ForgeError> {
-    check_request(&request.profile, &request.id, &request.features)?;
+    let _ = check_request(&request.profile, &request.id, &request.features)?;
     let files = template_files(request)?;
     check_files_inside(&files)?;
 

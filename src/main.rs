@@ -6,6 +6,7 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use forge::core::ForgeError;
+use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -53,6 +54,35 @@ enum Commands {
         #[arg(long)]
         manifest: Option<PathBuf>,
     },
+    /// Inspect versioned MVP profile descriptors and compatibility.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ProfileCommands {
+    /// List all MVP profiles with descriptor versions.
+    List,
+    /// Inspect one MVP profile descriptor.
+    Inspect {
+        /// Profile id (e.g. `rust-web`).
+        id: String,
+    },
+    /// Resolve a profile plus requested capabilities without changing files.
+    Resolve {
+        /// Profile id (e.g. `flutter-app`).
+        id: String,
+        /// Requested capability (repeatable, e.g. `--feature postgres`).
+        #[arg(long = "feature")]
+        features: Vec<String>,
+    },
+    /// Preflight the profile's required toolchain without claiming it was tested.
+    Preflight {
+        /// Profile id (e.g. `rust-web`).
+        id: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -65,6 +95,7 @@ fn main() -> ExitCode {
         Commands::Register { path, manifest } => {
             cmd_register(&db_path, path, manifest.as_deref(), cli.format)
         }
+        Commands::Profile { command } => cmd_profile(command, cli.format),
     };
 
     match result {
@@ -147,6 +178,94 @@ fn cmd_register(
     let human = format!("registered {} ({})", p.id, p.path);
     let json = serde_json::json!({"registered": p});
     Ok(as_output(format, human, json))
+}
+
+fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        ProfileCommands::List => {
+            let profiles = list_profiles();
+            let mut human = format!(
+                "{:<16} {:<10} {:<18} {}",
+                "Profile", "Version", "Adapter", "Language"
+            );
+            for p in &profiles {
+                human.push_str(&format!(
+                    "\n{:<16} {:<10} {:<18} {}",
+                    p.id, p.version, p.adapter, p.language
+                ));
+            }
+            let json = serde_json::json!({"profiles": profiles});
+            Ok(as_output(format, human, json))
+        }
+        ProfileCommands::Inspect { id } => {
+            let p = inspect_profile(id)?;
+            let human = render_profile_human(&p);
+            let json = serde_json::to_value(&p).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+        ProfileCommands::Resolve { id, features } => {
+            let resolved = resolve_profile(id, features)?;
+            let human = format!(
+                "resolved {}@{} via {} (language {}, toolchain {})",
+                resolved.id,
+                resolved.version,
+                resolved.adapter,
+                resolved.language,
+                resolved.toolchain
+            );
+            let json = serde_json::json!({"resolved": resolved});
+            Ok(as_output(format, human, json))
+        }
+        ProfileCommands::Preflight { id } => {
+            let report = preflight_profile(id, None)?;
+            let human = format!(
+                "preflight ok: toolchain '{}' available for profile '{}' (version {})",
+                report.toolchain, report.id, report.version
+            );
+            let json = serde_json::json!({"preflight": report});
+            Ok(as_output(format, human, json))
+        }
+    }
+}
+
+fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {
+    vec![
+        format!("id: {}", p.id),
+        format!("version: {}", p.version),
+        format!("adapter: {}", p.adapter),
+        format!("language: {}", p.language),
+        format!(
+            "toolchain: {}{}",
+            p.toolchain,
+            p.toolchain_version
+                .as_deref()
+                .map(|v| format!("@{v}"))
+                .unwrap_or_default()
+        ),
+        format!("capabilities: {}", p.capabilities.join(", ")),
+        format!("packages: {}", p.packages.join(", ")),
+        format!("layout: {}", p.layout.join(", ")),
+        format!("conventions: {}", p.conventions.join(", ")),
+        format!("build: {}", p.build_command),
+        format!("test: {}", p.test_command),
+        format!(
+            "deployment: {}",
+            match (&p.deployment_type, &p.deployment_target) {
+                (Some(t), Some(target)) => format!("{t} -> {target}"),
+                (Some(t), None) => t.clone(),
+                (None, Some(target)) => target.clone(),
+                (None, None) => "unknown".to_string(),
+            }
+        ),
+        format!("quality: {}", p.quality_policies.join(", ")),
+        format!(
+            "requires_database: {}",
+            if p.requires_database { "yes" } else { "no" }
+        ),
+    ]
+    .join("\n")
 }
 
 fn render_record_human(p: &ProjectRecord) -> String {

@@ -5,4 +5,5 @@
 //! without reinterpreting them.
 
 pub mod core;
+pub mod profile;
 pub mod registry;

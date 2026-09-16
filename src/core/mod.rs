@@ -39,6 +39,18 @@ pub enum ForgeError {
     #[error("project path unavailable: '{path}'")]
     PathUnavailable { path: String },
 
+    #[error("unknown profile: '{id}' matches no MVP profile descriptor")]
+    UnknownProfile { id: String },
+
+    #[error("invalid profile descriptor: {reason}")]
+    InvalidProfile { reason: String },
+
+    #[error("incompatible profile: {reason}")]
+    IncompatibleProfile { reason: String },
+
+    #[error("toolchain '{toolchain}' required by profile '{profile}' is unavailable locally; profile was not tested")]
+    ToolchainMissing { toolchain: String, profile: String },
+
     #[error("registry error: {reason}")]
     Registry { reason: String },
 }
@@ -58,6 +70,10 @@ impl ForgeError {
             ForgeError::PathCollision { .. } => "path-collision",
             ForgeError::UnknownProject { .. } => "unknown-project",
             ForgeError::PathUnavailable { .. } => "path-unavailable",
+            ForgeError::UnknownProfile { .. } => "unknown-profile",
+            ForgeError::InvalidProfile { .. } => "invalid-profile",
+            ForgeError::IncompatibleProfile { .. } => "incompatible-profile",
+            ForgeError::ToolchainMissing { .. } => "toolchain-missing",
             ForgeError::Registry { .. } => "registry-error",
         }
     }

@@ -222,6 +222,13 @@ impl Registry {
         git_remote: Option<String>,
         last_commit: Option<String>,
     ) -> Result<ProjectRecord, ForgeError> {
+        // Profile compatibility is validated before any row mutation: an
+        // unknown profile or an unsupported capability fails registration
+        // with the original record (if any) left unchanged.
+        let descriptor = crate::profile::inspect_profile(&manifest.project.profile)?;
+        let requested: Vec<String> = manifest.features.keys().cloned().collect();
+        crate::profile::resolve_profile(&descriptor.id, &requested)?;
+
         let id = manifest.project.id.clone();
 
         let owner_of_id: Option<String> = self

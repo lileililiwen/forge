@@ -1,8 +1,99 @@
-current_spec: semantic-component-registry
+current_spec: semantic-ui-patterns
 
 # Forge handoff
 
 ## Current state
+
+`semantic-component-registry` implemented, verified and archived on 2026-09-17
+as `2026-09-17-semantic-component-registry`; canonical specs promoted to
+[openspec/specs/semantic-component-registry/spec.md](openspec/specs/semantic-component-registry/spec.md).
+New in this cycle: `src/component` (versioned
+`ComponentDescriptor`/`ComponentContract`/`ComponentPort`/
+`ComponentQuality` (`experimental`/`verified`/`certified`/`deprecated`)/
+`ComponentEvidence`/`ComponentRequest`/`ComponentPlan`/`ComponentStep`/
+`ComponentRejection`/`ComponentEvidenceSummary`/
+`ComponentResolveOutcome`/`ComponentQualifyRequest`/
+`ComponentQualifyEvidence`/`ComponentQualifyOutcome` contract v0.1.0;
+`validate_descriptor` rejects programming primitives (`if`,
+`loop`, `try-catch`, `string-concat`, `addition`, etc) and
+incomplete shells (no semantic purpose, no inputs, no
+outputs, no tested profile mapping, no install strategy, no
+tests, no documentation, unnamed or undescribed ports, or
+a known-issues list that exceeds `MAX_KNOWN_ISSUES = 16`)
+with a typed `component-invalid` error and the missing
+criterion named; the catalog ships fifteen tested entries
+that map to the brief's §11 surface (`paginated-query`,
+`idempotency-guard`, `validated-form`, `audit-action`,
+`soft-delete`, `retry-external-call`, `require-permission`,
+`api-mutation`, `loading-state`, `error-boundary`,
+`confirm-dialog`, `empty-state`, `toast`, `file-picker`,
+`webhook-receiver` (deprecated)) and each entry declares
+its `depends_on` (linked to features), its
+`profiles` (the supported stack implementations), a
+deterministic install strategy, validators, documentation
+and tests, plus a quality level and the underlying
+`ComponentEvidence` (usage count, test coverage,
+`last_verified`, `known_issues`, `security_review`); the
+`paginated-query` and `idempotency-guard` candidates ship
+for `rust-web` and `python-service` so two stacks
+implement the same semantic capability while preserving
+their own implementation and exposing the shared contract
+(R1 boundary scenario); `validate_request` refuses
+empty profile, empty id list, duplicate ids and
+programming primitives before any catalog lookup with a
+typed `component-invalid` error; `resolve_components` is
+deterministic from the request, the catalog and the
+profile, prefers the compatible `Certified` candidate
+when multiple candidates satisfy the same id and reports
+the planner's evidence summary so the operator can audit
+why a candidate was preferred (R2 success scenario); a
+profile-incompatible request surfaces a typed
+`component-invalid` rejection listing the tested profiles
+(R1 boundary scenario); an unknown id surfaces a typed
+`component-invalid` rejection that names the missing
+catalog entry (R1 failure scenario); a request whose only
+compatible candidate is `Deprecated` is refused with a
+typed `component-quality-conflict` rejection so the
+planner never silently selects a deprecated descriptor
+(R2 boundary scenario); the resolver is the
+reviewable plan owner — it does not execute a side
+effect, and the `ComponentRejection.code` field carries
+the typed error code (`component-invalid` /
+`component-quality-conflict`) so partial runs are
+observable on stdout before the human output renders
+the summary; `qualify_component` gates promotion to
+`Certified` on `security_review == true`, `test_coverage
+>= 0.85`, a fresh `last_verified` (within 180 days) and a
+`known_issues` list at or under `MAX_KNOWN_ISSUES`; a
+refused promotion preserves the prior quality level and
+writes no receipt so the catalog's prior state stays
+intact (R2 failure scenario); `record_qualification`
+writes the accepted promotion to
+`.forge/components/<id>/qualify.json` (parent directory
+created on demand) and skips the write on refusal or
+when the target quality is `Deprecated`; CLI `forge
+component list|inspect|resolve|qualify` (human/JSON,
+`resolve` accepts `--profile <p>` plus repeatable
+`--component <id>` and renders the per-step evidence,
+`qualify` accepts `--to <quality> --reason <r>` plus
+optional `--coverage`, `--last-verified`, repeated
+`--known-issue`, `--security-review` and `--path` so a
+test fixture can target a temp project directory
+without sharing the current working directory);
+component operations journaled in the registry's
+`operations` table under the `component` kind with a
+`done` / `rejected` (resolve) or `done` / `blocked`
+(qualify) verdict and a synthetic `__component__`
+project id that keeps the operations table
+project-agnostic without inventing a user-visible
+project; and the spec contract from `feature-lifecycle`
+and `project-upgrade-orchestration` still holds after
+a component resolve or a qualify run on the same
+project (the registry journal stays independent of the
+component surface, the doctor verdict is unchanged,
+feature add/remove/upgrade and the ownership receipt
+contract still hold, and a credential-shaped substring
+in evidence is never constructed by the resolver).
 
 `adapter-deployment` implemented, verified and archived on 2026-09-17
 as `2026-09-17-adapter-deployment`; canonical specs promoted to
@@ -469,20 +560,166 @@ doubling), Core errors `ambiguous-import`/`import-conflict`, CLI
 stable `error[code]` diagnostics), and `Registry::check_identity_available`
 for mutation-free collision checks.
 
+## Verification evidence (semantic-component-registry, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  23 new component unit tests for catalog id stability and
+  shape, programming-primitive rejection, descriptor
+  validation (missing inputs / outputs / profiles / install
+  strategy / tests / documentation / port name or
+  description, oversized known-issues), the typed
+  `ComponentRejection` codes (component-invalid for
+  unknown ids, profile-incompatibility, primitive ids;
+  component-quality-conflict for deprecated-only), quality
+  ranking (certified preferred over experimental/verified,
+  deprecated excluded from the ranking), the `qualify`
+  evidence gate (security review required, test coverage
+  >= 0.85, fresh `last_verified` within 180 days),
+  receipt-write idempotence (no receipt on refusal, no
+  receipt for `Deprecated` target, no receipt for
+  already-at-target), and the human renderers
+  (`render_plan_human` / `render_outcome_human` /
+  `render_qualify_human`); 15 new component CLI contract
+  tests for the help output, the catalog list in human
+  and JSON, the `inspect` contract (typed inputs, typed
+  outputs, evidence, certified quality), `resolve` with
+  certified candidates for `rust-web` and the typed
+  `component-invalid` rejection for `flutter-app` /
+  `nextjs-web`, the typed `component-quality-conflict`
+  rejection for a deprecated-only request, the typed
+  `error[component-invalid]` exit-1 refusal for a
+  programming primitive id, the UI-component-on-server
+  and server-component-on-UI profile boundaries, the
+  `qualify` refusal without a security review (no
+  receipt written, prior quality preserved), the
+  `qualify` refusal on stale verification, the
+  `qualify` acceptance with complete evidence
+  (receipt written with the correct path and the
+  certified target), the `qualify` refusal on an
+  unknown target quality, and the no-side-effect
+  contract on refusal (no `.forge` directory created);
+  5 new component cross-surface tests for the registry
+  `component` journal row keeping the operations table
+  independent of the component surface, the doctor
+  verdict staying unchanged after a successful resolve,
+  the `forge feature add` workflow remaining
+  compatible after a `component resolve` on the same
+  project, the `paginated-query` per-stack boundary
+  (rust-web / python-service installable, nextjs-web /
+  flutter-app refused with `component-invalid`), and
+  the typed rejection codes rendering on stdout so a
+  partial run is observable; plus the unchanged 25 test
+  binaries (251 lib tests, 15 component contract, 5
+  component cross-surface, 10 release contract, 4
+  release cross-surface, 12 documentation contract, 4
+  documentation cross-surface, 12 distribution
+  contract, 4 distribution cross-surface, 4
+  agent-runtime-workflows cross-surface, 8 agent
+  contract, 8 gitops contract, 13 mcp contract, 9 mcp
+  cross-surface, 8 doctor contract, 10 feature
+  contract, 12 generate contract, 10 import contract,
+  9 profile contract, 7 quality policy contract, 12
+  upgrade contract, 12 spec contract, 5 CLI contract,
+  4 cross-surface regression).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id
+  smoke-comp` then `forge component list` shows the
+  catalog with the 15 ids in stable order; `forge
+  component inspect paginated-query` renders the
+  contract (typed source/cursor inputs, typed page
+  output), the evidence (usage 11, coverage 0.92,
+  security_review true, last_verified 2024-08-30) and
+  the profile set (`rust-web, python-service`); `forge
+  component resolve --profile rust-web --component
+  paginated-query --component idempotency-guard`
+  returns the certified plan with the per-step evidence
+  summary; `forge component resolve --profile rust-web
+  --component webhook-receiver` returns the typed
+  `component-quality-conflict` rejection so the planner
+  does not silently select the deprecated candidate;
+  `forge component resolve --profile rust-web --component
+  if` exits 1 with
+  `error[component-invalid]: component invalid: component
+  'if' is a programming primitive; the registry refuses
+  to model language constructs`; `forge component resolve
+  --profile flutter-app --component paginated-query`
+  reports the typed `component-invalid` rejection naming
+  the tested profiles; `forge component resolve --profile
+  nextjs-web --component paginated-query` reports the
+  same boundary outcome; `forge component resolve
+  --profile rust-web --component nosuch` reports the
+  typed unknown-id rejection; `forge component qualify
+  toast --to certified --reason "production ready"
+  --coverage 0.95 --path .` writes
+  `.forge/components/toast/qualify.json` with
+  `target_quality: certified` and `security_review:
+  true`; `forge component qualify toast --to certified
+  --reason "no security review" --coverage 0.95
+  --security-review false --path .` exits 0 with
+  `promoted: false`, `prior_quality: verified`, and
+  `note: promotion refused: missing security review;
+  component 'toast' remains at quality 'verified'`,
+  writing no receipt; `forge component qualify toast
+  --to certified --reason "stale" --coverage 0.95
+  --last-verified 2000-01-01T00:00:00Z` exits 0 with
+  `note: promotion refused: last_verified ... is older
+  than the certified freshness window of 180 days`,
+  writing no receipt; and `forge doctor <proj>` before
+  and after the resolve run produces the byte-identical
+  verdict so the existing doctor contract still holds.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate semantic-component-registry --strict
+  --no-interactive`: valid pre-archive; `openspec archive
+  semantic-component-registry --yes`: archived as
+  `2026-09-17-semantic-component-registry` with the
+  canonical `spec/semantic-component-registry`
+  promoted; `openspec validate --all --strict
+  --no-interactive`: 24 passed, 0 failed (post-archive,
+  includes the promoted
+  `spec/semantic-component-registry`).
+- `git diff --check`: PASS; staged set reviewed (3
+  files modified: `src/core/mod.rs` for the new
+  `ComponentInvalid` / `ComponentQualityConflict`
+  typed errors, `src/lib.rs` to register the new
+  module, `src/main.rs` for the `forge component`
+  subcommand, the `ComponentCommands` enum and the
+  `cmd_component` helpers; 2 files added:
+  `src/component/mod.rs` with 23 unit tests,
+  `tests/component_contract.rs` with 15 contract
+  tests, `tests/component_cross_surface.rs` with 5
+  cross-surface regression tests; plus the promoted
+  spec and the change archive — 7 files; archive
+  under
+  `openspec/changes/archive/2026-09-17-semantic-component-registry/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  certified/verified/experimental descriptor stream
+  is not present in the local sandbox, so the
+  contract is validated through the built-in
+  catalog. The redaction rule set is the same
+  `policy::redact_credentials` consumed by the
+  policy / release / distribution / docs adapters,
+  which is itself verified through the existing
+  quality policy contract tests. A real catalog
+  provider round trip is a downstream integration
+  step and is not claimed here.
+
 The machine-readable line above is the single current OpenSpec pointer. It
 selects the next eligible future implementation package; it does not claim
 work has started.
 
 ## Next change
 
-Implement [semantic-component-registry](openspec/changes/semantic-component-registry/proposal.md)
+Implement [semantic-ui-patterns](openspec/changes/semantic-ui-patterns/proposal.md)
 only when implementation is requested. Its prerequisites
-(`feature-lifecycle`, `project-upgrade-orchestration`) are
+(`semantic-component-registry`, `extended-profile-catalog`) are
 implemented and verified. Then follow the roadmap
 prerequisites. Later changes remain planning-only with
 zero implementation tasks completed.
 
-## Verification evidence (adapter-deployment, 2026-09-17)
+## Verification evidence (semantic-component-registry, 2026-09-17)
 
 - `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
 - `cargo test`: full suite (lib + integration tests) PASS;

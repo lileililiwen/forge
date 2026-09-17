@@ -33,6 +33,8 @@ validated before any write so a refusal leaves the project untouched,
 and existing doctor/upgrade/feature/import/generate/quality-policy
 contracts still hold after the new commands run against a generated
 project.
+
+`quality-policy-integration` implemented, verified and archived on 2026-09-17
 as `2026-09-17-quality-policy-integration`; canonical specs promoted to
 [openspec/specs/quality-policy-integration/spec.md](openspec/specs/quality-policy-integration/spec.md).
 New in this cycle: `src/policy` (versioned `DriftWatchConfig`/default

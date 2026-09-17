@@ -1665,7 +1665,7 @@ mod tests {
         write(
             tmp.path(),
             "forge.yaml",
-            "schema: 1\nproject:\n  id: odd-proj\n  name: odd-proj\n  profile: react-web\n",
+            "schema: 1\nproject:\n  id: odd-proj\n  name: odd-proj\n  profile: not-a-real-profile\n",
         );
         let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
         let known = report
@@ -1680,6 +1680,38 @@ mod tests {
             .find(|f| f.id == "features-compatible")
             .unwrap();
         assert_eq!(compat.status, FindingStatus::Unavailable);
+        assert!(!report.healthy);
+    }
+
+    #[test]
+    fn planned_profile_reports_unsupported_without_hard_failure() {
+        // R2 boundary: a planned candidate must be inspectable but
+        // identified as not-yet-supported so doctor reports it as a
+        // blocked control rather than a missing profile.
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "forge.yaml",
+            "schema: 1\nproject:\n  id: planned-proj\n  name: planned-proj\n  profile: rust-cli\n",
+        );
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        // Planned profiles are on the catalog, so profile-known is a
+        // Pass. The `features-compatible` check (which routes through
+        // resolve_profile) refuses planned profiles, so the
+        // unsupported status surfaces there.
+        let known = report
+            .findings
+            .iter()
+            .find(|f| f.id == "profile-known")
+            .unwrap();
+        assert_eq!(known.status, FindingStatus::Pass);
+        let compat = report
+            .findings
+            .iter()
+            .find(|f| f.id == "features-compatible")
+            .unwrap();
+        assert_eq!(compat.status, FindingStatus::Fail);
+        assert!(compat.evidence.iter().any(|e| e.contains("rust-cli")));
         assert!(!report.healthy);
     }
 

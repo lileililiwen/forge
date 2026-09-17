@@ -1053,7 +1053,8 @@ mod tests {
     fn unknown_explicit_profile_fails_read_only() {
         let tmp = TempDir::new().unwrap();
         write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
-        let err = inspect_import(tmp.path(), Some("react-web")).expect_err("unknown profile");
+        let err =
+            inspect_import(tmp.path(), Some("not-a-real-profile")).expect_err("unknown profile");
         assert_eq!(err.code(), "unknown-profile");
     }
 }

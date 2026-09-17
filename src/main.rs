@@ -714,11 +714,18 @@ fn render_feature_human(f: &forge::feature::FeatureDescriptor) -> String {
 }
 
 fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {
-    vec![
-        format!("id: {}", p.id),
-        format!("version: {}", p.version),
-        format!("adapter: {}", p.adapter),
-        format!("language: {}", p.language),
+    let mut lines = vec![
+        format!(
+            "id: {}\nversion: {}\nsupport_status: {}\nadapter: {}\nlanguage: {}\n",
+            p.id,
+            p.version,
+            match p.support_status {
+                forge::profile::ProfileSupportStatus::Supported => "supported",
+                forge::profile::ProfileSupportStatus::Planned => "planned",
+            },
+            p.adapter,
+            p.language,
+        ),
         format!(
             "toolchain: {}{}",
             p.toolchain,
@@ -747,8 +754,11 @@ fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {
             "requires_database: {}",
             if p.requires_database { "yes" } else { "no" }
         ),
-    ]
-    .join("\n")
+    ];
+    if let Some(desc) = &p.description {
+        lines.push(format!("description: {desc}"));
+    }
+    lines.join("\n")
 }
 
 fn render_record_human(p: &ProjectRecord) -> String {

@@ -44,16 +44,17 @@ fn run_json(db: &Path, args: &[&str]) -> std::process::Output {
     cmd.output().expect("run forge")
 }
 
-const MVP_IDS: [&str; 5] = [
+const MVP_IDS: [&str; 6] = [
     "aspnet-web",
     "flutter-app",
     "nextjs-web",
     "python-service",
+    "react-web",
     "rust-web",
 ];
 
 #[test]
-fn profile_list_shows_all_five_ids_and_versions() {
+fn profile_list_shows_all_six_supported_ids_and_versions() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("registry.db");
 
@@ -62,6 +63,13 @@ fn profile_list_shows_all_five_ids_and_versions() {
     let text = lossy(&out.stdout);
     for id in MVP_IDS {
         assert!(text.contains(id), "list must show {id}:\n{text}");
+    }
+    // Planned candidates stay out of the selectable list.
+    for id in ["aspnet-saas", "rust-cli", "flutter-client"] {
+        assert!(
+            !text.contains(id),
+            "planned id {id} must not appear in the selectable list:\n{text}"
+        );
     }
     assert!(text.contains("0.1.0"), "{text}");
 
@@ -75,7 +83,7 @@ fn profile_list_shows_all_five_ids_and_versions() {
     let value: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("profile list must emit JSON");
     let profiles = value["profiles"].as_array().expect("profiles array");
-    assert_eq!(profiles.len(), 5);
+    assert_eq!(profiles.len(), 6);
     let mut ids: Vec<&str> = profiles
         .iter()
         .map(|p| p["id"].as_str().expect("profile id"))
@@ -89,6 +97,7 @@ fn profile_list_shows_all_five_ids_and_versions() {
         assert!(!p["adapter"].as_str().unwrap_or("").is_empty());
         assert!(!p["build_command"].as_str().unwrap_or("").is_empty());
         assert!(!p["test_command"].as_str().unwrap_or("").is_empty());
+        assert_eq!(p["support_status"], "supported");
     }
 }
 
@@ -118,6 +127,22 @@ fn profile_inspect_returns_full_descriptor() {
     let caps = value["capabilities"].as_array().expect("capabilities");
     assert!(!caps.iter().any(|c| c == "postgres"));
 
+    // R1: react-web inspect returns a supported descriptor with its own
+    // client-only capability set.
+    let out = run_json(&db, &["profile", "inspect", "react-web"]);
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["id"], "react-web");
+    assert_eq!(value["support_status"], "supported");
+    assert_eq!(value["adapter"], "adapter-react");
+    assert_eq!(value["toolchain"], "npm");
+    assert_eq!(value["build_command"], "npm run build");
+    assert_eq!(value["test_command"], "npm test");
+    let caps = value["capabilities"].as_array().expect("capabilities");
+    assert!(!caps.iter().any(|c| c == "postgres"));
+    assert!(!caps.iter().any(|c| c == "redis"));
+    assert!(!caps.iter().any(|c| c == "background-jobs"));
+
     // Boundary: a valid profile without a database requirement forces none.
     let out = run_json(&db, &["profile", "inspect", "nextjs-web"]);
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -129,7 +154,7 @@ fn unknown_profile_returns_structured_error() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("registry.db");
 
-    let out = run(&db, &["profile", "inspect", "react-web"]);
+    let out = run(&db, &["profile", "inspect", "not-a-real-profile"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(
         lossy(&out.stderr).contains("error[unknown-profile]"),
@@ -137,10 +162,43 @@ fn unknown_profile_returns_structured_error() {
         lossy(&out.stderr)
     );
 
-    let out = run_json(&db, &["profile", "inspect", "react-web"]);
+    let out = run_json(&db, &["profile", "inspect", "not-a-real-profile"]);
     assert_eq!(out.status.code(), Some(1));
     let value: serde_json::Value = serde_json::from_slice(&out.stderr).expect("error must be JSON");
     assert_eq!(value["error"]["code"], "unknown-profile");
+}
+
+#[test]
+fn planned_profile_is_inspectable_but_not_resolvable() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+
+    // R2 success scenario: every planned id is inspectable with the
+    // correct support status; descriptors carry descriptions that name
+    // their future boundary.
+    let out = run_json(&db, &["profile", "inspect", "aspnet-saas"]);
+    assert_eq!(out.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["id"], "aspnet-saas");
+    assert_eq!(value["support_status"], "planned");
+    let desc = value["description"].as_str().unwrap_or("").to_lowercase();
+    assert!(desc.contains("planned"), "{desc}");
+
+    // R2 failure scenario: planned profiles refuse resolution.
+    let out = run(&db, &["profile", "resolve", "aspnet-saas"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        lossy(&out.stderr).contains("error[unsupported-profile]"),
+        "{}",
+        lossy(&out.stderr)
+    );
+
+    // R2 boundary: the planned client profile describes a backend boundary.
+    let out = run_json(&db, &["profile", "inspect", "flutter-client"]);
+    assert_eq!(out.status.code(), Some(0));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let desc = value["description"].as_str().unwrap_or("").to_lowercase();
+    assert!(desc.contains("backend"), "{desc}");
 }
 
 #[test]
@@ -157,6 +215,17 @@ fn resolve_returns_exact_version_and_adapter() {
     assert!(text.contains("0.1.0"), "{text}");
     assert!(text.contains("adapter-rust"), "{text}");
 
+    // R1: react-web resolves through the same resolver and reports its
+    // own adapter identity.
+    let out = run(
+        &db,
+        &["profile", "resolve", "react-web", "--feature", "i18n"],
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let text = lossy(&out.stdout);
+    assert!(text.contains("0.1.0"), "{text}");
+    assert!(text.contains("adapter-react"), "{text}");
+
     let out = run_json(
         &db,
         &["profile", "resolve", "rust-web", "--feature", "auth"],
@@ -165,6 +234,29 @@ fn resolve_returns_exact_version_and_adapter() {
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(value["resolved"]["version"], "0.1.0");
     assert_eq!(value["resolved"]["adapter"], "adapter-rust");
+}
+
+#[test]
+fn react_web_postgres_resolution_fails_before_file_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+    let before: Vec<PathBuf> = collect_files(dir.path());
+
+    let out = run(
+        &db,
+        &["profile", "resolve", "react-web", "--feature", "postgres"],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = lossy(&out.stderr);
+    assert!(stderr.contains("error[incompatible-profile]"), "{stderr}");
+    assert!(stderr.contains("backend"), "{stderr}");
+    assert!(stderr.contains("no files were changed"), "{stderr}");
+
+    // Read-only failure: no new files and no registry row side effects.
+    assert_eq!(collect_files(dir.path()), before);
+    let list = run(&db, &["list"]);
+    assert_eq!(list.status.code(), Some(0));
+    assert!(lossy(&list.stdout).contains("No projects registered"));
 }
 
 #[test]
@@ -220,7 +312,7 @@ fn register_rejects_unknown_profile_and_incompatible_features() {
     let proj = tmp.path().join("unknown-profile-proj");
     fs::create_dir(&proj).unwrap();
     let manifest =
-        "schema: 1\nproject:\n  id: unknown-prof\n  name: Unknown Prof\n  profile: react-web\n";
+        "schema: 1\nproject:\n  id: unknown-prof\n  name: Unknown Prof\n  profile: not-a-real-profile\n";
     fs::write(proj.join("forge.yaml"), manifest).unwrap();
     let out = run(&db, &["register", &proj.display().to_string()]);
     assert_eq!(out.status.code(), Some(1), "{}", lossy(&out.stderr));
@@ -236,6 +328,25 @@ fn register_rejects_unknown_profile_and_incompatible_features() {
     assert_eq!(
         run(&db, &["inspect", "unknown-prof"]).status.code(),
         Some(1)
+    );
+
+    // Planned profile: registration fails with unsupported-profile and
+    // preserves the manifest.
+    let planned = tmp.path().join("planned-profile-proj");
+    fs::create_dir(&planned).unwrap();
+    let planned_manifest =
+        "schema: 1\nproject:\n  id: planned-prof\n  name: Planned Prof\n  profile: rust-cli\n";
+    fs::write(planned.join("forge.yaml"), planned_manifest).unwrap();
+    let out = run(&db, &["register", &planned.display().to_string()]);
+    assert_eq!(out.status.code(), Some(1), "{}", lossy(&out.stderr));
+    assert!(
+        lossy(&out.stderr).contains("error[unsupported-profile]"),
+        "{}",
+        lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(planned.join("forge.yaml")).unwrap(),
+        planned_manifest
     );
 
     // Flutter + server-side postgres: registration fails before mutation.

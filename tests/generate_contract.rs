@@ -250,7 +250,12 @@ fn unknown_profile_and_incompatible_features_fail_without_side_effects() {
 
     let out = run(
         &db,
-        &["new", &dest.display().to_string(), "--profile", "react-web"],
+        &[
+            "new",
+            &dest.display().to_string(),
+            "--profile",
+            "not-a-real-profile",
+        ],
     );
     assert_eq!(out.status.code(), Some(1));
     assert!(
@@ -278,8 +283,23 @@ fn unknown_profile_and_incompatible_features_fail_without_side_effects() {
         "{}",
         lossy(&out.stderr)
     );
-    assert!(!dest2.join("forge.yaml").exists());
-    assert_eq!(run(&db, &["inspect", "mobile-app"]).status.code(), Some(1));
+    assert!(!dest2.exists());
+
+    // R2 failure: a planned profile must refuse generation before any
+    // file is written and without claiming support.
+    let dest3 = tmp.path().join("planned-app");
+    let out = run(
+        &db,
+        &["new", &dest3.display().to_string(), "--profile", "rust-cli"],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        lossy(&out.stderr).contains("error[unsupported-profile]"),
+        "{}",
+        lossy(&out.stderr)
+    );
+    assert!(!dest3.exists());
+    assert!(!dest3.join("forge.yaml").exists());
 }
 
 #[test]

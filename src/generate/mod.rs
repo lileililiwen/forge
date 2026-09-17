@@ -195,7 +195,7 @@ pub fn parse_interactive(
         _ => match prompt_line(
             reader,
             writer,
-            "profile (aspnet-web|rust-web|nextjs-web|flutter-app|python-service): ",
+            "profile (aspnet-web|rust-web|nextjs-web|react-web|flutter-app|python-service): ",
         )? {
             Some(answer) if !answer.trim().is_empty() => answer,
             _ => return Err(cancelled("creation cancelled during interactive input")),
@@ -311,6 +311,16 @@ fn readme_text(request: &CreationRequest, build: &str, test: &str, notes: &str) 
 
 fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, ForgeError> {
     let descriptor = inspect_profile(&request.profile)?;
+    if descriptor.support_status == crate::profile::ProfileSupportStatus::Planned {
+        return Err(ForgeError::UnsupportedProfile {
+            reason: format!(
+                "profile '{}' is reserved on the catalog as a planned candidate \
+                 with no tested template; generation refuses planned profiles \
+                 and no files were written",
+                request.profile
+            ),
+        });
+    }
     let build = descriptor.build_command.clone();
     let test = descriptor.test_command.clone();
     let id = request.id.as_str();
@@ -432,6 +442,62 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
                     &build,
                     &test,
                     "This scaffold is dependency-free so `npm run build` / `npm test` work offline. Add the `next` dependency for full Next.js (requires network install).",
+                ),
+            ));
+        }
+        "react-web" => {
+            files.push((
+                "package.json".to_string(),
+                format!(
+                    "{{\n  \"name\": \"{id}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"build\": \"node ./scripts/build.mjs\",\n    \"test\": \"node --test\"\n  }}\n}}\n"
+                ),
+            ));
+            files.push((
+                "scripts/build.mjs".to_string(),
+                format!(
+                    "import {{ mkdirSync, writeFileSync }} from \"node:fs\";\nmkdirSync(new URL(\"../dist/\", import.meta.url), {{ recursive: true }});\nwriteFileSync(new URL(\"../dist/build-ok.txt\", import.meta.url), \"hello from {id}\\n\");\nconsole.log(\"build ok: {id}\");\n"
+                ),
+            ));
+            files.push((
+                "index.html".to_string(),
+                format!(
+                    "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <title>{id}</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"./src/main.js\"></script>\n  </body>\n</html>\n"
+                ),
+            ));
+            files.push((
+                "src/main.js".to_string(),
+                format!(
+                    "export function greeting() {{\n  return \"hello from {id}\";\n}}\nconst root = document.getElementById(\"root\");\nif (root) {{\n  root.textContent = greeting();\n}}\n"
+                ),
+            ));
+            files.push((
+                "src/app.test.mjs".to_string(),
+                format!(
+                    "import {{ describe, it }} from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport {{ greeting }} from \"./main.js\";\n\ndescribe(\"react-web scaffold\", () => {{\n  it(\"returns the deterministic greeting\", () => {{\n    assert.equal(greeting(), \"hello from {id}\");\n  }});\n}});\n"
+                ),
+            ));
+            files.push((
+                "vite.config.js".to_string(),
+                "/** Minimal portable config; add the `vite` and `react` dependencies for the full toolchain. */\nexport default {};\n".to_string(),
+            ));
+            files.push((
+                "Dockerfile".to_string(),
+                "FROM node:20-slim AS build\nWORKDIR /app\nCOPY . .\nRUN npm run build\n\nFROM nginx:alpine\nCOPY --from=build /app/dist /usr/share/nginx/html\n".to_string(),
+            ));
+            files.push((
+                ".gitignore".to_string(),
+                "node_modules/\ndist/\n".to_string(),
+            ));
+            files.push((
+                "README.md".to_string(),
+                readme_text(
+                    request,
+                    &build,
+                    &test,
+                    "React SPA scaffold; client-only rendering with no server-side runtime. \
+                     `npm run build` / `npm test` work offline (dependency-free); the \
+                     production toolchain needs the `react`, `react-dom`, `react-router-dom` \
+                     and `vite` packages from the profile descriptor.",
                 ),
             ));
         }
@@ -891,12 +957,13 @@ mod tests {
     }
 
     #[test]
-    fn all_five_profiles_render_portable_manifests() {
+    fn all_six_profiles_render_portable_manifests() {
         let tmp = TempDir::new().unwrap();
         for profile in [
             "aspnet-web",
             "rust-web",
             "nextjs-web",
+            "react-web",
             "flutter-app",
             "python-service",
         ] {
@@ -1005,7 +1072,7 @@ mod tests {
     fn unknown_profile_and_incompatible_features_fail_before_mutation() {
         let tmp = TempDir::new().unwrap();
         let target = dest(&tmp, "bad");
-        let err = normalize_explicit(Some("react-web"), Some("bad"), None, &[], &target)
+        let err = normalize_explicit(Some("not-a-real-profile"), Some("bad"), None, &[], &target)
             .expect_err("unknown profile");
         assert_eq!(err.code(), "unknown-profile");
         assert!(!target.exists());
@@ -1079,5 +1146,108 @@ mod tests {
         }
         let report = verify_native("rust-web", &target, None).expect("cargo build+test");
         assert!(report.verified);
+    }
+
+    #[test]
+    fn react_web_renders_with_index_and_test() {
+        let tmp = TempDir::new().unwrap();
+        let target = dest(&tmp, "react-app");
+        let req = normalize_explicit(
+            Some("react-web"),
+            Some("react-app"),
+            Some("React App"),
+            &["i18n".to_string()],
+            &target,
+        )
+        .unwrap();
+        let files = render_files(&req).unwrap();
+        let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(paths.contains(&"forge.yaml"), "{paths:?}");
+        assert!(paths.contains(&"README.md"), "{paths:?}");
+        assert!(paths.contains(&"index.html"), "{paths:?}");
+        assert!(paths.contains(&"src/main.js"), "{paths:?}");
+        assert!(paths.contains(&"src/app.test.mjs"), "{paths:?}");
+        assert!(paths.contains(&"vite.config.js"), "{paths:?}");
+        assert!(paths.contains(&"package.json"), "{paths:?}");
+        // The generated manifest advertises react-web so doctor and
+        // feature lifecycle contracts both agree.
+        let manifest_text = files
+            .iter()
+            .find(|(p, _)| p == "forge.yaml")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        let manifest = crate::core::manifest::Manifest::parse(
+            Path::new("forge.yaml"),
+            manifest_text.as_bytes(),
+        )
+        .expect("react-web manifest must validate");
+        assert_eq!(manifest.project.profile, "react-web");
+        // The closed feature set is recorded (i18n only here).
+        let features: Vec<&str> = manifest.features.keys().map(String::as_str).collect();
+        assert_eq!(features, vec!["i18n"]);
+        // The README records the build/test commands from the descriptor.
+        let readme = files
+            .iter()
+            .find(|(p, _)| p == "README.md")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        assert!(readme.contains("npm run build"), "{readme}");
+        assert!(readme.contains("npm test"), "{readme}");
+    }
+
+    #[test]
+    fn react_web_scaffold_builds_and_tests_with_native_toolchain() {
+        // Probe only with an isolated target directory; running npm in
+        // the project root would block on missing project metadata.
+        let toolchain: HashSet<String> = ["npm".to_string()].into_iter().collect();
+        let tmp = TempDir::new().unwrap();
+        let target = dest(&tmp, "native-react");
+        let req = normalize_explicit(Some("react-web"), Some("native-react"), None, &[], &target)
+            .unwrap();
+        let files = render_files(&req).unwrap();
+        fs::create_dir(&target).unwrap();
+        for (rel, contents) in &files {
+            if rel == "forge.yaml" {
+                continue;
+            }
+            let path = target.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, contents).unwrap();
+        }
+        if verify_native("react-web", &target, Some(&toolchain)).is_err() {
+            return;
+        }
+        if !toolchain_present("npm", None) {
+            return;
+        }
+        let report = verify_native("react-web", &target, None).expect("npm run build+test");
+        assert!(report.verified);
+    }
+
+    #[test]
+    fn planned_profile_generation_refuses_before_writes() {
+        let tmp = TempDir::new().unwrap();
+        let target = dest(&tmp, "aspnet-saas-app");
+        let err = normalize_explicit(
+            Some("aspnet-saas"),
+            Some("aspnet-saas-app"),
+            None,
+            &[],
+            &target,
+        )
+        .expect_err("planned must refuse");
+        assert_eq!(err.code(), "unsupported-profile");
+        let text = err.to_string();
+        assert!(text.contains("planned"), "{text}");
+        assert!(
+            text.contains("no files were changed") || text.contains("no files were written"),
+            "{text}"
+        );
+        // No file or registry side effects.
+        assert!(!target.exists());
+        let reg = open_registry(&tmp);
+        assert!(reg.list().unwrap().is_empty());
     }
 }

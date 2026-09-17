@@ -68,6 +68,9 @@ use crate::agent::{
 };
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
+use crate::distribution::{
+    apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
+};
 use crate::doctor::{parse_target_level, run_doctor, RegistryObservation};
 use crate::feature::{add_feature, remove_feature, upgrade_feature};
 use crate::generate::{generate, normalize_explicit, GeneratedProject};
@@ -337,6 +340,21 @@ pub fn tool_registry() -> Vec<McpToolDescriptor> {
                     ("remote", string_type()),
                     ("ref_name", string_type()),
                     ("confirm", boolean_type()),
+                ],
+                &["path", "confirm"],
+            ),
+        ),
+        McpToolDescriptor::external_write(
+            "mirror_project",
+            "Distribute the project's refs to the configured primary and one-way mirrors; requires `confirm: true`.",
+            schema_object(
+                &[
+                    ("registry_path", string_type()),
+                    ("path", string_type()),
+                    ("refs", array_of_strings()),
+                    ("confirm", boolean_type()),
+                    ("retry_failed", boolean_type()),
+                    ("dry_run", boolean_type()),
                 ],
                 &["path", "confirm"],
             ),
@@ -623,6 +641,7 @@ fn dispatch_external_write(
 ) -> Result<Value, McpRpcError> {
     match name {
         "push" => mcp_push(args),
+        "mirror_project" => mcp_mirror_project(args),
         other => Err(McpRpcError::new(
             rpc_code::METHOD_NOT_FOUND,
             format!("external-write dispatcher has no implementation for `{other}`"),
@@ -943,6 +962,55 @@ fn mcp_push(args: &Map<String, Value>) -> Result<Value, McpRpcError> {
         push_ref(&manifest.project.id, &canonical, &remote, &ref_name, true).map_err(core_error)?;
     let value = serde_json::to_value(&outcome).map_err(|err| internal_error(err.to_string()))?;
     Ok(serde_json::json!({"push": value}))
+}
+
+fn mcp_mirror_project(args: &Map<String, Value>) -> Result<Value, McpRpcError> {
+    let path = required_string(args, "path")?;
+    let confirm = optional_bool(args, "confirm").unwrap_or(false);
+    if !confirm {
+        let err = McpRpcError::new(
+            rpc_code::TOOL_REFUSED,
+            "mirror_project requires `confirm: true`; implicit remote writes are refused",
+        )
+        .with_data(serde_json::json!({
+            "code": "distribution-confirm-required",
+            "message": "mirror_project requires `confirm: true`; refusing implicit remote write",
+        }));
+        return Err(err);
+    }
+    let refs = string_array(args, "refs")?;
+    if refs.is_empty() {
+        return Err(McpRpcError::new(
+            rpc_code::INVALID_PARAMS,
+            "mirror_project requires at least one ref name in `refs`",
+        ));
+    }
+    let dry_run = optional_bool(args, "dry_run").unwrap_or(false);
+    let retry_failed = optional_bool(args, "retry_failed").unwrap_or(false);
+    let canonical = canonicalize_project(&path)?;
+    let (manifest, _) = Manifest::load_from_dir(&canonical, None).map_err(core_error)?;
+    let config: DistributionConfig =
+        distribution_config_from_manifest(&manifest).map_err(core_error)?;
+    let request = MirrorRequest {
+        project_id: manifest.project.id.clone(),
+        refs,
+        confirm: true,
+        dry_run,
+        retry_failed,
+    };
+    let report = if dry_run {
+        let state_path = crate::distribution::state_path_for(&canonical, &manifest.project.id)
+            .map_err(core_error)?;
+        let state = crate::distribution::load_mirror_state(&state_path).map_err(core_error)?;
+        plan_mirror(&config, &request, &state, &state_path).map_err(core_error)?
+    } else {
+        apply_mirror(&canonical, &config, &request).map_err(core_error)?
+    };
+    let value = serde_json::to_value(&report).map_err(|err| internal_error(err.to_string()))?;
+    Ok(serde_json::json!({
+        "contract": crate::distribution::DISTRIBUTION_CONTRACT_VERSION,
+        "mirror": value,
+    }))
 }
 
 // ---- parameter validation -----------------------------------------

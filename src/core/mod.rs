@@ -112,6 +112,20 @@ pub enum ForgeError {
 
     #[error("mcp tool unauthorized: {reason}")]
     McpUnauthorized { reason: String },
+
+    #[error("distribution invalid: {reason}")]
+    DistributionInvalid { reason: String },
+
+    #[error("mirror `{provider}` is disabled in the project distribution config; no write was attempted")]
+    MirrorDisabled { provider: String },
+
+    #[error(
+        "mirror `{provider}` has divergent protected history ({detail}); force or reverse-sync are refused to preserve one-way distribution"
+    )]
+    MirrorDiverged { provider: String, detail: String },
+
+    #[error("mirror `{provider}` authentication failed: {reason}")]
+    MirrorCredentials { provider: String, reason: String },
 }
 
 impl ForgeError {
@@ -153,6 +167,10 @@ impl ForgeError {
             ForgeError::PushConfirmRequired => "push-confirm-required",
             ForgeError::McpInvalid { .. } => "mcp-invalid",
             ForgeError::McpUnauthorized { .. } => "mcp-unauthorized",
+            ForgeError::DistributionInvalid { .. } => "distribution-invalid",
+            ForgeError::MirrorDisabled { .. } => "mirror-disabled",
+            ForgeError::MirrorDiverged { .. } => "mirror-diverged",
+            ForgeError::MirrorCredentials { .. } => "mirror-credentials",
         }
     }
 

@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod core;
+pub mod distribution;
 pub mod doctor;
 pub mod feature;
 pub mod generate;

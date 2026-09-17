@@ -11,6 +11,9 @@ use forge::agent::{
     SessionTransition,
 };
 use forge::core::ForgeError;
+use forge::distribution::{
+    apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
+};
 use forge::doctor::{
     parse_target_level, render_report_human, run_doctor, FindingStatus, RegistryObservation,
     Remediation,
@@ -196,6 +199,24 @@ enum Commands {
     Mcp {
         #[command(subcommand)]
         command: McpCommands,
+    },
+    /// Distribute a project's refs to its canonical primary and configured one-way mirrors.
+    Mirror {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Ref to distribute (repeatable, e.g. `--ref main`). At least one ref is required.
+        #[arg(long = "ref", value_name = "REF")]
+        refs: Vec<String>,
+        /// Required explicit confirmation for the remote write.
+        #[arg(long)]
+        confirm: bool,
+        /// Print the plan without contacting any remote.
+        #[arg(long)]
+        dry_run: bool,
+        /// Re-push only refs not yet recorded as delivered.
+        #[arg(long)]
+        retry_failed: bool,
     },
 }
 
@@ -494,6 +515,21 @@ fn main() -> ExitCode {
             confirm,
         } => cmd_push(path, remote.clone(), ref_name.clone(), *confirm, cli.format),
         Commands::Mcp { command } => cmd_mcp(&db_path, command),
+        Commands::Mirror {
+            target,
+            refs,
+            confirm,
+            dry_run,
+            retry_failed,
+        } => cmd_mirror(
+            &db_path,
+            target,
+            refs.clone(),
+            *confirm,
+            *dry_run,
+            *retry_failed,
+            cli.format,
+        ),
     };
 
     match result {
@@ -1749,5 +1785,89 @@ fn push_output(outcome: &PushOutcome, format: Format) -> Result<Output, ForgeErr
             .unwrap_or_else(|| "(none)".to_string()),
         outcome.note
     );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_mirror(
+    db_path: &Path,
+    target: &str,
+    refs: Vec<String>,
+    confirm: bool,
+    dry_run: bool,
+    retry_failed: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let candidate = Path::new(target);
+    if !candidate.is_dir() {
+        return Err(ForgeError::PathUnavailable {
+            path: target.to_string(),
+        });
+    }
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|_| ForgeError::PathUnavailable {
+            path: target.to_string(),
+        })?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    let config: DistributionConfig = distribution_config_from_manifest(&manifest)?;
+    let request = MirrorRequest {
+        project_id: manifest.project.id.clone(),
+        refs,
+        confirm,
+        dry_run,
+        retry_failed,
+    };
+    let report = if dry_run {
+        let state_path = forge::distribution::state_path_for(&canonical, &manifest.project.id)?;
+        let state = forge::distribution::load_mirror_state(&state_path)?;
+        plan_mirror(&config, &request, &state, &state_path)?
+    } else {
+        apply_mirror(&canonical, &config, &request)?
+    };
+    let registry = open_registry(db_path)?;
+    let detail = format!(
+        "mirror `{}` refs={} primary={} healthy={} dry_run={} retry={}",
+        report.project_id,
+        report.refs.join(","),
+        report
+            .primary
+            .clone()
+            .unwrap_or_else(|| "(none)".to_string()),
+        report.healthy,
+        report.dry_run,
+        report.retry_failed
+    );
+    let state_label = if report.healthy() { "done" } else { "partial" };
+    let _ = registry.record_operation("mirror", &report.project_id, state_label, &detail);
+    let output = mirror_output(&report, format)?;
+    if report.healthy() {
+        Ok(output)
+    } else {
+        // Partial failure: print the per-remote outcome
+        // JSON to stdout so the caller sees exactly which
+        // remotes succeeded and which failed, then surface
+        // a typed exit-code error referencing the
+        // distribution verdict. The error is rendered on
+        // stderr by the generic error path so the exit
+        // code matches the verdict without hiding the
+        // per-remote evidence.
+        match &output {
+            Output::Human(text) => println!("{text}"),
+            Output::Json(value) => {
+                println!("{}", serde_json::to_string_pretty(value).unwrap());
+            }
+        }
+        Err(ForgeError::DistributionInvalid {
+            reason: report.note.clone(),
+        })
+    }
+}
+
+fn mirror_output(
+    report: &forge::distribution::MirrorReport,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"mirror": report});
+    let human = forge::distribution::render_report_human(report);
     Ok(as_output(format, human, json))
 }

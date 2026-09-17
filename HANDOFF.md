@@ -1,8 +1,33 @@
-current_spec: project-upgrade-orchestration
+current_spec: extended-profile-catalog
 
 # Forge handoff
 
 ## Current state
+
+`project-upgrade-orchestration` implemented, verified and archived on 2026-09-17
+as `2026-09-17-project-upgrade-orchestration`; canonical specs promoted to
+[openspec/specs/project-upgrade-orchestration/spec.md](openspec/specs/project-upgrade-orchestration/spec.md).
+New in this cycle: `src/upgrade` (pinned
+[`UpgradePlan`](src/upgrade/mod.rs) with old/new versions, kind-ordered
+steps, asset list, validators, migration strategy and recovery
+implications; `apply_upgrade` precondition sweep journals a `blocked`
+`upgrade` row and emits a structured `SemanticConflict` naming the
+owned file and the suggested `forge spec generate` follow-up;
+already-satisfied upgrades are a no-op with no file, manifest or
+registry write; missing requested features install at the tested
+version; `run_fleet` snapshots the explicit registry selection,
+journals each project with `done`/`failed`/`blocked`/`skipped` states,
+isolates per-project failures and reports a healthy verdict only when
+nothing failed or blocked; retry re-plans from the current manifest so
+completed steps are not blindly repeated; `postgres` steps are marked
+irreversible with declared strategy
+`manifest-repin+manual-schema-review`), Core `record_operation`
+append-only journal, CLI `forge upgrade [TARGET] [--feature FEATURE]
+[--all] [--dry-run]` (human/JSON, structured `error[unknown-feature]`
+and `error[feature-ownership-conflict]`, fleet owns its exit code
+without the generic error path), and existing feature-lifecycle
+contracts still hold after fleet upgrades (admin depends on auth, both
+reach 0.1.0 in dependency order with all manifest sections preserved).
 
 `feature-lifecycle` implemented, verified and archived on 2026-09-16
 as `2026-09-16-feature-lifecycle`; canonical specs promoted to
@@ -83,11 +108,55 @@ work has started.
 
 ## Next change
 
-Implement [project-upgrade-orchestration](openspec/changes/project-upgrade-orchestration/proposal.md)
+Implement [extended-profile-catalog](openspec/changes/extended-profile-catalog/proposal.md)
 only when implementation is requested. Its prerequisite
-(`feature-lifecycle`) now has implementation
-evidence, not merely proposals. Then follow the roadmap prerequisites.
-Later changes remain planning-only with zero implementation tasks completed.
+(`feature-lifecycle`) now has implementation evidence, and
+`project-upgrade-orchestration` is also archived. Then follow the
+roadmap prerequisites. Later changes remain planning-only with zero
+implementation tasks completed.
+
+## Verification evidence (project-upgrade-orchestration, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 138 passed, 0 failed (71 unit incl. 11 new upgrade
+  plan/apply/fleet tests after the drifted-receipt test fix, 5 CLI
+  contract, 3 cross-surface regression incl. 1 new
+  upgrade × feature-lifecycle interaction, 8 doctor contract,
+  10 feature contract, 12 generate contract, 10 import contract,
+  7 profile contract, 12 new upgrade contract incl. dry-run plan with
+  old/new versions/assets/recovery, apply advancing versions and
+  changing files, semantic-conflict handoff on drifted receipt with
+  preserved files, already-satisfied no-op, unknown feature failure
+  before edits, missing requested feature install, postgres schema
+  irreversible with declared strategy, fleet completion with
+  per-project journals, fleet isolation of a blocked project without
+  wholesale success, fleet retry skipping satisfied projects and
+  re-planning on changed preconditions, fleet dry-run skipping
+  writes).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id up-app` registers
+  L1; `forge upgrade --feature auth` installs auth and writes receipt
+  + manifest; `forge upgrade --all` reports `0 success, 0 failure,
+  0 blocked, 1 skipped` for the now-satisfied project; `forge upgrade
+  --all --dry-run` reports `plan only` without changes; `forge upgrade
+  --feature nosuch` exits 1 with `error[unknown-feature]`;
+  `forge doctor` still reports the same PASS manifest/profile/
+  features/drift/build/deployment after fleet upgrades; postgres
+  --dry-run after aging `postgres: 0.0.9` shows `upgrade postgres:
+  0.0.9 -> 0.1.0 [package+configuration+codemod+schema]` with the
+  irreversible `manifest-repin+manual-schema-review` recovery note.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate project-upgrade-orchestration --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive, includes the promoted
+  `spec/project-upgrade-orchestration`).
+- `git diff --check`: PASS; staged set reviewed (4 files modified,
+  2 files added: implementation, tests, archive and promoted specs only).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Per-service native generation validation stays out of scope here;
+  upgrade only repins manifest versions, receipts and runs declared
+  policy validators; DriftWatch execution evidence stays deferred to
+  v0.3 (`quality-policy-integration` and later).
 
 ## Verification evidence (feature-lifecycle, 2026-09-16)
 
@@ -259,7 +328,7 @@ Later changes remain planning-only with zero implementation tasks completed.
 
 1. Run `node scripts/check-openspec-change-names.mjs` before selection; failure blocks status/instructions and implementation.
 2. Run `openspec list`, reconcile roadmap dependencies, and update the single pointer before work.
-3. Run `openspec status --change project-upgrade-orchestration` and `openspec instructions apply --change project-upgrade-orchestration`; read all selected artifacts and applicable local rules.
+3. Run `openspec status --change extended-profile-catalog` and `openspec instructions apply --change extended-profile-catalog`; read all selected artifacts and applicable local rules.
 4. Follow BFS analysis, structural pass, DFS requirement implementation, then BFS regression/completeness. Check tasks only against evidence.
 5. Run the actual local build/test/integration commands and applicable Gate before archive; record exact failures and next actions. Gate FAIL or unresolved REVIEW_REQUIRED blocks completion when a Gate is configured.
 6. Run the name checker and `openspec validate --all --strict --no-interactive`; review diffs and original impact surfaces.

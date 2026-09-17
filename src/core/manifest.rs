@@ -105,10 +105,83 @@ pub struct AiMeta {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DeploymentMeta {
+    /// Legacy single-target type (`docker` / `ssh` / `local`).
+    /// `targets[*].kind` is the modern contract; this field
+    /// remains so a manifest that only declares one target
+    /// still validates.
     #[serde(rename = "type", default)]
     pub deploy_type: Option<String>,
+    /// Legacy single-target reference. When `targets` is
+    /// present the legacy field is treated as a free-form
+    /// note and the named targets are authoritative.
     #[serde(default)]
     pub target: Option<String>,
+    /// Artifact path or reference consumed by the adapter
+    /// (e.g. `docker-compose.yml`). Required for
+    /// `docker-compose` and `local` adapters; ignored by
+    /// planned adapters.
+    #[serde(default)]
+    pub artifact: Option<String>,
+    /// Default target name. Required when `targets` lists
+    /// more than one entry; optional otherwise (a single
+    /// target is its own default).
+    #[serde(default)]
+    pub default: Option<String>,
+    /// Named deployment targets. Each entry owns an adapter
+    /// kind and the adapter-specific fields.
+    #[serde(default)]
+    pub targets: Vec<DeploymentTargetEntry>,
+    /// Per-target health check configuration applied after a
+    /// successful adapter invocation. `kind` is one of
+    /// `docker` (checks a Compose service is running),
+    /// `http` (probes a URL), or `process` (checks a
+    /// process exists). The previous contract reserved
+    /// health observation to the doctor; deployment makes
+    /// the same checks available after apply.
+    #[serde(default)]
+    pub health: Option<DeploymentHealthMeta>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DeploymentTargetEntry {
+    /// Target id (kebab-case). When omitted the manifest
+    /// validator derives one from the entry's position in
+    /// the targets list.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Adapter kind. Supported in v0.1.0: `local`,
+    /// `docker-compose`. `ssh` is planned.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Adapter-specific free-form fields, recorded verbatim
+    /// so the deploy adapter can read them. The Core
+    /// contract does not interpret the contents; only the
+    /// typed `name`/`kind` matter.
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub service: Option<String>,
+    /// Optional human note surfaced in `forge deploy list`.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct DeploymentHealthMeta {
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub service: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub process: Option<String>,
+    #[serde(default)]
+    pub interval_seconds: Option<u32>,
 }
 
 /// Mirror entries accept the short (`- gitee`) and detailed

@@ -11,6 +11,7 @@ use forge::agent::{
     SessionTransition,
 };
 use forge::core::ForgeError;
+use forge::deploy::{DeployAdapterConfig, DeployRequest};
 use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
@@ -239,6 +240,11 @@ enum Commands {
         #[command(subcommand)]
         command: ReleaseCommands,
     },
+    /// Plan, apply, observe and inspect adapter-based deployments.
+    Deploy {
+        #[command(subcommand)]
+        command: DeployCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -437,6 +443,60 @@ enum ReleaseCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum DeployCommands {
+    /// Capture target, source revision and the configured health check into a reviewable plan.
+    Plan {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Target name (default: `deployment.default`, else the only declared target).
+        #[arg(long)]
+        target_name: Option<String>,
+    },
+    /// Apply a verified deploy plan: invokes the adapter and captures the health observation.
+    Apply {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Target name (default: `deployment.default`, else the only declared target).
+        #[arg(long)]
+        target_name: Option<String>,
+        /// Required explicit confirmation for the remote write.
+        #[arg(long)]
+        confirm: bool,
+        /// Read-only plan: report the would-apply plan without contacting the adapter.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Re-run the health check on a previously applied deploy (R2 boundary handling).
+    Observe {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Target name (default: `deployment.default`, else the only declared target).
+        #[arg(long)]
+        target_name: Option<String>,
+        /// Required explicit confirmation for the remote write.
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// List all persisted deploys for the named project.
+    List {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Inspect a single persisted deploy by its id.
+    Inspect {
+        /// Deploy id (e.g. `app-home-deadbeefcafe`).
+        deploy_id: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -620,6 +680,7 @@ fn main() -> ExitCode {
         ),
         Commands::Docs { command } => cmd_docs(&db_path, command, cli.format),
         Commands::Release { command } => cmd_release(&db_path, command, cli.format),
+        Commands::Deploy { command } => cmd_deploy(&db_path, command, cli.format),
     };
 
     match result {
@@ -2288,4 +2349,317 @@ fn render_release_report_human_for_state(state: &ReleaseState) -> String {
         }
     }
     lines.join("\n")
+}
+
+fn resolve_deploy_target(target: &str) -> Result<(PathBuf, String), ForgeError> {
+    let candidate = Path::new(target);
+    if candidate.is_dir() {
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+        return Ok((canonical, manifest.project.id));
+    }
+    Err(ForgeError::PathUnavailable {
+        path: target.to_string(),
+    })
+}
+
+fn cmd_deploy(
+    db_path: &Path,
+    command: &DeployCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        DeployCommands::Plan {
+            target,
+            target_name,
+        } => {
+            let (project_dir, project_id) = resolve_deploy_target(target)?;
+            let (manifest, config) = forge::deploy::engine::load_config(&project_dir)?;
+            let target_name = resolve_deploy_target_name(&config, target_name.as_deref())?;
+            let request = DeployRequest {
+                project_id: project_id.clone(),
+                target: target_name,
+                confirm: false,
+                dry_run: true,
+            };
+            let plan =
+                forge::deploy::engine::prepare_deploy(&project_dir, &manifest, &config, &request)?;
+            let registry = open_registry(db_path)?;
+            let detail = format!(
+                "deploy plan `{}` target=`{}` adapter=`{}` ready={}",
+                plan.identity.id, plan.target.name, plan.target.kind, plan.ready
+            );
+            let state_label = if plan.healthy() { "done" } else { "blocked" };
+            let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
+            deploy_plan_output(&plan, format)
+        }
+        DeployCommands::Apply {
+            target,
+            target_name,
+            confirm,
+            dry_run,
+        } => cmd_deploy_apply(
+            db_path,
+            target,
+            target_name.as_deref(),
+            *confirm,
+            *dry_run,
+            format,
+        ),
+        DeployCommands::Observe {
+            target,
+            target_name,
+            confirm,
+        } => cmd_deploy_observe(db_path, target, target_name.as_deref(), *confirm, format),
+        DeployCommands::List { target } => {
+            let (project_dir, project_id) = resolve_deploy_target(target)?;
+            let entries = forge::deploy::engine::list_deploys(&project_dir, &project_id)?;
+            deploy_list_output(&entries, &project_id, format)
+        }
+        DeployCommands::Inspect { deploy_id, target } => {
+            let (project_dir, project_id) = resolve_deploy_target(target)?;
+            let state =
+                match forge::deploy::engine::read_deploy(&project_dir, &project_id, deploy_id)? {
+                    Some(state) => state,
+                    None => {
+                        return Err(ForgeError::DeployInvalid {
+                            reason: format!(
+                            "deploy `{deploy_id}` was not found under `.forge/deploy/{project_id}/`"
+                        ),
+                        });
+                    }
+                };
+            deploy_state_output(&state, format)
+        }
+    }
+}
+
+fn resolve_deploy_target_name(
+    config: &forge::deploy::DeployConfig,
+    requested: Option<&str>,
+) -> Result<String, ForgeError> {
+    if let Some(name) = requested {
+        return Ok(config.target(name)?.name.clone());
+    }
+    Ok(config.default_target.clone())
+}
+
+fn cmd_deploy_apply(
+    db_path: &Path,
+    target: &str,
+    target_name: Option<&str>,
+    confirm: bool,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (project_dir, project_id) = resolve_deploy_target(target)?;
+    let (manifest, config) = forge::deploy::engine::load_config(&project_dir)?;
+    let target_name = resolve_deploy_target_name(&config, target_name)?;
+    let request = DeployRequest {
+        project_id: project_id.clone(),
+        target: target_name,
+        confirm,
+        dry_run,
+    };
+    let adapters = DeployAdapterConfig::from_env();
+    let report =
+        forge::deploy::engine::apply_deploy(&project_dir, &manifest, &config, &request, &adapters)?;
+    let registry = open_registry(db_path)?;
+    let detail = forge::deploy::engine::journal_report(&report, report.healthy);
+    let state_label = if report.healthy() { "done" } else { "partial" };
+    let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
+    let output = deploy_report_output(&report, format)?;
+    if report.healthy() {
+        Ok(output)
+    } else {
+        match &output {
+            Output::Human(text) => println!("{text}"),
+            Output::Json(value) => {
+                println!("{}", serde_json::to_string_pretty(value).unwrap());
+            }
+        }
+        Err(ForgeError::DeployHealthFailed {
+            reason: report.note.clone(),
+        })
+    }
+}
+
+fn cmd_deploy_observe(
+    db_path: &Path,
+    target: &str,
+    target_name: Option<&str>,
+    confirm: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (project_dir, project_id) = resolve_deploy_target(target)?;
+    let (manifest, config) = forge::deploy::engine::load_config(&project_dir)?;
+    let target_name = resolve_deploy_target_name(&config, target_name)?;
+    let request = DeployRequest {
+        project_id: project_id.clone(),
+        target: target_name,
+        confirm,
+        dry_run: false,
+    };
+    let adapters = DeployAdapterConfig::from_env();
+    let report = forge::deploy::engine::observe_deploy(
+        &project_dir,
+        &manifest,
+        &config,
+        &request,
+        &adapters,
+    )?;
+    let registry = open_registry(db_path)?;
+    let detail = forge::deploy::engine::journal_report(&report, report.healthy);
+    let state_label = if report.healthy() { "done" } else { "partial" };
+    let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
+    let output = deploy_report_output(&report, format)?;
+    if report.healthy() {
+        Ok(output)
+    } else {
+        match &output {
+            Output::Human(text) => println!("{text}"),
+            Output::Json(value) => {
+                println!("{}", serde_json::to_string_pretty(value).unwrap());
+            }
+        }
+        Err(ForgeError::DeployHealthFailed {
+            reason: report.note.clone(),
+        })
+    }
+}
+
+fn deploy_plan_output(
+    plan: &forge::deploy::DeployPlan,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"plan": plan});
+    let human = forge::deploy::engine::render_plan_human(plan);
+    Ok(as_output(format, human, json))
+}
+
+fn deploy_report_output(
+    report: &forge::deploy::DeployReport,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"deploy": report});
+    let human = forge::deploy::render_report_human(report);
+    Ok(as_output(format, human, json))
+}
+
+fn deploy_list_output(
+    entries: &[forge::deploy::DeployListEntry],
+    project_id: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"deploys": entries, "project_id": project_id});
+    if entries.is_empty() {
+        let human = format!("no deploys for project `{project_id}`");
+        return Ok(as_output(format, human, json));
+    }
+    let mut human = format!(
+        "{:<48} {:<12} {:<10} {:<10} {}",
+        "Deploy", "Project", "Target", "State", "Last Run"
+    );
+    for entry in entries {
+        human.push_str(&format!(
+            "\n{:<48} {:<12} {:<10} {:<10} {}",
+            entry.deploy_id,
+            truncate(&entry.project_id, 12),
+            entry.target,
+            entry.current_state,
+            entry.last_run_at
+        ));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn deploy_state_output(
+    state: &forge::deploy::DeployState,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let current_state = state.current_state();
+    let mut deploy_value = serde_json::to_value(state).map_err(|err| ForgeError::Registry {
+        reason: err.to_string(),
+    })?;
+    if let Some(obj) = deploy_value.as_object_mut() {
+        obj.insert(
+            "current_state".to_string(),
+            serde_json::Value::String(current_state),
+        );
+    }
+    let json = serde_json::json!({"deploy": deploy_value});
+    let human = render_deploy_state_human(state);
+    Ok(as_output(format, human, json))
+}
+
+fn render_deploy_state_human(state: &forge::deploy::DeployState) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("project: {}", state.identity.project_id));
+    lines.push(format!("deploy_id: {}", state.identity.id));
+    lines.push(format!(
+        "target: {} ({})",
+        state.target.name, state.target.kind
+    ));
+    lines.push(format!(
+        "source_revision: {}",
+        state.identity.source_revision
+    ));
+    lines.push(format!("adapter: {}", state.adapter));
+    if let Some(artifact) = &state.artifact {
+        lines.push(format!("artifact: {}", artifact.path));
+        lines.push(format!("artifact_hash: {}", artifact.content_hash));
+    }
+    if let Some(health) = &state.health {
+        lines.push(format!(
+            "health: {} ({})",
+            health.kind,
+            health_label_for_state(health)
+        ));
+    }
+    lines.push(format!("current_state: {}", state.current_state()));
+    lines.push(format!("last_run_at: {}", state.last_run_at));
+    if let Some(obs) = &state.last_observation {
+        lines.push(format!(
+            "last_observation: {} at {}: {}",
+            obs.status, obs.observed_at, obs.detail
+        ));
+        for line in &obs.evidence {
+            lines.push(format!("      evidence: {line}"));
+        }
+    }
+    if !state.stage_outcomes.is_empty() {
+        lines.push("stage_outcomes:".to_string());
+        for outcome in &state.stage_outcomes {
+            lines.push(format!(
+                "  - {} target=`{}` {}: {}",
+                outcome.stage, outcome.target, outcome.status, outcome.note
+            ));
+            for line in &outcome.evidence {
+                lines.push(format!("      evidence: {line}"));
+            }
+            for line in &outcome.recovery {
+                lines.push(format!("      recovery: {line}"));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+fn health_label_for_state(health: &forge::deploy::DeployHealthSpec) -> String {
+    match health.kind.as_str() {
+        forge::deploy::HEALTH_DOCKER => {
+            format!("service={}", health.service.as_deref().unwrap_or("?"))
+        }
+        forge::deploy::HEALTH_HTTP => {
+            format!("url={}", health.url.as_deref().unwrap_or("?"))
+        }
+        forge::deploy::HEALTH_PROCESS => {
+            format!("process={}", health.process.as_deref().unwrap_or("?"))
+        }
+        other => other.to_string(),
+    }
 }

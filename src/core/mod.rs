@@ -141,6 +141,18 @@ pub enum ForgeError {
 
     #[error("release identity conflict: {reason}; existing tag or immutable version points to different content")]
     ReleaseIdentityConflict { reason: String },
+
+    #[error("deploy invalid: {reason}")]
+    DeployInvalid { reason: String },
+
+    #[error("deploy target unavailable: {reason}")]
+    DeployTargetUnavailable { reason: String },
+
+    #[error("deploy target stale: {reason}")]
+    DeployTargetStale { reason: String },
+
+    #[error("deploy health failed: {reason}; deployment state recorded as failed")]
+    DeployHealthFailed { reason: String },
 }
 
 impl ForgeError {
@@ -191,6 +203,10 @@ impl ForgeError {
             ForgeError::ReleaseInvalid { .. } => "release-invalid",
             ForgeError::ReleaseCheckFailed { .. } => "release-check-failed",
             ForgeError::ReleaseIdentityConflict { .. } => "release-identity-conflict",
+            ForgeError::DeployInvalid { .. } => "deploy-invalid",
+            ForgeError::DeployTargetUnavailable { .. } => "deploy-target-unavailable",
+            ForgeError::DeployTargetStale { .. } => "deploy-target-stale",
+            ForgeError::DeployHealthFailed { .. } => "deploy-health-failed",
         }
     }
 

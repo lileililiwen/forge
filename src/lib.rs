@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod core;
+pub mod deploy;
 pub mod distribution;
 pub mod docs;
 pub mod doctor;

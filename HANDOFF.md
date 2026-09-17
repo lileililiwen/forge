@@ -1,12 +1,46 @@
-current_spec: agent-runtime-workflows
+current_spec: mature-mcp-surface
 
 # Forge handoff
 
 ## Current state
 
+`agent-runtime-workflows` implemented, verified and archived on 2026-09-17
+as `2026-09-17-agent-runtime-workflows`; canonical specs promoted to
+[openspec/specs/agent-runtime-workflows/spec.md](openspec/specs/agent-runtime-workflows/spec.md).
+New in this cycle: `src/agent` (versioned `AgentSession`/`AgentProvider`/
+`SessionState`/`SessionTransition`/`TransitionRecord` contract v0.1.0
+covering start/pause/takeover/resume/restart/new-session; bundled
+OpenCode/Codex adapters return explicit `unsupported` for
+pause/takeover because the existing PTY manager is not wired into
+this build, with the recovery note naming the integration point;
+session storage under `.forge/agents/<id>/` carrying
+`session.json` and `transitions.log`; `run_spec` refuses with
+`error[spec-invalid]` when the bound spec is missing, leaving
+the session file preserved so the boundary scenario is
+observable) and `src/gitops` (versioned `TestOutcome`/
+`CommitOutcome`/`PushOutcome` contract v0.1.0; profile-aware
+`test` runs the descriptor's `cargo test`/`npm test`/etc. and
+surfaces a non-zero exit as `error[test-failed]` with the
+captured stdout/stderr; `commit --path X --message M` stages
+only the listed paths via `git add --` and refuses when the
+working tree has tracked edits outside the requested paths,
+preserving untracked files; `push --remote X --ref-name Y
+--confirm` requires explicit confirmation and refuses
+implicit remote writes with `error[push-confirm-required]`),
+Core errors `agent-unavailable`/`agent-unsupported`/
+`test-failed`/`git-dirty`/`push-confirm-required` with stable
+codes, CLI `forge agent start|pause|takeover|resume|restart|
+new-session|status|list|run-spec` and `forge test|commit|push`
+(human/JSON), operations journaled in the registry's
+`operations` table with the `agent` kind, and the spec
+contract from `specification-remediation` still holds after a
+session that ends without verification preserves its
+`session.json` with the original spec id.
+
 `specification-remediation` implemented, verified and archived on 2026-09-17
 as `2026-09-17-specification-remediation`; canonical specs promoted to
 [openspec/specs/specification-remediation/spec.md](openspec/specs/specification-remediation/spec.md).
+New in this cycle: `src/spec` (versioned `SpecRequest`/`SpecDraft`/
 New in this cycle: `src/spec` (versioned `SpecRequest`/`SpecDraft`/
 `SpecProvenance`/`SpecGenerateOutcome`/`SpecStatus` contract v0.1.0 with
 provenance covering project id, path, profile, source revision (manifest
@@ -183,11 +217,92 @@ work has started.
 
 ## Next change
 
-Implement [agent-runtime-workflows](openspec/changes/agent-runtime-workflows/proposal.md)
+Implement [mature-mcp-surface](openspec/changes/mature-mcp-surface/proposal.md)
 only when implementation is requested. Its prerequisite
-(`specification-remediation`) now has implementation evidence. Then
+(`agent-runtime-workflows`) now has implementation evidence. Then
 follow the roadmap prerequisites. Later changes remain planning-only
 with zero implementation tasks completed.
+
+## Verification evidence (agent-runtime-workflows, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 233 passed, 0 failed (125 lib incl. 12 new agent
+  contract tests for session-id validation, present-or-missing
+  provider handling, pause/takeover unsupported state, restart
+  preservation, run-spec refusal on missing bound spec,
+  write/read roundtrip, and provider binary probe; 7 new gitops
+  contract tests for the profile-aware test command, the
+  requested-paths-only commit, the tracked-edit refusal, the
+  untracked-file preservation, the empty-message refusal, the
+  not-a-git-repository refusal, the push-confirm-required guard,
+  the no-confirm and with-confirm push attempts, and the
+  unrelated-tracked-changes helper for porcelain rename
+  handling; 4 new cross-surface tests for the agent × spec
+  interaction through pause, the commit × feature-add
+  interaction, the test × upgrade dry-run interaction, and the
+  push journal × confirm-flag interaction; 10 agent contract
+  through the built binary, 8 gitops contract, 4
+  agent-runtime-workflows cross-surface, 5 CLI contract incl.
+  the new `agent`/`test`/`commit`/`push` subcommands in the
+  help output, 3 cross-surface regression, 8 doctor contract,
+  10 feature contract, 12 generate contract, 10 import
+  contract, 9 profile contract, 7 quality_policy_contract, 12
+  upgrade contract, 12 spec contract; rust_scaffold and
+  react-web scaffold skipped in the regular run; the slow
+  `cargo build+test` evidence path is exercised through the
+  existing scaffold tests that finish in ~210s when the host
+  toolchain is on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id smoke-app`
+  renders a `rust-web` project; `forge commit . --path
+  README.md --message "bump readme"` produces a commit whose
+  `files_changed` is `["README.md"]`; `forge push . --remote
+  origin --ref-name main` exits 1 with
+  `error[push-confirm-required]`; `forge push . --remote origin
+  --ref-name main --confirm` reaches the underlying `git push`
+  and reports the typed `git-dirty` failure with the captured
+  stderr; `forge agent start . --session sess-1 --provider
+  opencode` records an `active` state with provider
+  `opencode`, spec binding, and writes
+  `.forge/agents/sess-1/session.json` plus
+  `transitions.log`; `forge agent pause . --session sess-1`
+  returns `state: unsupported` with the explicit
+  `pause primitive` evidence and a recovery note naming the
+  existing PTY-based manager as the integration point;
+  `forge agent takeover` returns the same `unsupported`
+  state with `takeover primitive` evidence; `forge agent
+  status . --session sess-1` renders the recorded session
+  plus the full transition timeline; `forge agent list .`
+  reports the session inventory with provider, state and
+  transition count.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate agent-runtime-workflows --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  25 passed, 0 failed (post-archive, includes the promoted
+  `spec/agent-runtime-workflows`).
+- `git diff --check`: PASS; staged set reviewed (4 files modified,
+  6 files added: `src/agent/mod.rs`, `src/gitops/mod.rs`,
+  `tests/agent_contract.rs`, `tests/gitops_contract.rs`,
+  `tests/agent_runtime_workflows_cross_surface.rs`, the
+  promoted spec — 10 files; archive under
+  `openspec/changes/archive/2026-09-17-agent-runtime-workflows/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real OpenCode/Codex PTY-manager integration stays untested:
+  the existing PTY-based agent manager is not wired into this
+  build, so the bundled adapters report `unsupported` for
+  pause/takeover with explicit evidence rather than
+  simulating success; the contract is verified through the
+  test fixtures that confirm the unsupported state and the
+  recovery note. Real PTY manager integration remains future
+  work, matching the design decision that contract fixtures
+  supplement but do not replace a real integration run.
+- Real `git push` to a remote is also untested: the sandbox
+  has no remote configured, so the with-confirm push attempt
+  surfaces the typed `git-dirty` error with the captured
+  `git push` stderr (`fatal: 'origin' does not appear to be a
+  git repository`); the contract is verified end to end for
+  the confirm-required guard and the underlying `git push`
+  invocation.
 
 ## Verification evidence (specification-remediation, 2026-09-17)
 

@@ -1,8 +1,45 @@
-current_spec: mature-mcp-surface
+current_spec: repository-distribution
 
 # Forge handoff
 
 ## Current state
+
+`mature-mcp-surface` implemented, verified and archived on 2026-09-17
+as `2026-09-17-mature-mcp-surface`; canonical specs promoted to
+[openspec/specs/mature-mcp-surface/spec.md](openspec/specs/mature-mcp-surface/spec.md).
+New in this cycle: `src/mcp` (versioned `McpToolDescriptor`/
+`McpToolKind` (`ReadOnly` / `Mutating` / `ExternalWrite`) /
+`McpRequest` / `McpResponse` / `McpRpcError` contract v0.1.0 over
+JSON-RPC 2.0 stdio; tool registry of sixteen mature operations
+(`list_projects`/`inspect_project`/`list_profiles`/
+`inspect_profile`/`list_features`/`run_doctor` read-only,
+`create_project`/`import_project`/`add_feature`/`remove_feature`/
+`upgrade_feature`/`generate_spec`/`run_agent`/`run_tests`/
+`commit` mutating, `push` external-write) with each tool's
+declared JSON Schema and stable contract version; one
+`tools/list` RPC and sixteen tool RPCs, each dispatched through
+the same Core contracts the CLI uses, with the JSON-RPC
+response carrying the full `data` envelope and the diagnostic
+stream carrying a redaction-safe summary keyed on the tool
+name so a credential embedded in a failed Core call does not
+leak through stderr; `create_project` rejects shell
+metacharacters in the project id before any file is created
+or registry row is written (treated as literal data, never
+executed as shell code); `push` is refused with the
+`push-confirm-required` data code when `confirm` is missing
+or `false`, so an implicit remote write is never accepted;
+`deploy` / `publish` / `release` / `mirror` / `docs` are
+intentionally absent from the registry because their Core
+operations are not implemented yet (R1 + R2 boundary
+scenarios); Core errors `mcp-invalid` / `mcp-unauthorized`
+with stable codes; CLI `forge mcp serve` (human, the
+JSON-RPC response stream is the output; `tools/list` and the
+sixteen tool RPCs are the input/output contract); MCP
+operations journaled in the registry's `operations` table
+under the `mcp` kind; and the spec contract from
+`agent-runtime-workflows` still holds after the new
+transport serves an inspect request and the CLI surface
+returns the equivalent domain record).
 
 `agent-runtime-workflows` implemented, verified and archived on 2026-09-17
 as `2026-09-17-agent-runtime-workflows`; canonical specs promoted to
@@ -217,11 +254,93 @@ work has started.
 
 ## Next change
 
-Implement [mature-mcp-surface](openspec/changes/mature-mcp-surface/proposal.md)
+Implement [repository-distribution](openspec/changes/repository-distribution/proposal.md)
 only when implementation is requested. Its prerequisite
 (`agent-runtime-workflows`) now has implementation evidence. Then
 follow the roadmap prerequisites. Later changes remain planning-only
 with zero implementation tasks completed.
+
+## Verification evidence (mature-mcp-surface, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 273 passed, 0 failed (147 lib incl. 22 new mcp
+  contract tests for tool registry / kind classification /
+  unknown-tool / schema validation / shell-metacharacter id
+  refusal / push confirm-required / project id kebab-case
+  rejection / JSON-RPC envelope parse errors / diagnostic
+  redaction / id round-trip on the wire / CLI/MCP domain
+  equivalence on inspect / journal entry from a mutating tool;
+  13 new mcp_contract tests for the full stdio loop through
+  the built binary covering the help listing, the mature
+  registry snapshot, the kind boundary (read-only/mutating/
+  external_write), the unknown-tool structured error, the
+  inspect/CLI domain equivalence, the create-project end-to-end
+  with manifest and CLI list observability, the
+  shell-metacharacter literal-data refusal, the
+  push-confirm-required refusal with the data code, the
+  parse-error envelope shape, the diagnostic redaction, the
+  list/CLI domain equivalence, and the multi-request round
+  trip; 5 new mcp_cross_surface tests for the doctor/CLI
+  finding-count equivalence, the create + CLI feature-add
+  invariant preservation, the generate-spec idempotency
+  through the wire, the agent session recording through MCP
+  observable from the CLI surface, and the commit
+  paths-only contract against a tracked edit outside scope;
+  plus the unchanged 5 CLI contract incl. the new `mcp`
+  subcommand in the help output, 4 cross-surface regression,
+  8 doctor contract, 10 feature contract, 12 generate
+  contract, 10 import contract, 9 profile contract, 7
+  quality_policy_contract, 12 upgrade contract, 12 spec
+  contract, 8 agent contract, 8 gitops contract; rust_scaffold
+  and react-web scaffold skipped in the regular run; the slow
+  `cargo build+test` evidence path is exercised through the
+  existing scaffold tests that finish in ~210s when the host
+  toolchain is on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge mcp serve` on the in-repo binary
+  answers `tools/list` with the sixteen mature tools and the
+  right `kind` for each (read-only/mutating/external_write),
+  serves `create_project` for `rust-web` and reports the
+  generated manifest + files + journal entry, serves
+  `list_projects` afterwards and reports the registered
+  record, and serves an `inspect_project` request that the
+  CLI surface re-renders to the equivalent domain record;
+  a request to a `deploy` tool is refused with the
+  `TOOL_MISSING` code and a `tools/list` snapshot does not
+  advertise `deploy` / `publish` / `release` / `mirror` /
+  `docs`; a request with `confirm: false` for `push` is
+  refused with the `push-confirm-required` data code; a
+  request to `create_project` with `id: "evil; rm -rf /"`
+  is refused as literal data and the destination directory
+  is left empty; a request to `create_project` with an
+  id that contains a credential-shaped substring is refused
+  on the JSON-RPC response (the model can see it) but the
+  diagnostic stream does not echo the secret.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate mature-mcp-surface --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive, includes the promoted
+  `spec/mature-mcp-surface`).
+- `git diff --check`: PASS; staged set reviewed (6 files
+  modified, 3 files added: `src/mcp/mod.rs`,
+  `tests/mcp_contract.rs`, `tests/mcp_cross_surface.rs`, plus
+  the promoted spec — 9 files; archive under
+  `openspec/changes/archive/2026-09-17-mature-mcp-surface/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real model-issued MCP traffic stays untested: the contract
+  is verified end to end through synthetic JSON-RPC requests
+  that match the v0.4 shape; the tool list advertises only
+  operations whose Core contract was already verified in
+  earlier cycles (read-only surfaces from `core-manifest-
+  registry` / `profile-registry` / `doctor-maturity-assessment`,
+  mutating surfaces from `deterministic-project-generation` /
+  `feature-lifecycle` / `specification-remediation` /
+  `agent-runtime-workflows` / `quality-policy-integration` /
+  `project-upgrade-orchestration`, and the external-write
+  `push` from `agent-runtime-workflows`). A real model
+  consumer wiring `forge mcp serve` into an MCP-capable
+  agent remains a downstream integration step and is not
+  claimed here.
 
 ## Verification evidence (agent-runtime-workflows, 2026-09-17)
 

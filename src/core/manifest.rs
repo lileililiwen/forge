@@ -155,8 +155,19 @@ pub struct TranslationMeta {
 pub struct DocsMeta {
     #[serde(default)]
     pub source_language: Option<String>,
+    /// Canonical source document, relative to the project root.
+    /// Defaults to `README.md` when omitted so manifests that only
+    /// declare `source_language` keep working.
+    #[serde(default)]
+    pub source: Option<String>,
     #[serde(default)]
     pub translations: BTreeMap<String, TranslationMeta>,
+    /// Explicit non-translatable terms. Every term that appears in
+    /// the source must still appear verbatim in the derivative;
+    /// a missing term marks the derivative `needs-review` instead
+    /// of claiming translation quality from provider success.
+    #[serde(default)]
+    pub non_translatable: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

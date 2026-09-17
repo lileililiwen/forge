@@ -102,7 +102,12 @@ fn agent_session_preserves_existing_spec_contract_through_pause_takeover() {
             "manifest-valid",
         ],
     );
-    assert_eq!(spec_out.status.code(), Some(0), "stderr={}", lossy(&spec_out.stderr));
+    assert_eq!(
+        spec_out.status.code(),
+        Some(0),
+        "stderr={}",
+        lossy(&spec_out.stderr)
+    );
     let spec_dir = proj.join(".forge/specs");
     assert!(spec_dir.is_dir(), "spec directory was not written");
     // Find the generated spec id.
@@ -172,7 +177,10 @@ fn commit_after_feature_add_preserves_receipt_ownership_contract() {
             "bump readme",
         ],
     );
-    assert_eq!(value["commit"]["files_changed"], serde_json::json!(["README.md"]));
+    assert_eq!(
+        value["commit"]["files_changed"],
+        serde_json::json!(["README.md"])
+    );
     assert!(value["commit"]["commit_sha"].is_string());
 }
 
@@ -216,7 +224,10 @@ fn push_journal_records_intent_only_with_explicit_confirm() {
     );
     assert_eq!(refused.status.code(), Some(1));
     let stderr = lossy(&refused.stderr);
-    assert!(stderr.contains("error[push-confirm-required]"), "stderr={stderr}");
+    assert!(
+        stderr.contains("error[push-confirm-required]"),
+        "stderr={stderr}"
+    );
     // The next push with confirm bypasses the guard and reaches
     // the underlying git invocation. The registry may or may not
     // be created depending on the path the command takes; the

@@ -126,6 +126,12 @@ pub enum ForgeError {
 
     #[error("mirror `{provider}` authentication failed: {reason}")]
     MirrorCredentials { provider: String, reason: String },
+
+    #[error("docs invalid: {reason}")]
+    DocsInvalid { reason: String },
+
+    #[error("translation failed: {reason}; prior derivative left intact")]
+    TranslationFailed { reason: String },
 }
 
 impl ForgeError {
@@ -171,6 +177,8 @@ impl ForgeError {
             ForgeError::MirrorDisabled { .. } => "mirror-disabled",
             ForgeError::MirrorDiverged { .. } => "mirror-diverged",
             ForgeError::MirrorCredentials { .. } => "mirror-credentials",
+            ForgeError::DocsInvalid { .. } => "docs-invalid",
+            ForgeError::TranslationFailed { .. } => "translation-failed",
         }
     }
 

@@ -905,6 +905,14 @@ pub fn run_doctor(
         },
     ));
 
+    // Derivative documentation freshness. Read-only: the
+    // recorded source hash per enabled locale is compared
+    // against the current source so stale, missing or
+    // needs-review derivatives surface with the
+    // `forge docs translate` recovery. Disabled locales are
+    // skipped entirely (automatic-workflow boundary).
+    findings.extend(docs_freshness_findings(dir, &manifest));
+
     let (dw_present, dw_evidence) = detect_driftwatch(dir);
     findings.push(Finding::new(
         "driftwatch-config",
@@ -1617,6 +1625,148 @@ fn aggregate_rollup(report: &PolicyReport, stale: bool) -> Rollup {
     }
 }
 
+/// Convert the read-only docs freshness assessment into typed
+/// findings. Each enabled locale gets a stable `docs-<locale>`
+/// rule: `pass` when the recorded source hash matches, `warn`
+/// when the derivative is stale, never translated or flagged
+/// `needs-review`, and `fail` when the locale is misconfigured
+/// (missing source, escaping paths). Disabled locales are
+/// skipped entirely so automatic workflows never touch them.
+/// A `docs-freshness` rollup carries the worst status; it is
+/// present only when at least one locale is enabled.
+fn docs_freshness_findings(dir: &Path, manifest: &Manifest) -> Vec<Finding> {
+    let assessments = match crate::docs::assess_freshness(dir, manifest) {
+        Ok(a) => a,
+        Err(err) => {
+            return vec![Finding::new(
+                "docs-freshness",
+                FindingStatus::Fail,
+                vec![format!("docs configuration is invalid: {err}")],
+                true,
+                Remediation::Manual,
+                "docs configuration is invalid; fix `docs` in forge.yaml",
+            )];
+        }
+    };
+    if assessments.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut pass = 0usize;
+    let mut warn = 0usize;
+    let mut fail = 0usize;
+    for assessment in &assessments {
+        let id = format!("docs-{}", assessment.locale);
+        let mut evidence = vec![format!(
+            "locale `{}` status: {}",
+            assessment.locale,
+            assessment.status_label()
+        )];
+        if let Some(hash) = &assessment.source_hash {
+            evidence.push(format!("source_hash: {hash}"));
+        }
+        if let Some(derivative) = &assessment.derivative {
+            evidence.push(format!("derivative: {derivative}"));
+        }
+        let (status, remediation, detail) = match &assessment.status {
+            crate::docs::FreshnessStatus::Current { review } => {
+                pass += 1;
+                (
+                    FindingStatus::Pass,
+                    Remediation::Ai,
+                    format!(
+                        "derivative for locale `{}` is current (review: {})",
+                        assessment.locale,
+                        review.label()
+                    ),
+                )
+            }
+            crate::docs::FreshnessStatus::Stale => {
+                warn += 1;
+                (
+                    FindingStatus::Warn,
+                    Remediation::Ai,
+                    format!(
+                        "source changed since locale `{}` was translated; re-run `forge docs translate {}`",
+                        assessment.locale, assessment.locale
+                    ),
+                )
+            }
+            crate::docs::FreshnessStatus::NeverTranslated => {
+                warn += 1;
+                (
+                    FindingStatus::Warn,
+                    Remediation::Ai,
+                    format!(
+                        "locale `{}` is enabled but has no derivative; run `forge docs translate {}`",
+                        assessment.locale, assessment.locale
+                    ),
+                )
+            }
+            crate::docs::FreshnessStatus::NeedsReview { reasons } => {
+                warn += 1;
+                for reason in reasons {
+                    evidence.push(format!("review-reason: {reason}"));
+                }
+                (
+                    FindingStatus::Warn,
+                    Remediation::Ai,
+                    format!(
+                        "derivative for locale `{}` needs review: {}",
+                        assessment.locale,
+                        if reasons.is_empty() {
+                            "unspecified".to_string()
+                        } else {
+                            reasons.join("; ")
+                        }
+                    ),
+                )
+            }
+            crate::docs::FreshnessStatus::Misconfigured { reason } => {
+                fail += 1;
+                (
+                    FindingStatus::Fail,
+                    Remediation::Manual,
+                    format!("locale `{}` is misconfigured: {reason}", assessment.locale),
+                )
+            }
+        };
+        out.push(Finding::new(
+            id.as_str(),
+            status,
+            evidence,
+            true,
+            remediation,
+            detail,
+        ));
+    }
+    let status = if fail > 0 {
+        FindingStatus::Fail
+    } else if warn > 0 {
+        FindingStatus::Warn
+    } else {
+        FindingStatus::Pass
+    };
+    out.push(Finding::new(
+        "docs-freshness",
+        status,
+        vec![format!(
+            "translation locales: {} pass, {warn} warn, {fail} fail",
+            pass
+        )],
+        true,
+        Remediation::Ai,
+        if fail > 0 {
+            "one or more translation locales are misconfigured".to_string()
+        } else if warn > 0 {
+            "one or more derivatives are stale, missing or need review".to_string()
+        } else {
+            "all enabled translation locales are current".to_string()
+        },
+    ));
+    out
+}
+
 fn observation_is_stale_from_report(dir: &Path, report: &PolicyReport) -> bool {
     let Some(revision) = report.source_revision else {
         return false;
@@ -1700,6 +1850,68 @@ mod tests {
             .find(|f| f.id == "build-config")
             .unwrap();
         assert_eq!(build.status, FindingStatus::Fail);
+        assert!(!report.healthy);
+    }
+
+    #[test]
+    fn docs_freshness_warns_for_never_translated_enabled_locale() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "forge.yaml",
+            "schema: 1\nproject:\n  id: docs-proj\n  name: docs-proj\n  profile: rust-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: rust\ndocs:\n  source_language: en\n  translations:\n    zh-CN:\n      enabled: true\n    fr:\n      enabled: false\n",
+        );
+        write(tmp.path(), "README.md", "Hello.\n");
+        write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let ids: Vec<&str> = report.findings.iter().map(|f| f.id.as_str()).collect();
+        assert!(ids.contains(&"docs-zh-CN"), "{ids:?}");
+        assert!(ids.contains(&"docs-freshness"), "{ids:?}");
+        // Disabled `fr` is skipped entirely: no finding, no output.
+        assert!(!ids.contains(&"docs-fr"), "{ids:?}");
+        let locale = report
+            .findings
+            .iter()
+            .find(|f| f.id == "docs-zh-CN")
+            .unwrap();
+        assert_eq!(locale.status, FindingStatus::Warn);
+        assert_eq!(locale.remediation, Remediation::Ai);
+        assert!(
+            locale.detail.contains("forge docs translate zh-CN"),
+            "{}",
+            locale.detail
+        );
+        let rollup = report
+            .findings
+            .iter()
+            .find(|f| f.id == "docs-freshness")
+            .unwrap();
+        assert_eq!(rollup.status, FindingStatus::Warn);
+    }
+
+    #[test]
+    fn docs_freshness_fails_for_misconfigured_locale() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "forge.yaml",
+            "schema: 1\nproject:\n  id: docs-bad\n  name: docs-bad\n  profile: rust-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: rust\ndocs:\n  source: MISSING.md\n  translations:\n    zh-CN:\n      enabled: true\n",
+        );
+        write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let locale = report
+            .findings
+            .iter()
+            .find(|f| f.id == "docs-zh-CN")
+            .unwrap();
+        assert_eq!(locale.status, FindingStatus::Fail);
+        assert_eq!(locale.remediation, Remediation::Manual);
+        let rollup = report
+            .findings
+            .iter()
+            .find(|f| f.id == "docs-freshness")
+            .unwrap();
+        assert_eq!(rollup.status, FindingStatus::Fail);
         assert!(!report.healthy);
     }
 

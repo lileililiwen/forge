@@ -14,6 +14,9 @@ use forge::core::ForgeError;
 use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
+use forge::docs::{
+    docs_config_from_manifest, run_translate, TranslateReport, TranslateRequest, TranslatorConfig,
+};
 use forge::doctor::{
     parse_target_level, render_report_human, run_doctor, FindingStatus, RegistryObservation,
     Remediation,
@@ -218,6 +221,11 @@ enum Commands {
         #[arg(long)]
         retry_failed: bool,
     },
+    /// Translate the canonical documentation into enabled derivative locales.
+    Docs {
+        #[command(subcommand)]
+        command: DocsCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -346,6 +354,22 @@ enum SpecCommands {
 enum McpCommands {
     /// Run the JSON-RPC 2.0 stdio server until stdin closes.
     Serve,
+}
+
+#[derive(Debug, Subcommand)]
+enum DocsCommands {
+    /// Translate the canonical source document into one enabled locale (or every enabled locale with --all).
+    Translate {
+        /// Locale tag to translate (e.g. `zh-CN`). Required unless `--all` is passed.
+        #[arg(value_name = "LOCALE")]
+        locale: Option<String>,
+        /// Translate every enabled locale, skipping disabled ones without contacting any provider.
+        #[arg(long)]
+        all: bool,
+        /// Project directory (default: current directory).
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -530,6 +554,7 @@ fn main() -> ExitCode {
             *retry_failed,
             cli.format,
         ),
+        Commands::Docs { command } => cmd_docs(&db_path, command, cli.format),
     };
 
     match result {
@@ -1869,5 +1894,77 @@ fn mirror_output(
 ) -> Result<Output, ForgeError> {
     let json = serde_json::json!({"mirror": report});
     let human = forge::distribution::render_report_human(report);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_docs(db_path: &Path, command: &DocsCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        DocsCommands::Translate {
+            locale,
+            all,
+            project,
+        } => cmd_docs_translate(db_path, project, locale.clone(), *all, format),
+    }
+}
+
+fn cmd_docs_translate(
+    db_path: &Path,
+    project: &Path,
+    locale: Option<String>,
+    all: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let canonical = project
+        .canonicalize()
+        .map_err(|_| ForgeError::PathUnavailable {
+            path: project.display().to_string(),
+        })?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    let config = docs_config_from_manifest(&manifest)?;
+    let translator = TranslatorConfig::from_env();
+    let request = TranslateRequest {
+        project_id: manifest.project.id.clone(),
+        locale,
+        all,
+    };
+    let report = run_translate(&canonical, &config, &request, &translator)?;
+    let registry = open_registry(db_path)?;
+    let statuses: Vec<String> = report
+        .outcomes
+        .iter()
+        .map(|o| format!("{}={}", o.locale, o.status))
+        .collect();
+    let detail = format!(
+        "docs translate `{}` locales={} healthy={} all={}",
+        report.project_id,
+        statuses.join(","),
+        report.healthy,
+        report.all
+    );
+    let state_label = if report.healthy() { "done" } else { "partial" };
+    let _ = registry.record_operation("docs", &report.project_id, state_label, &detail);
+    let output = docs_translate_output(&report, format)?;
+    if report.healthy() {
+        Ok(output)
+    } else {
+        // Partial failure: print the per-locale outcome JSON to
+        // stdout so the caller sees exactly which locales were
+        // translated and which failed, then surface a typed
+        // exit-code error. The prior derivatives are intact.
+        match &output {
+            Output::Human(text) => println!("{text}"),
+            Output::Json(value) => {
+                println!("{}", serde_json::to_string_pretty(value).unwrap());
+            }
+        }
+        Err(ForgeError::TranslationFailed {
+            reason: report.note.clone(),
+        })
+    }
+}
+
+fn docs_translate_output(report: &TranslateReport, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"translate": report});
+    let human = forge::docs::render_report_human(report);
     Ok(as_output(format, human, json))
 }

@@ -1,10 +1,51 @@
-current_spec: repository-distribution
+current_spec: documentation-translation
 
 # Forge handoff
 
 ## Current state
 
-`mature-mcp-surface` implemented, verified and archived on 2026-09-17
+`repository-distribution` implemented, verified and archived on 2026-09-17
+as `2026-09-17-repository-distribution`; canonical specs promoted to
+[openspec/specs/repository-distribution/spec.md](openspec/specs/repository-distribution/spec.md).
+New in this cycle: `src/distribution` (versioned
+`DistributionConfig`/`MirrorConfigEntry`/`MirrorProvider`
+`github`+`gitee` supported, `gitlab`+`codeberg` planned/
+`MirrorSupportStatus`/contract v0.1.0 over JSON-RPC 2.0 stdio;
+`DistributionConfig::from_manifest_meta` validates the
+manifest's `distribution` block, refuses duplicate enabled
+mirrors and unknown providers, and defaults the first
+declared mirror to the remote name `mirror-<provider>`;
+`plan_mirror` and `apply_mirror` drive `forge mirror` end
+to end, with per-remote `MirrorRemoteOutcome` carrying role
+`primary` or `mirror` and stable statuses `delivered`/
+`skipped`/`disabled`/`diverged`/`unavailable`/`failed`;
+`MirrorState` persisted under
+`.forge/distribution/<project-id>/state.json` so a
+`--retry-failed` re-push only fires when the local HEAD SHA
+differs from the previously delivered SHA (already-delivered
+refs at the same SHA are reported as `skipped`); diverging
+mirror history surfaces as `diverged` with a recovery
+guidance and refuses `--force`; a disabled mirror is reported
+as `disabled` without contacting the remote (R1 boundary);
+a partial primary+mirror run records each remote independently
+so the primary's `delivered` is never misreported when a
+mirror fails; credential-shaped evidence is redacted by
+`redact_distribution_evidence` which delegates to
+`policy::redact_credentials` (the same redaction the policy
+adapter consumes); Core errors `distribution-invalid`/
+`mirror-disabled`/`mirror-diverged`/`mirror-credentials` with
+stable codes; CLI `forge mirror [TARGET] --ref REF --confirm
+[--dry-run] [--retry-failed]` (human/JSON, the per-remote
+evidence is printed to stdout before the typed exit-code
+error so partial runs are observable); MCP `mirror_project`
+tool classified as `external_write` and dispatched through
+the same Core contracts the CLI uses; mirror operations
+journaled in the registry's `operations` table under the
+`mirror` kind with a `done`/`partial` verdict; and the spec
+contract from `agent-runtime-workflows` still holds after a
+mirror run on the same project (the push `confirm`-required
+guard and the registry journal remain independent of the
+distribution surface).
 as `2026-09-17-mature-mcp-surface`; canonical specs promoted to
 [openspec/specs/mature-mcp-surface/spec.md](openspec/specs/mature-mcp-surface/spec.md).
 New in this cycle: `src/mcp` (versioned `McpToolDescriptor`/
@@ -254,11 +295,130 @@ work has started.
 
 ## Next change
 
-Implement [repository-distribution](openspec/changes/repository-distribution/proposal.md)
+Implement [documentation-translation](openspec/changes/documentation-translation/proposal.md)
 only when implementation is requested. Its prerequisite
-(`agent-runtime-workflows`) now has implementation evidence. Then
+(`core-manifest-registry`) is implemented and verified. Then
 follow the roadmap prerequisites. Later changes remain planning-only
 with zero implementation tasks completed.
+
+## Verification evidence (repository-distribution, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 300 passed, 0 failed (165 lib incl. 18 new
+  distribution contract tests for provider validation,
+  supported-vs-planned classification, manifest config
+  parsing with primary+mirror separation, duplicate-mirror
+  refusal, empty distribution refusal, request validation
+  (empty refs, dash-prefixed refs, whitespace, implicit
+  remote write refusal), plan/apply independence per
+  remote, disabled-mirror boundary outcome, planned-provider
+  unavailable outcome, credential redaction round-trip,
+  state file round-trip, divergent mirror recovery,
+  partial-failure independence and retry-skip-on-match);
+  12 new distribution CLI/MCP contract tests for help
+  listing, full primary+mirror delivery against bare-repo
+  remotes, partial failure when the mirror remote is
+  unconfigured, `--confirm` refusal without the flag,
+  disabled mirror dry-run outcome, retry that records
+  `skipped` for already-delivered refs, credential-shaped
+  evidence round-trip, missing-distribution-section refusal,
+  MCP `tools/list` advertising `mirror_project` as
+  `external_write` with `confirm` required, MCP
+  `mirror_project` typed refusal without `confirm`, MCP
+  envelope matching the CLI JSON shape, and MCP dry-run not
+  contacting any remote; 4 new distribution cross-surface
+  tests for doctor verdict preservation after a successful
+  mirror, registry `mirror` journal row carrying the
+  per-remote summary, `commit`+`mirror` sequencing with a
+  second commit re-pushing on retry (the state file tracks
+  the SHA, not just the ref name), and agent session
+  independence from the distribution surface; plus the
+  unchanged 5 CLI contract, 4 cross-surface regression, 8
+  doctor contract, 10 feature contract, 12 generate
+  contract, 10 import contract, 7 profile contract, 7
+  quality policy contract, 12 upgrade contract, 12 spec
+  contract, 8 agent contract, 8 gitops contract, 13 mcp
+  contract (incl. the new `mirror_project` registration in
+  the tool list and the consistent `external_write` kind),
+  9 mcp cross-surface; rust_scaffold and react_web scaffold
+  tests are exercised in the long `cargo build+test` run
+  that finishes in ~220s when the host toolchain is on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge mirror <proj> --ref main --confirm
+  --dry-run` on a registered rust-web project with a
+  `distribution: { primary: github, mirrors: [gitee] }`
+  section lists the per-remote `would-push` plan; `forge
+  mirror <proj> --ref main --confirm` against a project
+  whose `origin` is a local bare repository and whose
+  `mirror-gitee` remote is intentionally not configured
+  reports `primary github delivered commit=<sha>` and
+  `mirror gitee failed: ... fatal: 'mirror-gitee' does not
+  appear to be a git repository ...` and exits 1 with
+  `error[distribution-invalid]` so the per-remote evidence
+  on stdout names the failing remote while the typed exit
+  code is preserved; a `forge mirror <proj> --ref main
+  --confirm --retry-failed` run after the partial failure
+  records `primary github skipped commit=<sha>` (the SHA
+  matches the state file) and re-attempts the failed
+  mirror; divergent history on the mirror (a push to the
+  mirror from a side clone) is detected as
+  `mirror gitee diverged` with the recovery note
+  `investigate the mirror's diverging history before
+  re-pushing / remove the diverging commits from
+  mirror-gitee or align with origin`; `forge mirror` on a
+  project without a `distribution` section exits 1 with
+  `error[distribution-invalid]: distribution invalid: project
+  ... has no `distribution` section; declare a primary or at
+  least one mirror`; `forge mcp serve` advertises
+  `mirror_project` with `kind: external_write` and a schema
+  that requires `path` and `confirm`; a JSON-RPC request to
+  `mirror_project` with `confirm: false` is refused with
+  `TOOL_REFUSED` (`-32012`) and the data code references
+  the confirm boundary; a successful `mirror_project` MCP
+  request returns the same `{contract, mirror: {...}}`
+  envelope the CLI JSON output carries, and the
+  `tools/list` snapshot does not include `deploy`,
+  `publish`, `release`, `mirror` (as a top-level tool) or
+  `docs`; a credential-shaped substring in evidence is
+  redacted through `redact_distribution_evidence` which
+  delegates to the same `policy::redact_credentials` helper
+  the DriftWatch adapter uses; and a second commit on the
+  same branch after the first mirror run re-records the
+  local SHA in the state file so a subsequent
+  `mirror --retry-failed` re-pushes the new commit instead
+  of reporting `skipped` (the state file tracks the SHA,
+  not just the ref name, so a stale approval cannot
+  silently skip a new commit).
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate repository-distribution --strict
+  --no-interactive`: valid pre-archive; `openspec validate
+  --all --strict --no-interactive`: 25 passed, 0 failed
+  (post-archive, includes the promoted
+  `spec/repository-distribution`).
+- `git diff --check`: PASS; staged set reviewed (4 files
+  modified: `src/core/mod.rs` for the new typed errors,
+  `src/lib.rs` to register the new module, `src/main.rs`
+  for the `forge mirror` subcommand and the `cmd_mirror`
+  helper, `src/mcp/mod.rs` for the `mirror_project` tool
+  and dispatcher; 2 files added: `src/distribution/mod.rs`
+  with 18 unit tests, `tests/distribution_contract.rs` with
+  12 CLI/MCP contract tests, and
+  `tests/distribution_cross_surface.rs` with 4 cross-surface
+  regression tests, plus the promoted spec — 8 files;
+  archive under
+  `openspec/changes/archive/2026-09-17-repository-distribution/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real provider integration is not exercised: the local
+  bare repository stands in for a GitHub primary and a
+  Gitee mirror, so the contract is verified through
+  `git push` against in-process bare repos. Real Gitee or
+  GitHub HTTPS endpoints are not contacted from the
+  sandbox, so a real mirror round trip (a push that hits a
+  provider API) is a downstream integration step and is
+  not claimed here. The credential redaction rule set is
+  the same as `policy::redact_credentials`, which is itself
+  verified through the existing quality policy contract
+  tests.
 
 ## Verification evidence (mature-mcp-surface, 2026-09-17)
 

@@ -1,8 +1,29 @@
-current_spec: extended-profile-catalog
+current_spec: quality-policy-integration
 
 # Forge handoff
 
 ## Current state
+
+`extended-profile-catalog` implemented, verified and archived on 2026-09-17
+as `2026-09-17-extended-profile-catalog`; canonical specs promoted to
+[openspec/specs/extended-profile-catalog/spec.md](openspec/specs/extended-profile-catalog/spec.md).
+New in this cycle: `ProfileSupportStatus` (`Supported` / `Planned`) on
+`ProfileDescriptor`, the sixth supported profile `react-web`
+(`adapter-react`, typescript, `npm@20` 0.1.0) with a tested native-buildable
+template (`forge new --profile react-web` renders
+`forge.yaml`/`README.md`/`index.html`/`src/main.js`/`src/app.test.mjs`/
+`package.json`/`scripts/build.mjs`/`vite.config.js`/`Dockerfile`/
+`.gitignore`; build `npm run build`, test `npm test`), and seven reserved
+specialist candidates (`aspnet-saas`, `flutter-client`, `nextjs-content`,
+`python-ai`, `python-data`, `rust-cli`, `rust-worker`) discoverable through
+`inspect_profile` with `support_status: planned` but refused by
+`resolve_profile` / `preflight_profile` / `generate` with a new
+`ForgeError::UnsupportedProfile` (code `unsupported-profile`) before any
+file change; the original five MVP ids and their semantics stay intact,
+react-web refuses server-side capabilities with the existing backend
+boundary hint, `flutter-client` description names the backend boundary
+('rust-web'/'python-service') it needs, and CLI `forge profile inspect`
+shows the support status plus description in human and JSON output.
 
 `project-upgrade-orchestration` implemented, verified and archived on 2026-09-17
 as `2026-09-17-project-upgrade-orchestration`; canonical specs promoted to
@@ -108,12 +129,64 @@ work has started.
 
 ## Next change
 
-Implement [extended-profile-catalog](openspec/changes/extended-profile-catalog/proposal.md)
-only when implementation is requested. Its prerequisite
-(`feature-lifecycle`) now has implementation evidence, and
-`project-upgrade-orchestration` is also archived. Then follow the
-roadmap prerequisites. Later changes remain planning-only with zero
-implementation tasks completed.
+Implement [quality-policy-integration](openspec/changes/quality-policy-integration/proposal.md)
+only when implementation is requested. Its prerequisites
+(`doctor-maturity-assessment` and `feature-lifecycle`) now have
+implementation evidence, and `extended-profile-catalog` is also archived.
+Then follow the roadmap prerequisites. Later changes remain planning-only
+with zero implementation tasks completed.
+
+## Verification evidence (extended-profile-catalog, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 148 passed, 0 failed (80 unit incl. 11 new profile
+  support_status/react-web/planned tests after dropping the stale
+  `react-web` unknown-profile probe, 5 CLI contract, 3 cross-surface
+  regression, 8 doctor contract incl. 1 new planned-profile
+  doctor finding, 10 feature contract, 12 generate contract incl.
+  react-web render + planned-profile generation refusal, 9 profile
+  contract incl. 3 new react-web and planned-profile contract
+  cases, 10 import contract, 11 upgrade contract; rust_scaffold
+  skipped in the regular run; the slow `cargo build+test` evidence
+  path is exercised through the `rust_scaffold_builds_and_tests_
+  with_native_toolchain` test that finishes in ~218s when the host
+  toolchain is on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge profile list` shows all six supported ids
+  (aspnet-web, flutter-app, nextjs-web, python-service, react-web,
+  rust-web) at 0.1.0 and omits the planned candidates; `forge
+  profile inspect react-web` (human + JSON) reports
+  `support_status: supported` with `adapter-react`, toolchain
+  `npm@20`, build `npm run build`, test `npm test`, and the
+  client-only capability set; `forge profile inspect flutter-client`
+  reports `support_status: planned` with a description that names
+  the backend boundary; `forge profile resolve react-web --feature
+  i18n` resolves `react-web@0.1.0 via adapter-react`; `forge
+  profile resolve react-web --feature postgres` exits 1 with
+  `error[incompatible-profile]` and the backend hint; `forge
+  profile resolve aspnet-saas` exits 1 with
+  `error[unsupported-profile]`; `forge new --profile react-web`
+  creates a registered project with the expected 10 files;
+  `forge new --profile rust-cli` exits 1 with
+  `error[unsupported-profile]` and writes nothing.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate extended-profile-catalog --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  25 passed, 0 failed (post-archive, includes the promoted
+  `spec/extended-profile-catalog`).
+- `git diff --check`: PASS; staged set reviewed (8 implementation +
+  test files, 5 archive files, 1 promoted spec — 14 files; 1033
+  insertions, 36 deletions).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Per-service native react-web validation was not exercised in this
+  cycle (no node toolchain integration in the local sandbox);
+  rendering alone is verified and the
+  `react_web_scaffold_builds_and_tests_with_native_toolchain` test
+  remains available as the `npm run build` / `npm test` evidence
+  path when the host toolchain is on PATH. Planned candidates stay
+  discoverable through `inspect_profile` and `planned_profiles` but
+  refuse generation before any file change; their promotion to
+  `Supported` remains future work, not an implementation claim here.
 
 ## Verification evidence (project-upgrade-orchestration, 2026-09-17)
 

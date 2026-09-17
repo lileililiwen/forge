@@ -1,8 +1,32 @@
-current_spec: quality-policy-integration
+current_spec: specification-remediation
 
 # Forge handoff
 
 ## Current state
+
+`quality-policy-integration` implemented, verified and archived on 2026-09-17
+as `2026-09-17-quality-policy-integration`; canonical specs promoted to
+[openspec/specs/quality-policy-integration/spec.md](openspec/specs/quality-policy-integration/spec.md).
+New in this cycle: `src/policy` (versioned `DriftWatchConfig`/default
+binary `driftwatch` overridable via `FORGE_DRIFTWATCH_BIN`, bounded
+`Command::new` + argument-array invocation with per-run `wait_timeout`
+so an unresponsive tool cannot hang the registry; `PolicyReport`/`PolicyFinding`/`PolicySeverity`
+contract v0.1.0 with custom deserialization that accepts `info`/`ok` as
+aliases for `pass`; project-scoped execution with `current_dir(dir)` and
+`--project <dir>`; `PolicyOutcome::Reported` / `Unavailable` so a
+missing binary, non-zero exit, timeout or unparseable JSON surfaces as
+an `unavailable` finding instead of `pass`; `redact_credentials` and
+`redact_report_in_place` covering AWS / GitHub / GitLab / Slack / JWT /
+private-key / `key=value` shapes and run on every consumed report as
+defense in depth; `observation_is_stale` keyed on `forge.yaml` and
+configured driftwatch-file mtimes), Core `PolicyUnavailable`
+(`policy-unavailable`), CLI `forge doctor` invokes the adapter and
+threads the outcome through `run_doctor(..., Some(&outcome))` with
+per-rule `driftwatch-<id>` findings, `driftwatch-policy` rollup and
+not-applicable policies preserved with their reason and
+`applicable: false`, and existing doctor contract still holds (no
+registry/observation/dependency-drift regression on the unchanged
+fixtures).
 
 `extended-profile-catalog` implemented, verified and archived on 2026-09-17
 as `2026-09-17-extended-profile-catalog`; canonical specs promoted to
@@ -129,12 +153,64 @@ work has started.
 
 ## Next change
 
-Implement [quality-policy-integration](openspec/changes/quality-policy-integration/proposal.md)
+Implement [specification-remediation](openspec/changes/specification-remediation/proposal.md)
 only when implementation is requested. Its prerequisites
-(`doctor-maturity-assessment` and `feature-lifecycle`) now have
-implementation evidence, and `extended-profile-catalog` is also archived.
-Then follow the roadmap prerequisites. Later changes remain planning-only
-with zero implementation tasks completed.
+(`project-upgrade-orchestration` and `quality-policy-integration`) now
+have implementation evidence. Then follow the roadmap prerequisites.
+Later changes remain planning-only with zero implementation tasks
+completed.
+
+## Verification evidence (quality-policy-integration, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 180 passed, 0 failed (104 unit incl. 18 new policy
+  contract tests for redaction shapes, JSON parsing, missing binary,
+  invalid output, non-zero exit, stale observation, plus 5 new doctor
+  policy integration tests for unavailable rollup, rule-id/severity
+  preservation, not-applicable applicability, redaction-on-consume and
+  stale-source demotion, 5 CLI contract, 3 cross-surface regression,
+  8 doctor contract incl. the new `driftwatch-policy` finding, 10
+  feature contract, 12 generate contract, 10 import contract, 9
+  profile contract, 7 quality_policy_contract incl. missing-binary,
+  parseable-report normalization with not-applicable preservation,
+  non-zero exit, invalid output, credential redaction, per-project
+  isolation and human-output redaction, 12 upgrade contract;
+  rust_scaffold skipped in the regular run; the slow
+  `cargo build+test` evidence path is exercised through the
+  `rust_scaffold_builds_and_tests_with_native_toolchain` test that
+  finishes in ~210s when the host toolchain is on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web` then `forge doctor` with
+  no `FORGE_DRIFTWATCH_BIN` reports a `driftwatch-policy` finding
+  with status `unavailable` and evidence naming the missing binary
+  (`driftwatch invocation failed: binary not found on PATH`) so the
+  project is not labeled healthy; `FORGE_DRIFTWATCH_BIN=…fake.sh forge
+  doctor` against the same project reports `driftwatch-AUTH-001`
+  (warn), `driftwatch-DEPLOY-002` (fail) and `driftwatch-FLUTTER-AUTH-001`
+  (applicable:false, reason preserved) plus a `driftwatch-policy`
+  rollup at `fail`; the same fake script reporting a credential-laden
+  payload surfaces every secret as `[REDACTED]` in both JSON and
+  human output; two projects running `forge doctor` in sequence each
+  reference only their own evidence strings; aging `forge.yaml` after
+  a successful run flips `driftwatch-AUTH-001` from pass to warn with
+  a stale observation line.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate quality-policy-integration --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  25 passed, 0 failed (post-archive, includes the promoted
+  `spec/quality-policy-integration`).
+- `git diff --check`: PASS; staged set reviewed (5 implementation +
+  test files modified, 3 files added: `src/policy/mod.rs`,
+  `tests/quality_policy_contract.rs`, the promoted spec — 8 files;
+  archive under `openspec/changes/archive/2026-09-17-quality-policy-integration/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real DriftWatch adapter execution stays untested: a real
+  `driftwatch` binary is not present in the local sandbox, so the
+  contract is validated through `FORGE_DRIFTWATCH_BIN` fixture
+  scripts that stand in for the real tool. The brief's "real
+  DriftWatch integration evidence" claim is deferred until a real
+  binary is available, matching the design decision that contract
+  fixtures supplement but do not replace a real integration run.
 
 ## Verification evidence (extended-profile-catalog, 2026-09-17)
 

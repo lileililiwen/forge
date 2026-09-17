@@ -132,6 +132,15 @@ pub enum ForgeError {
 
     #[error("translation failed: {reason}; prior derivative left intact")]
     TranslationFailed { reason: String },
+
+    #[error("release invalid: {reason}")]
+    ReleaseInvalid { reason: String },
+
+    #[error("release check failed: {reason}; release execution blocks before tag or publication")]
+    ReleaseCheckFailed { reason: String },
+
+    #[error("release identity conflict: {reason}; existing tag or immutable version points to different content")]
+    ReleaseIdentityConflict { reason: String },
 }
 
 impl ForgeError {
@@ -179,6 +188,9 @@ impl ForgeError {
             ForgeError::MirrorCredentials { .. } => "mirror-credentials",
             ForgeError::DocsInvalid { .. } => "docs-invalid",
             ForgeError::TranslationFailed { .. } => "translation-failed",
+            ForgeError::ReleaseInvalid { .. } => "release-invalid",
+            ForgeError::ReleaseCheckFailed { .. } => "release-check-failed",
+            ForgeError::ReleaseIdentityConflict { .. } => "release-identity-conflict",
         }
     }
 

@@ -170,6 +170,86 @@ pub struct DocsMeta {
     pub non_translatable: Vec<String>,
 }
 
+/// One required check before a release side effect. The kind id
+/// matches the typed outcomes the doctor/test/DriftWatch modules
+/// already produce: `doctor`, `test`, `driftwatch`. Future check
+/// kinds are added here and matched in the release contract.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ReleaseCheck {
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReleasePackageEntry {
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReleaseContainerEntry {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub dockerfile: Option<String>,
+    #[serde(default)]
+    pub registry: Option<String>,
+    #[serde(default)]
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReleaseNotesMeta {
+    #[serde(default)]
+    pub template: Option<String>,
+    #[serde(default)]
+    pub output: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReleaseDocsMeta {
+    #[serde(default)]
+    pub translate: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ReleaseMeta {
+    /// Versioning scheme; only `semver` is supported in v0.5.
+    #[serde(default)]
+    pub versioning: Option<String>,
+    /// Required checks before any release side effect.
+    #[serde(default)]
+    pub checks: Vec<ReleaseCheck>,
+    /// Changelog filename relative to the project root. When
+    /// present, the changelog's contents are bound to the release
+    /// record and surfaced in the report.
+    #[serde(default)]
+    pub changelog: Option<String>,
+    /// Package destinations. Each entry becomes one `package`
+    /// stage. Real provider integration is out of scope; the
+    /// adapter pattern is reused (see `docs` and `policy`).
+    #[serde(default)]
+    pub packages: Vec<ReleasePackageEntry>,
+    /// Container destinations. Each entry becomes one
+    /// `container` stage.
+    #[serde(default)]
+    pub containers: Vec<ReleaseContainerEntry>,
+    /// Release notes generation entry; exactly one `notes`
+    /// stage is allowed per release.
+    #[serde(default)]
+    pub notes: Option<ReleaseNotesMeta>,
+    /// Documentation translations to run as part of the
+    /// release. Each locale becomes one `docs` stage
+    /// through the docs-translate contract.
+    #[serde(default)]
+    pub docs: Option<ReleaseDocsMeta>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProjectMeta {
     pub id: String,
@@ -199,6 +279,8 @@ struct RawManifest {
     distribution: Option<DistributionMeta>,
     #[serde(default)]
     docs: Option<DocsMeta>,
+    #[serde(default)]
+    release: Option<ReleaseMeta>,
 }
 
 /// Validated, normalized project manifest.
@@ -213,6 +295,7 @@ pub struct Manifest {
     pub deployment: Option<DeploymentMeta>,
     pub distribution: Option<DistributionMeta>,
     pub docs: Option<DocsMeta>,
+    pub release: Option<ReleaseMeta>,
 }
 
 impl Manifest {
@@ -272,6 +355,7 @@ impl Manifest {
             deployment: raw.deployment,
             distribution: raw.distribution,
             docs: raw.docs,
+            release: raw.release,
         })
     }
 

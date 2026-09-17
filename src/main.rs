@@ -31,6 +31,14 @@ use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
+use forge::release::engine::{
+    apply_release, list_releases, prepare_release, read_release, PlanReport as EnginePlanReport,
+    ReleaseListEntry,
+};
+use forge::release::{
+    release_config_from_manifest, render_report_human as render_release_report_human,
+    ReleaseAdapterConfig, ReleaseReport, ReleaseRequest, ReleaseState, Semver,
+};
 use forge::spec::{
     apply_routing, ensure_single_project, generate_spec, list_specs, read_spec,
     render_proposal_markdown, route_finding, DoctorFindingInput, FindingSource, RoutingOutcome,
@@ -226,6 +234,11 @@ enum Commands {
         #[command(subcommand)]
         command: DocsCommands,
     },
+    /// Prepare, apply, list and inspect gated resumable releases.
+    Release {
+        #[command(subcommand)]
+        command: ReleaseCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -369,6 +382,57 @@ enum DocsCommands {
         /// Project directory (default: current directory).
         #[arg(long, default_value = ".")]
         project: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ReleaseCommands {
+    /// Capture semver, changelog, source revision and the doctor/test/DriftWatch evidence into a reviewable plan.
+    Prepare {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Semver version for this release (e.g. `1.2.3`).
+        #[arg(long)]
+        version: String,
+        /// Read-only plan: capture checks without persisting a release record.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Apply a verified release plan: walks every stage with safe retry and per-stage records.
+    Apply {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Semver version for this release (e.g. `1.2.3`).
+        #[arg(long)]
+        version: String,
+        /// Required explicit confirmation for tag, push, package, container and notes side effects.
+        #[arg(long)]
+        confirm: bool,
+        /// Re-run only stages that have not yet delivered at the current revision.
+        #[arg(long)]
+        retry: bool,
+        /// Read-only plan: report the would-apply plan without contacting any provider.
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the manifest's default stage list (repeatable).
+        #[arg(long = "stage", value_name = "STAGE")]
+        stages: Vec<String>,
+    },
+    /// List all persisted releases under the project's release directory.
+    List {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Inspect a single persisted release record.
+    Inspect {
+        /// Release id (e.g. `app-1.2.3-deadbeefcafe`).
+        release_id: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
     },
 }
 
@@ -555,6 +619,7 @@ fn main() -> ExitCode {
             cli.format,
         ),
         Commands::Docs { command } => cmd_docs(&db_path, command, cli.format),
+        Commands::Release { command } => cmd_release(&db_path, command, cli.format),
     };
 
     match result {
@@ -1967,4 +2032,260 @@ fn docs_translate_output(report: &TranslateReport, format: Format) -> Result<Out
     let json = serde_json::json!({"translate": report});
     let human = forge::docs::render_report_human(report);
     Ok(as_output(format, human, json))
+}
+
+fn cmd_release(
+    db_path: &Path,
+    command: &ReleaseCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        ReleaseCommands::Prepare {
+            target,
+            version,
+            dry_run,
+        } => cmd_release_prepare(db_path, target, version, *dry_run, format),
+        ReleaseCommands::Apply {
+            target,
+            version,
+            confirm,
+            retry,
+            dry_run,
+            stages,
+        } => cmd_release_apply(
+            db_path, target, version, *confirm, *retry, *dry_run, stages, format,
+        ),
+        ReleaseCommands::List { target } => cmd_release_list(db_path, target, format),
+        ReleaseCommands::Inspect { release_id, target } => {
+            cmd_release_inspect(db_path, target, release_id, format)
+        }
+    }
+}
+
+fn resolve_release_target(target: &str) -> Result<(PathBuf, String), ForgeError> {
+    let candidate = Path::new(target);
+    if candidate.is_dir() {
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+        return Ok((canonical, manifest.project.id));
+    }
+    Err(ForgeError::PathUnavailable {
+        path: target.to_string(),
+    })
+}
+
+fn cmd_release_prepare(
+    db_path: &Path,
+    target: &str,
+    version: &str,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (project_dir, project_id) = resolve_release_target(target)?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&project_dir, None)?;
+    let config = release_config_from_manifest(&manifest)?;
+    let semver = Semver::parse(version)?;
+    let request = ReleaseRequest {
+        project_id: project_id.clone(),
+        version: semver,
+        confirm: false,
+        dry_run,
+        retry: false,
+        stages: config.stages.clone(),
+    };
+    let policy = DriftWatchConfig::from_env();
+    let plan = prepare_release(&project_dir, &manifest, &config, &request, &policy)?;
+    let registry = open_registry(db_path)?;
+    let detail = format!(
+        "release prepare `{}` v{} revision=`{}` ready={} dry_run={}",
+        project_id, plan.identity.version, plan.identity.source_revision, plan.ready, dry_run
+    );
+    let state_label = if plan.healthy() { "done" } else { "blocked" };
+    let _ = registry.record_operation("release", &project_id, state_label, &detail);
+    release_plan_output(&plan, format)
+}
+
+fn release_plan_output(plan: &EnginePlanReport, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"plan": plan});
+    let human = forge::release::engine::render_plan_human(plan);
+    Ok(as_output(format, human, json))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_release_apply(
+    db_path: &Path,
+    target: &str,
+    version: &str,
+    confirm: bool,
+    retry: bool,
+    dry_run: bool,
+    stages: &[String],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (project_dir, project_id) = resolve_release_target(target)?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&project_dir, None)?;
+    let mut config = release_config_from_manifest(&manifest)?;
+    if !stages.is_empty() {
+        config = config.with_stages(stages.to_vec());
+    }
+    let semver = Semver::parse(version)?;
+    let request = ReleaseRequest {
+        project_id: project_id.clone(),
+        version: semver,
+        confirm,
+        dry_run,
+        retry,
+        stages: config.stages.clone(),
+    };
+    let adapters = ReleaseAdapterConfig::from_env();
+    let report = match apply_release(&project_dir, &manifest, &config, &request, &adapters) {
+        Ok(report) => report,
+        Err(ForgeError::ReleaseCheckFailed { reason }) => {
+            return Err(ForgeError::ReleaseCheckFailed { reason });
+        }
+        Err(err) => return Err(err),
+    };
+    let registry = open_registry(db_path)?;
+    let detail = format!(
+        "release apply `{}` v{} revision=`{}` stages={} dry_run={} retry={} healthy={}",
+        report.project_id,
+        report.identity.version,
+        report.identity.source_revision,
+        report.stage_outcomes.len(),
+        report.dry_run,
+        report.retry,
+        report.healthy
+    );
+    let state_label = if report.healthy() { "done" } else { "partial" };
+    let _ = registry.record_operation("release", &project_id, state_label, &detail);
+    let output = release_report_output(&report, format)?;
+    if report.healthy() {
+        Ok(output)
+    } else {
+        match &output {
+            Output::Human(text) => println!("{text}"),
+            Output::Json(value) => {
+                println!("{}", serde_json::to_string_pretty(value).unwrap());
+            }
+        }
+        Err(ForgeError::ReleaseCheckFailed {
+            reason: report.note.clone(),
+        })
+    }
+}
+
+fn release_report_output(report: &ReleaseReport, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"release": report});
+    let human = render_release_report_human(report);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_release_list(db_path: &Path, target: &str, format: Format) -> Result<Output, ForgeError> {
+    let _ = db_path;
+    let (project_dir, project_id) = resolve_release_target(target)?;
+    let entries = list_releases(&project_dir, &project_id)?;
+    release_list_output(&entries, &project_id, format)
+}
+
+fn release_list_output(
+    entries: &[ReleaseListEntry],
+    project_id: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"releases": entries, "project_id": project_id});
+    if entries.is_empty() {
+        let human = format!("no releases for project `{project_id}`");
+        return Ok(as_output(format, human, json));
+    }
+    let mut human = format!(
+        "{:<48} {:<12} {:<14} {:<8} {}",
+        "Release", "Project", "Version", "Stages", "Last Run"
+    );
+    for entry in entries {
+        human.push_str(&format!(
+            "\n{:<48} {:<12} {:<14} {:<8} {}",
+            entry.release_id,
+            truncate(&entry.project_id, 12),
+            entry.version,
+            entry.stage_count.to_string(),
+            entry.last_run_at
+        ));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_release_inspect(
+    db_path: &Path,
+    target: &str,
+    release_id: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let _ = db_path;
+    let (project_dir, project_id) = resolve_release_target(target)?;
+    let state = match read_release(&project_dir, &project_id, release_id)? {
+        Some(state) => state,
+        None => {
+            return Err(ForgeError::ReleaseInvalid {
+                reason: format!(
+                    "release `{release_id}` was not found under `.forge/release/{project_id}/`"
+                ),
+            });
+        }
+    };
+    release_state_output(&state, format)
+}
+
+fn release_state_output(state: &ReleaseState, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"release": state});
+    let human = render_release_report_human_for_state(state);
+    Ok(as_output(format, human, json))
+}
+
+fn render_release_report_human_for_state(state: &ReleaseState) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("project: {}", state.identity.project_id));
+    lines.push(format!("release_id: {}", state.identity.id));
+    lines.push(format!("version: {}", state.identity.version));
+    lines.push(format!(
+        "source_revision: {}",
+        state.identity.source_revision
+    ));
+    if let Some(changelog) = &state.changelog {
+        lines.push(format!("changelog: {}", changelog.path));
+        lines.push(format!("changelog_hash: {}", changelog.content_hash));
+    }
+    if !state.docs_locales.is_empty() {
+        lines.push(format!("docs_locales: {}", state.docs_locales.join(", ")));
+    }
+    lines.push(format!("stages: {}", state.stages.join(", ")));
+    lines.push(format!("last_run_at: {}", state.last_run_at));
+    if !state.checks.is_empty() {
+        lines.push("checks:".to_string());
+        for check in &state.checks {
+            lines.push(format!(
+                "  - {} {} applicable={} revision={}: {}",
+                check.kind, check.status, check.applicable, check.source_revision, check.detail
+            ));
+        }
+    }
+    if !state.stage_outcomes.is_empty() {
+        lines.push("stage_outcomes:".to_string());
+        for outcome in &state.stage_outcomes {
+            lines.push(format!(
+                "  - {} target=`{}` {}: {}",
+                outcome.stage, outcome.target, outcome.status, outcome.note
+            ));
+            for line in &outcome.evidence {
+                lines.push(format!("      evidence: {line}"));
+            }
+            for line in &outcome.recovery {
+                lines.push(format!("      recovery: {line}"));
+            }
+        }
+    }
+    lines.join("\n")
 }

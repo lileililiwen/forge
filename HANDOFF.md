@@ -1,12 +1,74 @@
-current_spec: adapter-deployment
+current_spec: semantic-component-registry
 
 # Forge handoff
 
 ## Current state
 
-`release-publishing` implemented, verified and archived on 2026-09-17
-as `2026-09-17-release-publishing`; canonical specs promoted to
-[openspec/specs/release-publishing/spec.md](openspec/specs/release-publishing/spec.md).
+`adapter-deployment` implemented, verified and archived on 2026-09-17
+as `2026-09-17-adapter-deployment`; canonical specs promoted to
+[openspec/specs/adapter-deployment/spec.md](openspec/specs/adapter-deployment/spec.md).
+New in this cycle: `src/deploy` (versioned
+`DeployConfig`/`DeployTargetSpec`/`DeployHealthSpec`/`DeployRequest`/
+`DeployPlan`/`DeployReport`/`DeployStageOutcome`/`HealthObservation`/
+`DeployState`/`DeployIdentity`/`DeployListEntry` contract v0.1.0;
+`DeployConfig::from_manifest_meta` parses the manifest's
+`deployment` block, accepts the typed
+`deployment.targets[].kind` (one of `local` / `docker-compose`
+/ `ssh` planned), refuses duplicate target names,
+artifact paths that lexically resolve outside the
+project, an empty deployment block, and the mixing of
+typed `targets[]` with the legacy `deployment.type` +
+`deployment.target`; `prepare_deploy` captures the named
+target, the working-tree revision, the artifact identity
+(path + content hash + byte size) and the configured
+health check into a `DeployPlan` whose `ready` verdict
+is true only when the chosen target has a usable
+artifact (or the adapter does not need one) and the
+working tree carries a git HEAD; `apply_deploy` refuses
+without `--confirm` (typed `deploy-invalid`), walks the
+per-target adapter invocation through the configured
+`FORGE_DEPLOYER_BIN` binary (default
+`forge-deployer`, overridable via environment variable)
+with argument arrays plus a bounded 60s wait so an
+unresponsive target cannot hang the registry, captures
+the timestamped health observation and persists a
+`DeployState` under
+`.forge/deploy/<project-id>/<deploy-id>/state.json`
+(via atomic write, `.tmp` + rename) so a successful
+run overwrites the prior state and a failed run leaves
+the last good observation intact; a missing binary,
+non-zero exit, timeout, contract mismatch or unparseable
+output surfaces as `deploy-target-unavailable` with the
+typed reason and the prior state is left untouched
+(R1 + R2 boundary); the per-stage JSON envelope
+carries the per-target outcome so a partial run is
+observable on stdout before the typed
+`error[deploy-health-failed]` is rendered on stderr;
+`DeployIdentity` is derived from
+`<project>-<target>-<12-hex-sha>` so a different
+revision or target cannot silently reuse the previous
+deploy record (R2 boundary: disconnected means unknown,
+not offline proof); `observe_deploy` re-runs the health
+check on a previously applied deploy and updates the
+same `state.json` with the new observation timestamp
+(the last successful observation is preserved as
+`last_observation` and the new value is reported as
+`current_state` so a transient unreachable target does
+not overwrite a known running deployment); credential-
+shaped evidence is redacted by
+`redact_deploy_evidence` which delegates to
+`policy::redact_credentials` (the same redaction the
+policy / release / distribution / docs adapters
+consume); CLI `forge deploy plan|apply|observe|list|
+inspect [TARGET] [--target-name NAME] [--confirm]
+[--dry-run]` (human/JSON); deploy operations journaled
+in the registry's `operations` table under the
+`deploy` kind with a `done`/`partial`/`blocked`
+verdict; and the spec contract from `release-publishing`
+still holds after a deploy run on the same project
+(registry journal stays independent of the deploy
+surface, doctor verdict is unchanged, project
+isolation and redaction rules are preserved).
 New in this cycle: `src/release` (versioned `Semver`/`ReleaseConfig`/
 `ReleaseIdentity`/`ReleaseRequest`/`ReleaseReport`/`ReleaseState`/
 `StageOutcome` contract v0.1.0; `Semver::parse` rejects empty,
@@ -413,11 +475,155 @@ work has started.
 
 ## Next change
 
-Implement [adapter-deployment](openspec/changes/adapter-deployment/proposal.md)
-only when implementation is requested. Its prerequisite
-(`release-publishing`) is implemented and verified. Then
-follow the roadmap prerequisites. Later changes remain planning-only
-with zero implementation tasks completed.
+Implement [semantic-component-registry](openspec/changes/semantic-component-registry/proposal.md)
+only when implementation is requested. Its prerequisites
+(`feature-lifecycle`, `project-upgrade-orchestration`) are
+implemented and verified. Then follow the roadmap
+prerequisites. Later changes remain planning-only with
+zero implementation tasks completed.
+
+## Verification evidence (adapter-deployment, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  23 new deploy unit tests for target validation,
+  config defaults, default target resolution, unknown
+  target kind refusal, duplicate target name refusal,
+  artifact outside project refusal, legacy single
+  target acceptance, legacy/typed mixing refusal,
+  empty block refusal, identity stability on the same
+  inputs, identity divergence on different
+  target/revision, artifact read success and missing/
+  outside-project refusal, target lookup rejection of
+  unknown names, health spec `kind` requirement,
+  unknown health kind refusal, ssh target unavailable
+  boundary, prepare ready plan, prepare unknown target
+  refusal, apply refusal without `--confirm`, list empty
+  for a fresh project, and observe refusal without
+  prior state; 14 new deploy CLI contract tests for
+  help listing the `plan|apply|observe|list|inspect`
+  subcommands, plan capturing target / artifact /
+  revision, plan refusing unknown target with
+  `error[deploy-invalid]`, plan refusing `ssh` target
+  with `error[deploy-target-unavailable]`, plan
+  requiring `default` or explicit `--target-name` for
+  multi-target projects, apply refusing without
+  `--confirm` with `error[deploy-invalid]`, apply
+  recording `delivered` apply + `running` observation
+  through the `FORGE_DEPLOYER_BIN` fixture, apply
+  recording `failed` apply + recovery through the
+  failing fixture, apply preserving the unreachable
+  boundary (apply `delivered` + observe `failed` +
+  observation `unknown`), apply refusing a missing
+  adapter binary without writing state, list reporting
+  the persisted deploy with the expected project /
+  target / current_state, inspect returning the deploy
+  state with the per-stage outcomes + current_state,
+  observe updating the state on a subsequent run, and
+  observe refusing without prior state with
+  `error[deploy-target-stale]`; 5 new deploy
+  cross-surface tests for the registry `deploy` journal
+  row keeping the operations table independent of the
+  deploy surface, the doctor verdict being unchanged
+  after a successful deploy, redeploy on the same
+  revision deriving the same deploy id (idempotency),
+  redeploy after a new commit deriving a different
+  deploy id (R2 boundary), and a credential-shaped
+  substring in evidence being redacted through
+  `redact_deploy_evidence` (which delegates to
+  `policy::redact_credentials`); plus the unchanged
+  existing 25 test binaries (228 lib tests, 13 mcp
+  contract, 12 release contract, 4 release
+  cross-surface, 12 documentation contract, 4
+  documentation cross-surface, 12 distribution
+  contract, 4 distribution cross-surface, 4
+  agent-runtime-workflows cross-surface, 8 agent
+  contract, 8 gitops contract, 13 mcp contract, 9
+  mcp cross-surface, 8 doctor contract, 10 feature
+  contract, 12 generate contract, 10 import contract,
+  9 profile contract, 7 quality policy contract, 12
+  upgrade contract, 12 spec contract, 5 CLI contract,
+  4 cross-surface regression).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id smoke-dep`
+  then appending a `deployment` block to the manifest
+  with a `default: home` target of `kind: local`, a
+  `docker-compose.yml` artifact, and a `docker` health
+  check for service `app`; `FORGE_DEPLOYER_BIN=…/smoke-
+  deployer.sh forge deploy plan smoke-dep` reports
+  `ready: yes` with the captured target / artifact /
+  artifact hash / health check and the deploy id
+  derived from the working-tree revision; `forge deploy
+  apply smoke-dep --confirm` runs the fixture deployer
+  end to end and records apply `delivered` and observe
+  `running` plus a registry `deploy` journal row;
+  `.forge/deploy/smoke-dep/smoke-dep-home-<12hex>/state.json`
+  carries the per-stage outcomes and the running
+  observation; `forge deploy list smoke-dep` renders
+  the persisted deploy id with its project / target /
+  current_state (`running`) / last_run_at; `forge
+  deploy inspect <id> smoke-dep` returns the same
+  per-stage outcomes + current_state the apply
+  produced; a re-observation on a fresh project (no
+  prior state) exits 1 with
+  `error[deploy-target-stale]: deploy target stale:
+  no prior deploy state at ...; run 'forge deploy
+  apply' first` and writes nothing; `forge deploy
+  apply` on a project with two targets and no
+  `default` and no `--target-name` exits 1 with
+  `error[deploy-invalid]: deployment invalid:
+  deployment block declares 2 targets but no
+  'default'; pass '--target' or set
+  'deployment.default'`; `forge deploy plan` on a
+  project with `kind: ssh` exits 1 with
+  `error[deploy-target-unavailable]: target 'vps'
+  uses kind 'ssh' which is planned for a later
+  release`; `forge deploy apply` on a project with
+  `FORGE_DEPLOYER_BIN=/nonexistent/forge-deployer`
+  exits 1 with `error[deploy-target-unavailable]` and
+  writes no state file; and a credential-shaped
+  substring in evidence is redacted as `[REDACTED]`
+  in both the per-stage note and the journal detail.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate adapter-deployment --strict
+  --no-interactive`: valid pre-archive; `openspec
+  archive adapter-deployment --yes`: archived as
+  `2026-09-17-adapter-deployment` with the canonical
+  `spec/adapter-deployment` promoted; `openspec
+  validate --all --strict --no-interactive`: 24
+  passed, 0 failed (post-archive, includes the
+  promoted `spec/adapter-deployment`).
+- `git diff --check`: PASS; staged set reviewed (4
+  files modified: `src/core/manifest.rs` for the new
+  `deployment.targets[]` + `deployment.artifact` +
+  `deployment.default` + `deployment.health` typed
+  fields, `src/core/mod.rs` for the
+  `deploy-invalid` / `deploy-target-unavailable` /
+  `deploy-target-stale` / `deploy-health-failed`
+  typed errors, `src/lib.rs` to register the new
+  module, `src/main.rs` for the `forge deploy`
+  subcommand and the `cmd_deploy_*` helpers; 2 files
+  added: `src/deploy/mod.rs` with 16 unit tests,
+  `src/deploy/engine.rs` with 7 unit tests; 2
+  integration files added: `tests/deploy_contract.rs`
+  with 14 contract tests, `tests/deploy_cross_surface.rs`
+  with 5 cross-surface regression tests; plus the
+  promoted spec and the change archive — 9 files;
+  archive under
+  `openspec/changes/archive/2026-09-17-adapter-deployment/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  `forge-deployer` binary is not present in the local
+  sandbox, so the contract is validated through
+  `FORGE_DEPLOYER_BIN` fixture shell scripts that
+  stand in for real `docker compose` or `scp` round
+  trips. The credential redaction rule set is the
+  same as `policy::redact_credentials`, which is
+  itself verified through the existing quality
+  policy contract tests. A real Docker Compose or
+  SSH provider round trip is a downstream integration
+  step and is not claimed here.
 
 ## Verification evidence (release-publishing, 2026-09-17)
 

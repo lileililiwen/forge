@@ -11,6 +11,7 @@ pub mod feature;
 pub mod generate;
 pub mod gitops;
 pub mod import;
+pub mod mcp;
 pub mod policy;
 pub mod profile;
 pub mod registry;

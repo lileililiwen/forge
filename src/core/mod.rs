@@ -106,6 +106,12 @@ pub enum ForgeError {
 
     #[error("git push requires explicit --confirm; refusing implicit remote write")]
     PushConfirmRequired,
+
+    #[error("mcp invalid: {reason}")]
+    McpInvalid { reason: String },
+
+    #[error("mcp tool unauthorized: {reason}")]
+    McpUnauthorized { reason: String },
 }
 
 impl ForgeError {
@@ -145,6 +151,8 @@ impl ForgeError {
             ForgeError::TestFailed { .. } => "test-failed",
             ForgeError::GitDirty { .. } => "git-dirty",
             ForgeError::PushConfirmRequired => "push-confirm-required",
+            ForgeError::McpInvalid { .. } => "mcp-invalid",
+            ForgeError::McpUnauthorized { .. } => "mcp-unauthorized",
         }
     }
 

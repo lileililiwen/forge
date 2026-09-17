@@ -192,6 +192,11 @@ enum Commands {
         #[arg(long)]
         confirm: bool,
     },
+    /// Run the MCP stdio server over the mature Core operations.
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -314,6 +319,12 @@ enum SpecCommands {
         #[arg(long)]
         reason: Option<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommands {
+    /// Run the JSON-RPC 2.0 stdio server until stdin closes.
+    Serve,
 }
 
 #[derive(Debug, Subcommand)]
@@ -482,6 +493,7 @@ fn main() -> ExitCode {
             ref_name,
             confirm,
         } => cmd_push(path, remote.clone(), ref_name.clone(), *confirm, cli.format),
+        Commands::Mcp { command } => cmd_mcp(&db_path, command),
     };
 
     match result {
@@ -1676,6 +1688,17 @@ fn commit_output(outcome: &CommitOutcome, format: Format) -> Result<Output, Forg
         outcome.note
     );
     Ok(as_output(format, human, json))
+}
+
+fn cmd_mcp(db_path: &Path, command: &McpCommands) -> Result<Output, ForgeError> {
+    match command {
+        McpCommands::Serve => {
+            forge::mcp::serve_stdio(Some(db_path)).map_err(|err| ForgeError::McpInvalid {
+                reason: err.to_string(),
+            })?;
+            Ok(Output::Human("mcp server exited cleanly".to_string()))
+        }
+    }
 }
 
 fn cmd_push(

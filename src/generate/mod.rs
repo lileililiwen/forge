@@ -23,6 +23,8 @@ use std::io::{BufRead, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+use serde::Serialize;
+
 use crate::core::{validate_project_id, ForgeError};
 use crate::profile::{inspect_profile, resolve_profile};
 use crate::registry::Registry;
@@ -42,7 +44,7 @@ pub struct CreationRequest {
 }
 
 /// Outcome of [`generate`]: the registered record plus what was rendered.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GeneratedProject {
     pub record: crate::registry::ProjectRecord,
     pub files: Vec<String>,

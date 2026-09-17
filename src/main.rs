@@ -15,6 +15,10 @@ use forge::generate::{generate, normalize_explicit, parse_interactive, verify_na
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
+use forge::upgrade::{
+    apply_upgrade, plan_upgrade, render_fleet_human, render_outcome_human as render_upgrade_human,
+    render_plan_human as render_upgrade_plan_human, run_fleet, FleetReport, UpgradeOutcome,
+};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -115,6 +119,21 @@ enum Commands {
         #[command(subcommand)]
         command: FeatureCommands,
     },
+    /// Plan and apply deterministic project/fleet upgrades with conflict handoff.
+    Upgrade {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(value_name = "TARGET", conflicts_with = "all")]
+        target: Option<String>,
+        /// Single feature to upgrade (default: every outdated installed feature).
+        #[arg(long = "feature", value_name = "FEATURE")]
+        feature: Option<String>,
+        /// Run over the explicit captured registry selection with per-project journals.
+        #[arg(long)]
+        all: bool,
+        /// Print pinned plans without changing files, registry rows or journals.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -194,6 +213,19 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let db_path = cli.registry.clone().unwrap_or_else(default_registry_path);
 
+    // Fleet runs print their per-project report to stdout even when the
+    // fleet is not healthy, so they own their exit code instead of using
+    // the generic error path (which prints to stderr without stdout).
+    if let Commands::Upgrade {
+        feature,
+        all: true,
+        dry_run,
+        ..
+    } = &cli.command
+    {
+        return cmd_upgrade_fleet(&db_path, feature.as_deref(), *dry_run, cli.format);
+    }
+
     let result = match &cli.command {
         Commands::List => cmd_list(&db_path, cli.format),
         Commands::Inspect { target } => cmd_inspect(&db_path, target, cli.format),
@@ -235,6 +267,23 @@ fn main() -> ExitCode {
             cmd_doctor(&db_path, path, target.as_deref(), cli.format)
         }
         Commands::Feature { command } => cmd_feature(&db_path, command, cli.format),
+        Commands::Upgrade {
+            feature,
+            target,
+            all: false,
+            dry_run,
+        } => cmd_upgrade(
+            &db_path,
+            target.as_deref().unwrap_or("."),
+            feature.as_deref(),
+            *dry_run,
+            cli.format,
+        ),
+        Commands::Upgrade { all: true, .. } => {
+            // Handled by the early `if let` above; this arm exists only
+            // to keep the match exhaustive.
+            return ExitCode::from(2);
+        }
     };
 
     match result {
@@ -542,6 +591,88 @@ fn cmd_feature(
             let json = serde_json::json!({"feature": outcome});
             Ok(as_output(format, human, json))
         }
+    }
+}
+
+fn cmd_upgrade(
+    db_path: &Path,
+    target: &str,
+    feature: Option<&str>,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = open_registry(db_path)?;
+    let plan = plan_upgrade(&registry, target, feature)?;
+    if dry_run {
+        let human = render_upgrade_plan_human(&plan);
+        let json = serde_json::json!({"plan": plan});
+        return Ok(as_output(format, human, json));
+    }
+    drop(registry);
+    let mut registry = open_registry(db_path)?;
+    let outcome = apply_upgrade(&mut registry, target, feature)?;
+    let human = render_upgrade_human(&outcome);
+    let json = upgrade_outcome_json(&outcome);
+    Ok(as_output(format, human, json))
+}
+
+fn upgrade_outcome_json(outcome: &UpgradeOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "upgrade": {
+            "operation": outcome.operation,
+            "project_id": outcome.project_id,
+            "profile": outcome.profile,
+            "changed": outcome.changed,
+            "note": outcome.note,
+            "files_changed": outcome.files_changed,
+            "features": outcome.features,
+            "validation": outcome.validation,
+            "recovery": outcome.recovery,
+            "plan": outcome.plan,
+        }
+    })
+}
+
+fn cmd_upgrade_fleet(
+    db_path: &Path,
+    feature: Option<&str>,
+    dry_run: bool,
+    format: Format,
+) -> ExitCode {
+    let mut registry = match open_registry(db_path) {
+        Ok(registry) => registry,
+        Err(err) => {
+            render_error(&err, format);
+            return ExitCode::from(err.exit_code() as u8);
+        }
+    };
+    let report = match run_fleet(&mut registry, feature, dry_run) {
+        Ok(report) => report,
+        Err(err) => {
+            render_error(&err, format);
+            return ExitCode::from(err.exit_code() as u8);
+        }
+    };
+    let output = fleet_output(&report, format);
+    match output {
+        Output::Human(text) => {
+            println!("{text}");
+        }
+        Output::Json(value) => {
+            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+        }
+    }
+    if report.healthy() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+fn fleet_output(report: &FleetReport, format: Format) -> Output {
+    match format {
+        Format::Human => Output::Human(render_fleet_human(report)),
+        Format::Json => Output::Json(serde_json::json!({"fleet": report})),
     }
 }
 

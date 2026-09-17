@@ -11,3 +11,4 @@ pub mod generate;
 pub mod import;
 pub mod profile;
 pub mod registry;
+pub mod upgrade;

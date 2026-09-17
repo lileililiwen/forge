@@ -141,3 +141,48 @@ fn manifest_failures_never_mutate_or_register() {
         Some(0)
     );
 }
+
+#[test]
+fn upgrade_picks_up_feature_lifecycle_dependencies_and_keeps_source_manifest_registry_aligned() {
+    // R1×feature-lifecycle: a project that already carries `admin` (which
+    // depends on `auth`) must remain consistent after a fleet upgrade:
+    // both features reach 0.1.0 in dependency order, source/manifest/
+    // registry agree, and the section preservation rule still holds.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(
+        proj.join("forge.yaml"),
+        "schema: 1\nproject:\n  id: cross-up\n  name: Cross\n  profile: rust-web\n  maturity: L2\nruntime:\n  language: rust\n  version: stable\ndeployment:\n  type: docker\n  target: home-server-01\ndocs:\n  source_language: en\nfeatures:\n  auth: \"0.0.9\"\n  admin: \"0.0.9\"\n",
+    )
+    .unwrap();
+    let out = run(&db, &[s("register"), proj.display().to_string()]);
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    for id in ["auth", "admin"] {
+        let descriptor = forge::feature::inspect_feature(id).unwrap();
+        let receipt = proj.join(format!(".forge/features/{id}.receipt"));
+        fs::create_dir_all(receipt.parent().unwrap()).unwrap();
+        fs::write(
+            &receipt,
+            forge::feature::expected_receipt(&descriptor, "0.0.9"),
+        )
+        .unwrap();
+    }
+
+    let out = run(&db, &[s("upgrade"), proj.display().to_string()]);
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let manifest = fs::read_to_string(proj.join("forge.yaml")).unwrap();
+    assert!(manifest.contains("auth: 0.1.0"), "{manifest}");
+    assert!(manifest.contains("admin: 0.1.0"), "{manifest}");
+    assert!(manifest.contains("target: home-server-01"), "{manifest}");
+    assert!(manifest.contains("source_language: en"), "{manifest}");
+
+    let inspect_json = run(
+        &db,
+        &[s("--format"), s("json"), s("inspect"), s("cross-up")],
+    );
+    let value: serde_json::Value = serde_json::from_slice(&inspect_json.stdout).unwrap();
+    assert_eq!(value["features"]["auth"], "0.1.0");
+    assert_eq!(value["features"]["admin"], "0.1.0");
+}

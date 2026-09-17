@@ -171,6 +171,26 @@ impl Registry {
         Ok(out)
     }
 
+    /// Append one journal entry for a non-registration operation (e.g.
+    /// `upgrade` per-project outcomes with `done`/`failed`/`blocked`/
+    /// `skipped` states). Journals are append-only evidence; this never
+    /// mutates project rows.
+    pub fn record_operation(
+        &self,
+        kind: &str,
+        project_id: &str,
+        state: &str,
+        detail: &str,
+    ) -> Result<(), ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO operations (kind, project_id, state, started_at, finished_at, detail)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![kind, project_id, state, now, now, detail],
+        )?;
+        Ok(())
+    }
+
     /// Validate the manifest in `dir` (read-only) and persist the project.
     /// Same id + same path re-registers (refreshes observations); any
     /// other id/path reuse is rejected without touching the original row.

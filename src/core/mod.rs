@@ -80,6 +80,9 @@ pub enum ForgeError {
     #[error("feature ownership conflict: {reason}")]
     FeatureOwnershipConflict { reason: String },
 
+    #[error("policy adapter unavailable: {reason}")]
+    PolicyUnavailable { reason: String },
+
     #[error("registry error: {reason}")]
     Registry { reason: String },
 }
@@ -112,6 +115,7 @@ impl ForgeError {
             ForgeError::UnknownFeature { .. } => "unknown-feature",
             ForgeError::IncompatibleFeature { .. } => "incompatible-feature",
             ForgeError::FeatureOwnershipConflict { .. } => "feature-ownership-conflict",
+            ForgeError::PolicyUnavailable { .. } => "policy-unavailable",
             ForgeError::Registry { .. } => "registry-error",
         }
     }

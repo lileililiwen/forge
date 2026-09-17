@@ -23,6 +23,7 @@ use serde::Serialize;
 
 use crate::core::manifest::{Manifest, Maturity};
 use crate::core::ForgeError;
+use crate::policy::{redact_report_in_place, PolicyOutcome, PolicyReport, PolicySeverity};
 
 /// Version of the maturity policy descriptors compiled into this release.
 pub const DOCTOR_POLICY_VERSION: &str = "0.1.0";
@@ -634,10 +635,14 @@ fn observation_is_stale(observed_at: &str, mtime: Option<std::time::SystemTime>)
 /// Manifest IO failures (missing/invalid/ambiguous/legacy/unsupported) are
 /// hard errors; everything else — including an unknown profile — is
 /// reported as findings so the caller sees evidence instead of a refusal.
+/// `policy_outcome` is the live DriftWatch result for this project; when
+/// supplied, doctor normalizes its findings into the typed inventory and
+/// flags the absence of evidence as `unavailable`.
 pub fn run_doctor(
     dir: &Path,
     target_override: Option<Maturity>,
     observation: Option<&RegistryObservation>,
+    policy_outcome: Option<&PolicyOutcome>,
 ) -> Result<DoctorReport, ForgeError> {
     if !dir.is_dir() {
         return Err(ForgeError::PathUnavailable {
@@ -917,6 +922,13 @@ pub fn run_doctor(
             "no driftwatch configuration; required for L2 driftwatch (execution belongs to v0.3)"
         },
     ));
+
+    // DriftWatch policy findings. The execution path is delegated to
+    // the configured adapter (see `policy::run_driftwatch`); doctor maps
+    // each finding to the typed inventory and reports a `pass`/`warn`/
+    // `fail`/`unavailable` finding while retaining the original rule ID,
+    // category, severity, tool version and redacted evidence.
+    findings.extend(policy_findings(dir, policy_outcome));
 
     // Registry observation: registered + fresh / stale / not registered.
     let mtime = manifest_mtime(dir);
@@ -1432,9 +1444,202 @@ pub fn render_report_human(report: &DoctorReport) -> String {
     lines.join("\n")
 }
 
+/// Convert a DriftWatch policy outcome into one or more typed findings
+/// while preserving the original rule ID, category, severity, tool
+/// version and (already redacted) evidence. A missing binary, non-zero
+/// exit, timeout or unparseable payload all surface as a single
+/// `driftwatch-policy` finding with status `unavailable`; never as
+/// `pass`. Findings reported with `applicable == false` are surfaced
+/// separately so a future detector does not invent a result.
+fn policy_findings(dir: &Path, outcome: Option<&PolicyOutcome>) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let Some(outcome) = outcome else {
+        return out;
+    };
+    match outcome {
+        PolicyOutcome::Unavailable { reason } => {
+            out.push(Finding::new(
+                "driftwatch-policy",
+                FindingStatus::Unavailable,
+                vec![format!("adapter did not produce a report: {reason}")],
+                true,
+                Remediation::Manual,
+                "delegated policy execution is unavailable; see evidence for the reason",
+            ));
+        }
+        PolicyOutcome::Reported(report) => {
+            out.extend(reported_policy_findings(dir, report));
+        }
+    }
+    out
+}
+
+fn reported_policy_findings(dir: &Path, report: &PolicyReport) -> Vec<Finding> {
+    let mut safe_report = report.clone();
+    // Defense in depth: every evidence line passes through the
+    // redaction pipeline even if the adapter already ran it, so a
+    // report constructed by a different caller cannot leak
+    // credentials into storage or display.
+    redact_report_in_place(&mut safe_report);
+    let report = &safe_report;
+    let mut out = Vec::new();
+    let tool_version = report.tool_version.clone();
+    let stale = observation_is_stale_from_report(dir, report);
+    for pf in &report.findings {
+        if !pf.applicable {
+            out.push(Finding::new(
+                format!("driftwatch-{}", pf.id).as_str(),
+                FindingStatus::Pass,
+                vec![format!(
+                    "tool {} {} reports policy not applicable: {}",
+                    report.tool,
+                    tool_version,
+                    pf.reason.clone().unwrap_or_else(|| pf.message.clone())
+                )],
+                false,
+                Remediation::Manual,
+                "policy is not applicable to this profile; reason preserved",
+            ));
+            continue;
+        }
+        let status = match pf.severity {
+            PolicySeverity::Pass => FindingStatus::Pass,
+            PolicySeverity::Warn => FindingStatus::Warn,
+            PolicySeverity::Fail => FindingStatus::Fail,
+        };
+        let mut evidence: Vec<String> = pf
+            .evidence
+            .iter()
+            .map(|line| format!("{} {}: {}", report.tool, tool_version, line))
+            .collect();
+        if stale {
+            evidence.push(format!(
+                "observation source is older than current {}; stale",
+                crate::core::manifest::CANONICAL_MANIFEST
+            ));
+        }
+        out.push(Finding::new(
+            format!("driftwatch-{}", pf.id).as_str(),
+            if stale && matches!(status, FindingStatus::Pass) {
+                FindingStatus::Warn
+            } else {
+                status
+            },
+            evidence,
+            true,
+            Remediation::Manual,
+            format!(
+                "[{}:{}] {}",
+                pf.category,
+                pf.severity.severity_label(),
+                pf.message
+            ),
+        ));
+    }
+    // Aggregate rollup so the doctor verdict reflects DriftWatch's
+    // overall outcome, matching the typed finding contract.
+    let rollup = aggregate_rollup(report, stale);
+    out.push(Finding::new(
+        "driftwatch-policy",
+        rollup.status,
+        rollup.evidence,
+        true,
+        Remediation::Manual,
+        rollup.detail,
+    ));
+    out
+}
+
+struct Rollup {
+    status: FindingStatus,
+    evidence: Vec<String>,
+    detail: String,
+}
+
+fn aggregate_rollup(report: &PolicyReport, stale: bool) -> Rollup {
+    let mut applicable = 0usize;
+    let mut warn = 0usize;
+    let mut fail = 0usize;
+    let mut pass = 0usize;
+    for pf in &report.findings {
+        if !pf.applicable {
+            continue;
+        }
+        applicable += 1;
+        match pf.severity {
+            PolicySeverity::Pass => pass += 1,
+            PolicySeverity::Warn => warn += 1,
+            PolicySeverity::Fail => fail += 1,
+        }
+    }
+    let detail = format!(
+        "driftwatch {} (contract {}) reported {} finding(s): {} pass, {} warn, {} fail",
+        report.tool_version,
+        report.contract,
+        report.findings.len(),
+        pass,
+        warn,
+        fail
+    );
+    let status = if fail > 0 {
+        FindingStatus::Fail
+    } else if warn > 0 || stale {
+        FindingStatus::Warn
+    } else if applicable == 0 {
+        FindingStatus::Unavailable
+    } else {
+        FindingStatus::Pass
+    };
+    let evidence = if stale {
+        vec![format!(
+            "driftwatch {} reported at {}; source revision older than current {}",
+            report.tool,
+            report
+                .source_revision
+                .map(|d| d.to_rfc3339())
+                .unwrap_or_else(|| "unknown".to_string()),
+            crate::core::manifest::CANONICAL_MANIFEST
+        )]
+    } else {
+        vec![format!(
+            "driftwatch {} reported {} finding(s) ({} pass, {} warn, {} fail)",
+            report.tool,
+            report.findings.len(),
+            pass,
+            warn,
+            fail
+        )]
+    };
+    Rollup {
+        status,
+        evidence,
+        detail,
+    }
+}
+
+fn observation_is_stale_from_report(dir: &Path, report: &PolicyReport) -> bool {
+    let Some(revision) = report.source_revision else {
+        return false;
+    };
+    let current = manifest_mtime(dir);
+    let Some(current) = current else {
+        return false;
+    };
+    let now_secs = current
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let now = chrono::DateTime::<chrono::Utc>::from_timestamp(now_secs, 0);
+    match now {
+        Some(now) => now > revision,
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::policy::PolicyFinding;
     use std::fs;
     use tempfile::TempDir;
 
@@ -1461,7 +1666,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Manifest claims rust but no Cargo.toml: drift + build failure.
         write(tmp.path(), "forge.yaml", &rust_manifest("drift-proj"));
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         let ids: Vec<&str> = report.findings.iter().map(|f| f.id.as_str()).collect();
         for expected in [
             "manifest-valid",
@@ -1504,7 +1709,7 @@ mod tests {
         write(tmp.path(), "forge.yaml", &rust_manifest("no-git-proj"));
         write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
         // TempDir is not a git repository: repository check is unavailable.
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         let repo = report
             .findings
             .iter()
@@ -1539,8 +1744,8 @@ mod tests {
             out
         }
         let before = snapshot(tmp.path());
-        let first = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
-        let second = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let first = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let second = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         assert_eq!(first, second);
         assert_eq!(snapshot(tmp.path()), before);
     }
@@ -1554,7 +1759,7 @@ mod tests {
             "schema: 1\nproject:\n  id: l2-proj\n  name: l2-proj\n  profile: rust-web\n  maturity: L1\n  target_maturity: L2\nruntime:\n  language: rust\n",
         );
         write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         assert_eq!(report.target_maturity.as_deref(), Some("L2"));
         let unmet: Vec<&str> = report
             .unmet_controls()
@@ -1592,7 +1797,7 @@ mod tests {
             "schema: 1\nproject:\n  id: l4-proj\n  name: l4-proj\n  profile: rust-web\n  maturity: L2\n  target_maturity: L4\nruntime:\n  language: rust\n",
         );
         write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         let unmet: Vec<&str> = report
             .unmet_controls()
             .iter()
@@ -1622,7 +1827,7 @@ mod tests {
             "pubspec.yaml",
             "name: demo\nenvironment:\n  flutter: 3.22\n",
         );
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         assert_eq!(report.target_maturity.as_deref(), Some("L0"));
         // No deployment automation and no database requirement: L2+ and
         // database controls are nonapplicable rather than forced.
@@ -1648,7 +1853,7 @@ mod tests {
             registered: true,
             observed_at: Some("2000-01-01T00:00:00Z".to_string()),
         };
-        let report = run_doctor(tmp.path(), None, Some(&obs)).unwrap();
+        let report = run_doctor(tmp.path(), None, Some(&obs), None).unwrap();
         assert!(report.stale);
         assert!(!report.healthy);
         let finding = report
@@ -1667,7 +1872,7 @@ mod tests {
             "forge.yaml",
             "schema: 1\nproject:\n  id: odd-proj\n  name: odd-proj\n  profile: not-a-real-profile\n",
         );
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         let known = report
             .findings
             .iter()
@@ -1694,7 +1899,7 @@ mod tests {
             "forge.yaml",
             "schema: 1\nproject:\n  id: planned-proj\n  name: planned-proj\n  profile: rust-cli\n",
         );
-        let report = run_doctor(tmp.path(), None, no_registry().as_ref()).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
         // Planned profiles are on the catalog, so profile-known is a
         // Pass. The `features-compatible` check (which routes through
         // resolve_profile) refuses planned profiles, so the
@@ -1719,5 +1924,192 @@ mod tests {
     fn invalid_target_is_rejected() {
         let err = parse_target_level("L9").expect_err("L9 must fail");
         assert_eq!(err.code(), "manifest-invalid");
+    }
+
+    fn report_with(report: &PolicyReport) -> PolicyOutcome {
+        PolicyOutcome::Reported(report.clone())
+    }
+
+    fn sample_report(findings: Vec<PolicyFinding>) -> PolicyReport {
+        PolicyReport {
+            tool: "driftwatch".to_string(),
+            tool_version: "0.1.0".to_string(),
+            contract: crate::policy::POLICY_CONTRACT_VERSION.to_string(),
+            source_revision: None,
+            findings,
+        }
+    }
+
+    #[test]
+    fn policy_unavailable_outcome_maps_to_unavailable_finding() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest("policy-unavail"));
+        let outcome = PolicyOutcome::Unavailable {
+            reason: "binary not found on PATH".to_string(),
+        };
+        let report =
+            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-policy")
+            .expect("driftwatch-policy finding");
+        assert_eq!(finding.status, FindingStatus::Unavailable);
+        assert!(finding.evidence[0].contains("binary not found"));
+        assert!(!report.healthy);
+    }
+
+    #[test]
+    fn policy_findings_keep_rule_ids_and_severity() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest("policy-finds"));
+        let report_in = sample_report(vec![
+            PolicyFinding {
+                id: "AUTH-001".to_string(),
+                category: "security".to_string(),
+                severity: PolicySeverity::Fail,
+                applicable: true,
+                message: "missing auth markers".to_string(),
+                evidence: vec!["Cargo.toml has no auth dep".to_string()],
+                reason: None,
+            },
+            PolicyFinding {
+                id: "DEPLOY-002".to_string(),
+                category: "deployment".to_string(),
+                severity: PolicySeverity::Warn,
+                applicable: true,
+                message: "deployment target unset".to_string(),
+                evidence: vec!["forge.yaml has no deployment.target".to_string()],
+                reason: None,
+            },
+        ]);
+        let outcome = report_with(&report_in);
+        let report =
+            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let auth = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-AUTH-001")
+            .expect("auth finding");
+        assert_eq!(auth.status, FindingStatus::Fail);
+        let deploy = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-DEPLOY-002")
+            .expect("deploy finding");
+        assert_eq!(deploy.status, FindingStatus::Warn);
+        let rollup = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-policy")
+            .expect("rollup finding");
+        assert_eq!(rollup.status, FindingStatus::Fail);
+    }
+
+    #[test]
+    fn policy_not_applicable_preserves_reason_and_applicability() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest("policy-na"));
+        let report_in = sample_report(vec![PolicyFinding {
+            id: "FLUTTER-AUTH-001".to_string(),
+            category: "security".to_string(),
+            severity: PolicySeverity::Pass,
+            applicable: false,
+            message: "not applicable".to_string(),
+            evidence: vec![],
+            reason: Some("policy not applicable to flutter-app profile".to_string()),
+        }]);
+        let outcome = report_with(&report_in);
+        let report =
+            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-FLUTTER-AUTH-001")
+            .expect("flutter auth finding");
+        assert!(!finding.applicable);
+        assert!(finding.evidence[0].contains("not applicable"));
+    }
+
+    #[test]
+    fn policy_observation_with_credentials_is_redacted_before_finding() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest("policy-redact"));
+        let report_in = sample_report(vec![PolicyFinding {
+            id: "LEAK-001".to_string(),
+            category: "security".to_string(),
+            severity: PolicySeverity::Fail,
+            applicable: true,
+            message:
+                "leaked github token ghp_abcdefghijklmnopqrstuvwxyz0123456789 in config"
+                    .to_string(),
+            evidence: vec![
+                "token=abcdef0123456789 and password=hunter2hunter2".to_string(),
+            ],
+            reason: None,
+        }]);
+        let outcome = report_with(&report_in);
+        let report =
+            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-LEAK-001")
+            .expect("leak finding");
+        let combined = format!(
+            "{} {}",
+            finding.detail,
+            finding.evidence.join(" ")
+        );
+        assert!(combined.contains("[REDACTED]"), "{combined}");
+        for secret in [
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "abcdef0123456789",
+            "hunter2hunter2",
+        ] {
+            assert!(!combined.contains(secret), "secret leaked: {combined}");
+        }
+    }
+
+    #[test]
+    fn policy_finding_with_stale_source_marks_observation_stale() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest("policy-stale"));
+        // Backdate the source revision so the current manifest mtime is
+        // newer than the report's source revision.
+        let past: chrono::DateTime<chrono::Utc> =
+            chrono::DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc);
+        let report_in = PolicyReport {
+            tool: "driftwatch".to_string(),
+            tool_version: "0.1.0".to_string(),
+            contract: crate::policy::POLICY_CONTRACT_VERSION.to_string(),
+            source_revision: Some(past),
+            findings: vec![PolicyFinding {
+                id: "AUTH-001".to_string(),
+                category: "security".to_string(),
+                severity: PolicySeverity::Pass,
+                applicable: true,
+                message: "all clean".to_string(),
+                evidence: vec!["no issues".to_string()],
+                reason: None,
+            }],
+        };
+        let outcome = report_with(&report_in);
+        let report =
+            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.id == "driftwatch-AUTH-001")
+            .expect("auth finding");
+        // A passing finding whose source is stale is shown as warn.
+        assert_eq!(finding.status, FindingStatus::Warn);
+        assert!(finding
+            .evidence
+            .iter()
+            .any(|e| e.contains("stale")));
+        assert!(!report.healthy);
     }
 }

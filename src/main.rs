@@ -13,6 +13,7 @@ use forge::feature::{
 };
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
+use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
 use forge::upgrade::{
@@ -453,7 +454,14 @@ fn cmd_doctor(
     let observation = open_registry(db_path)
         .ok()
         .and_then(|registry| observation_for(registry, path));
-    let report = run_doctor(path, level, observation.as_ref())?;
+    // DriftWatch execution is delegated to the policy adapter. The CLI
+    // runs the adapter itself (rather than going through the registry)
+    // so the project-scoped invocation cannot leak across the open
+    // registry. The adapter is configured through environment
+    // variables; an absent or non-functional binary surfaces as an
+    // `unavailable` finding instead of a hard error.
+    let policy_outcome = run_driftwatch(path, &DriftWatchConfig::from_env());
+    let report = run_doctor(path, level, observation.as_ref(), Some(&policy_outcome))?;
     let human = render_report_human(&report);
     let json = serde_json::json!({"doctor": report});
     Ok(as_output(format, human, json))

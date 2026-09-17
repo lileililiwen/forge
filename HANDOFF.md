@@ -1,10 +1,38 @@
-current_spec: specification-remediation
+current_spec: agent-runtime-workflows
 
 # Forge handoff
 
 ## Current state
 
-`quality-policy-integration` implemented, verified and archived on 2026-09-17
+`specification-remediation` implemented, verified and archived on 2026-09-17
+as `2026-09-17-specification-remediation`; canonical specs promoted to
+[openspec/specs/specification-remediation/spec.md](openspec/specs/specification-remediation/spec.md).
+New in this cycle: `src/spec` (versioned `SpecRequest`/`SpecDraft`/
+`SpecProvenance`/`SpecGenerateOutcome`/`SpecStatus` contract v0.1.0 with
+provenance covering project id, path, profile, source revision (manifest
+mtime), finding ids/categories, DriftWatch policy ids and dependencies;
+storage layout `.forge/specs/<project>-<short-hash>/` carrying
+`proposal.md` / `design.md` / `tasks.md` / `manifest.json`; bounded
+proposal size enforced at `MAX_FINDINGS_PER_SPEC = 32`; `generate_spec`
+is idempotent on the same project + sorted finding set so an unchanged
+finding re-run reports the existing spec without rewriting files
+(boundary scenario); `SpecRoute` distinguishes `Deterministic`,
+`Semantic` and `Manual` queues and `apply_routing` requires the
+deterministic action's evidence (or generated spec, or recorded manual
+state) before reporting completion; `route_finding` keeps the doctor
+finding's `Manual` remediation class as a judgment call (no project
+changes, no AI claim) and routes any finding whose id matches a
+known lifecycle action to `Deterministic`; Core errors
+`spec-invalid`/`spec-write-failed` with stable codes, CLI
+`forge spec generate|list|inspect|route|apply` (human/JSON, structured
+`error[spec-invalid]` for empty/oversized/ambiguous requests and the
+existing `feature-ownership-conflict` handoff from `project-upgrade-orchestration`
+now resolves through `forge spec apply semantic-<feature>` writing the
+bounded proposal without changing files), the `SpecRequest` is
+validated before any write so a refusal leaves the project untouched,
+and existing doctor/upgrade/feature/import/generate/quality-policy
+contracts still hold after the new commands run against a generated
+project.
 as `2026-09-17-quality-policy-integration`; canonical specs promoted to
 [openspec/specs/quality-policy-integration/spec.md](openspec/specs/quality-policy-integration/spec.md).
 New in this cycle: `src/policy` (versioned `DriftWatchConfig`/default
@@ -153,12 +181,74 @@ work has started.
 
 ## Next change
 
-Implement [specification-remediation](openspec/changes/specification-remediation/proposal.md)
-only when implementation is requested. Its prerequisites
-(`project-upgrade-orchestration` and `quality-policy-integration`) now
-have implementation evidence. Then follow the roadmap prerequisites.
-Later changes remain planning-only with zero implementation tasks
-completed.
+Implement [agent-runtime-workflows](openspec/changes/agent-runtime-workflows/proposal.md)
+only when implementation is requested. Its prerequisite
+(`specification-remediation`) now has implementation evidence. Then
+follow the roadmap prerequisites. Later changes remain planning-only
+with zero implementation tasks completed.
+
+## Verification evidence (specification-remediation, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 199 passed, 0 failed (113 lib incl. 7 new spec
+  contract tests for spec-id stability, finding-set hash,
+  validate-request refusal, build-draft provenance, idempotent
+  generation, list, manual/deterministic/semantic routing and
+  apply_routing outcomes, 9 spec contract incl. traceable proposal
+  with provenance, idempotent re-run with mtime preservation,
+  empty/oversized refusal, route classification, deterministic
+  apply with no files, manual apply with no AI claim, semantic apply
+  producing a bounded proposal, list/inspect roundtrip, and
+  doctor-after-spec regression, 4 cross-surface incl. 1 new
+  upgrade × spec semantic-conflict handoff, 5 CLI contract, 8 doctor
+  contract, 10 feature contract, 12 generate contract, 10 import
+  contract, 9 profile contract, 7 quality_policy_contract, 12 upgrade
+  contract; rust_scaffold and react-web scaffold skipped in the
+  regular run; the slow `cargo build+test` evidence path is exercised
+  through the existing scaffold tests that finish in ~210s when the
+  host toolchain is on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge spec generate` on a rust-web project writes
+  `proposal.md` / `design.md` / `tasks.md` / `manifest.json` under
+  `.forge/specs/<project>-<hash>/`; `forge spec list` reports the
+  entry; `forge spec inspect <id>` shows the traceable provenance
+  (project, profile, path, source revision, contract, generated_at,
+  findings, dependencies, acceptance scenarios); a second
+  `forge spec generate` with the same finding set reports
+  `spec existing: ...` and writes nothing (boundary scenario);
+  `forge spec generate` with no findings exits 1 with
+  `error[spec-invalid]: spec invalid: spec generate requires at
+  least one finding id`; `forge spec route dependency-drift` returns
+  `route: deterministic` with `action: forge upgrade`; `forge spec
+  route manifest-valid` returns `route: manual` with no action and
+  no suggested spec; `forge spec apply driftwatch-DEPLOY-002` returns
+  `route: semantic`, `status: spec-generated`, the bounded proposal
+  is written, and the doctor verdict is unchanged after the spec
+  operations; `forge spec apply manifest-valid` records the manual
+  status with `note: manual boundary: no project changes and no AI
+  fix claimed`; `forge upgrade` on a project with a drifted receipt
+  still exits 1 with `error[feature-ownership-conflict]` and the
+  stderr names `forge spec generate`; the cross-surface
+  `upgrade_semantic_conflict_handoff_resolves_through_spec_apply`
+  test confirms the receipt and manifest are preserved while the
+  bounded proposal is written under `.forge/specs/`.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate specification-remediation --strict --no-interactive`:
+  valid pre-archive; `openspec validate --all --strict --no-interactive`:
+  25 passed, 0 failed (post-archive, includes the promoted
+  `spec/specification-remediation`).
+- `git diff --check`: PASS; staged set reviewed (8 files modified,
+  3 files added: `src/spec/mod.rs`, `tests/spec_contract.rs`, the
+  promoted spec — 11 files; archive under
+  `openspec/changes/archive/2026-09-17-specification-remediation/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real AI/agent implementation stays untested: the bounded spec is
+  the handoff and the agent runtime is the next change; this cycle
+  proves the spec storage, provenance, idempotency and routing
+  contracts end to end, not the agent that consumes the spec. The
+  spec's `tasks.md` enumerates the agent-side follow-up and the
+  finding ids, dependencies and source revision are preserved for
+  the agent adapter.
 
 ## Verification evidence (quality-policy-integration, 2026-09-17)
 

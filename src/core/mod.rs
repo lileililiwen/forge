@@ -83,6 +83,12 @@ pub enum ForgeError {
     #[error("policy adapter unavailable: {reason}")]
     PolicyUnavailable { reason: String },
 
+    #[error("spec invalid: {reason}")]
+    SpecInvalid { reason: String },
+
+    #[error("spec write failed at {path}: {reason}")]
+    SpecWrite { path: String, reason: String },
+
     #[error("registry error: {reason}")]
     Registry { reason: String },
 }
@@ -116,6 +122,8 @@ impl ForgeError {
             ForgeError::IncompatibleFeature { .. } => "incompatible-feature",
             ForgeError::FeatureOwnershipConflict { .. } => "feature-ownership-conflict",
             ForgeError::PolicyUnavailable { .. } => "policy-unavailable",
+            ForgeError::SpecInvalid { .. } => "spec-invalid",
+            ForgeError::SpecWrite { .. } => "spec-write-failed",
             ForgeError::Registry { .. } => "registry-error",
         }
     }

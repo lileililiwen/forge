@@ -186,3 +186,78 @@ fn upgrade_picks_up_feature_lifecycle_dependencies_and_keeps_source_manifest_reg
     assert_eq!(value["features"]["auth"], "0.1.0");
     assert_eq!(value["features"]["admin"], "0.1.0");
 }
+
+#[test]
+fn upgrade_semantic_conflict_handoff_resolves_through_spec_apply() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("conflict-up");
+    fs::create_dir_all(&proj).unwrap();
+    fs::write(
+        proj.join("forge.yaml"),
+        "schema: 1\nproject:\n  id: conflict-up\n  name: Conflict\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nfeatures:\n  auth: \"0.0.9\"\n",
+    )
+    .unwrap();
+    let descriptor = forge::feature::inspect_feature("auth").unwrap();
+    let receipt = proj.join(".forge/features/auth.receipt");
+    fs::create_dir_all(receipt.parent().unwrap()).unwrap();
+    fs::write(
+        &receipt,
+        forge::feature::expected_receipt(&descriptor, "0.0.9"),
+    )
+    .unwrap();
+    // Drift the receipt so the precondition sweep blocks with a
+    // semantic-conflict handoff.
+    fs::write(&receipt, "operator runbook notes\n").unwrap();
+    let receipt_before = fs::read_to_string(&receipt).unwrap();
+
+    let out = run(&db, &[s("upgrade"), proj.display().to_string()]);
+    assert_eq!(out.status.code(), Some(1), "{}", lossy(&out.stderr));
+    let stderr = lossy(&out.stderr).to_string();
+    assert!(
+        stderr.contains("error[feature-ownership-conflict]"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("forge spec generate"), "{stderr}");
+
+    // Apply the spec route for the same semantic finding: the
+    // router should classify the conflict as a semantic route and
+    // produce a bounded proposal under `.forge/specs/`.
+    let value = run(
+        &db,
+        &[
+            s("--format"),
+            s("json"),
+            s("spec"),
+            s("apply"),
+            s("semantic-auth"),
+            proj.to_str().unwrap().to_string(),
+        ],
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&value.stdout)
+        .unwrap_or_else(|err| panic!("invalid json: {err}; stderr={}", lossy(&value.stderr)));
+    assert_eq!(parsed["apply"]["status"], "spec-generated");
+    assert_eq!(parsed["apply"]["decision"]["route"], "semantic");
+    let spec_dir = proj.join(".forge/specs");
+    assert!(spec_dir.is_dir(), "spec directory was not written");
+    let entries: Vec<PathBuf> = fs::read_dir(&spec_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let manifest = fs::read_to_string(entries[0].join("manifest.json")).unwrap();
+    let manifest_value: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    assert_eq!(manifest_value["provenance"]["project_id"], "conflict-up");
+    assert!(manifest_value["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f.as_str() == Some("semantic-auth")));
+
+    // Filesystem state: the receipt is preserved (R1 failure
+    // scenario contract) and the manifest is unchanged.
+    assert_eq!(fs::read_to_string(&receipt).unwrap(), receipt_before);
+    let manifest_text = fs::read_to_string(proj.join("forge.yaml")).unwrap();
+    assert!(manifest_text.contains("auth: \"0.0.9\""), "{manifest_text}");
+}

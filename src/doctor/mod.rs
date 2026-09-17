@@ -1947,8 +1947,7 @@ mod tests {
         let outcome = PolicyOutcome::Unavailable {
             reason: "binary not found on PATH".to_string(),
         };
-        let report =
-            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
         let finding = report
             .findings
             .iter()
@@ -1984,8 +1983,7 @@ mod tests {
             },
         ]);
         let outcome = report_with(&report_in);
-        let report =
-            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
         let auth = report
             .findings
             .iter()
@@ -2020,8 +2018,7 @@ mod tests {
             reason: Some("policy not applicable to flutter-app profile".to_string()),
         }]);
         let outcome = report_with(&report_in);
-        let report =
-            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
         let finding = report
             .findings
             .iter()
@@ -2040,27 +2037,19 @@ mod tests {
             category: "security".to_string(),
             severity: PolicySeverity::Fail,
             applicable: true,
-            message:
-                "leaked github token ghp_abcdefghijklmnopqrstuvwxyz0123456789 in config"
-                    .to_string(),
-            evidence: vec![
-                "token=abcdef0123456789 and password=hunter2hunter2".to_string(),
-            ],
+            message: "leaked github token ghp_abcdefghijklmnopqrstuvwxyz0123456789 in config"
+                .to_string(),
+            evidence: vec!["token=abcdef0123456789 and password=hunter2hunter2".to_string()],
             reason: None,
         }]);
         let outcome = report_with(&report_in);
-        let report =
-            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
         let finding = report
             .findings
             .iter()
             .find(|f| f.id == "driftwatch-LEAK-001")
             .expect("leak finding");
-        let combined = format!(
-            "{} {}",
-            finding.detail,
-            finding.evidence.join(" ")
-        );
+        let combined = format!("{} {}", finding.detail, finding.evidence.join(" "));
         assert!(combined.contains("[REDACTED]"), "{combined}");
         for secret in [
             "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
@@ -2097,8 +2086,7 @@ mod tests {
             }],
         };
         let outcome = report_with(&report_in);
-        let report =
-            run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), Some(&outcome)).unwrap();
         let finding = report
             .findings
             .iter()
@@ -2106,10 +2094,7 @@ mod tests {
             .expect("auth finding");
         // A passing finding whose source is stale is shown as warn.
         assert_eq!(finding.status, FindingStatus::Warn);
-        assert!(finding
-            .evidence
-            .iter()
-            .any(|e| e.contains("stale")));
+        assert!(finding.evidence.iter().any(|e| e.contains("stale")));
         assert!(!report.healthy);
     }
 }

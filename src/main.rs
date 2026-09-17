@@ -6,7 +6,10 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use forge::core::ForgeError;
-use forge::doctor::{parse_target_level, render_report_human, run_doctor, RegistryObservation};
+use forge::doctor::{
+    parse_target_level, render_report_human, run_doctor, FindingStatus, RegistryObservation,
+    Remediation,
+};
 use forge::feature::{
     add_feature, feature_catalog, inspect_feature, remove_feature, render_outcome_human,
     render_plan_human, resolve_plan, upgrade_feature,
@@ -16,6 +19,11 @@ use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
+use forge::spec::{
+    apply_routing, ensure_single_project, generate_spec, list_specs, read_spec,
+    render_proposal_markdown, route_finding, DoctorFindingInput, FindingSource, RoutingOutcome,
+    SpecDraft, SpecGenerateOutcome, SpecListEntry, SpecRequest,
+};
 use forge::upgrade::{
     apply_upgrade, plan_upgrade, render_fleet_human, render_outcome_human as render_upgrade_human,
     render_plan_human as render_upgrade_plan_human, run_fleet, FleetReport, UpgradeOutcome,
@@ -135,6 +143,11 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Generate bounded spec proposals and route findings to deterministic, semantic or manual remediation.
+    Spec {
+        #[command(subcommand)]
+        command: SpecCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -207,6 +220,55 @@ enum FeatureCommands {
         /// Explicit version (default: tested catalog version).
         #[arg(long)]
         version: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SpecCommands {
+    /// Generate a bounded spec for the named project and finding set.
+    Generate {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Finding id to include in the bounded proposal (repeatable).
+        #[arg(long = "finding", value_name = "FINDING")]
+        findings: Vec<String>,
+        /// Optional human reason for the generation; defaults to the finding-derived summary.
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// List all generated specs under `.forge/specs/` for the named project.
+    List {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Show the full bounded proposal for a generated spec.
+    Inspect {
+        /// Spec id (e.g. `my-app-abcdef012345`) or its hash prefix.
+        spec_id: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Classify one finding into a deterministic, semantic or manual route.
+    Route {
+        /// Finding id to route (matches a doctor, driftwatch-* or semantic-* id).
+        finding: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Apply a routing decision: deterministic action is recorded, semantic produces a spec, manual is noted.
+    Apply {
+        /// Finding id to route through remediation.
+        finding: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Optional reason recorded on the spec when the route is semantic.
+        #[arg(long)]
+        reason: Option<String>,
     },
 }
 
@@ -285,6 +347,7 @@ fn main() -> ExitCode {
             // to keep the match exhaustive.
             return ExitCode::from(2);
         }
+        Commands::Spec { command } => cmd_spec(command, cli.format),
     };
 
     match result {
@@ -675,6 +738,270 @@ fn cmd_upgrade_fleet(
     } else {
         ExitCode::from(1)
     }
+}
+
+fn cmd_spec(command: &SpecCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        SpecCommands::Generate {
+            target,
+            findings,
+            reason,
+        } => {
+            let project_path = resolve_spec_target(target)?;
+            let request = SpecRequest {
+                project_path,
+                finding_ids: findings.clone(),
+                reason: reason.clone(),
+            };
+            ensure_single_project(&request)?;
+            let sources = Vec::new();
+            let now = chrono::Utc::now();
+            let outcome = generate_spec(&request, &sources, now)?;
+            spec_generate_output(&outcome, format)
+        }
+        SpecCommands::List { target } => {
+            let project_path = resolve_spec_target(target)?;
+            let entries = list_specs(&project_path)?;
+            spec_list_output(&entries, format)
+        }
+        SpecCommands::Inspect { spec_id, target } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_spec_id(target, &project_path, spec_id)?;
+            match read_spec(&project_path, &id)? {
+                Some(draft) => spec_inspect_output(&draft, format),
+                None => Err(ForgeError::SpecInvalid {
+                    reason: format!("spec `{spec_id}` was not found under `.forge/specs/`"),
+                }),
+            }
+        }
+        SpecCommands::Route { finding, target } => {
+            let project_path = resolve_spec_target(target)?;
+            let request = SpecRequest {
+                project_path,
+                finding_ids: vec![finding.clone()],
+                reason: None,
+            };
+            let source = finding_source_for(target, &request.project_path, finding)?;
+            let decision = route_finding(&request, &source)?;
+            spec_route_output(&decision, format)
+        }
+        SpecCommands::Apply {
+            finding,
+            target,
+            reason,
+        } => {
+            let project_path = resolve_spec_target(target)?;
+            let request = SpecRequest {
+                project_path,
+                finding_ids: vec![finding.clone()],
+                reason: reason.clone(),
+            };
+            let source = finding_source_for(target, &request.project_path, finding)?;
+            let now = chrono::Utc::now();
+            let outcome = apply_routing(&request, &source, now)?;
+            spec_apply_output(&outcome, format)
+        }
+    }
+}
+
+fn resolve_spec_target(target: &str) -> Result<std::path::PathBuf, ForgeError> {
+    let candidate = std::path::Path::new(target);
+    if candidate.is_dir() {
+        return candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            });
+    }
+    Err(ForgeError::PathUnavailable {
+        path: target.to_string(),
+    })
+}
+
+fn parse_spec_id(
+    _target: &str,
+    project_path: &std::path::Path,
+    raw: &str,
+) -> Result<forge::spec::SpecId, ForgeError> {
+    if raw.contains('-') {
+        if let Some((project_id, hash)) = raw.split_once('-') {
+            let candidate = forge::spec::SpecId {
+                project_id: project_id.to_string(),
+                hash: hash.to_string(),
+            };
+            if read_spec(project_path, &candidate)?.is_some() {
+                return Ok(candidate);
+            }
+        }
+    }
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(project_path, None)?;
+    let entries = list_specs(project_path)?;
+    let project_id = manifest.project.id.clone();
+    let matches: Vec<&SpecListEntry> = entries
+        .iter()
+        .filter(|e| e.id.project_id == project_id && e.id.hash.starts_with(raw))
+        .collect();
+    match matches.len() {
+        1 => Ok(matches[0].id.clone()),
+        0 => Err(ForgeError::SpecInvalid {
+            reason: format!("no spec id matches `{raw}` for project `{project_id}`"),
+        }),
+        _ => Err(ForgeError::SpecInvalid {
+            reason: format!(
+                "spec id `{raw}` is ambiguous for project `{project_id}`; pass the full `<project>-<hash>`"
+            ),
+        }),
+    }
+}
+
+fn finding_source_for(
+    target: &str,
+    project_path: &std::path::Path,
+    finding: &str,
+) -> Result<FindingSource, ForgeError> {
+    if let Some(stripped) = finding.strip_prefix("driftwatch-") {
+        return Ok(FindingSource::Policy(forge::policy::PolicyFinding {
+            id: stripped.to_string(),
+            category: "spec".to_string(),
+            severity: forge::policy::PolicySeverity::Fail,
+            applicable: true,
+            message: format!("policy finding `{stripped}`"),
+            evidence: Vec::new(),
+            reason: None,
+        }));
+    }
+    if let Some(stripped) = finding.strip_prefix("semantic-") {
+        return Ok(FindingSource::Conflict(forge::upgrade::SemanticConflict {
+            project_id: manifest_id_for(project_path)?,
+            feature: stripped.to_string(),
+            owned_file: format!(".forge/features/{stripped}.receipt"),
+            reason: "drifted receipt reported by the CLI".to_string(),
+            suggested_spec: format!("forge spec generate --project {target} --finding {finding}"),
+        }));
+    }
+    Ok(FindingSource::Doctor(DoctorFindingInput {
+        id: finding.to_string(),
+        status: FindingStatus::Fail,
+        remediation: Remediation::Manual,
+        category: "spec".to_string(),
+        detail: format!("finding `{finding}` routed by `forge spec apply`"),
+    }))
+}
+
+fn manifest_id_for(project_path: &std::path::Path) -> Result<String, ForgeError> {
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(project_path, None)?;
+    Ok(manifest.project.id)
+}
+
+fn spec_generate_output(
+    outcome: &SpecGenerateOutcome,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "status": outcome.status_label(),
+        "note": outcome.note,
+        "files_written": outcome.files_written,
+        "spec": &outcome.spec,
+    });
+    let human = format!(
+        "spec {}: {}\nfiles: {}\n{}",
+        outcome.status_label(),
+        outcome.spec.id.dir_name(),
+        if outcome.files_written.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.files_written.join(", ")
+        },
+        outcome.note,
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn spec_list_output(entries: &[SpecListEntry], format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"specs": entries});
+    let mut human = format!(
+        "{:<48} {:<16} {:<10} {}",
+        "Spec", "Project", "Findings", "Contract"
+    );
+    for entry in entries {
+        human.push_str(&format!(
+            "\n{:<48} {:<16} {:<10} {}",
+            entry.id.dir_name(),
+            truncate(&entry.project_id, 16),
+            entry.finding_ids.len().to_string(),
+            entry.contract,
+        ));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn spec_inspect_output(draft: &SpecDraft, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "spec": draft,
+        "proposal": render_proposal_markdown(draft),
+    });
+    let human = render_proposal_markdown(draft);
+    Ok(as_output(format, human, json))
+}
+
+fn spec_route_output(
+    decision: &forge::spec::RoutingDecision,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "finding_id": decision.finding_id,
+        "finding_category": decision.finding_category,
+        "finding_severity": decision.finding_severity,
+        "route": decision.route.label(),
+        "rationale": decision.rationale,
+        "action": decision.action,
+        "suggested_spec": decision.suggested_spec,
+    });
+    let human = format!(
+        "finding: {}\nroute: {}\nrationale: {}\naction: {}\nspec: {}",
+        decision.finding_id,
+        decision.route.label(),
+        decision.rationale,
+        decision
+            .action
+            .clone()
+            .unwrap_or_else(|| "(none)".to_string()),
+        decision
+            .suggested_spec
+            .as_ref()
+            .map(|s| s.dir_name())
+            .unwrap_or_else(|| "(none)".to_string()),
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn spec_apply_output(outcome: &RoutingOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "apply": outcome,
+    });
+    let human = format!(
+        "finding: {}\nroute: {}\nstatus: {}\nnote: {}\nevidence: {}\nrecovery: {}\nfiles: {}",
+        outcome.decision.finding_id,
+        outcome.decision.route.label(),
+        outcome.status.label(),
+        outcome.note,
+        if outcome.evidence.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.evidence.join("; ")
+        },
+        if outcome.recovery.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.recovery.join("; ")
+        },
+        if outcome.files_changed.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.files_changed.join(", ")
+        },
+    );
+    Ok(as_output(format, human, json))
 }
 
 fn fleet_output(report: &FleetReport, format: Format) -> Output {

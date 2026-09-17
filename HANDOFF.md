@@ -1,10 +1,58 @@
-current_spec: documentation-translation
+current_spec: release-publishing
 
 # Forge handoff
 
 ## Current state
 
-`repository-distribution` implemented, verified and archived on 2026-09-17
+`documentation-translation` implemented, verified and archived on 2026-09-17
+as `2026-09-17-documentation-translation`; canonical specs promoted to
+[openspec/specs/documentation-translation/spec.md](openspec/specs/documentation-translation/spec.md).
+New in this cycle: `src/docs` (versioned `DocsConfig`/
+`LocaleConfigEntry`/`TranslateRequest`/`TranslateReport`/
+`TranslateOutcome`/`LocaleFreshness`/`FreshnessStatus`/`ReviewStatus`
+contract v0.1.0; manifest `docs.source` defaults to `README.md` and
+`docs.translations.<locale>.enabled` defaults to `false` so
+translation is never enabled by default; locales are validated
+against a strict language-tag grammar that refuses separators,
+`..`, and embedded paths so a locale can never smuggle a path
+into the state layout; `run_translate` plans and applies one
+explicit locale or `--all` enabled locales, reuses unchanged
+segments by content hash, requests only changed segments from
+the provider, merges translations in source order with code
+blocks reinserted verbatim, revalidates the source hash after
+the provider returns (a source edit during generation is
+reported as `failed` without overwriting the prior derivative),
+preserves link destinations and explicit non-translatable
+terms (a violation marks the derivative `needs-review` instead
+of claiming translation quality from provider success), and
+writes the state to `.forge/docs/<locale>/state.json`); the
+provider is an external binary (default `forge-docs-translator`,
+overridable via `FORGE_DOCS_TRANSLATOR_BIN`) invoked with an
+argument array — never a shell — and a per-run timeout, with
+`spawn` + bounded wait so an unresponsive tool cannot hang the
+registry; a missing binary, non-zero exit, timeout, contract
+mismatch or unparseable output surfaces as `failed` while the
+prior derivative and state stay intact; CLI `forge docs
+translate [LOCALE] [--all] [--project PATH]` (human/JSON, the
+typed `error[docs-invalid]` / `error[translation-failed]`
+errors render on stderr and the per-locale outcome JSON
+prints to stdout on partial failure so a partial run is
+observable); a derivative path that resolves to the source
+file or outside the project is refused before any write, a
+disabled locale is refused on explicit request and skipped on
+`--all` without invoking the provider, and a credential-shaped
+substring in evidence is redacted by `redact_docs_evidence`
+which delegates to `policy::redact_credentials`; doctor
+exposes `docs-<locale>` and `docs-freshness` findings with
+`pass`/`warn`/`fail` derived from `assess_freshness` (read-
+only: stale when the recorded source hash no longer matches,
+`never-translated` when the derivative is absent, `needs-review`
+when the recorded review state names violations, and `misconfigured`
+when the source or derivative path is broken), so the existing
+doctor contract still holds after a successful run; and the spec
+contract from `repository-distribution` still holds after a
+docs-translate run on the same project (the registry journal
+remains independent of the docs surface).
 as `2026-09-17-repository-distribution`; canonical specs promoted to
 [openspec/specs/repository-distribution/spec.md](openspec/specs/repository-distribution/spec.md).
 New in this cycle: `src/distribution` (versioned
@@ -295,11 +343,125 @@ work has started.
 
 ## Next change
 
-Implement [documentation-translation](openspec/changes/documentation-translation/proposal.md)
-only when implementation is requested. Its prerequisite
-(`core-manifest-registry`) is implemented and verified. Then
+Implement [release-publishing](openspec/changes/release-publishing/proposal.md)
+only when implementation is requested. Its prerequisites
+(`repository-distribution`, `documentation-translation`,
+`quality-policy-integration`) are implemented and verified. Then
 follow the roadmap prerequisites. Later changes remain planning-only
 with zero implementation tasks completed.
+
+## Verification evidence (documentation-translation, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 337 passed, 0 failed (183 lib incl. 16 new docs
+  contract tests for locale validation, config defaults and
+  opt-in, explicit source and paths, empty terms and bad
+  locales refusal, default derivative path matching the brief
+  model, segmentation and verbatim code preservation, output
+  validation flagging dropped links and non-translatable
+  terms, derivative-equal-to-source refusal, derivative
+  outside project refusal, unknown and disabled locales
+  refusal, missing binary without touching prior state, state
+  round-trip preserving hashes and review, request validation
+  rejecting empty and ambiguous, freshness tracking current /
+  stale / never / misconfigured, and report health requiring
+  all locales ok; 12 new docs CLI contract tests for help
+  listing, success with hash + review + verbatim code +
+  preserved link destination and state, unchanged source
+  reporting `current` without a second provider request,
+  incremental retranslation of only changed segments
+  (provider sees one segment, three reused, code block and
+  link destination preserved), derivative-equal-to-source
+  refusal with `error[docs-invalid]`, derivative-outside-
+  project refusal with `error[docs-invalid]`, disabled locale
+  refusal + `--all` skip without provider contact, unknown
+  locale refusal with `error[docs-invalid]`, provider failure
+  keeping the prior derivative and state intact while the
+  leaked credential-shaped secret is redacted in stdout and
+  stderr, missing translator binary failing without writing,
+  unparseable translator output failing cleanly, and altered
+  links / non-translatable terms marking the derivative
+  `needs-review` with both violation reasons named; plus the
+  2 new doctor `docs-zh-CN` and `docs-freshness` contract
+  tests for never-translated warn with the recovery note and
+  misconfigured fail; the unchanged 5 CLI contract, 3
+  cross-surface regression, 8 doctor contract, 10 feature
+  contract, 12 generate contract, 10 import contract, 7
+  profile contract, 7 quality_policy_contract, 12 upgrade
+  contract, 12 spec contract, 8 agent contract, 8 gitops
+  contract, 13 mcp contract, 9 mcp cross-surface, 4
+  agent-runtime-workflows cross-surface, 12 distribution
+  contract, 4 distribution cross-surface, 4 quality policy
+  cross-surface, 7 quality policy contract, and 12
+  distribution cross-surface; the slow `cargo build+test`
+  evidence path is exercised through the unchanged fixture
+  tests that finish in ~200s when the host toolchain is on
+  PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id smoke-app`
+  then appending a `docs` block to the manifest and creating
+  `README.md`, `FORGE_DOCS_TRANSLATOR_BIN=…/fake-translator.sh
+  forge docs translate zh-CN --project <proj>` on the
+  registered rust-web project runs the fake `sed` translator
+  end to end and writes `docs/README.zh-CN.md` carrying the
+  translated text, the verbatim code block and the preserved
+  link destination, plus
+  `.forge/docs/zh-CN/state.json` carrying the source hash,
+  review `ok`, and segments keyed by content hash; `forge
+  doctor` on the same project reports `[PASS] docs-zh-CN`
+  and `[PASS] docs-freshness` (the existing doctor contract
+  still holds); seeding a `state.json` with a stale hash and
+  a derivative file flips both findings to `[WARN]` with the
+  recovery note `re-run `forge docs translate zh-CN``; `forge
+  docs translate zh-CN --project <proj>` on a manifest with
+  `path: ../evil.md` exits 1 with
+  `error[docs-invalid]: docs invalid: derivative path
+  `../evil.md` resolves outside the project; keep derivatives
+  inside the project directory` and writes nothing; `forge
+  docs translate fr --project <proj>` on a manifest with
+  `fr.enabled: false` exits 1 with
+  `error[docs-invalid]: docs invalid: locale `fr` is disabled;
+  set `docs.translations.fr.enabled: true` to translate it`
+  and writes nothing; `forge docs translate zh-CN --project
+  <proj>` with a deliberately failing provider that emits
+  `token ghp_abcdefghijklmnopqrstuvwxyz0123456789` on stderr
+  keeps the prior `docs/README.zh-CN.md` and
+  `.forge/docs/zh-CN/state.json` byte-identical and reports
+  `error[translation-failed]` on stderr plus a typed `failed`
+  per-locale outcome on stdout with the credential replaced
+  by `[REDACTED]` everywhere it surfaces.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate documentation-translation --type change
+  --strict --no-interactive`: valid pre-archive; `openspec
+  validate documentation-translation --type spec --strict
+  --no-interactive`: valid post-archive; `openspec validate
+  --all --strict --no-interactive`: 24 passed, 0 failed
+  (post-archive, includes the promoted
+  `spec/documentation-translation`).
+- `git diff --check`: PASS; staged set reviewed (6 files
+  modified, 2 files added: `src/core/manifest.rs` for the
+  new `docs.source` / `docs.non_translatable` manifest
+  fields, `src/core/mod.rs` for the `docs-invalid` /
+  `translation-failed` typed errors, `src/lib.rs` to register
+  the new module, `src/doctor/mod.rs` for the
+  `docs-<locale>` / `docs-freshness` findings plus 2
+  contract tests, `src/main.rs` for the `forge docs
+  translate` subcommand, `tests/agent_runtime_workflows_
+  cross_surface.rs` for a formatting-only adjustment, plus
+  `src/docs/mod.rs` with 16 unit tests, `tests/docs_
+  contract.rs` with 12 contract tests, and the promoted
+  spec — 9 files; archive under
+  `openspec/changes/archive/2026-09-17-documentation-translation/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real provider integration is not exercised: a real
+  `forge-docs-translator` binary is not present in the local
+  sandbox, so the contract is validated through
+  `FORGE_DOCS_TRANSLATOR_BIN` fixture scripts that stand in
+  for the real provider. The credential redaction rule set is
+  the same as `policy::redact_credentials`, which is itself
+  verified through the existing quality policy contract
+  tests. A real translation provider round trip is a
+  downstream integration step and is not claimed here.
 
 ## Verification evidence (repository-distribution, 2026-09-17)
 

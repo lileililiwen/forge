@@ -1,8 +1,78 @@
-current_spec: release-publishing
+current_spec: adapter-deployment
 
 # Forge handoff
 
 ## Current state
+
+`release-publishing` implemented, verified and archived on 2026-09-17
+as `2026-09-17-release-publishing`; canonical specs promoted to
+[openspec/specs/release-publishing/spec.md](openspec/specs/release-publishing/spec.md).
+New in this cycle: `src/release` (versioned `Semver`/`ReleaseConfig`/
+`ReleaseIdentity`/`ReleaseRequest`/`ReleaseReport`/`ReleaseState`/
+`StageOutcome` contract v0.1.0; `Semver::parse` rejects empty,
+non-triple, non-numeric, leading-zero and invalid-prerelease
+versions and the manifest's `release.versioning` accepts only
+`semver` so an unsupported versioning scheme can never reach
+the apply path; `ReleaseConfig::from_manifest_meta` refuses
+duplicate, empty or unknown `release.checks` kinds, package
+paths and Dockerfile paths that lexically resolve outside the
+project, and an empty changelog; the release id is derived
+from `<project>-<semver>-<12-hex-sha>` so a different revision
+or version cannot silently reuse the previous release record;
+`prepare_release` captures the working-tree revision, the
+changelog content hash and a bounded excerpt, the configured
+doctor/test/DriftWatch checks (each bound to the captured
+revision so a stale plan cannot be applied after the tree has
+moved on) and the enabled `docs.translations.<locale>` locales
+(R1 boundary: a project without any configured locale omits the
+docs stage entirely) into a `PlanReport` whose `ready` verdict
+is true only when every applicable check passed at the captured
+revision; `apply_release` re-runs the captured checks and
+refuses without `--confirm` (typed `release-invalid`), marks the
+plan not ready with `release-check-failed` when any applicable
+check fails, is unavailable or is stale, and walks every
+selected stage — `commit`, `tag`, `push`, `mirror`, `package`,
+`container`, `docs`, `notes` — with stable statuses
+`delivered`/`skipped`/`disabled`/`failed`/`conflict`; the tag
+stage is annotated at the captured revision and refuses to
+replace an existing tag that points at a different commit
+(R2 boundary: `release-identity-conflict` evidence named
+verbatim, recovery points to `git tag -d` and to releasing at
+a different semver); a previously-delivered stage on the same
+revision is reported as `skipped` so retries do not redo work
+the registry has already observed; the package, container and
+notes adapters are external binaries (defaults
+`forge-package-publisher` / `forge-container-publisher` /
+`forge-notes-renderer`, overridable via `FORGE_PACKAGE_BIN` /
+`FORGE_CONTAINER_BIN` / `FORGE_NOTES_BIN`) invoked with
+argument arrays and a bounded per-run timeout so an
+unresponsive provider cannot hang the registry; a missing
+binary, non-zero exit, timeout or empty receipt surfaces as
+`failed` for that stage while the prior `ReleaseState` and
+prior stage outcomes stay intact; `ReleaseState` is persisted
+under `.forge/release/<project-id>/<release-id>/state.json`
+via atomic write (`.tmp` + rename) so a successful run
+overwrites the prior state and a failed run leaves it
+untouched; the mirror stage reuses the `distribution` contract
+so a project with a `distribution` block performs a real
+`forge mirror` and a project without one reports the mirror
+stage as `disabled`; the docs stage reuses the
+`documentation-translation` contract so a project with
+enabled translation locales performs a real `forge docs
+translate` per locale and a project without configured locales
+reports the docs stage as `disabled`; credential-shaped
+evidence is redacted by `redact_release_evidence` which
+delegates to `policy::redact_credentials`; CLI `forge release
+prepare|apply|list|inspect` (human/JSON, the per-stage
+`evidence` is rendered on stdout before the typed exit-code
+error so a partial run is observable); release operations
+journaled in the registry's `operations` table under the
+`release` kind with a `done`/`blocked`/`partial` verdict; and
+the spec contract from `repository-distribution` and
+`documentation-translation` still holds after a release run on
+the same project (the mirror and docs stages reuse the same
+Core contracts and the registry journal remains independent
+of the release surface).
 
 `documentation-translation` implemented, verified and archived on 2026-09-17
 as `2026-09-17-documentation-translation`; canonical specs promoted to
@@ -343,12 +413,126 @@ work has started.
 
 ## Next change
 
-Implement [release-publishing](openspec/changes/release-publishing/proposal.md)
-only when implementation is requested. Its prerequisites
-(`repository-distribution`, `documentation-translation`,
-`quality-policy-integration`) are implemented and verified. Then
+Implement [adapter-deployment](openspec/changes/adapter-deployment/proposal.md)
+only when implementation is requested. Its prerequisite
+(`release-publishing`) is implemented and verified. Then
 follow the roadmap prerequisites. Later changes remain planning-only
 with zero implementation tasks completed.
+
+## Verification evidence (release-publishing, 2026-09-17)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: 374 passed, 0 failed (206 lib incl. 14 new release
+  unit tests for semver parsing, version rejection, config defaults
+  and check/package/dockerfile validation, identity derivation
+  stability, changelog presence/outside-project refusal, manifest
+  maturity preservation, prepare success, prepare failure when
+  doctor reports blocking findings, prepare boundary when no
+  translation locale is configured, apply refusing without
+  `--confirm`, apply recording tag conflict when the same semver
+  is requested at a different commit, apply reporting `skipped`
+  when the tag already points at the working-tree revision, apply
+  persisting a release state for retry, and list reporting zero
+  entries for a fresh project; 10 new release CLI contract tests
+  for help listing the `prepare|apply|list|inspect` subcommands,
+  prepare capturing a `ready` plan with the changelog path and
+  the three check kinds, prepare refusing an unknown semver,
+  prepare refusing a manifest without a `release` section, apply
+  refusing without `--confirm`, apply recording per-stage
+  `delivered` outcomes for commit/tag/package/notes through
+  `FORGE_PACKAGE_BIN` and `FORGE_NOTES_BIN` shell fixture
+  adapters, apply recording package `failed` on a second pass
+  while the prior tag stays `skipped` (per-stage independence),
+  apply reporting tag `conflict` when HEAD moves past a tagged
+  commit, list reporting the persisted release with the
+  expected project and version, and inspect returning the
+  release state with the per-stage outcomes; 4 new release
+  cross-surface tests for the doctor verdict staying unchanged
+  across a successful release prepare, the registry
+  `release` journal row carrying the per-stage summary, the
+  release surface reading the new manifest verbatim after a
+  `feature add`, and a prior tag reporting `conflict` after a
+  new commit; plus the unchanged 5 CLI contract, 4
+  cross-surface regression, 8 doctor contract, 10 feature
+  contract, 12 generate contract, 10 import contract, 7
+  profile contract, 7 quality_policy_contract, 12 upgrade
+  contract, 12 spec contract, 8 agent contract, 8 gitops
+  contract, 13 mcp contract, 9 mcp cross-surface, 4
+  agent-runtime-workflows cross-surface, 12 distribution
+  contract, 4 distribution cross-surface, 4 quality policy
+  cross-surface, 7 quality policy contract, 12 documentation
+  contract, 4 documentation cross-surface; the slow
+  `cargo build+test` evidence path is exercised through the
+  `rust_scaffold_builds_and_tests_with_native_toolchain`
+  test that finishes in ~195s when the host toolchain is
+  on PATH).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id rel-smoke` then
+  appending a `release` block to the manifest and creating
+  `CHANGELOG.md`; `forge release prepare rel-smoke --version 1.0.0`
+  returns `ready: yes` with the captured changelog, the captured
+  source revision, the three check kinds (`doctor` and `test`
+  passing, `driftwatch` disabled), and a registry `release`
+  journal row recorded as `done`; `forge release apply rel-smoke
+  --version 1.0.0 --confirm --stage tag --stage package
+  --stage notes` with `FORGE_PACKAGE_BIN` and `FORGE_NOTES_BIN`
+  pointing at fixture shell scripts (`fake-pkg.sh` echoes
+  `npm:rel-fixture@0.1.0 receipt-ok`, `fake-notes.sh` echoes
+  `notes:rendered:…`) records the tag as `delivered`, the
+  package stage as `delivered` and the notes stage as
+  `delivered`, writes `.forge/release/rel-smoke/rel-smoke-1.0.0-12e19a9efefc/state.json`
+  with the per-stage outcomes, and the registry records a
+  second `release` journal row; `forge release list rel-smoke`
+  renders the persisted release ids with their project id,
+  version, stage count and last-run timestamp; `forge release
+  inspect <id> rel-smoke` returns the same per-stage outcomes
+  the apply produced; `forge release apply rel-smoke --version
+  1.0.0 --confirm --stage tag` after a new commit is made reports
+  the tag as `conflict` with both `existing:` and `requested:`
+  evidence lines and the recovery notes naming `git tag -d` and
+  a different semver; `forge release prepare rel-smoke-fail
+  --version 1.0.0` on a project whose doctor reports blocking
+  findings returns `ready: no` with the failing checks named
+  in the summary; `forge release apply rel-smoke-fail
+  --version 1.0.0 --confirm --stage tag` on the same project
+  exits 1 with `error[release-check-failed]` and writes no
+  release state.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate release-publishing --strict
+  --no-interactive`: valid pre-archive; `openspec archive
+  release-publishing --yes`: archived as
+  `2026-09-17-release-publishing` with the canonical
+  `spec/release-publishing` promoted; `openspec validate
+  --all --strict --no-interactive`: 25 passed, 0 failed
+  (post-archive, includes the promoted
+  `spec/release-publishing`).
+- `git diff --check`: PASS; staged set reviewed (4 files
+  modified: `src/core/manifest.rs` for the new
+  `release.*` typed fields, `src/core/mod.rs` for the
+  `release-invalid` / `release-check-failed` /
+  `release-identity-conflict` typed errors, `src/lib.rs` to
+  register the new module, `src/main.rs` for the
+  `forge release` subcommand and the `cmd_release_*`
+  helpers; 2 files added: `src/release/mod.rs` with 14 unit
+  tests, `src/release/engine.rs` with the prepare/apply/list
+  logic and 8 unit tests; 2 integration files added:
+  `tests/release_contract.rs` with 10 contract tests,
+  `tests/release_cross_surface.rs` with 4 cross-surface
+  regression tests; plus the promoted spec and the change
+  archive — 9 files; archive under
+  `openspec/changes/archive/2026-09-17-release-publishing/`).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Real provider integration is not exercised: a real
+  `forge-package-publisher` / `forge-container-publisher` /
+  `forge-notes-renderer` binary is not present in the local
+  sandbox, so the contract is validated through
+  `FORGE_PACKAGE_BIN` / `FORGE_NOTES_BIN` fixture shell
+  scripts that stand in for real provider round trips. The
+  credential redaction rule set is the same as
+  `policy::redact_credentials`, which is itself verified
+  through the existing quality policy contract tests. A real
+  package/container/notes provider round trip is a
+  downstream integration step and is not claimed here.
 
 ## Verification evidence (documentation-translation, 2026-09-17)
 

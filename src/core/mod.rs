@@ -153,6 +153,12 @@ pub enum ForgeError {
 
     #[error("deploy health failed: {reason}; deployment state recorded as failed")]
     DeployHealthFailed { reason: String },
+
+    #[error("component invalid: {reason}")]
+    ComponentInvalid { reason: String },
+
+    #[error("component quality conflict: {reason}")]
+    ComponentQualityConflict { reason: String },
 }
 
 impl ForgeError {
@@ -207,6 +213,8 @@ impl ForgeError {
             ForgeError::DeployTargetUnavailable { .. } => "deploy-target-unavailable",
             ForgeError::DeployTargetStale { .. } => "deploy-target-stale",
             ForgeError::DeployHealthFailed { .. } => "deploy-health-failed",
+            ForgeError::ComponentInvalid { .. } => "component-invalid",
+            ForgeError::ComponentQualityConflict { .. } => "component-quality-conflict",
         }
     }
 

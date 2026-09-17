@@ -4,10 +4,12 @@
 //! outcomes. Transports (CLI now; MCP/API later) render Core outcomes
 //! without reinterpreting them.
 
+pub mod agent;
 pub mod core;
 pub mod doctor;
 pub mod feature;
 pub mod generate;
+pub mod gitops;
 pub mod import;
 pub mod policy;
 pub mod profile;

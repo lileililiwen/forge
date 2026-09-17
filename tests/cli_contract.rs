@@ -25,7 +25,7 @@ fn help_lists_supported_surface_without_network_or_ai() {
     let out = clean_cmd().arg("--help").output().expect("run forge");
     assert_eq!(out.status.code(), Some(0));
     let text = String::from_utf8_lossy(&out.stdout);
-    for cmd in ["list", "inspect", "register"] {
+    for cmd in ["list", "inspect", "register", "agent", "test", "commit", "push"] {
         assert!(text.contains(cmd), "help must mention {cmd}:\n{text}");
     }
 }

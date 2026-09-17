@@ -91,6 +91,21 @@ pub enum ForgeError {
 
     #[error("registry error: {reason}")]
     Registry { reason: String },
+
+    #[error("agent adapter unavailable: {reason}")]
+    AgentUnavailable { reason: String },
+
+    #[error("agent operation unsupported: {reason}")]
+    AgentUnsupported { reason: String },
+
+    #[error("test command failed: {reason}")]
+    TestFailed { reason: String },
+
+    #[error("git working tree has unrelated changes: {reason}; commit the reviewed paths explicitly and leave others untouched")]
+    GitDirty { reason: String },
+
+    #[error("git push requires explicit --confirm; refusing implicit remote write")]
+    PushConfirmRequired,
 }
 
 impl ForgeError {
@@ -125,6 +140,11 @@ impl ForgeError {
             ForgeError::SpecInvalid { .. } => "spec-invalid",
             ForgeError::SpecWrite { .. } => "spec-write-failed",
             ForgeError::Registry { .. } => "registry-error",
+            ForgeError::AgentUnavailable { .. } => "agent-unavailable",
+            ForgeError::AgentUnsupported { .. } => "agent-unsupported",
+            ForgeError::TestFailed { .. } => "test-failed",
+            ForgeError::GitDirty { .. } => "git-dirty",
+            ForgeError::PushConfirmRequired => "push-confirm-required",
         }
     }
 

@@ -5,6 +5,11 @@
 //! network service.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use forge::agent::{
+    apply_transition as apply_agent_transition, list_sessions, new_session, read_session,
+    run_spec as run_session_spec, status_for, AgentProvider, AgentTransitionOutcome,
+    SessionTransition,
+};
 use forge::core::ForgeError;
 use forge::doctor::{
     parse_target_level, render_report_human, run_doctor, FindingStatus, RegistryObservation,
@@ -15,6 +20,7 @@ use forge::feature::{
     render_plan_human, resolve_plan, upgrade_feature,
 };
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
+use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
@@ -148,6 +154,44 @@ enum Commands {
         #[command(subcommand)]
         command: SpecCommands,
     },
+    /// Manage agent sessions for the named project.
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommands,
+    },
+    /// Run the profile's native test command on the named project.
+    Test {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Stage the named paths and create a single scoped commit.
+    Commit {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Path to stage (repeatable). At least one path is required.
+        #[arg(long = "path", value_name = "PATH")]
+        paths: Vec<String>,
+        /// Commit message.
+        #[arg(long)]
+        message: String,
+    },
+    /// Push the named ref to the project's remote (requires --confirm).
+    Push {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Remote name (default: origin).
+        #[arg(long, default_value = "origin")]
+        remote: String,
+        /// Ref name (default: HEAD).
+        #[arg(long, default_value = "HEAD")]
+        ref_name: String,
+        /// Required explicit confirmation for the remote write.
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -272,6 +316,83 @@ enum SpecCommands {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum AgentCommands {
+    /// Start a new managed agent session for the named project.
+    Start {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Session id (kebab-case).
+        #[arg(long)]
+        session: String,
+        /// Provider id (opencode, codex).
+        #[arg(long, default_value = "opencode")]
+        provider: String,
+        /// Optional spec id to bind the session to.
+        #[arg(long)]
+        spec: Option<String>,
+    },
+    /// Pause the named session.
+    Pause {
+        #[arg(default_value = ".")]
+        target: String,
+        #[arg(long)]
+        session: String,
+    },
+    /// Take over the named session from the current adapter.
+    Takeover {
+        #[arg(default_value = ".")]
+        target: String,
+        #[arg(long)]
+        session: String,
+    },
+    /// Resume the named session.
+    Resume {
+        #[arg(default_value = ".")]
+        target: String,
+        #[arg(long)]
+        session: String,
+    },
+    /// Restart the named session.
+    Restart {
+        #[arg(default_value = ".")]
+        target: String,
+        #[arg(long)]
+        session: String,
+    },
+    /// Start a fresh session, preserving the named one as historical evidence.
+    NewSession {
+        #[arg(default_value = ".")]
+        target: String,
+        /// Existing session to supersede.
+        #[arg(long)]
+        session: String,
+        /// New session id.
+        #[arg(long)]
+        new_session: String,
+    },
+    /// Show the recorded state of a session.
+    Status {
+        #[arg(default_value = ".")]
+        target: String,
+        #[arg(long)]
+        session: String,
+    },
+    /// List all recorded sessions for the named project.
+    List {
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Run the bound spec through the named session.
+    RunSpec {
+        #[arg(default_value = ".")]
+        target: String,
+        #[arg(long)]
+        session: String,
+    },
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let db_path = cli.registry.clone().unwrap_or_else(default_registry_path);
@@ -348,6 +469,19 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
         Commands::Spec { command } => cmd_spec(command, cli.format),
+        Commands::Agent { command } => cmd_agent(db_path.as_path(), command, cli.format),
+        Commands::Test { path } => cmd_test(path, cli.format),
+        Commands::Commit {
+            path,
+            paths,
+            message,
+        } => cmd_commit(path, paths.clone(), message.clone(), cli.format),
+        Commands::Push {
+            path,
+            remote,
+            ref_name,
+            confirm,
+        } => cmd_push(path, remote.clone(), ref_name.clone(), *confirm, cli.format),
     };
 
     match result {
@@ -1171,4 +1305,426 @@ fn truncate(s: &str, width: usize) -> String {
     } else {
         format!("{}…", &s[..width.saturating_sub(1)])
     }
+}
+
+fn parse_provider(raw: &str) -> Result<AgentProvider, ForgeError> {
+    match raw {
+        "opencode" => Ok(AgentProvider::Opencode),
+        "codex" => Ok(AgentProvider::Codex),
+        other => Err(ForgeError::AgentUnavailable {
+            reason: format!("unknown agent provider `{other}`; expected one of: opencode, codex"),
+        }),
+    }
+}
+
+fn resolve_agent_project(target: &str) -> Result<(PathBuf, String), ForgeError> {
+    let candidate = Path::new(target);
+    if candidate.is_dir() {
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+        return Ok((canonical, manifest.project.id));
+    }
+    Err(ForgeError::PathUnavailable {
+        path: target.to_string(),
+    })
+}
+
+fn cmd_agent(
+    db_path: &Path,
+    command: &AgentCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        AgentCommands::Start {
+            target,
+            session,
+            provider,
+            spec,
+        } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            let provider = parse_provider(provider)?;
+            let spec_id = spec.clone().unwrap_or_default();
+            let now = chrono::Utc::now();
+            let session_rec = new_session(&path, session, provider, &spec_id, now)?;
+            let outcome = apply_agent_transition(session_rec, SessionTransition::Start, now)?;
+            let files = forge::agent::write_session(&path, &outcome.session)?;
+            let registry = open_registry(db_path)?;
+            let detail = format!(
+                "agent `{}` session `{}` provider `{}` spec `{}` -> `{}`",
+                project_id,
+                session,
+                provider.label(),
+                spec_id,
+                outcome.state.label()
+            );
+            let _ = registry.record_operation("agent", &project_id, "done", &detail);
+            agent_outcome_output(&outcome, &files, &detail, format)
+        }
+        AgentCommands::Pause { target, session } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            run_agent_transition(
+                db_path,
+                &path,
+                &project_id,
+                session,
+                SessionTransition::Pause,
+                format,
+            )
+        }
+        AgentCommands::Takeover { target, session } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            run_agent_transition(
+                db_path,
+                &path,
+                &project_id,
+                session,
+                SessionTransition::Takeover,
+                format,
+            )
+        }
+        AgentCommands::Resume { target, session } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            run_agent_transition(
+                db_path,
+                &path,
+                &project_id,
+                session,
+                SessionTransition::Resume,
+                format,
+            )
+        }
+        AgentCommands::Restart { target, session } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            run_agent_transition(
+                db_path,
+                &path,
+                &project_id,
+                session,
+                SessionTransition::Restart,
+                format,
+            )
+        }
+        AgentCommands::NewSession {
+            target,
+            session,
+            new_session: new_id,
+        } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            let now = chrono::Utc::now();
+            let prior =
+                read_session(&path, session)?.ok_or_else(|| ForgeError::AgentUnavailable {
+                    reason: format!("session `{session}` was not found under `.forge/agents/`"),
+                })?;
+            let new_rec = new_session(&path, new_id, prior.provider, &prior.spec_id, now)?;
+            let outcome = apply_agent_transition(new_rec, SessionTransition::NewSession, now)?;
+            let files = forge::agent::write_session(&path, &outcome.session)?;
+            let registry = open_registry(db_path)?;
+            let detail = format!(
+                "agent `{}` new session `{}` from `{}` -> `{}`",
+                project_id,
+                new_id,
+                session,
+                outcome.state.label()
+            );
+            let _ = registry.record_operation("agent", &project_id, "done", &detail);
+            agent_outcome_output(&outcome, &files, &detail, format)
+        }
+        AgentCommands::Status { target, session } => {
+            let (path, _) = resolve_agent_project(target)?;
+            let session_rec =
+                status_for(&path, session)?.ok_or_else(|| ForgeError::AgentUnavailable {
+                    reason: format!("session `{session}` was not found under `.forge/agents/`"),
+                })?;
+            let json = serde_json::to_value(&session_rec).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            let human = render_session_human(&session_rec);
+            Ok(as_output(format, human, json))
+        }
+        AgentCommands::List { target } => {
+            let (path, _) = resolve_agent_project(target)?;
+            let entries = list_sessions(&path)?;
+            agent_list_output(&entries, format)
+        }
+        AgentCommands::RunSpec { target, session } => {
+            let (path, project_id) = resolve_agent_project(target)?;
+            let now = chrono::Utc::now();
+            let outcome = run_session_spec(&path, session, now)?;
+            let files = forge::agent::write_session(&path, &outcome.session)?;
+            let registry = open_registry(db_path)?;
+            let detail = format!(
+                "agent `{}` run_spec session `{}` -> `{}`",
+                project_id,
+                session,
+                outcome.state.label()
+            );
+            let _ = registry.record_operation("agent", &project_id, "done", &detail);
+            agent_outcome_output(&outcome, &files, &detail, format)
+        }
+    }
+}
+
+fn run_agent_transition(
+    db_path: &Path,
+    path: &Path,
+    project_id: &str,
+    session_id: &str,
+    transition: SessionTransition,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let now = chrono::Utc::now();
+    let session = read_session(path, session_id)?.ok_or_else(|| ForgeError::AgentUnavailable {
+        reason: format!("session `{session_id}` was not found under `.forge/agents/`"),
+    })?;
+    let outcome = apply_agent_transition(session, transition, now)?;
+    let files = forge::agent::write_session(path, &outcome.session)?;
+    let registry = open_registry(db_path)?;
+    let detail = format!(
+        "agent `{}` session `{}` {} -> `{}`",
+        project_id,
+        session_id,
+        transition.label(),
+        outcome.state.label()
+    );
+    let _ = registry.record_operation("agent", project_id, "done", &detail);
+    agent_outcome_output(&outcome, &files, &detail, format)
+}
+
+fn agent_outcome_output(
+    outcome: &AgentTransitionOutcome,
+    files: &[String],
+    detail: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "transition": {
+            "session_id": outcome.session.session_id,
+            "project_id": outcome.session.project_id,
+            "provider": outcome.session.provider.label(),
+            "spec_id": outcome.session.spec_id,
+            "state": outcome.state.label(),
+            "requested": outcome.requested.label(),
+            "evidence": outcome.evidence,
+            "next_step": outcome.next_step,
+            "note": outcome.note,
+            "files_written": files,
+            "registry_detail": detail,
+        }
+    });
+    let human = format!(
+        "session: {}\nproject: {}\nprovider: {}\nspec: {}\nrequested: {}\nstate: {}\nevidence: {}\nnext_step: {}\nnote: {}\nfiles: {}",
+        outcome.session.session_id,
+        outcome.session.project_id,
+        outcome.session.provider.label(),
+        outcome.session.spec_id,
+        outcome.requested.label(),
+        outcome.state.label(),
+        if outcome.evidence.is_empty() { "(none)".to_string() } else { outcome.evidence.join("; ") },
+        outcome.next_step.clone().unwrap_or_else(|| "(none)".to_string()),
+        outcome.note,
+        if files.is_empty() { "(none)".to_string() } else { files.join(", ") },
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn agent_list_output(
+    entries: &[forge::agent::SessionListEntry],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"sessions": entries});
+    let mut human = format!(
+        "{:<24} {:<12} {:<12} {:<8} {}",
+        "Session", "Provider", "State", "Specs", "Transitions"
+    );
+    for entry in entries {
+        human.push_str(&format!(
+            "\n{:<24} {:<12} {:<12} {:<8} {}",
+            entry.session_id,
+            entry.provider.label(),
+            entry.state.label(),
+            entry.spec_id,
+            entry.transition_count
+        ));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn render_session_human(session: &forge::agent::AgentSession) -> String {
+    let mut lines = vec![
+        format!("session: {}", session.session_id),
+        format!("project: {}", session.project_id),
+        format!("provider: {}", session.provider.label()),
+        format!("spec: {}", session.spec_id),
+        format!("state: {}", session.state.label()),
+        format!("started_at: {}", session.started_at.to_rfc3339()),
+        format!(
+            "last_transition_at: {}",
+            session.last_transition_at.to_rfc3339()
+        ),
+    ];
+    if session.transitions.is_empty() {
+        lines.push("transitions: (none)".to_string());
+    } else {
+        lines.push("transitions:".to_string());
+        for t in &session.transitions {
+            lines.push(format!(
+                "  - {} {} state={} evidence={} note={}",
+                t.at.to_rfc3339(),
+                t.kind.label(),
+                t.state.label(),
+                t.evidence.join(";"),
+                t.note
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn cmd_test(path: &Path, format: Format) -> Result<Output, ForgeError> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| ForgeError::PathUnavailable {
+            path: path.display().to_string(),
+        })?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    let descriptor = forge::profile::inspect_profile(&manifest.project.profile)?;
+    let test_command = descriptor.test_command.clone();
+    let outcome = run_test(
+        &manifest.project.id,
+        &manifest.project.profile,
+        Some(&test_command),
+        &canonical,
+    )?;
+    test_output(&outcome, format)
+}
+
+fn test_output(outcome: &TestOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "test": {
+            "contract": outcome.contract,
+            "project_id": outcome.project_id,
+            "profile": outcome.profile,
+            "command": outcome.command,
+            "status": outcome.status,
+            "exit_code": outcome.exit_code,
+            "note": outcome.note,
+            "evidence": outcome.evidence,
+        }
+    });
+    let human = format!(
+        "project: {}\nprofile: {}\ncommand: {}\nstatus: {}\nexit_code: {}\nnote: {}\nevidence: {}",
+        outcome.project_id,
+        outcome.profile,
+        outcome.command,
+        outcome.status,
+        outcome
+            .exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "(none)".to_string()),
+        outcome.note,
+        if outcome.evidence.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.evidence.join(" | ")
+        }
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_commit(
+    path: &Path,
+    paths: Vec<String>,
+    message: String,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| ForgeError::PathUnavailable {
+            path: path.display().to_string(),
+        })?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    let outcome = commit_paths(&manifest.project.id, &canonical, &paths, &message)?;
+    commit_output(&outcome, format)
+}
+
+fn commit_output(outcome: &CommitOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "commit": {
+            "contract": outcome.contract,
+            "project_id": outcome.project_id,
+            "paths": outcome.paths,
+            "message": outcome.message,
+            "commit_sha": outcome.commit_sha,
+            "files_changed": outcome.files_changed,
+            "note": outcome.note,
+            "evidence": outcome.evidence,
+        }
+    });
+    let human = format!(
+        "project: {}\npaths: {}\nfiles_changed: {}\ncommit: {}\nnote: {}",
+        outcome.project_id,
+        outcome.paths.join(", "),
+        outcome.files_changed.join(", "),
+        outcome
+            .commit_sha
+            .clone()
+            .unwrap_or_else(|| "(none)".to_string()),
+        outcome.note
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_push(
+    path: &Path,
+    remote: String,
+    ref_name: String,
+    confirm: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| ForgeError::PathUnavailable {
+            path: path.display().to_string(),
+        })?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    let outcome = push_ref(
+        &manifest.project.id,
+        &canonical,
+        &remote,
+        &ref_name,
+        confirm,
+    )?;
+    push_output(&outcome, format)
+}
+
+fn push_output(outcome: &PushOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "push": {
+            "contract": outcome.contract,
+            "project_id": outcome.project_id,
+            "remote": outcome.remote,
+            "ref": outcome.ref_name,
+            "status": outcome.status,
+            "commit_sha": outcome.commit_sha,
+            "note": outcome.note,
+            "evidence": outcome.evidence,
+        }
+    });
+    let human = format!(
+        "project: {}\nremote: {}\nref: {}\nstatus: {}\ncommit: {}\nnote: {}",
+        outcome.project_id,
+        outcome.remote,
+        outcome.ref_name,
+        outcome.status,
+        outcome
+            .commit_sha
+            .clone()
+            .unwrap_or_else(|| "(none)".to_string()),
+        outcome.note
+    );
+    Ok(as_output(format, human, json))
 }

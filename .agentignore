@@ -1,0 +1,36 @@
+# Generated, binary and irrelevant local data
+.git/
+.codegraph/
+target/
+dist/
+build/
+out/
+node_modules/
+bin/
+obj/
+__pycache__/
+.venv/
+venv/
+.dart_tool/
+coverage/
+test-results/
+playwright-report/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.forge/
+.idea/
+.vscode/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.png
+*.jpg
+*.pdf
+*.zip
+*.exe
+*.dll
+.env
+.env.*
+# Keep requirements, OpenSpec, source, tests, docs, lockfiles and governance visible.

@@ -1,0 +1,23 @@
+schema: spec-driven
+
+context: |
+  Forge is a language-agnostic developer control plane and deterministic software assembly platform.
+  requirement.md is the authoritative full product brief; ROADMAP.md orders bounded changes.
+  Repository status: planning-only, no product implementation or runtime verification.
+  Recommended baseline: Rust Core/CLI, SQLite, YAML, stdio MCP; confirm in the foundation ADR.
+  v0.1 is manifest, project/profile registries, import/list/inspect/new/doctor, and five MVP profiles.
+  Generated projects must work without Forge; reuse DriftWatch and the existing PTY agent manager.
+  Read AGENTS.md and .ai-rules/workflow.md. Planning packages do not authorize implementation.
+rules:
+  proposal:
+    - Use Why, What Changes, BFS Impact Map, Capabilities, and Non-goals in that order.
+    - Map requirements, contracts, callers, persistence, integrations, failures, tests, dependencies and concerns.
+    - Declare new capability IDs and explicit non-goals, phase, and source requirement sections.
+  design:
+    - Resolve ownership, contracts, failure boundaries, migration, compatibility and verification.
+    - Record material open decisions rather than silently fixing unspecified technology choices.
+  specs:
+    - Use observable SHALL requirements and success, failure and boundary scenarios.
+  tasks:
+    - Use BFS baseline, DFS requirement implementation, BFS regression and completeness, then Verification.
+    - Leave all planning tasks unchecked and run local verification before archive.

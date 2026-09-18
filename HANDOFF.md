@@ -1,8 +1,96 @@
-current_spec: semantic-ui-patterns
+current_spec: validated-intent-planner
 
 # Forge handoff
 
 ## Current state
+
+`semantic-ui-patterns` implemented, verified and archived on 2026-09-18
+as `2026-09-18-semantic-ui-patterns`; canonical specs promoted to
+[openspec/specs/semantic-ui-patterns/spec.md](openspec/specs/semantic-ui-patterns/spec.md).
+New in this cycle: `src/ui_pattern` (versioned
+`UiPatternDescriptor`/`UiPatternState`/`UiPatternTypography`/
+`UiPatternSpacing`/`UiPatternResponsive`/`UiPatternAccessibility`/
+`UiPatternInteraction`/`UiPatternEvidence`/`UiPatternAdapter`/
+`UiPatternQuality` (`experimental`/`verified`/`certified`/`deprecated`)/
+`UiPatternRequest`/`UiPatternPlan`/`UiPatternStep`/`UiPatternRejection`/
+`UiPatternEvidenceSummary`/`UiPatternResolveOutcome`/
+`UiPatternInstallRequest`/`UiPatternInstallOutcome` contract v0.1.0;
+`validate_descriptor` rejects programming primitives and generic
+template placeholders (`if`, `loop`, `screenshot`, `html-fragment`,
+`copy-paste`, `lorem-ipsum`, etc), unknown intents outside the
+bounded vocabulary (`login`, `register`, `forgot-password`,
+`dashboard`, `crud-table`, `filter-bar`, `form`, `settings`,
+`profile`, `billing`, `empty-state`, `success-page`, `error-page`,
+`modal`, `confirm-dialog`, `file-upload`, `navigation`), missing
+state/typography/spacing/responsive/accessibility/interaction
+contracts, copied-markup fragments (the catalog refuses
+`<html>`/`<!doctype html>`/base64 PNG/JPEG headers so a
+screenshot is never a verified pattern), and patterns without a
+tested platform adapter; every catalog entry must declare all
+required states (`loading`, `error`, `success`,
+`form_validation`, `empty`, `keyboard_focus`) so a copied markup
+fragment is refused at validation time; the catalog ships
+seventeen tested entries (`login`, `register`, `forgot-password`,
+`dashboard`, `crud-table`, `filter-bar`, `form`, `settings`,
+`profile`, `billing`, `empty-state`, `success-page`, `error-page`,
+`modal`, `confirm-dialog`, `file-upload` (experimental),
+`navigation`) plus the deprecated test entry `webhook-receiver`;
+`form` ships for `react-web`, `nextjs-web` and `flutter-app`
+while `billing` only ships for the two web profiles, and
+`empty-state`, `error-page`, `modal` and `navigation` ship for
+all three; `validate_request` refuses empty profile, empty id
+list, duplicate ids and programming primitives before any
+catalog lookup with a typed `ui-pattern-invalid` error;
+`resolve_patterns` is deterministic from the request, the
+catalog and the profile, prefers the compatible `Certified`
+candidate when multiple candidates satisfy the same id, and
+reports the planner's evidence summary so the operator can
+audit why a candidate was preferred (R1 success scenario); a
+profile-incompatibility request surfaces a typed
+`ui-pattern-unsupported-platform` rejection listing the tested
+platforms (R1 boundary: a web-only pattern refuses `flutter-app`
+rather than substituting copied web markup); an unknown id
+surfaces a typed `ui-pattern-invalid` rejection that names
+the missing catalog entry (R1 failure scenario); a request
+whose only compatible candidate is `Deprecated` is refused with
+a typed `ui-pattern-quality-conflict` rejection so the
+planner never silently selects a deprecated pattern; the
+resolver is the reviewable plan owner — it does not execute a
+side effect, and the `UiPatternRejection.code` field carries
+the typed error code so partial runs are observable on stdout
+before the human output renders the summary; `install_pattern`
+writes the adapter's ordinary source artifact (real React
+JSX/Next.js TSX for web profiles, real Flutter Dart for
+`flutter-app`) plus a separate `install.json` receipt under
+`.forge/ui-patterns/<id>/` and refuses to overwrite a
+customized file with a typed `ui-pattern-ownership-conflict`
+(R2 failure scenario); an install on a profile with no
+adapter surfaces a typed `ui-pattern-unsupported-platform`
+rejection; the installed artifact is ordinary source with the
+documented export (e.g. `function Form(...)`, `class Form extends
+StatelessWidget`) so a `forge` removal after the install leaves
+the project compiling through the project native toolchain
+(`npm run build`, `next build`, `flutter build`) — the R2
+boundary check verifies the source file is byte-identical to
+the expected artifact after the receipt is dropped; CLI `forge
+ui-pattern list|inspect|resolve|install` (human/JSON,
+`resolve` accepts `--profile <p>` plus repeatable
+`--pattern <id>` and renders the per-step evidence plus
+rejection code, `install` accepts `--profile <p> --reason <r>
+[--path <dir>]`); UI pattern operations journaled in the
+registry's `operations` table under the `ui_pattern` kind with
+a `done` / `rejected` (resolve) or `done` / `blocked` (install)
+verdict and a synthetic `__ui_pattern__` project id that keeps
+the operations table project-agnostic without inventing a
+user-visible project; and the spec contract from
+`semantic-component-registry`, `feature-lifecycle` and
+`project-upgrade-orchestration` still holds after a
+`ui-pattern` resolve and install on the same project (the
+registry journal stays independent of the UI surface, the
+doctor verdict is unchanged byte-for-byte, feature add/remove/
+upgrade and the ownership receipt contract still hold, and a
+credential-shaped substring in evidence is never constructed
+by the resolver).
 
 `semantic-component-registry` implemented, verified and archived on 2026-09-17
 as `2026-09-17-semantic-component-registry`; canonical specs promoted to
@@ -560,6 +648,166 @@ doubling), Core errors `ambiguous-import`/`import-conflict`, CLI
 stable `error[code]` diagnostics), and `Registry::check_identity_available`
 for mutation-free collision checks.
 
+## Verification evidence (semantic-ui-patterns, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS; 22 new
+  ui_pattern unit tests for catalog id stability and shape
+  (17 patterns + 1 deprecated test entry, every entry declares
+  the bounded intent and every required state, every adapter
+  ships ordinary source at the documented path), primitive
+  and placeholder rejection (programming primitives plus
+  `screenshot`/`html-fragment`/`copy-paste`/`lorem-ipsum`),
+  descriptor validation (missing state contract, missing
+  required state, unknown intent, primitive id, HTML fragment
+  artifact, empty adapters, oversized known issues), the typed
+  `UiPatternRejection` codes (ui-pattern-invalid for unknown
+  ids, ui-pattern-unsupported-platform for the Flutter
+  boundary on a web-only pattern, ui-pattern-quality-conflict
+  for the deprecated-only request), quality ranking
+  (certified preferred over verified/experimental, deprecated
+  excluded from the ranking), the install path (writes
+  `src/ui/<id>.tsx` for `react-web`/`nextjs-web` and
+  `lib/ui/<id>.dart` for `flutter-app`, plus
+  `.forge/ui-patterns/<id>/install.json` with the per-pattern
+  evidence summary), the ownership conflict (install refuses
+  to overwrite a customized file, leaves the file and the
+  receipt untouched), the unsupported-platform refusal on
+  install, the unknown-id refusal on install, the
+  byte-identical idempotent re-install, the Flutter-app
+  install, and the human renderers
+  (`render_plan_human` / `render_outcome_human` /
+  `render_install_human`); 33 new ui_pattern CLI contract
+  tests for the help output, the catalog list in human and
+  JSON, the `inspect` contract (typed states, typography,
+  spacing, responsive, accessibility, interaction, adapters,
+  evidence, certified quality), `resolve` with certified
+  candidates for `react-web` and the typed
+  `ui-pattern-unsupported-platform` rejection for `flutter-app`
+  on a web-only pattern (R1 boundary), the typed
+  `ui-pattern-invalid` rejection for an unknown id, the typed
+  exit-1 refusal for the programming primitive `if` and the
+  placeholder `screenshot`, the per-state and per-adapter
+  presence checks for every catalog id, the deprecated
+  `webhook-receiver` quality marker, the `ui-pattern-quality-conflict`
+  for a deprecated-only request, the `install` write of a
+  real React `Form` component plus receipt, the `install`
+  write of a real Flutter `Form` widget, the
+  ownership-conflict refusal preserving the customized file
+  and skipping the receipt write, the
+  unsupported-platform refusal on install with the typed
+  code, the unknown-id refusal on install with the typed
+  code, and the R2 boundary (dropping the receipt keeps the
+  ordinary source on disk so the project continues to build
+  through the native toolchain); 5 new ui_pattern
+  cross-surface tests for the registry `ui_pattern` journal
+  row keeping the operations table independent of the UI
+  surface, the doctor verdict staying byte-identical after a
+  `ui-pattern resolve` plus `install` on the same project,
+  the `forge feature add` workflow remaining compatible
+  after a `ui-pattern install` on the same project, the R1
+  boundary (a web-only pattern refuses `flutter-app` with the
+  typed `ui-pattern-unsupported-platform` rejection and never
+  substitutes copied web markup into the Flutter project),
+  and the R2 boundary (the installed source artifact survives
+  receipt removal so Forge is not on the build path); plus
+  the unchanged existing 25 test binaries (273 lib tests, 33
+  ui_pattern contract, 5 ui_pattern cross-surface, 15
+  component contract, 5 component cross-surface, 10 release
+  contract, 4 release cross-surface, 12 documentation
+  contract, 4 documentation cross-surface, 12 distribution
+  contract, 4 distribution cross-surface, 4
+  agent-runtime-workflows cross-surface, 8 agent contract, 8
+  gitops contract, 13 mcp contract, 9 mcp cross-surface, 8
+  doctor contract, 10 feature contract, 12 generate
+  contract, 10 import contract, 9 profile contract, 7
+  quality policy contract, 12 upgrade contract, 12 spec
+  contract, 5 CLI contract, 4 cross-surface regression).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile react-web --id ui-smoke`
+  then `forge ui-pattern list` shows the catalog with the 17
+  ids in stable order plus the deprecated `webhook-receiver`;
+  `forge ui-pattern inspect form` renders the contract
+  (eight states including the six required ones, the
+  typography/spacing/responsive/accessibility envelopes, the
+  three tested adapters, the certified evidence with
+  coverage 0.92 and `security_review: true`); `forge
+  ui-pattern resolve --profile react-web --pattern login
+  --pattern form` returns the certified plan with the
+  per-step evidence summary; `forge ui-pattern resolve
+  --profile flutter-app --pattern billing` returns the typed
+  `ui-pattern-unsupported-platform` rejection listing the
+  tested `react-web, nextjs-web` platforms so the operator
+  sees the boundary instead of a silently substituted copy;
+  `forge ui-pattern resolve --profile react-web --pattern if`
+  exits 1 with
+  `error[ui-pattern-invalid]: ui pattern invalid: ui pattern
+  'if' is a programming primitive or a generic template
+  placeholder; the registry refuses to model language
+  constructs or copied markup fragments`; `forge ui-pattern
+  install form --profile react-web --reason "studio needs
+  the standard form" --path <proj>` writes
+  `src/ui/form.tsx` carrying the real `function Form(...)` /
+  `data-state=` contract plus
+  `.forge/ui-patterns/form/install.json` with
+  `pattern_id: form`, `profile: react-web`, `quality:
+  certified`, and the eight named states; `forge ui-pattern
+  install form --profile flutter-app --reason ... --path
+  <proj>` writes `lib/ui/form.dart` carrying `class Form
+  extends StatelessWidget` plus the `Semantics(label:
+  'form', ...)` accessibility surface; `forge ui-pattern
+  install form --profile react-web --reason "should refuse"
+  --path <proj>` on a project with a pre-existing
+  `src/ui/form.tsx` carrying a user edit exits 1 with
+  `error[ui-pattern-ownership-conflict]` and writes neither
+  the artifact nor the receipt; `forge ui-pattern install
+  billing --profile flutter-app --reason ... --path <proj>`
+  exits 1 with
+  `error[ui-pattern-unsupported-platform]` and writes no
+  state file; the byte-identical R2 boundary check drops the
+  receipt and confirms `function Form(...)` and `import {
+  useState } from 'react';` remain on disk; and `forge
+  doctor <proj>` before and after the install run produces
+  the byte-identical verdict so the existing doctor contract
+  still holds.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate semantic-ui-patterns --strict
+  --no-interactive`: valid pre-archive; `openspec archive
+  semantic-ui-patterns --yes`: archived as
+  `2026-09-18-semantic-ui-patterns` with the canonical
+  `spec/semantic-ui-patterns` promoted; `openspec validate
+  --all --strict --no-interactive`: 24 passed, 0 failed
+  (post-archive, includes the promoted
+  `spec/semantic-ui-patterns`).
+- `git diff --check`: PASS; staged set reviewed (3 files
+  modified: `src/core/mod.rs` for the new
+  `UiPatternInvalid` / `UiPatternUnsupportedPlatform` /
+  `UiPatternQualityConflict` / `UiPatternDeprecatedDep` /
+  `UiPatternOwnershipConflict` typed errors, `src/lib.rs` to
+  register the new module, `src/main.rs` for the `forge
+  ui-pattern` subcommand, the `UiPatternCommands` enum and
+  the `cmd_ui_pattern` helpers; 3 files added:
+  `src/ui_pattern/mod.rs` with 22 unit tests,
+  `tests/ui_pattern_contract.rs` with 33 contract tests,
+  `tests/ui_pattern_cross_surface.rs` with 5 cross-surface
+  regression tests; plus the promoted spec and the change
+  archive — 7 files; archive under
+  `openspec/changes/archive/2026-09-18-semantic-ui-patterns/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  `npm run build`, `next build` or `flutter build` round
+  trip is not present in the local sandbox, so the R2
+  boundary is validated through the contract
+  `install_pattern`/`inspect_ui_pattern` round trip and the
+  `forge doctor` byte-equality check; the installed source
+  is ordinary React JSX/Next.js TSX/Flutter Dart with the
+  documented export, so the project continues to compile
+  through its native toolchain after Forge is removed. A
+  real `npm run build` / `next build` / `flutter build`
+  round trip is a downstream integration step and is not
+  claimed here.
+
 ## Verification evidence (semantic-component-registry, 2026-09-17)
 
 - `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
@@ -712,12 +960,12 @@ work has started.
 
 ## Next change
 
-Implement [semantic-ui-patterns](openspec/changes/semantic-ui-patterns/proposal.md)
+Implement [validated-intent-planner](openspec/changes/validated-intent-planner/proposal.md)
 only when implementation is requested. Its prerequisites
-(`semantic-component-registry`, `extended-profile-catalog`) are
-implemented and verified. Then follow the roadmap
-prerequisites. Later changes remain planning-only with
-zero implementation tasks completed.
+(`semantic-component-registry`, `semantic-ui-patterns`,
+`quality-policy-integration`) are implemented and verified. Then
+follow the roadmap prerequisites. Later changes remain
+planning-only with zero implementation tasks completed.
 
 ## Verification evidence (semantic-component-registry, 2026-09-17)
 

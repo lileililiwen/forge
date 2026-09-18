@@ -224,6 +224,60 @@ pub struct TranslationMeta {
     pub source_hash: Option<String>,
 }
 
+/// One configured external content or repository analytics
+/// provider. The provider name is the stable id the catalog
+/// recognises (`unified-content`, `github-analytics`, …);
+/// `project_ref` is the external project id at the provider
+/// (the content plane's slug or the GitHub `owner/repo`).
+/// The provider plane retains its own ownership; Forge records
+/// the reference and reports health, never mirrors the
+/// upstream's CMS.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnalyticsProviderEntry {
+    pub provider: String,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// External project id at the provider. Required when
+    /// `enabled: true`; the manifest carries a reference, not
+    /// an embedded secret.
+    #[serde(default)]
+    pub project_ref: Option<String>,
+    /// Optional adapter binary used to probe the provider.
+    /// Falls back to `FORGE_ANALYTICS_BIN` (or the default
+    /// `forge-analytics-adapter`) when omitted.
+    #[serde(default)]
+    pub adapter_command: Option<String>,
+}
+
+/// Existing content and analytics planes block. The block is
+/// the manifest's source of truth for which external systems
+/// own this project's content and repository analytics; the
+/// health and metrics surface reads the block and reports
+/// observations without ever mutating upstream state.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct AnalyticsMeta {
+    /// Master switch. When `false` the entire surface reports
+    /// `disabled` and never contacts a provider (R1 boundary
+    /// scenario: a disabled integration must not contact its
+    /// provider).
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Default observation window in days for growth-style
+    /// metrics. Bounded between 1 and 90 so the manifest
+    /// cannot ask for an unbounded window.
+    #[serde(default)]
+    pub default_window_days: Option<u32>,
+    /// External content providers (CMS, documentation,
+    /// design repos). Each entry is one configured provider.
+    #[serde(default)]
+    pub content: Vec<AnalyticsProviderEntry>,
+    /// External repository analytics providers (GitHub stars,
+    /// watchers, fork count). Each entry is one configured
+    /// provider.
+    #[serde(default)]
+    pub repository: Vec<AnalyticsProviderEntry>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct DocsMeta {
     #[serde(default)]
@@ -423,6 +477,8 @@ struct RawManifest {
     release: Option<ReleaseMeta>,
     #[serde(default)]
     identity: Option<IdentityMeta>,
+    #[serde(default)]
+    analytics: Option<AnalyticsMeta>,
 }
 
 /// Validated, normalized project manifest.
@@ -439,6 +495,7 @@ pub struct Manifest {
     pub docs: Option<DocsMeta>,
     pub release: Option<ReleaseMeta>,
     pub identity: Option<IdentityMeta>,
+    pub analytics: Option<AnalyticsMeta>,
 }
 
 impl Manifest {
@@ -500,6 +557,7 @@ impl Manifest {
             docs: raw.docs,
             release: raw.release,
             identity: raw.identity,
+            analytics: raw.analytics,
         })
     }
 

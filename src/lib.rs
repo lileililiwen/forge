@@ -5,6 +5,7 @@
 //! without reinterpreting them.
 
 pub mod agent;
+pub mod analytics;
 pub mod component;
 pub mod core;
 pub mod deploy;

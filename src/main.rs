@@ -10,6 +10,13 @@ use forge::agent::{
     run_spec as run_session_spec, status_for, AgentProvider, AgentTransitionOutcome,
     SessionTransition,
 };
+use forge::analytics::{
+    aggregate_project_metrics, inspect_external_planes, load_config as load_analytics_config,
+    metrics_summary_path, render_metrics_human,
+    render_report_human as render_analytics_report_human, save_metrics_summary, AnalyticsConfig,
+    AnalyticsInspectOptions, AnalyticsProvider, DoctorSummary, MetricsAggregateOptions,
+    MetricsSummary, ANALYTICS_CONTRACT_VERSION, ANALYTICS_SYNTHETIC_PROJECT,
+};
 use forge::component::{
     component_catalog, inspect_component, record_qualification,
     render_outcome_human as render_component_outcome_human, render_qualify_human, resolve_outcome,
@@ -300,6 +307,11 @@ enum Commands {
     Identity {
         #[command(subcommand)]
         command: IdentityCommands,
+    },
+    /// Inspect the existing content / analytics providers configured for a project and aggregate timestamped project metrics.
+    Analytics {
+        #[command(subcommand)]
+        command: AnalyticsCommands,
     },
 }
 
@@ -805,6 +817,31 @@ enum IdentityCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum AnalyticsCommands {
+    /// Inspect the manifest's analytics block, recording timestamped health observations for each configured provider.
+    Inspect {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Plan the round trip without invoking any provider adapter.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Aggregate timestamped project metrics from the registry, doctor, deploy and external observations.
+    Metrics {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Default observation window in days for growth-style metrics (1..=90).
+        #[arg(long)]
+        window_days: Option<u32>,
+        /// Aggregate over the entire registered registry instead of one project.
+        #[arg(long)]
+        all: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -994,6 +1031,7 @@ fn main() -> ExitCode {
         Commands::Intent { command } => cmd_intent(&db_path, command, cli.format),
         Commands::Procedure { command } => cmd_procedure(&db_path, command, cli.format),
         Commands::Identity { command } => cmd_identity(&db_path, command, cli.format),
+        Commands::Analytics { command } => cmd_analytics(&db_path, command, cli.format),
     };
 
     match result {
@@ -4128,6 +4166,206 @@ fn parse_rfc3339(raw: &str, field: &str) -> Result<chrono::DateTime<chrono::Utc>
         .map_err(|err| ForgeError::IdentityInvalid {
             reason: format!("identity {field} `{raw}` is not RFC 3339: {err}"),
         })
+}
+
+fn cmd_analytics(
+    db_path: &Path,
+    command: &AnalyticsCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        AnalyticsCommands::Inspect { target, dry_run } => {
+            cmd_analytics_inspect(db_path, target, *dry_run, format)
+        }
+        AnalyticsCommands::Metrics {
+            target,
+            window_days,
+            all,
+        } => cmd_analytics_metrics(db_path, target, *window_days, *all, format),
+    }
+}
+
+fn resolve_analytics_target(db_path: &Path, target: &str) -> Result<(PathBuf, String), ForgeError> {
+    let candidate = Path::new(target);
+    if candidate.is_dir() {
+        let dir = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+        return Ok((dir, manifest.project.id));
+    }
+    let registry = open_registry(db_path)?;
+    let record = registry.inspect(target)?;
+    let dir = PathBuf::from(&record.path);
+    if !dir.is_dir() {
+        return Err(ForgeError::PathUnavailable { path: record.path });
+    }
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+    Ok((dir, manifest.project.id))
+}
+
+fn cmd_analytics_inspect(
+    db_path: &Path,
+    target: &str,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (dir, project_id) = resolve_analytics_target(db_path, target)?;
+    let _ = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+    let config = match load_analytics_config(&dir)? {
+        Some(cfg) => cfg,
+        None => {
+            let detail = "inspect: project has no analytics block".to_string();
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation("analytics", &project_id, "rejected", &detail);
+            }
+            return Err(ForgeError::AnalyticsInvalid {
+                reason: format!(
+                    "project `{project_id}` has no `analytics:` block; declare one in \
+                     forge.yaml to enable the external content / analytics plane"
+                ),
+            });
+        }
+    };
+    let report =
+        inspect_external_planes(&project_id, &config, &AnalyticsInspectOptions { dry_run })?;
+    let detail = format!(
+        "inspect: project={} enabled={} observations={} healthy={} dry_run={}",
+        project_id,
+        report.enabled,
+        report.observations.len(),
+        report.healthy(),
+        dry_run,
+    );
+    if let Ok(registry) = open_registry(db_path) {
+        let state = if report.healthy() { "done" } else { "rejected" };
+        let _ = registry.record_operation("analytics", &project_id, state, &detail);
+    }
+    let json = serde_json::json!({
+        "contract": ANALYTICS_CONTRACT_VERSION,
+        "project_id": project_id,
+        "report": report,
+    });
+    let human = render_analytics_report_human(&report);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_analytics_metrics(
+    db_path: &Path,
+    target: &str,
+    window_days: Option<u32>,
+    all: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = open_registry(db_path)?;
+    let project_id: String;
+    let external_observations: Vec<forge::analytics::HealthObservation>;
+    let default_window: u32;
+    let summary_path_dir: Option<PathBuf>;
+    if all {
+        project_id = ANALYTICS_SYNTHETIC_PROJECT.to_string();
+        external_observations = collect_external_observations_for_all(&registry, db_path)?;
+        default_window = window_days.unwrap_or(forge::analytics::DEFAULT_WINDOW_DAYS);
+        summary_path_dir = None;
+    } else {
+        let (dir, pid) = resolve_analytics_target(db_path, target)?;
+        project_id = pid.clone();
+        let config = load_analytics_config(&dir)?;
+        let cfg = config.unwrap_or_else(|| AnalyticsConfig {
+            enabled: false,
+            default_window_days: forge::analytics::DEFAULT_WINDOW_DAYS,
+            content: Vec::new(),
+            repository: Vec::new(),
+        });
+        default_window = window_days.unwrap_or(cfg.default_window_days);
+        if cfg.enabled && !cfg.all_providers().is_empty() {
+            let report = inspect_external_planes(
+                &project_id,
+                &cfg,
+                &AnalyticsInspectOptions { dry_run: false },
+            )?;
+            external_observations = report.observations;
+        } else {
+            external_observations = Vec::new();
+        }
+        summary_path_dir = Some(dir);
+    }
+    let doctor = DoctorSummary::default();
+    let report = aggregate_project_metrics(
+        &registry,
+        Some(doctor),
+        &MetricsAggregateOptions {
+            default_window_days: default_window,
+            external_observations,
+        },
+    )?;
+    let summary = MetricsSummary {
+        contract: report.contract.clone(),
+        project_id: project_id.clone(),
+        generated_at: report.generated_at.clone(),
+        aggregates: report.aggregates.clone(),
+    };
+    if let Some(dir) = summary_path_dir {
+        let path = metrics_summary_path(&dir, &project_id)?;
+        let _ = save_metrics_summary(&path, &summary);
+    }
+    let detail = format!(
+        "metrics: scope={} default_window={}d complete={} aggregates={}",
+        if all { "all" } else { &project_id },
+        default_window,
+        report.complete,
+        report.aggregates.len()
+    );
+    if let Ok(reg) = open_registry(db_path) {
+        let journal_project = if all {
+            ANALYTICS_SYNTHETIC_PROJECT
+        } else {
+            project_id.as_str()
+        };
+        let state = if report.complete { "done" } else { "partial" };
+        let _ = reg.record_operation("analytics", journal_project, state, &detail);
+    }
+    let json = serde_json::json!({
+        "contract": ANALYTICS_CONTRACT_VERSION,
+        "metrics": report,
+    });
+    let human = render_metrics_human(&report);
+    Ok(as_output(format, human, json))
+}
+
+fn collect_external_observations_for_all(
+    registry: &Registry,
+    db_path: &Path,
+) -> Result<Vec<forge::analytics::HealthObservation>, ForgeError> {
+    let mut out: Vec<forge::analytics::HealthObservation> = Vec::new();
+    let projects = registry.list()?;
+    for record in projects {
+        let dir = PathBuf::from(&record.path);
+        if !dir.is_dir() {
+            continue;
+        }
+        let config = match load_analytics_config(&dir) {
+            Ok(Some(cfg)) => cfg,
+            _ => continue,
+        };
+        if !config.enabled {
+            continue;
+        }
+        let report = inspect_external_planes(
+            &record.id,
+            &config,
+            &AnalyticsInspectOptions { dry_run: false },
+        )?;
+        out.extend(report.observations);
+    }
+    let _ = db_path;
+    Ok(out)
+}
+
+fn _ensure_analytics_symbols_used(provider: AnalyticsProvider) -> &'static str {
+    forge::analytics::provider_label(provider)
 }
 
 /// Resolve a target string (registered id or filesystem path) to a

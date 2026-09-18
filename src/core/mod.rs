@@ -221,6 +221,15 @@ pub enum ForgeError {
         "identity permission denied: {reason}; provider login does not imply admin authorization"
     )]
     IdentityPermissionDenied { reason: String },
+
+    #[error("analytics invalid: {reason}")]
+    AnalyticsInvalid { reason: String },
+
+    #[error("analytics adapter unavailable: {reason}")]
+    AnalyticsAdapterUnavailable { reason: String },
+
+    #[error("analytics mapping ambiguous: {reason}; refusing to attach another project's data")]
+    AnalyticsMappingAmbiguous { reason: String },
 }
 
 impl ForgeError {
@@ -297,6 +306,9 @@ impl ForgeError {
             ForgeError::IdentitySessionNotFound { .. } => "identity-session-not-found",
             ForgeError::IdentitySessionCrossProject { .. } => "identity-session-cross-project",
             ForgeError::IdentityPermissionDenied { .. } => "identity-permission-denied",
+            ForgeError::AnalyticsInvalid { .. } => "analytics-invalid",
+            ForgeError::AnalyticsAdapterUnavailable { .. } => "analytics-adapter-unavailable",
+            ForgeError::AnalyticsMappingAmbiguous { .. } => "analytics-mapping-ambiguous",
         }
     }
 

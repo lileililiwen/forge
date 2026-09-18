@@ -1,8 +1,52 @@
-current_spec: control-plane-portal
-
 # Forge handoff
 
 ## Current state
+
+`control-plane-portal` implemented, verified and archived on 2026-09-18
+as `2026-09-18-control-plane-portal`; canonical specs promoted to
+[openspec/specs/control-plane-portal/spec.md](openspec/specs/control-plane-portal/spec.md).
+New in this cycle: `src/portal` (versioned
+`PortalConfig`/`PortalScope`/`PortalSection` (twelve §36
+sections: projects/features/components/policies/specs/
+agents/deployments/repositories/documentation/analytics/
+servers/settings)/`PortalEntry`/`PortalStatus`
+(`ok`/`warn`/`fail`/`unknown`/`unavailable`/`partial`)/
+`PortalSectionView`/`PortalDashboard`/`PortalOperation`
+contract `0.1.0`; `PortalConfig::from_manifest` normalizes
+the manifest's `portal:` block (default title `Forge
+Control Plane`, default scope `project`), refuses empty
+or oversized titles, unknown `default_scope` values and
+a `title` on a disabled block with the typed
+`portal-invalid` code; `parse_section` refuses unknown
+section ids with `portal-invalid`; `build_dashboard`
+renders all twelve sections plus the most recent
+`operations` rows for one project (`scope: project`) or
+the whole registry (`scope: fleet`); `build_section_view`
+renders a single requested section; every section rolls
+up to the worst entry status so a dashboard never masks
+a `fail` / `unavailable` / `unknown` behind an `ok`
+(R3 boundary); `unknown` / `unavailable` / `partial`
+states are surfaced prominently with `source` and
+`observed_at` on every entry; the portal is read-only —
+every section carries a `controls_available` line naming
+the CLI command that performs the matching mutation, and
+the portal mutates nothing (R2 boundary: closing the
+portal leaves every operation available through CLI and
+mature MCP tools); portal calls journal one `portal`
+row per `dashboard` / `view` with the real project id
+(or the synthetic `__portal__` id for fleet views) so
+the operations table stays project-agnostic; Core error
+`portal-invalid` with stable code; CLI `forge portal
+dashboard [TARGET] [--all]` and `forge portal view
+<section> [TARGET]` (human/JSON); and the spec contract
+from `core-http-api`, `external-planes-analytics` and
+`semantic-ui-patterns` still holds after a portal round
+trip on the same project (the registry journal stays
+independent of the portal surface, the doctor verdict is
+byte-equivalent before and after, the MCP `tools/list`
+snapshot never advertises the portal surface, the
+`forge feature add` workflow remains compatible, and a
+fleet view invents no registered project).
 
 `core-http-api` implemented, verified and archived on 2026-09-18
 as `2026-09-18-core-http-api`; canonical specs promoted to
@@ -1869,20 +1913,110 @@ for mutation-free collision checks.
   `--forbid` / `--constraint` flags are the
   model-agnostic contract a provider adapter would
   emit. A real provider round trip is a downstream
-  integration step and is not claimed here.
-
-The machine-readable line above is the single current OpenSpec pointer. It
-selects the next eligible future implementation package; it does not claim
-work has started.
+   integration step and is not claimed here.
 
 ## Next change
 
-Implement [control-plane-portal](openspec/changes/control-plane-portal/proposal.md)
-only when implementation is requested. Its prerequisites
-(`core-http-api`, `external-planes-analytics`,
-`semantic-ui-patterns`) are implemented and verified. Later
-changes remain planning-only with zero implementation tasks
-completed.
+None. All 25 roadmap changes are implemented, verified
+and archived; no active changes remain in
+`openspec/changes/`. The `current_spec` pointer line has
+been removed. A future portal framework (ASP.NET Core /
+Next.js) remains a downstream integration step and is
+not claimed here.
+
+## Verification evidence (control-plane-portal, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS.
+- `cargo test`: full suite (lib + integration tests)
+  PASS; 423 lib tests incl. 22 new portal unit tests
+  for section id stability (twelve §36 sections in
+  stable order), unknown-section refusal with
+  `portal-invalid`, whitespace-tolerant parsing,
+  config defaults, typed `portal:` block fields,
+  empty/oversized-title refusal, unknown-scope
+  refusal, title-on-disabled-block refusal,
+  oversized entry list/id refusal, empty-id refusal,
+  worst-status section rollup, worst-section
+  dashboard rollup, fleet-scope project-id drop,
+  unavailable-for-missing-project, unknown-prominent
+  rollup, human renderers and section-label/id
+  consistency; 10 new portal CLI contract tests for
+  the help output (top-level `portal` mention,
+  `dashboard` + `view` subcommands), the per-project
+  dashboard rendering all twelve sections in human
+  and JSON (`contract: 0.1.0`, `scope: project`),
+  the fleet dashboard (`scope: fleet`, null
+  project id, synthetic `__portal__` journal row),
+  the single-section view (`section_id`,
+  per-entry evidence, `controls_available`),
+  the typed `error[portal-invalid]` exit-1 refusal
+  for an unknown section, and the `unknown`-prominent
+  rollup on a project with no observable state;
+  6 new portal cross-surface regression tests for
+  the fleet view inventing no registered project,
+  the doctor verdict staying byte-equivalent after
+  a portal round trip, the MCP `tools/list`
+  snapshot staying unchanged (no `portal_*` tool
+  advertised), the `forge feature add` workflow
+  remaining compatible after a portal round trip,
+  the per-call `portal` journal row carrying the
+  real project id, and an unknown-section refusal
+  mutating nothing.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id
+  portal-smoke` then `forge portal dashboard
+  portal-smoke` renders the twelve sections
+  (`projects=ok`, `features=ok`,
+  `components=unknown`, `policies=ok`,
+  `specs=unknown`, `agents=unknown`,
+  `deployments=unknown`, `repositories=unknown`,
+  `documentation=unknown`, `analytics=unknown`,
+  `servers=unknown`, `settings=ok`) with rollup
+  `unknown`; `forge portal view servers
+  portal-smoke` renders the single section with
+  `evidence: sessions=0` and
+  `controls_available: forge api serve`; `forge
+  portal view nope portal-smoke` exits 1 with
+  `error[portal-invalid]` naming the twelve
+  supported sections.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate control-plane-portal --strict
+  --no-interactive`: valid pre-archive; `openspec
+  archive control-plane-portal --yes`: archived as
+  `2026-09-18-control-plane-portal` with the
+  canonical `spec/control-plane-portal` promoted;
+  `openspec validate --all --strict --no-interactive`:
+  24 passed, 0 failed (post-archive, includes the
+  promoted `spec/control-plane-portal`).
+- `git diff --check`: PASS on the working tree;
+  staged set reviewed (5 files modified:
+  `src/core/manifest.rs` for the new `PortalMeta`
+  typed fields, `src/core/mod.rs` for the
+  `portal-invalid` typed error, `src/lib.rs` to
+  register the new module, `src/main.rs` for the
+  `forge portal` subcommand, the `PortalCommands`
+  enum and the `cmd_portal` helpers,
+  `src/registry/mod.rs` for the new
+  `recent_operations` / `operations_for_project`
+  readers; 3 files added: `src/portal/mod.rs` with
+  22 unit tests, `tests/portal_contract.rs` with 10
+  contract tests, `tests/portal_cross_surface.rs`
+  with 6 cross-surface regression tests; plus the
+  promoted spec and the change archive — 14 files;
+  archive under
+  `openspec/changes/archive/2026-09-18-control-plane-portal/`).
+  Committed as `966bd48`; no push performed.
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real portal framework integration is not exercised:
+  no ASP.NET Core / Next.js renderer exists in the
+  local sandbox, so the contract is validated
+  through the `forge portal dashboard` / `forge
+  portal view` CLI surface and the versioned JSON
+  envelope a future renderer would consume. The
+  portal is read-only by construction; a real
+  graphical portal deployment is a downstream
+  integration step and is not claimed here.
 
 ## Verification evidence (ai-procedure-skills, 2026-09-18)
 

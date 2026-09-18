@@ -1,8 +1,73 @@
-current_spec: central-admin-identity
+current_spec: external-planes-analytics
 
 # Forge handoff
 
 ## Current state
+
+`central-admin-identity` implemented, verified and archived on 2026-09-18
+as `2026-09-18-central-admin-identity`; canonical specs promoted to
+[openspec/specs/central-admin-identity/spec.md](openspec/specs/central-admin-identity/spec.md).
+New in this cycle: `src/identity` (versioned
+`IdentityConfig`/`AuthChallenge`/`AuthCallback`/`ProviderClaims`/
+`AdminSession`/`SessionState` (`active`/`expired`/`revoked`)/
+`IdentityRejection`/`IdentityOutcome` (`Session`/`Rejected`)
+contract `0.1.0`); `IdentityConfig::from_manifest` normalizes the
+manifest's `identity:` block, accepts only the bounded provider
+set (`okta`/`auth0`/`keycloak`/`azure-ad`/`google`/`github`/
+`okta-fixture`), refuses unknown providers, cleartext issuers,
+http-only redirect URIs (https / `http://localhost` /
+`http://127.0.0.1` / `forge://` allowed), non-`openid` scope
+lists, oversize scope/admin_values lists, out-of-range state and
+session TTLs, shell metacharacters in URL fields, and a raw
+secret in `client_secret_ref` (the manifest carries a
+`scheme://` reference, never the secret) with the typed
+`identity-invalid` code; `build_challenge` returns a fresh
+PKCE `S256` authorization request with random state, nonce and
+code_verifier; `validate_callback` refuses mismatched state,
+expired challenge, provider-reported errors, missing codes and
+shell metacharacter smuggling; `validate_claims` refuses wrong
+issuer, wrong audience, expired token, mismatched nonce and
+missing required scope; `mint_session` is refused with the
+typed `identity-permission-denied` code when the provider
+login is valid but the configured `admin_claim` value is not
+in the allow list, so provider login never silently grants
+admin (R1 boundary scenario); `validate_session` refuses
+cross-project tokens with the typed
+`identity-session-cross-project` code (R2 failure scenario),
+revoked or expired sessions with `identity-session-expired`,
+and missing permissions with `identity-permission-denied`;
+`terminate_session` marks the session `Revoked` and the
+persisted file is removed so a revoked session cannot be
+re-presented; sessions are persisted under
+`.forge/identity/<project>/sessions/<id>.json` (atomic `.tmp`
++ rename) so a project's session is project-scoped and never
+shared with another project (R2 boundary scenario: revoking
+one project's session does not implicitly revoke or validate
+another project's session); the manifest's `identity:` block
+is the source of truth and the validator is the only path
+that produces the typed `IdentityConfig`; `redact_identity_evidence`
+delegates to `policy::redact_credentials` so the identity
+contract shares one definition of "secret" with the policy,
+release, distribution, docs and deploy adapters; CLI `forge
+identity validate-config|build-challenge|complete-auth|
+session-list|session-inspect|session-validate|session-terminate`
+(human/JSON, `complete-auth` accepts `--state`, `--code`,
+optional `--error` / `--error-description`, `--subject`,
+`--issuer`, `--audience`, `--nonce`, optional `--issued-at`
+/ `--expires-at`, `--scope`, `--admin-claim-value`, and
+`session-validate` accepts `--session` and `--permission`
+defaulting to `admin:access`); identity operations journaled
+in the registry's `operations` table under the `identity` kind
+with a `done` / `rejected` verdict and the project id (no
+synthetic project is invented; identity is always
+project-scoped); the registry's `tools/list` snapshot stays
+independent of the identity surface; the doctor verdict on the
+same project is byte-equivalent after a successful
+identity round trip; the `forge feature add` workflow remains
+compatible after an identity round trip on the same project;
+and a credential-shaped substring in evidence is redacted by
+`redact_identity_evidence` which delegates to
+`policy::redact_credentials`.
 
 `ai-procedure-skills` implemented, verified and archived on 2026-09-18
 as `2026-09-18-ai-procedure-skills`; canonical specs promoted to
@@ -764,6 +829,193 @@ doubling), Core errors `ambiguous-import`/`import-conflict`, CLI
 stable `error[code]` diagnostics), and `Registry::check_identity_available`
 for mutation-free collision checks.
 
+## Verification evidence (central-admin-identity, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  50 new identity lib unit tests for the `IdentityConfig`
+  validator (well-formed block, audience defaults to
+  `client_id`, empty / unknown / cleartext provider,
+  cleartext issuer, missing `openid` scope, empty admin
+  values, state / session TTL range, raw secret in
+  `client_secret_ref`, shell metacharacters in
+  `redirect_uri`, bad project id, oversized scope list);
+  `build_challenge` shape stability and randomness across
+  repeated calls; `validate_callback` accepting the matching
+  state within TTL, rejecting mismatched state, expired
+  challenge, provider error, cross-project state and shell
+  metacharacters in the code; `validate_claims` accepting a
+  matching token and rejecting wrong issuer, wrong audience,
+  expired token, mismatched nonce and missing required scope;
+  `admin_claim_grants` mapping to the allow list;
+  `mint_session` refusing a non-admin claim with
+  `identity-permission-denied` and accepting an admin claim;
+  `validate_session` accepting an active session, rejecting
+  cross-project tokens with `identity-session-cross-project`,
+  expired sessions, revoked sessions and missing permissions;
+  `terminate_session` flipping state to `Revoked`; the path
+  helper rejecting non-hex session ids; the save/load
+  round-trip and the project-mismatch save refusal;
+  `load_session` returning `None` for a missing file;
+  `list_sessions` returning sessions in stable id order and
+  an empty list for a missing directory; the R2 boundary
+  (revoking project A's session does not affect project B's
+  session); `redact_identity_evidence` delegating to the
+  policy redactor; the human renderers
+  (`render_challenge_human` / `render_session_human` /
+  `render_outcome_human`) carrying the required fields; and
+  the stability of the bounded provider list and the
+  supported code-challenge method set
+  (`SUPPORTED_PROVIDERS` and `SUPPORTED_CODE_CHALLENGE_METHODS`);
+  19 new identity CLI contract tests for the help output,
+  the top-level help including the `identity` subcommand,
+  `validate-config` accepting a well-formed block and
+  rejecting an unknown provider, a cleartext issuer, a
+  missing `openid` scope, a raw secret in
+  `client_secret_ref` and a missing `identity:` block;
+  `build-challenge` returning random state / nonce /
+  code_verifier with the `S256` method; `complete-auth`
+  minting a session for the configured admin-claim value,
+  refusing a value outside the allow list with
+  `identity-permission-denied` (R1 boundary) and refusing a
+  state mismatch with `identity-invalid` (R1 failure);
+  `session-list` returning the minted sessions in stable
+  order; `session-inspect` returning the full session
+  payload; `session-validate` granting `admin:access` for
+  an active session, refusing a cross-project token with
+  `identity-session-cross-project` (R2 failure) and refusing
+  a missing session id with `identity-session-not-found`;
+  `session-terminate` revoking the session and removing the
+  file (so a terminated session cannot be re-presented);
+  and `complete-auth` redacting a credential-shaped
+  substring in the evidence; 6 new identity cross-surface
+  regression tests for the registry's `identity` journal
+  row keeping the operations table independent of the
+  identity surface (the identity surface never invents a
+  registered project), the doctor verdict being unchanged
+  after a successful identity round trip, a
+  credential-shaped substring in evidence being redacted
+  through `redact_identity_evidence` (which delegates to
+  `policy::redact_credentials`), the `forge feature add`
+  workflow remaining compatible after an identity round
+  trip on the same project, the R2 boundary (revoking one
+  project's session does not affect another project's
+  session) and the R1 boundary (a user authenticated at
+  the provider but lacking the configured `admin_claim`
+  value is refused with `identity-permission-denied` so
+  provider login never silently grants admin); plus the
+  unchanged 33 test binaries (414 lib tests incl. 50 new
+  identity unit tests, 19 identity contract, 6 identity
+  cross-surface, 12 procedure contract, 8 procedure
+  cross-surface, 12 planner contract, 7 planner
+  cross-surface, 33 ui_pattern contract, 5 ui_pattern
+  cross-surface, 15 component contract, 5 component
+  cross-surface, 14 release contract, 4 release
+  cross-surface, 12 documentation contract, 4
+  documentation cross-surface, 12 distribution contract,
+  4 distribution cross-surface, 4 agent-runtime-workflows
+  cross-surface, 8 agent contract, 8 gitops contract, 13
+  mcp contract, 9 mcp cross-surface, 8 doctor contract,
+  10 feature contract, 12 generate contract, 10 import
+  contract, 9 profile contract, 7 quality policy
+  contract, 12 upgrade contract, 12 spec contract, 5 CLI
+  contract, 4 cross-surface regression).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id
+  identity-smoke` then appending an `identity:` block to
+  the manifest; `forge identity validate-config
+  <proj>` returns `contract: 0.1.0` with the
+  `provider=okta`, `client_id=forge-admin`,
+  `audience=forge-admin`, `admin_claim=groups`,
+  `state_ttl_seconds=120` and `session_ttl_seconds=3600`
+  fields; `forge identity build-challenge <proj>` returns
+  the random 32-byte hex state / nonce / code_verifier plus
+  the S256 code challenge; `forge identity complete-auth
+  <proj> --state <s> --code abcd1234 --subject user-1
+  --nonce <n> --admin-claim-value forge-admins` mints a
+  session carrying `permissions: ["admin:access"]`,
+  `state: "active"` and the
+  `.forge/identity/identity-smoke/sessions/<id>.json`
+  file; `forge identity complete-auth <proj> --state <s>
+  --code abcd1234 --subject intern --nonce <n>
+  --admin-claim-value interns` exits 1 with
+  `error[identity-permission-denied]: identity permission
+  denied: ... provider login for subject `intern` does not
+  include the project admin permission; admin_claim
+  `groups` value `interns` is not in the configured allow
+  list; provider login does not imply admin authorization`
+  (R1 boundary); `forge identity complete-auth <proj>
+  --state deadbeef --code abcd1234 --error access_denied
+  --error-description "token
+  ghp_abcdefghijklmnopqrstuvwxyz0123456789 was used"
+  --subject user-1 --nonce deadbeef --admin-claim-value
+  forge-admins` exits 1 with
+  `error[identity-invalid]` and the credential-shaped
+  secret is redacted to `[REDACTED]` in stderr; `forge
+  identity session-list <proj>` renders the persisted
+  sessions in stable id order; `forge identity
+  session-validate <other-proj> --session <a-id>` for a
+  session minted under project A exits 1 with
+  `error[identity-session-cross-project]: identity
+  session cross-project: session `<id>` was minted for
+  project `identity-smoke`; presenting it to project
+  `other-proj` is refused; sessions are project-scoped
+  and may not be shared across unrelated applications`
+  (R2 failure); `forge identity session-terminate
+  <proj> --session <id>` marks the session `revoked`,
+  writes `terminated: true` to stdout, removes the
+  persisted file (so a terminated session cannot be
+  re-presented), and re-validating the same id exits 1
+  with `error[identity-session-not-found]`; `forge
+  doctor <proj>` before and after the identity round
+  trip produces the byte-identical doctor verdict so
+  the existing doctor contract still holds; the
+  registry's `operations` table records the `identity`
+  journal rows with the real project id (no synthetic
+  project is invented; identity is always
+  project-scoped); and a string scan over the `identity`
+  module returns no agent-provider / IDE / model
+  identifier, so an agent provider change is a no-op
+  for the identity layer.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate central-admin-identity --strict
+  --no-interactive`: valid pre-archive; `openspec
+  archive central-admin-identity --yes`: archived as
+  `2026-09-18-central-admin-identity` with the canonical
+  `spec/central-admin-identity` promoted; `openspec
+  validate --all --strict --no-interactive`: 24 passed,
+  0 failed (post-archive, includes the promoted
+  `spec/central-admin-identity`).
+- `git diff --check`: PASS; staged set reviewed (3 files
+  modified: `src/core/manifest.rs` for the new
+  `IdentityMeta` typed fields, `src/core/mod.rs` for the
+  `identity-invalid` / `identity-auth-failed` /
+  `identity-session-expired` / `identity-session-not-found`
+  / `identity-session-cross-project` / `identity-permission-denied`
+  typed errors, `src/lib.rs` to register the new module,
+  `src/main.rs` for the `forge identity` subcommand, the
+  `IdentityCommands` enum and the `cmd_identity`
+  helpers; `Cargo.toml` for the new `rand` dependency
+  used by the PKCE / state / nonce generator; 3 files
+  added: `src/identity/mod.rs` with 50 unit tests,
+  `tests/identity_contract.rs` with 19 contract tests,
+  `tests/identity_cross_surface.rs` with 6 cross-surface
+  regression tests; plus the promoted spec and the
+  change archive — 9 files; archive under
+  `openspec/changes/archive/2026-09-18-central-admin-identity/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  OIDC provider round trip is not present in the local
+  sandbox, so the contract is validated through fixture
+  claims, fixture callbacks and the typed rejection
+  codes. The redaction rule set is the same
+  `policy::redact_credentials` consumed by every other
+  adapter, which is itself verified through the existing
+  quality policy contract tests. A real provider round
+  trip is a downstream integration step and is not
+  claimed here.
+
 ## Verification evidence (semantic-ui-patterns, 2026-09-18)
 
 - `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
@@ -1225,11 +1477,13 @@ work has started.
 
 ## Next change
 
-Implement [central-admin-identity](openspec/changes/central-admin-identity/proposal.md)
+Implement [external-planes-analytics](openspec/changes/external-planes-analytics/proposal.md)
 only when implementation is requested. Its prerequisites
-(`feature-lifecycle`, `adapter-deployment`) are implemented and
-verified. Then follow the roadmap prerequisites. Later changes
-remain planning-only with zero implementation tasks completed.
+(`agent-runtime-workflows`, `adapter-deployment`,
+`repository-distribution`) are implemented and verified. Then
+follow the roadmap prerequisites (`core-http-api`,
+`control-plane-portal`). Later changes remain planning-only
+with zero implementation tasks completed.
 
 ## Verification evidence (ai-procedure-skills, 2026-09-18)
 

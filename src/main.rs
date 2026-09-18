@@ -41,6 +41,11 @@ use forge::planner::{
     IntentResolveOutcome, IntentValidationOutcome, PLANNER_CONTRACT_VERSION,
 };
 use forge::policy::{run_driftwatch, DriftWatchConfig};
+use forge::procedure::{
+    inspect_procedure, procedure_catalog, render_inspect_human as render_procedure_inspect_human,
+    render_list_human as render_procedure_list_human, validate_procedure, ProcedureSpec,
+    PROCEDURE_CONTRACT_VERSION, PROCEDURE_SYNTHETIC_PROJECT,
+};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
 use forge::release::engine::{
@@ -276,6 +281,11 @@ enum Commands {
     Intent {
         #[command(subcommand)]
         command: IntentCommands,
+    },
+    /// Discover, inspect and validate portable AI procedures over stable Core operations.
+    Procedure {
+        #[command(subcommand)]
+        command: ProcedureCommands,
     },
 }
 
@@ -669,6 +679,23 @@ enum IntentCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum ProcedureCommands {
+    /// List the named AI procedures in the catalog.
+    List,
+    /// Inspect one named AI procedure (prerequisites, ordered steps, verification).
+    Inspect {
+        /// Procedure id (e.g. `create-project`).
+        id: String,
+    },
+    /// Validate a procedure spec from a JSON file (typed `procedure-invalid` / `procedure-bypass-refused` on refusal).
+    Validate {
+        /// Path to a JSON file containing a [`ProcedureSpec`].
+        #[arg(long)]
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -856,6 +883,7 @@ fn main() -> ExitCode {
         Commands::Component { command } => cmd_component(&db_path, command, cli.format),
         Commands::UiPattern { command } => cmd_ui_pattern(&db_path, command, cli.format),
         Commands::Intent { command } => cmd_intent(&db_path, command, cli.format),
+        Commands::Procedure { command } => cmd_procedure(&db_path, command, cli.format),
     };
 
     match result {
@@ -3446,6 +3474,88 @@ fn cmd_intent(
             }
             let json = serde_json::json!({"plans": entries});
             Ok(as_output(format, human, json))
+        }
+    }
+}
+
+fn cmd_procedure(
+    db_path: &Path,
+    command: &ProcedureCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        ProcedureCommands::List => {
+            let entries = procedure_catalog();
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "procedure",
+                    PROCEDURE_SYNTHETIC_PROJECT,
+                    "done",
+                    &format!("list: {} procedure(s) returned", entries.len()),
+                );
+            }
+            let human = render_procedure_list_human(&entries);
+            let json = serde_json::json!({
+                "contract": PROCEDURE_CONTRACT_VERSION,
+                "procedures": entries,
+            });
+            Ok(as_output(format, human, json))
+        }
+        ProcedureCommands::Inspect { id } => match inspect_procedure(id) {
+            Ok(spec) => {
+                if let Ok(registry) = open_registry(db_path) {
+                    let _ = registry.record_operation(
+                        "procedure",
+                        &spec.id,
+                        "done",
+                        &format!("inspect: {} step(s)", spec.steps.len()),
+                    );
+                }
+                let human = render_procedure_inspect_human(&spec);
+                let json = serde_json::json!({
+                    "contract": PROCEDURE_CONTRACT_VERSION,
+                    "procedure": spec,
+                });
+                Ok(as_output(format, human, json))
+            }
+            Err(err) => {
+                if let Ok(registry) = open_registry(db_path) {
+                    let _ =
+                        registry.record_operation("procedure", id, "rejected", &err.to_string());
+                }
+                Err(err)
+            }
+        },
+        ProcedureCommands::Validate { path } => {
+            let bytes = std::fs::read(path).map_err(|err| ForgeError::ProcedureInvalid {
+                reason: format!("could not read procedure spec at {}: {err}", path.display()),
+            })?;
+            let spec: ProcedureSpec =
+                serde_json::from_slice(&bytes).map_err(|err| ForgeError::ProcedureInvalid {
+                    reason: format!(
+                        "procedure spec at {} is not valid JSON ProcedureSpec: {err}",
+                        path.display()
+                    ),
+                })?;
+            let validated = validate_procedure(&spec)?;
+            let note = format!(
+                "procedure '{}' validated: {} step(s) and ends with report_findings",
+                validated.id,
+                validated.steps.len()
+            );
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation("procedure", &validated.id, "done", &note);
+            }
+            let json = serde_json::json!({
+                "contract": PROCEDURE_CONTRACT_VERSION,
+                "procedure": validated,
+                "note": note,
+            });
+            Ok(as_output(
+                format,
+                render_procedure_inspect_human(&validated),
+                json,
+            ))
         }
     }
 }

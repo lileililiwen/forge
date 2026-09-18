@@ -18,6 +18,7 @@ pub mod import;
 pub mod mcp;
 pub mod planner;
 pub mod policy;
+pub mod procedure;
 pub mod profile;
 pub mod registry;
 pub mod release;

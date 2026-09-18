@@ -189,6 +189,18 @@ pub enum ForgeError {
 
     #[error("plan apply failed at step '{step}': {reason}")]
     PlanApplyFailed { step: String, reason: String },
+
+    #[error("procedure invalid: {reason}")]
+    ProcedureInvalid { reason: String },
+
+    #[error("procedure unsupported operation: {reason}; the procedure references a Core operation that is not part of the current supported set")]
+    ProcedureUnsupportedOperation { reason: String },
+
+    #[error("procedure bypass refused: {reason}; Core still validates every operation; procedures do not override Core outcomes")]
+    ProcedureBypassRefused { reason: String },
+
+    #[error("procedure run failed at step '{step}': {reason}")]
+    ProcedureRunFailed { step: String, reason: String },
 }
 
 impl ForgeError {
@@ -255,6 +267,10 @@ impl ForgeError {
             ForgeError::PlanStale { .. } => "plan-stale",
             ForgeError::PlanConflict { .. } => "plan-conflict",
             ForgeError::PlanApplyFailed { .. } => "plan-apply-failed",
+            ForgeError::ProcedureInvalid { .. } => "procedure-invalid",
+            ForgeError::ProcedureUnsupportedOperation { .. } => "procedure-unsupported-operation",
+            ForgeError::ProcedureBypassRefused { .. } => "procedure-bypass-refused",
+            ForgeError::ProcedureRunFailed { .. } => "procedure-run-failed",
         }
     }
 

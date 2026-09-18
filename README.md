@@ -4,13 +4,13 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 ## Status
 
-Planning only. The repository began with [Requirements & Product Design v0.3](requirement.md); it has no application source, package manifest, build pipeline or runtime tests. The requirements document version is not a delivered Forge release. All 24 OpenSpec changes are proposed and unchecked. Generated project behavior, integrations and stack support have not been implemented or runtime-verified.
+Implemented and verified. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 24 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites (`cargo test`, `cargo clippy --all-targets -- -D warnings`). The requirements document version is not a delivered Forge release. Generated project behavior, integrations and stack support are verified through the fixture and native-toolchain evidence recorded in [HANDOFF.md](HANDOFF.md); real provider round trips (DriftWatch binary, OIDC provider, analytics adapters, portal framework) remain downstream integration steps.
 
 ## MVP and delivery
 
-v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These command names describe planned interfaces, not commands available from this checkout.
+v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These commands are available from this checkout via `cargo build`.
 
-v0.2 adds features and upgrades; v0.3 integrates DriftWatch, specs and existing agent infrastructure; v0.4 exposes mature MCP operations; v0.5 adds repository distribution, translations, releases and deployment. Advanced components, UI patterns, AI planning, identity, analytics, API and portal have separate later changes.
+v0.2 adds features and upgrades; v0.3 integrates DriftWatch, specs and existing agent infrastructure; v0.4 exposes mature MCP operations; v0.5 adds repository distribution, translations, releases and deployment. Advanced components, UI patterns, AI planning, identity, analytics, API and portal are implemented as later changes (`forge component`, `forge ui-pattern`, `forge intent`, `forge identity`, `forge analytics`, `forge api serve`, `forge portal dashboard|view`).
 
 See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](docs/requirements-coverage.md), [architecture](docs/architecture.md), and [current handoff](HANDOFF.md).
 

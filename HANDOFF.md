@@ -1917,7 +1917,7 @@ for mutation-free collision checks.
 
 ## Next change
 
-None. All 25 roadmap changes are implemented, verified
+None. All 24 roadmap changes are implemented, verified
 and archived; no active changes remain in
 `openspec/changes/`. The `current_spec` pointer line has
 been removed. A future portal framework (ASP.NET Core /

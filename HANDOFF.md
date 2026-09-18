@@ -1,8 +1,64 @@
-current_spec: ai-procedure-skills
+current_spec: central-admin-identity
 
 # Forge handoff
 
 ## Current state
+
+`ai-procedure-skills` implemented, verified and archived on 2026-09-18
+as `2026-09-18-ai-procedure-skills`; canonical specs promoted to
+[openspec/specs/ai-procedure-skills/spec.md](openspec/specs/ai-procedure-skills/spec.md).
+New in this cycle: `src/procedure` (versioned
+`ProcedureSpec`/`ProcedureStep`/`ProcedureListEntry`/
+`CoreOperation` (`profile_inspect` / `profile_resolve` /
+`profile_preflight` / `feature_resolve` / `feature_add` /
+`feature_remove` / `feature_upgrade` / `component_resolve` /
+`ui_pattern_resolve` / `ui_pattern_install` / `intent_validate`
+/ `intent_resolve` / `intent_apply` / `doctor_run` / `test_run`
+/ `commit` / `policy_run` / `spec_generate` / `spec_apply` /
+`agent_start` / `upgrade_apply` / `upgrade_fleet` / `import_run`
+/ `deploy_plan` / `deploy_apply` / `deploy_observe` /
+`release_prepare` / `release_apply` / `docs_translate` /
+`mirror_apply` / `report_findings`) contract v0.1.0; the catalog
+ships eight named procedures (`create-project`, `upgrade-project`,
+`prepare-release`, `fix-quality-findings`, `onboard-existing-project`,
+`deploy-project`, `mirror-repository`, `translate-docs`) with
+prerequisites, ordered Core operation steps and a verification
+block; `validate_procedure` rejects unknown operations, empty
+steps, non-monotonic ordinals, oversized known-issues equivalents
+(bounded at `MAX_PROCEDURE_STEPS = 16` and `MAX_STEP_ARGS = 16`),
+workflows without a final `report_findings` step, and any step
+whose `args` carry a bypass marker (`--force`, `--skip-checks`,
+`--no-validate`, `--bypass`, `--override`, `--no-doctor`,
+`--ignore-failures`, matched case-insensitively and in
+`--key=value` form) with the typed `procedure-bypass-refused` code
+so a procedure or model that asks Core to skip a failed check is
+refused (R2 failure scenario); every catalog procedure ends with a
+single `report_findings` step so a workflow that ends with
+unresolved gaps reports them rather than asserting completion (R2
+boundary scenario); the `upgrade-project` procedure's sequence
+contains a `spec_generate` step so a semantic conflict routes
+through the existing remediation surface (R2 success scenario);
+the catalog and validator carry no agent-provider, IDE or model
+identifier, so a provider change is a no-op for the procedure
+layer (R1 boundary scenario); CLI `forge procedure list|inspect|
+validate` (human/JSON, `inspect` accepts a kebab-case id and
+returns the immutable spec, `validate` accepts `--path` to a JSON
+file and refuses with the typed `procedure-invalid` /
+`procedure-bypass-refused` codes); procedure operations journaled
+in the registry's `operations` table under the `procedure` kind
+with a `done` / `rejected` verdict and a synthetic
+`__procedure__` project id that keeps the operations table
+project-agnostic; and the spec contract from `mature-mcp-surface`,
+`validated-intent-planner`, `feature-lifecycle`,
+`specification-remediation` and `doctor-maturity-assessment`
+still holds after a procedure list / inspect / validate on the
+same project (the registry journal stays independent of the
+procedure surface, the doctor verdict is byte-equivalent before
+and after a `procedure inspect` / `validate` refusal, feature
+add keeps working on a project whose procedure journal has been
+recorded, the upgrade procedure's `spec.generate` handoff is
+discoverable, and a credential-shaped substring in evidence is
+never constructed by the procedure layer).
 
 `validated-intent-planner` implemented, verified and archived on 2026-09-18
 as `2026-09-18-validated-intent-planner`; canonical specs promoted to
@@ -1169,12 +1225,166 @@ work has started.
 
 ## Next change
 
-Implement [ai-procedure-skills](openspec/changes/ai-procedure-skills/proposal.md)
+Implement [central-admin-identity](openspec/changes/central-admin-identity/proposal.md)
 only when implementation is requested. Its prerequisites
-(`mature-mcp-surface`, `validated-intent-planner`,
-`adapter-deployment`) are implemented and verified. Then
-follow the roadmap prerequisites. Later changes remain
-planning-only with zero implementation tasks completed.
+(`feature-lifecycle`, `adapter-deployment`) are implemented and
+verified. Then follow the roadmap prerequisites. Later changes
+remain planning-only with zero implementation tasks completed.
+
+## Verification evidence (ai-procedure-skills, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  28 new procedure lib unit tests for catalog id stability
+  (eight procedures in stable id order), the
+  `every_catalog_entry_passes_validate_procedure` invariant,
+  `inspect_procedure` acceptance / empty-id / unknown-id /
+  non-kebab-case refusals, validator rejections for empty
+  steps, too many steps (`MAX_PROCEDURE_STEPS = 16`), non-
+  monotonic ordinals, zero ordinal, missing `report_findings`
+  step, `report_findings` not in the final slot, multiple
+  `report_findings` steps, every bypass marker in
+  `BYPASS_MARKERS` (`--force`, `--skip-checks`, `--no-validate`,
+  `--bypass`, `--override`, `--no-doctor`, `--ignore-failures`)
+  refused with the typed `procedure-bypass-refused` code, the
+  `--key=value` form (e.g. `--skip-checks=doctor`), mixed-case
+  force flags (`--FORCE`), empty step descriptions, too many
+  step args, empty arg values, the `CoreOperation` label round
+  trip, the `from_label` rejection of unstable tokens (`push`,
+  `planner.dispatch`, `agent.pause`, `agent.takeover` etc.),
+  the `report_findings` only-synthetic-step invariant, the
+  bypass-marker scanner, the human renderers
+  (`render_list_human` / `render_inspect_human`), the platform-
+  neutral scan (no `opencode` / `codex` / `claude` / `vscode` /
+  etc.), the upgrade procedure's `spec_generate` handoff (R2
+  success), and the catalog-wide `report_findings` final-step
+  invariant; 16 new procedure CLI contract tests for the help
+  output, top-level help inclusion, the catalog list carrying
+  `contract: 0.1.0` plus the eight ids in stable order, the
+  `create-project` SOP (nine ordered steps, eight
+  prerequisites, verification block, the nine expected Core
+  operations), the `upgrade-project` SOP carrying a
+  `spec.generate` handoff, the typed `procedure-invalid`
+  rejection for an unknown id / non-kebab-case id / empty id,
+  the human and JSON acceptance of a minimal valid procedure
+  via `forge procedure validate --path <json>`, the typed
+  `procedure-bypass-refused` rejection carrying the marker name,
+  the `procedure-invalid` rejection for a workflow without a
+  `report_findings` step (R2 boundary), the
+  `procedure-invalid` rejection for an unknown Core operation
+  (R1 failure), the `procedure-invalid` rejection for malformed
+  JSON, the catalog-wide `report_findings` final-step invariant
+  through `forge procedure inspect <id>`, and the
+  catalog-wide "every step references a supported Core operation"
+  scan across the eight procedures; 8 new procedure
+  cross-surface regression tests for the registry `procedure`
+  journal row keeping the operations table independent of the
+  procedure surface (list / inspect / validate all leave the
+  per-project list empty so no user-visible project is
+  invented), the doctor verdict staying byte-equivalent before
+  and after a `procedure inspect`, the doctor verdict staying
+  byte-equivalent before and after a `procedure list`, the
+  doctor verdict staying byte-equivalent before and after a
+  `procedure validate --force` refusal (R2 failure carries no
+  project state), the `forge feature add` workflow remaining
+  compatible after a `procedure inspect` on the same project,
+  the `forge spec generate` workflow remaining compatible after
+  a `procedure inspect` on the same project (R2 success), and
+  the `forge mcp serve` `tools/list` snapshot remaining
+  unchanged by the procedure surface (the procedure layer is
+  CLI-only in v0.1.0); plus the unchanged existing 30 test
+  binaries (317 lib tests incl. 28 new procedure unit tests,
+  16 procedure contract, 8 procedure cross-surface, 12
+  planner contract, 7 planner cross-surface, 33 ui_pattern
+  contract, 5 ui_pattern cross-surface, 15 component
+  contract, 5 component cross-surface, 14 release contract,
+  4 release cross-surface, 12 documentation contract, 4
+  documentation cross-surface, 12 distribution contract, 4
+  distribution cross-surface, 4 agent-runtime-workflows
+  cross-surface, 8 agent contract, 8 gitops contract, 13 mcp
+  contract, 9 mcp cross-surface, 8 doctor contract, 10
+  feature contract, 12 generate contract, 10 import contract,
+  9 profile contract, 7 quality policy contract, 12 upgrade
+  contract, 12 spec contract, 5 CLI contract, 4 cross-surface
+  regression).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id
+  proc-smoke <path>` registers a rust-web project; `forge
+  procedure list` returns the eight named procedures in stable
+  id order (`create-project`, `deploy-project`,
+  `fix-quality-findings`, `mirror-repository`,
+  `onboard-existing-project`, `prepare-release`,
+  `translate-docs`, `upgrade-project`) carrying `version:
+  0.1.0` and the contract `0.1.0`; `forge procedure inspect
+  create-project` renders the nine-step SOP (profile.inspect,
+  profile.preflight, component.resolve, ui_pattern.resolve,
+  feature.add, doctor.run, test.run, policy.run,
+  report_findings) with the prerequisites and the verification
+  block; `forge procedure inspect upgrade-project` confirms
+  the `spec.generate` handoff (R2 success) plus the final
+  `report_findings` step (R2 boundary); `forge procedure
+  inspect nope` exits 1 with
+  `error[procedure-invalid]: procedure invalid: procedure
+  'nope' is not in the catalog; known procedures:
+  create-project, upgrade-project, prepare-release,
+  fix-quality-findings, onboard-existing-project,
+  deploy-project, mirror-repository, translate-docs`; `forge
+  procedure validate --path <bypass.json>` exits 1 with
+  `error[procedure-bypass-refused]: procedure bypass refused:
+  procedure 'smoke-bypass' step 1 (op doctor.run) carries
+  the bypass marker '--no-validate'; Core still validates
+  every operation and the procedure layer refuses to forward
+  the request; Core still validates every operation;
+  procedures do not override Core outcomes`; `forge procedure
+  validate --path <valid.json>` exits 0 and renders the
+  validated spec via the human renderer; `forge doctor
+  <proc-smoke>` before and after a `forge procedure list` /
+  `inspect` run produces the byte-identical verdict so the
+  existing doctor contract still holds; the registry's
+  `operations` table records the `procedure` journal rows
+  with the synthetic `__procedure__` project id so a future
+  portal or API surface can read the procedure history
+  through the same Core contract the CLI uses; and a string
+  scan over the catalog (8 procedures, 41 total steps)
+  returns no agent-provider / IDE / model identifier, so an
+  agent provider change is a no-op for the procedure layer
+  (R1 boundary).
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate ai-procedure-skills --strict
+  --no-interactive`: valid pre-archive; `openspec archive
+  ai-procedure-skills --yes`: archived as
+  `2026-09-18-ai-procedure-skills` with the canonical
+  `spec/ai-procedure-skills` promoted; `openspec validate
+  --all --strict --no-interactive`: 24 passed, 0 failed
+  (post-archive, includes the promoted
+  `spec/ai-procedure-skills`).
+- `git diff --check`: PASS; staged set reviewed (3 files
+  modified: `src/core/mod.rs` for the new `ProcedureInvalid`
+  / `ProcedureUnsupportedOperation` / `ProcedureBypassRefused`
+  / `ProcedureRunFailed` typed errors and the matching
+  `procedure-invalid` / `procedure-unsupported-operation` /
+  `procedure-bypass-refused` / `procedure-run-failed` stable
+  codes, `src/lib.rs` to register the new `procedure` module,
+  `src/main.rs` for the `forge procedure` subcommand, the
+  `ProcedureCommands` enum and the `cmd_procedure` helpers;
+  3 files added: `src/procedure/mod.rs` with 28 unit tests,
+  `tests/procedure_contract.rs` with 16 contract tests,
+  `tests/procedure_cross_surface.rs` with 8 cross-surface
+  regression tests; plus the promoted spec and the change
+  archive — 7 files; archive under
+  `openspec/changes/archive/2026-09-18-ai-procedure-skills/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  `opencode` / `codex` / `claude` agent provider or model
+  is not present in the local sandbox, so the contract is
+  validated through the static `procedure_catalog` /
+  `inspect_procedure` / `validate_procedure` round trip
+  and the `forge procedure` CLI surface; the catalog and
+  validator carry no agent-provider identifier so the
+  R1 boundary (provider change is a no-op) is enforced
+  by construction. A real agent-provider round trip is a
+  downstream integration step and is not claimed here.
 
 ## Verification evidence (semantic-component-registry, 2026-09-17)
 

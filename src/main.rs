@@ -29,11 +29,17 @@ use forge::doctor::{
 };
 use forge::feature::{
     add_feature, feature_catalog, inspect_feature, remove_feature, render_outcome_human,
-    render_plan_human, resolve_plan, upgrade_feature,
+    render_plan_human as render_feature_plan_human, resolve_plan, upgrade_feature,
 };
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
+use forge::planner::{
+    apply_plan as apply_planner_plan, intent_hash, plans_dir, render_apply_human,
+    render_intent_validation_human, render_plan_human, resolve_plan as resolve_planner_plan,
+    validate_intent, write_plan_receipt, Intent, IntentAction, IntentConstraint,
+    IntentResolveOutcome, IntentValidationOutcome, PLANNER_CONTRACT_VERSION,
+};
 use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
@@ -265,6 +271,11 @@ enum Commands {
     UiPattern {
         #[command(subcommand)]
         command: UiPatternCommands,
+    },
+    /// Validate a structured intent, resolve it into a deterministic assembly plan, and apply the plan with explicit confirmation.
+    Intent {
+        #[command(subcommand)]
+        command: IntentCommands,
     },
 }
 
@@ -598,6 +609,66 @@ enum UiPatternCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum IntentCommands {
+    /// Validate a structured intent without resolving or applying it.
+    Validate {
+        /// Action verb (`create_project` or `extend_project`).
+        #[arg(long)]
+        action: String,
+        /// Target profile id.
+        #[arg(long)]
+        profile: String,
+        /// Required capability (repeatable).
+        #[arg(long = "require", value_name = "CAPABILITY")]
+        required: Vec<String>,
+        /// Forbidden capability (repeatable).
+        #[arg(long = "forbid", value_name = "CAPABILITY")]
+        forbidden: Vec<String>,
+        /// Constraint as `key=value` (repeatable).
+        #[arg(long = "constraint", value_name = "KEY=VALUE")]
+        constraints: Vec<String>,
+    },
+    /// Resolve a validated intent into a reviewable deterministic assembly plan and persist its receipt.
+    Resolve {
+        /// Action verb (`create_project` or `extend_project`).
+        #[arg(long)]
+        action: String,
+        /// Target profile id.
+        #[arg(long)]
+        profile: String,
+        /// Required capability (repeatable).
+        #[arg(long = "require", value_name = "CAPABILITY")]
+        required: Vec<String>,
+        /// Forbidden capability (repeatable).
+        #[arg(long = "forbid", value_name = "CAPABILITY")]
+        forbidden: Vec<String>,
+        /// Constraint as `key=value` (repeatable).
+        #[arg(long = "constraint", value_name = "KEY=VALUE")]
+        constraints: Vec<String>,
+        /// Project directory the receipt is written under (default: current directory).
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Re-validate and apply a previously persisted plan (requires `--confirm`).
+    Apply {
+        /// Plan id (e.g. `rust-web-42acd579408d-776132e5aa5f`).
+        plan_id: String,
+        /// Required explicit confirmation for the project mutation.
+        #[arg(long)]
+        confirm: bool,
+        /// Project directory the receipt is read from (default: current directory).
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// List the persisted plan receipts under `.forge/planner/`.
+    List {
+        /// Project directory the receipts are read from (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -784,6 +855,7 @@ fn main() -> ExitCode {
         Commands::Deploy { command } => cmd_deploy(&db_path, command, cli.format),
         Commands::Component { command } => cmd_component(&db_path, command, cli.format),
         Commands::UiPattern { command } => cmd_ui_pattern(&db_path, command, cli.format),
+        Commands::Intent { command } => cmd_intent(&db_path, command, cli.format),
     };
 
     match result {
@@ -1065,7 +1137,7 @@ fn cmd_feature(
         }
         FeatureCommands::Resolve { profile, features } => {
             let plan = resolve_plan(profile, features)?;
-            let human = render_plan_human(&plan);
+            let human = render_feature_plan_human(&plan);
             let json = serde_json::json!({"plan": plan});
             Ok(as_output(format, human, json))
         }
@@ -3173,6 +3245,207 @@ fn cmd_ui_pattern(
                 "note": outcome.note,
             });
             Ok(as_output(format, render_install_human(&outcome), json))
+        }
+    }
+}
+
+fn parse_intent_action(value: &str) -> Result<IntentAction, ForgeError> {
+    match value {
+        "create_project" => Ok(IntentAction::CreateProject),
+        "extend_project" => Ok(IntentAction::ExtendProject),
+        other => Err(ForgeError::IntentInvalid {
+            reason: format!(
+                "unknown intent action '{other}'; accepted actions: create_project, \
+                 extend_project"
+            ),
+        }),
+    }
+}
+
+fn parse_intent_constraints(raw: &[String]) -> Result<Vec<IntentConstraint>, ForgeError> {
+    let mut out = Vec::new();
+    for entry in raw {
+        let (key, value) = entry
+            .split_once('=')
+            .ok_or_else(|| ForgeError::IntentInvalid {
+                reason: format!(
+                    "constraint '{entry}' is not in 'key=value' form; the planner refuses a \
+                 malformed constraint"
+                ),
+            })?;
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            return Err(ForgeError::IntentInvalid {
+                reason: format!(
+                    "constraint '{entry}' has an empty key or value; the planner refuses a \
+                     malformed constraint"
+                ),
+            });
+        }
+        out.push(IntentConstraint {
+            key: key.to_string(),
+            value: value.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+fn build_intent(
+    action: &str,
+    profile: &str,
+    required: &[String],
+    forbidden: &[String],
+    raw_constraints: &[String],
+) -> Result<Intent, ForgeError> {
+    Ok(Intent {
+        action: parse_intent_action(action)?,
+        profile: profile.to_string(),
+        required_capabilities: required.to_vec(),
+        forbidden_capabilities: forbidden.to_vec(),
+        constraints: parse_intent_constraints(raw_constraints)?,
+    })
+}
+
+fn cmd_intent(
+    db_path: &Path,
+    command: &IntentCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        IntentCommands::Validate {
+            action,
+            profile,
+            required,
+            forbidden,
+            constraints,
+        } => {
+            let intent = build_intent(action, profile, required, forbidden, constraints)?;
+            match validate_intent(&intent) {
+                Ok(validated) => {
+                    let outcome = IntentValidationOutcome {
+                        validated: Some(validated.clone()),
+                        note: validated.note.clone(),
+                    };
+                    let journal_state = "done";
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ = registry.record_operation(
+                            "planner",
+                            "__planner__",
+                            journal_state,
+                            &format!("validate: {}", validated.note),
+                        );
+                    }
+                    let json = serde_json::json!({
+                        "contract": PLANNER_CONTRACT_VERSION,
+                        "validated": validated,
+                        "intent_hash": intent_hash(&validated.intent),
+                    });
+                    Ok(as_output(
+                        format,
+                        render_intent_validation_human(&outcome),
+                        json,
+                    ))
+                }
+                Err(err) => {
+                    let outcome = IntentValidationOutcome {
+                        validated: None,
+                        note: err.to_string(),
+                    };
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ = registry.record_operation(
+                            "planner",
+                            "__planner__",
+                            "rejected",
+                            &outcome.note,
+                        );
+                    }
+                    Err(err)
+                }
+            }
+        }
+        IntentCommands::Resolve {
+            action,
+            profile,
+            required,
+            forbidden,
+            constraints,
+            path,
+        } => {
+            let intent = build_intent(action, profile, required, forbidden, constraints)?;
+            let validated = validate_intent(&intent)?;
+            let work_dir = path
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let plan = resolve_planner_plan(&validated, None)?;
+            let receipt_path = write_plan_receipt(&work_dir, &plan)?;
+            let outcome = IntentResolveOutcome {
+                note: plan.note.clone(),
+                plan: plan.clone(),
+                receipt_path: receipt_path.display().to_string(),
+            };
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "planner",
+                    &plan.plan_id,
+                    "done",
+                    &format!("resolve: {}", plan.note),
+                );
+            }
+            let json = serde_json::json!({
+                "contract": PLANNER_CONTRACT_VERSION,
+                "plan": plan,
+                "receipt_path": outcome.receipt_path,
+            });
+            Ok(as_output(format, render_plan_human(&outcome.plan), json))
+        }
+        IntentCommands::Apply {
+            plan_id,
+            confirm,
+            path,
+        } => {
+            let work_dir = path
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let outcome = apply_planner_plan(&work_dir, plan_id, *confirm, Some(db_path))?;
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "planner",
+                    &outcome.plan_id,
+                    if outcome.stale { "rejected" } else { "done" },
+                    &outcome.note,
+                );
+            }
+            let json = serde_json::json!({
+                "contract": PLANNER_CONTRACT_VERSION,
+                "outcome": outcome.clone(),
+            });
+            Ok(as_output(format, render_apply_human(&outcome), json))
+        }
+        IntentCommands::List { path } => {
+            let mut entries: Vec<serde_json::Value> = Vec::new();
+            let dir = plans_dir(path);
+            if dir.exists() {
+                if let Ok(read) = std::fs::read_dir(&dir) {
+                    for entry in read.flatten() {
+                        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            let plan_id = entry.file_name().to_string_lossy().to_string();
+                            entries.push(serde_json::json!({
+                                "plan_id": plan_id,
+                                "receipt": entry.path().join("plan.json").display().to_string(),
+                            }));
+                        }
+                    }
+                }
+            }
+            let mut human = format!("planner plans: {}", entries.len());
+            for e in &entries {
+                if let Some(id) = e.get("plan_id").and_then(|v| v.as_str()) {
+                    human.push_str(&format!("\n  - {id}"));
+                }
+            }
+            let json = serde_json::json!({"plans": entries});
+            Ok(as_output(format, human, json))
         }
     }
 }

@@ -174,6 +174,21 @@ pub enum ForgeError {
 
     #[error("ui pattern ownership conflict: {reason}")]
     UiPatternOwnershipConflict { reason: String },
+
+    #[error("intent invalid: {reason}")]
+    IntentInvalid { reason: String },
+
+    #[error("intent ambiguous: {reason}; the planner refused to silently select a profile or capability")]
+    IntentAmbiguous { reason: String },
+
+    #[error("plan stale: {reason}; revalidate the intent before applying")]
+    PlanStale { reason: String },
+
+    #[error("plan conflict: {reason}; the planner refused to assemble the requested intent")]
+    PlanConflict { reason: String },
+
+    #[error("plan apply failed at step '{step}': {reason}")]
+    PlanApplyFailed { step: String, reason: String },
 }
 
 impl ForgeError {
@@ -235,6 +250,11 @@ impl ForgeError {
             ForgeError::UiPatternQualityConflict { .. } => "ui-pattern-quality-conflict",
             ForgeError::UiPatternDeprecatedDep { .. } => "ui-pattern-deprecated-dependency",
             ForgeError::UiPatternOwnershipConflict { .. } => "ui-pattern-ownership-conflict",
+            ForgeError::IntentInvalid { .. } => "intent-invalid",
+            ForgeError::IntentAmbiguous { .. } => "intent-ambiguous",
+            ForgeError::PlanStale { .. } => "plan-stale",
+            ForgeError::PlanConflict { .. } => "plan-conflict",
+            ForgeError::PlanApplyFailed { .. } => "plan-apply-failed",
         }
     }
 

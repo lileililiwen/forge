@@ -241,6 +241,69 @@ impl Registry {
         Ok(out)
     }
 
+    /// Most recent journal entries, ordered by `op_id` descending and
+    /// capped at `limit`. Used by the portal dashboard so a long-running
+    /// registry does not pin the renderer to an unbounded history.
+    pub fn recent_operations(&self, limit: usize) -> Result<Vec<OperationEntry>, ForgeError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
+                    idempotency_key, request_hash
+             FROM operations ORDER BY op_id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(OperationEntry {
+                op_id: row.get(0)?,
+                kind: row.get(1)?,
+                project_id: row.get(2)?,
+                state: row.get(3)?,
+                started_at: row.get(4)?,
+                finished_at: row.get(5)?,
+                detail: row.get(6)?,
+                idempotency_key: row.get(7)?,
+                request_hash: row.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Most recent journal entries for a single project, ordered by
+    /// `op_id` descending and capped at `limit`. The portal surface
+    /// uses this so a project dashboard is not polluted by unrelated
+    /// registry-wide operations.
+    pub fn operations_for_project(
+        &self,
+        project_id: &str,
+        limit: usize,
+    ) -> Result<Vec<OperationEntry>, ForgeError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
+                    idempotency_key, request_hash
+             FROM operations WHERE project_id = ?1 ORDER BY op_id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![project_id, limit as i64], |row| {
+            Ok(OperationEntry {
+                op_id: row.get(0)?,
+                kind: row.get(1)?,
+                project_id: row.get(2)?,
+                state: row.get(3)?,
+                started_at: row.get(4)?,
+                finished_at: row.get(5)?,
+                detail: row.get(6)?,
+                idempotency_key: row.get(7)?,
+                request_hash: row.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     /// Look up a single journal entry by op_id.
     pub fn operation(&self, op_id: i64) -> Result<Option<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(

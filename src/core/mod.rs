@@ -246,6 +246,9 @@ pub enum ForgeError {
         "idempotency key conflict: {reason}; the same key was reused with a different request body"
     )]
     IdempotencyKeyConflict { reason: String },
+
+    #[error("portal invalid: {reason}")]
+    PortalInvalid { reason: String },
 }
 
 impl ForgeError {
@@ -329,6 +332,7 @@ impl ForgeError {
             ForgeError::ApiUnauthorized { .. } => "api-unauthorized",
             ForgeError::ApiProjectMismatch { .. } => "api-project-mismatch",
             ForgeError::IdempotencyKeyConflict { .. } => "idempotency-key-conflict",
+            ForgeError::PortalInvalid { .. } => "portal-invalid",
         }
     }
 

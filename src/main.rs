@@ -60,6 +60,11 @@ use forge::planner::{
     IntentResolveOutcome, IntentValidationOutcome, PLANNER_CONTRACT_VERSION,
 };
 use forge::policy::{run_driftwatch, DriftWatchConfig};
+use forge::portal::{
+    build_dashboard, build_section_view, parse_section, render_dashboard_human,
+    render_section_human as render_portal_section_human, PortalDashboard, PORTAL_CONTRACT_VERSION,
+    PORTAL_SYNTHETIC_PROJECT,
+};
 use forge::procedure::{
     inspect_procedure, procedure_catalog, render_inspect_human as render_procedure_inspect_human,
     render_list_human as render_procedure_list_human, validate_procedure, ProcedureSpec,
@@ -320,6 +325,11 @@ enum Commands {
     Api {
         #[command(subcommand)]
         command: ApiCommands,
+    },
+    /// Render the optional control-plane portal dashboard and per-section views.
+    Portal {
+        #[command(subcommand)]
+        command: PortalCommands,
     },
 }
 
@@ -866,6 +876,27 @@ enum ApiCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum PortalCommands {
+    /// Render the top-level control-plane dashboard for one project or the whole registry.
+    Dashboard {
+        /// Registered project id or filesystem path. Defaults to the entire registered registry.
+        #[arg(default_value = "")]
+        target: String,
+        /// Force fleet-wide rendering even when a target is supplied.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Render a single portal section (projects, features, components, policies, specs, agents, deployments, repositories, documentation, analytics, servers, settings).
+    View {
+        /// Section id (one of the twelve supported sections; the CLI rejects unknown ids with `error[portal-invalid]`).
+        section: String,
+        /// Registered project id or filesystem path. Defaults to the entire registered registry.
+        #[arg(default_value = "")]
+        target: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1057,6 +1088,7 @@ fn main() -> ExitCode {
         Commands::Identity { command } => cmd_identity(&db_path, command, cli.format),
         Commands::Analytics { command } => cmd_analytics(&db_path, command, cli.format),
         Commands::Api { command } => cmd_api(&db_path, command, cli.format),
+        Commands::Portal { command } => cmd_portal(&db_path, command, cli.format),
     };
 
     match result {
@@ -4218,6 +4250,93 @@ fn cmd_api(db_path: &Path, command: &ApiCommands, format: Format) -> Result<Outp
             max_body_bytes,
         } => cmd_api_serve(db_path, *bind, *port, *max_body_bytes, format),
     }
+}
+
+fn cmd_portal(
+    db_path: &Path,
+    command: &PortalCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        PortalCommands::Dashboard { target, all } => {
+            cmd_portal_dashboard(db_path, target, *all, format)
+        }
+        PortalCommands::View { section, target } => {
+            cmd_portal_view(db_path, section, target, format)
+        }
+    }
+}
+
+fn cmd_portal_dashboard(
+    db_path: &Path,
+    target: &str,
+    all: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = open_registry(db_path)?;
+    let resolved_target = if all { "" } else { target };
+    let query: Option<&str> = if resolved_target.trim().is_empty() {
+        None
+    } else {
+        Some(resolved_target.trim())
+    };
+    let dashboard = build_dashboard(&registry, query)?;
+    let detail = portal_journal_detail(&dashboard);
+    journal_portal_operation(&registry, dashboard.project_id.as_deref(), "done", &detail);
+    let json = serde_json::json!({
+        "contract": PORTAL_CONTRACT_VERSION,
+        "dashboard": dashboard,
+    });
+    let human = render_dashboard_human(&dashboard);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_portal_view(
+    db_path: &Path,
+    section: &str,
+    target: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let parsed = parse_section(section)?;
+    let registry = open_registry(db_path)?;
+    let query: Option<&str> = if target.trim().is_empty() {
+        None
+    } else {
+        Some(target.trim())
+    };
+    let view = build_section_view(&registry, query, parsed)?;
+    let detail = format!(
+        "view: section={id} status={status} entries={n}",
+        id = view.section_id,
+        status = view.status.id(),
+        n = view.entries.len()
+    );
+    journal_portal_operation(&registry, view.project_id.as_deref(), "done", &detail);
+    let json = serde_json::json!({
+        "contract": PORTAL_CONTRACT_VERSION,
+        "view": view,
+    });
+    let human = render_portal_section_human(&view);
+    Ok(as_output(format, human, json))
+}
+
+fn portal_journal_detail(dashboard: &PortalDashboard) -> String {
+    format!(
+        "dashboard: scope={scope} sections={n} rollup={rollup}",
+        scope = dashboard.scope.id(),
+        n = dashboard.section_count,
+        rollup = dashboard.rollup().id()
+    )
+}
+
+fn journal_portal_operation(
+    registry: &Registry,
+    project_id: Option<&str>,
+    state: &str,
+    detail: &str,
+) {
+    let journal_project = project_id.unwrap_or(PORTAL_SYNTHETIC_PROJECT);
+    let _ = registry.record_operation("portal", journal_project, state, detail);
 }
 
 fn cmd_api_serve(

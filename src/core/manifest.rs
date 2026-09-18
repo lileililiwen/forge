@@ -455,6 +455,25 @@ pub struct ProjectMeta {
     pub target_maturity: Option<Maturity>,
 }
 
+/// Optional portal block declaring the control-plane
+/// dashboard title, default scope and master switch. The
+/// portal is a read-only view; `enabled: false` is a
+/// documented opt-out for projects that do not want a
+/// dashboard rendered.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PortalMeta {
+    #[serde(default = "default_portal_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub default_scope: Option<String>,
+}
+
+fn default_portal_enabled() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct RawManifest {
     schema: serde_yaml::Value,
@@ -479,6 +498,8 @@ struct RawManifest {
     identity: Option<IdentityMeta>,
     #[serde(default)]
     analytics: Option<AnalyticsMeta>,
+    #[serde(default)]
+    portal: Option<PortalMeta>,
 }
 
 /// Validated, normalized project manifest.
@@ -496,6 +517,7 @@ pub struct Manifest {
     pub release: Option<ReleaseMeta>,
     pub identity: Option<IdentityMeta>,
     pub analytics: Option<AnalyticsMeta>,
+    pub portal: Option<PortalMeta>,
 }
 
 impl Manifest {
@@ -558,6 +580,7 @@ impl Manifest {
             release: raw.release,
             identity: raw.identity,
             analytics: raw.analytics,
+            portal: raw.portal,
         })
     }
 

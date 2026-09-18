@@ -1,8 +1,76 @@
-current_spec: core-http-api
+current_spec: control-plane-portal
 
 # Forge handoff
 
 ## Current state
+
+`core-http-api` implemented, verified and archived on 2026-09-18
+as `2026-09-18-core-http-api`; canonical specs promoted to
+[openspec/specs/core-http-api/spec.md](openspec/specs/core-http-api/spec.md).
+New in this cycle: `src/api` (versioned `ApiConfig`/`ApiRequest`/
+`ApiResponse`/`Route`/`ApiError`/`ShutdownSignal` contract `0.1.0` over
+HTTP/1.1 stdio; `ApiConfig::from_env` reads `FORGE_API_BIND` (default
+`127.0.0.1`) and `FORGE_API_PORT` (default `8765`) so a non-loopback
+listener is the operator's choice, never the default; the in-tree
+HTTP/1.1 parser is bounded by `MAX_BODY_BYTES = 1 MiB`,
+`READ_TIMEOUT = 10s` and `HANDLER_TIMEOUT = 60s` so a slow-loris
+client or an unresponsive adapter cannot pin the listener; routes
+mirror the brief's §35 surface
+(`GET /healthz` anonymous + `GET /v1/projects` /
+`POST /v1/projects` / `GET /v1/projects/{id}` /
+`POST /v1/projects/{id}/doctor` /
+`POST /v1/projects/{id}/features` /
+`POST /v1/projects/{id}/upgrade` /
+`POST /v1/projects/{id}/specs` /
+`POST /v1/projects/{id}/agents` /
+`POST /v1/projects/{id}/deployments` /
+`GET /v1/operations/{id}`); every request (other than
+`/healthz`) requires an `Authorization: Bearer <session-id>`
+header where the token is a per-project OIDC admin session minted
+through the `central-admin-identity` surface, the session is loaded
+from `.forge/identity/<project>/sessions/<id>.json`, the
+project-scoped session is checked through `validate_session`, and
+a token minted for project A is refused for project B with
+[`ForgeError::ApiProjectMismatch`] (R2 failure scenario); mutating
+routes additionally require the session to carry `admin:access`
+and `confirm: true` for the deploy / upgrade paths so an implicit
+remote write is impossible; every mutating route reserves a
+`pending` operation up front through
+`Registry::reserve_idempotent_operation`, journals the final
+`done` / `failed` state through `Registry::finalize_operation`,
+and returns `202 Accepted` with the `operation_id` and a
+`Location: /v1/operations/{id}` reference; the same
+`Idempotency-Key` header replays the original operation id
+without re-running the side effect (R2 boundary scenario) and
+reusing a key with a different request body is refused with
+[`ForgeError::IdempotencyKeyConflict`] (R2 failure scenario);
+the API layer is a peer of the CLI and MCP journals — the
+`operations` table now carries the `idempotency_key` and
+`request_hash` columns plus a partial unique index, the migration
+is in-place via `apply_migrations` so an existing registry with
+the prior schema is upgraded automatically; the
+`API_SYNTHETIC_PROJECT = "__api__"` project id keeps the
+operations table project-agnostic for fleet-level routes; the
+existing doctor / feature / upgrade / spec / agent / deploy / mcp
+contracts still hold after an API round trip on the same project
+(registry journal stays independent of the API surface, the doctor
+verdict is byte-equivalent before and after, a feature added
+through the API is visible to `forge feature list` / `forge
+inspect`, the MCP `tools/list` snapshot does not advertise the
+API surface, the API never modifies the manifest's other
+sections, the typed `error[code]` envelope is rendered on
+stdout for success and stderr for failure so a partial run is
+always observable, a credential-shaped substring in evidence
+never escapes through the API response, and stopping the API
+server leaves the CLI surface fully usable); CLI `forge api
+serve [--bind ADDR] [--port N] [--max-body-bytes B]` (human/JSON)
+prints the loopback default + `contract: 0.1.0` banner and
+returns the served connection count on graceful shutdown;
+Core errors `api-invalid` / `api-unauthorized` /
+`api-project-mismatch` / `idempotency-key-conflict` with stable
+codes; and the spec contract from `mature-mcp-surface`,
+`adapter-deployment` and `external-planes-analytics` still
+holds after an API round trip on the same project.
 
 `external-planes-analytics` implemented, verified and archived on 2026-09-18
 as `2026-09-18-external-planes-analytics`; canonical specs promoted to
@@ -907,6 +975,134 @@ pre-check, with rollback on registration failure and no legacy
 stable `error[code]` diagnostics), and `Registry::check_identity_available`
 for mutation-free collision checks.
 
+## Verification evidence (core-http-api, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  11 new `src/api` lib unit tests for the HTTP/1.1 request
+  parser (method, path, query, headers, body with
+  `MAX_BODY_BYTES = 1 MiB` cap, `Authorization: Bearer`
+  extraction, `Idempotency-Key` extraction, body too large
+  refusal), routing for every published path
+  (`/healthz`, `/v1/projects`, `/v1/projects/{id}`,
+  `/v1/projects/{id}/doctor`, `/v1/projects/{id}/features`,
+  `/v1/projects/{id}/upgrade`, `/v1/projects/{id}/specs`,
+  `/v1/projects/{id}/agents`,
+  `/v1/projects/{id}/deployments`,
+  `/v1/operations/{id}` plus the `405 method-not-allowed`
+  alt-method fallthrough), the `RequiredPermission` table
+  (`admin:access` for every mutating route, `None` for
+  read routes), `ApiConfig::from_env` binding loopback by
+  default and honoring `FORGE_API_BIND` / `FORGE_API_PORT`,
+  the `err_status` mapping (401 for `api-unauthorized` and
+  session-expired, 403 for `api-project-mismatch` and
+  `identity-permission-denied`, 409 for
+  `idempotency-key-conflict` and the deploy / push
+  confirm-required codes, 400 for the validation codes,
+  500 otherwise), the `request_hash` determinism
+  (`sha256(method \n path \n body)` is stable per
+  request and changes when the method changes), and the
+  `api/healthz` route never demanding a bearer token;
+  11 new `tests/api_contract.rs` contract tests for the
+  CLI subcommand help (top-level `api` mention, the
+  `forge api serve` help mentioning the loopback
+  default), the `forge api serve` lifecycle (port
+  binding on `127.0.0.1`, graceful stop, no extra
+  process drift), `GET /healthz` returning 200 without
+  authorization, `POST /v1/projects/{id}/doctor` returning
+  the same findings the CLI surfaces, missing-token /
+  invalid-token requests refused with the typed
+  `api-unauthorized` code, a session minted for project A
+  presented to project B refused with the typed
+  `api-project-mismatch` code (R2 failure scenario), the
+  `mutating` route recording an `operation_id` that is
+  retrievable through `GET /v1/operations/{id}`, the
+  `Idempotency-Key` replay reusing the same `operation_id`
+  with `replay: true` (R2 boundary scenario), the
+  `Idempotency-Key` conflict refusing a key reused with a
+  different body via the typed `idempotency-key-conflict`
+  code (R2 failure scenario), an unknown route
+  returning 404, the wrong method on a known path
+  returning 405, and the doctor command still working
+  after the API server is stopped (R1 boundary
+  scenario); 6 new `tests/api_cross_surface.rs`
+  regression tests for the API journal row carrying the
+  real project id and a `done` / `failed` state without
+  ever inventing a synthetic project on a per-project
+  call, the doctor verdict being byte-equivalent before
+  and after an API request on the same project, a
+  feature added through the API being visible to
+  `forge inspect` and to the manifest on disk so the
+  feature ownership receipt contract is preserved, two
+  consecutive doctor calls through the API returning
+  the same findings on the same input, the MCP
+  `tools/list` snapshot staying unchanged after an API
+  round trip (the API does not advertise itself through
+  MCP), and a credential-shaped bearer token never
+  appearing verbatim in the response body; plus the
+  unchanged 33 test binaries (401 lib tests incl. 11 new
+  api unit tests, 11 api contract, 6 api
+  cross-surface, 17 analytics contract, 6 analytics
+  cross-surface, 12 procedure contract, 8 procedure
+  cross-surface, 12 planner contract, 7 planner
+  cross-surface, 33 ui_pattern contract, 5 ui_pattern
+  cross-surface, 15 component contract, 5 component
+  cross-surface, 14 release contract, 4 release
+  cross-surface, 12 documentation contract, 4
+  documentation cross-surface, 12 distribution contract,
+  4 distribution cross-surface, 4 agent-runtime-
+  workflows cross-surface, 8 agent contract, 8 gitops
+  contract, 13 mcp contract, 9 mcp cross-surface, 8 doctor
+  contract, 10 feature contract, 12 generate contract,
+  10 import contract, 9 profile contract, 7 quality
+  policy contract, 12 upgrade contract, 12 spec
+  contract, 5 CLI contract, 4 cross-surface regression,
+  19 identity contract, 6 identity cross-surface, 10
+  deploy contract, 4 deploy cross-surface).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate core-http-api --strict
+  --no-interactive`: valid pre-archive; `openspec
+  archive core-http-api --yes`: archived as
+  `2026-09-18-core-http-api` with the canonical
+  `spec/core-http-api` promoted; `openspec validate
+  --all --strict --no-interactive`: 24 passed, 0 failed
+  (post-archive, includes the promoted
+  `spec/core-http-api`).
+- `git diff --check`: PASS; staged set reviewed
+  (3 files modified: `src/core/mod.rs` for the new
+  `ApiInvalid` / `ApiUnauthorized` / `ApiProjectMismatch`
+  / `IdempotencyKeyConflict` typed errors, `src/lib.rs`
+  to register the new module, `src/main.rs` for the
+  `forge api` subcommand, the `ApiCommands` enum and the
+  `cmd_api_serve` helper, `src/registry/mod.rs` for the
+  new `idempotency_key` / `request_hash` columns plus
+  the `OperationEntry::idempotency_key` /
+  `OperationEntry::request_hash` fields and the
+  `reserve_idempotent_operation` /
+  `finalize_operation` / `operation` /
+  `operation_by_idempotency` helpers and the in-place
+  `apply_migrations` upgrader; 3 files added:
+  `src/api/mod.rs` with 11 unit tests,
+  `tests/api_contract.rs` with 11 contract tests,
+  `tests/api_cross_surface.rs` with 6 cross-surface
+  regression tests; plus the promoted spec and the
+  change archive — 7 files; archive under
+  `openspec/changes/archive/2026-09-18-core-http-api/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- A live HTTP/1.1 server round trip is exercised
+  end-to-end through the contract tests; the in-process
+  parser is bounded by `MAX_BODY_BYTES`, `READ_TIMEOUT`
+  and `HANDLER_TIMEOUT` so a malicious or slow caller
+  cannot pin the listener. The `Authorization` token
+  flows through the same `crate::identity` validators
+  the CLI consumes, and the registry's existing
+  `operations` table is the only place the API
+  publishes operation state. A real external client
+  (e.g. a portal deployment) is the downstream
+  integration step and is not claimed here.
+
 ## Verification evidence (external-planes-analytics, 2026-09-18)
 
 - `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
@@ -1681,12 +1877,12 @@ work has started.
 
 ## Next change
 
-Implement [core-http-api](openspec/changes/core-http-api/proposal.md)
+Implement [control-plane-portal](openspec/changes/control-plane-portal/proposal.md)
 only when implementation is requested. Its prerequisites
-(`external-planes-analytics`, `agent-runtime-workflows`,
-`adapter-deployment`, `repository-distribution`) are
-implemented and verified. Later changes remain planning-only
-with zero implementation tasks completed.
+(`core-http-api`, `external-planes-analytics`,
+`semantic-ui-patterns`) are implemented and verified. Later
+changes remain planning-only with zero implementation tasks
+completed.
 
 ## Verification evidence (ai-procedure-skills, 2026-09-18)
 

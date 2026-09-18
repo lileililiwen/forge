@@ -33,6 +33,15 @@ use forge::feature::{
 };
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
+use forge::identity::{
+    build_challenge, delete_challenge_file as delete_identity_challenge,
+    list_sessions as list_identity_sessions, load_challenge, load_session, mint_session,
+    redact_identity_evidence, render_challenge_human,
+    render_outcome_human as render_identity_outcome_human,
+    render_session_human as render_identity_session_human, save_challenge, save_session,
+    terminate_session, validate_callback, validate_claims, validate_session, AuthCallback,
+    IdentityConfig, IdentityOutcome, ProviderClaims, IDENTITY_CONTRACT_VERSION,
+};
 use forge::import::{adopt_import, inspect_import, render_proposal_human};
 use forge::planner::{
     apply_plan as apply_planner_plan, intent_hash, plans_dir, render_apply_human,
@@ -286,6 +295,11 @@ enum Commands {
     Procedure {
         #[command(subcommand)]
         command: ProcedureCommands,
+    },
+    /// Validate, challenge, complete and terminate per-project OIDC admin sessions.
+    Identity {
+        #[command(subcommand)]
+        command: IdentityCommands,
     },
 }
 
@@ -696,6 +710,101 @@ enum ProcedureCommands {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
+enum IdentityCommands {
+    /// Validate the manifest's `identity:` block without contacting any provider.
+    ValidateConfig {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Build a fresh OIDC authorization request (state, nonce, PKCE) for the named project.
+    BuildChallenge {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Complete the OIDC round trip from a provider callback + claims and mint a per-project admin session.
+    CompleteAuth {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// State value the provider echoed in the callback (must match the issued challenge).
+        #[arg(long)]
+        state: String,
+        /// Authorization code the provider returned.
+        #[arg(long)]
+        code: String,
+        /// Optional provider-reported error (e.g. `access_denied`).
+        #[arg(long)]
+        error: Option<String>,
+        /// Optional human-readable error description from the provider.
+        #[arg(long)]
+        error_description: Option<String>,
+        /// Subject (`sub` claim) the provider authenticated.
+        #[arg(long)]
+        subject: String,
+        /// Provider-issued `iss` claim. Defaults to the manifest's configured issuer.
+        #[arg(long)]
+        issuer: Option<String>,
+        /// Provider-issued `aud` claim. Defaults to the manifest's configured audience.
+        #[arg(long)]
+        audience: Option<String>,
+        /// Nonce the provider echoed in the id_token.
+        #[arg(long)]
+        nonce: String,
+        /// Provider-issued `iat` (RFC 3339). Defaults to now.
+        #[arg(long)]
+        issued_at: Option<String>,
+        /// Provider-issued `exp` (RFC 3339). Defaults to `issued_at + 60s`.
+        #[arg(long)]
+        expires_at: Option<String>,
+        /// Comma-separated scopes the provider granted.
+        #[arg(long)]
+        scope: Option<String>,
+        /// Value of the project's configured admin_claim (e.g. the `groups` claim).
+        #[arg(long)]
+        admin_claim_value: String,
+    },
+    /// List every persisted admin session for the named project.
+    SessionList {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Inspect one persisted admin session.
+    SessionInspect {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Session id (hex).
+        #[arg(long)]
+        session: String,
+    },
+    /// Validate a session id against the named project and permission (read-only check).
+    SessionValidate {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Session id (hex).
+        #[arg(long)]
+        session: String,
+        /// Required permission (default: `admin:access`).
+        #[arg(long, default_value = "admin:access")]
+        permission: String,
+    },
+    /// Terminate the named admin session and remove its persisted state.
+    SessionTerminate {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Session id (hex).
+        #[arg(long)]
+        session: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -884,6 +993,7 @@ fn main() -> ExitCode {
         Commands::UiPattern { command } => cmd_ui_pattern(&db_path, command, cli.format),
         Commands::Intent { command } => cmd_intent(&db_path, command, cli.format),
         Commands::Procedure { command } => cmd_procedure(&db_path, command, cli.format),
+        Commands::Identity { command } => cmd_identity(&db_path, command, cli.format),
     };
 
     match result {
@@ -1844,7 +1954,7 @@ fn cmd_agent(
             let json = serde_json::to_value(&session_rec).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
-            let human = render_session_human(&session_rec);
+            let human = render_agent_session_human(&session_rec);
             Ok(as_output(format, human, json))
         }
         AgentCommands::List { target } => {
@@ -1955,7 +2065,7 @@ fn agent_list_output(
     Ok(as_output(format, human, json))
 }
 
-fn render_session_human(session: &forge::agent::AgentSession) -> String {
+fn render_agent_session_human(session: &forge::agent::AgentSession) -> String {
     let mut lines = vec![
         format!("session: {}", session.session_id),
         format!("project: {}", session.project_id),
@@ -3558,4 +3668,488 @@ fn cmd_procedure(
             ))
         }
     }
+}
+
+fn cmd_identity(
+    db_path: &Path,
+    command: &IdentityCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        IdentityCommands::ValidateConfig { target } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+            match IdentityConfig::from_manifest_opt(&project_id, &manifest)? {
+                Some(cfg) => {
+                    let detail = format!(
+                        "validate-config: project={} provider={} issuer={} client_id={} \
+                         audience={} redirect_uri={} scopes={} admin_claim={} admin_values={} \
+                         state_ttl={} session_ttl={}",
+                        project_id,
+                        cfg.provider,
+                        redact_identity_evidence(&cfg.issuer),
+                        cfg.client_id,
+                        cfg.audience,
+                        cfg.redirect_uri,
+                        cfg.scopes.len(),
+                        cfg.admin_claim,
+                        cfg.admin_values.len(),
+                        cfg.state_ttl_seconds,
+                        cfg.session_ttl_seconds,
+                    );
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ = registry.record_operation("identity", &project_id, "done", &detail);
+                    }
+                    let json = serde_json::json!({
+                        "contract": IDENTITY_CONTRACT_VERSION,
+                        "project_id": project_id,
+                        "config": cfg,
+                    });
+                    Ok(as_output(
+                        format,
+                        format!(
+                            "identity config validated for project `{}`: provider={} \
+                             issuer={} client_id={} scopes={} admin_claim={} \
+                             state_ttl={}s session_ttl={}s",
+                            project_id,
+                            cfg.provider,
+                            redact_identity_evidence(&cfg.issuer),
+                            cfg.client_id,
+                            cfg.scopes.join(","),
+                            cfg.admin_claim,
+                            cfg.state_ttl_seconds,
+                            cfg.session_ttl_seconds,
+                        ),
+                        json,
+                    ))
+                }
+                None => {
+                    let detail = "validate-config: project has no identity block".to_string();
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ =
+                            registry.record_operation("identity", &project_id, "rejected", &detail);
+                    }
+                    Err(ForgeError::IdentityInvalid {
+                        reason: format!(
+                            "project `{project_id}` has no `identity:` block; declare one in \
+                             forge.yaml to enable OIDC admin federation"
+                        ),
+                    })
+                }
+            }
+        }
+        IdentityCommands::BuildChallenge { target } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+            let cfg =
+                IdentityConfig::from_manifest_opt(&project_id, &manifest)?.ok_or_else(|| {
+                    ForgeError::IdentityInvalid {
+                        reason: format!(
+                            "project `{project_id}` has no `identity:` block; declare one before \
+                         building an auth challenge"
+                        ),
+                    }
+                })?;
+            let now = chrono::Utc::now();
+            let challenge = build_challenge(&project_id, &cfg, now)?;
+            save_challenge(&dir, &project_id, &challenge)?;
+            let detail = format!(
+                "build-challenge: project={} state={} nonce={} code_challenge={}",
+                project_id, challenge.state, challenge.nonce, challenge.code_challenge
+            );
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation("identity", &project_id, "done", &detail);
+            }
+            let json = serde_json::json!({
+                "contract": IDENTITY_CONTRACT_VERSION,
+                "project_id": project_id,
+                "challenge": challenge,
+            });
+            Ok(as_output(format, render_challenge_human(&challenge), json))
+        }
+        IdentityCommands::CompleteAuth {
+            target,
+            state,
+            code,
+            error,
+            error_description,
+            subject,
+            issuer,
+            audience,
+            nonce,
+            issued_at,
+            expires_at,
+            scope,
+            admin_claim_value,
+        } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+            let cfg =
+                IdentityConfig::from_manifest_opt(&project_id, &manifest)?.ok_or_else(|| {
+                    ForgeError::IdentityInvalid {
+                        reason: format!(
+                            "project `{project_id}` has no `identity:` block; declare one before \
+                         completing the OIDC round trip"
+                        ),
+                    }
+                })?;
+            let callback = AuthCallback {
+                project_id: project_id.clone(),
+                state: state.clone(),
+                code: code.clone(),
+                error: error.clone(),
+                error_description: error_description.clone(),
+            };
+            let now = chrono::Utc::now();
+            let challenge = load_challenge(&dir, &project_id, state)?.ok_or_else(|| {
+                let mut reason = format!(
+                    "no pending OIDC challenge found for project `{project_id}` with state \
+                         `{state}`; call `forge identity build-challenge` first and complete the \
+                         round trip before the challenge expires"
+                );
+                if let Some(err) = error.as_deref() {
+                    reason.push_str(&format!(
+                        "; provider error: `{}`",
+                        redact_identity_evidence(err)
+                    ));
+                }
+                if let Some(desc) = error_description.as_deref() {
+                    reason.push_str(&format!(
+                        "; description: `{}`",
+                        redact_identity_evidence(desc)
+                    ));
+                }
+                ForgeError::IdentityInvalid { reason }
+            })?;
+            validate_callback(&callback, &challenge, now)?;
+            let iat = match issued_at.as_deref() {
+                Some(raw) => Some(parse_rfc3339(raw, "issued_at")?),
+                None => None,
+            };
+            let exp = match expires_at.as_deref() {
+                Some(raw) => Some(parse_rfc3339(raw, "expires_at")?),
+                None => None,
+            };
+            let claims_iat = iat.unwrap_or(now);
+            let claims_exp = exp.unwrap_or(claims_iat + chrono::Duration::seconds(60));
+            let scopes = scope
+                .as_deref()
+                .map(|s| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+                .unwrap_or_else(|| cfg.scopes.clone());
+            let mut claim_map = std::collections::BTreeMap::new();
+            claim_map.insert(cfg.admin_claim.clone(), admin_claim_value.clone());
+            let claims = ProviderClaims {
+                issuer: issuer.clone().unwrap_or_else(|| cfg.issuer.clone()),
+                audience: audience.clone().unwrap_or_else(|| cfg.audience.clone()),
+                subject: subject.clone(),
+                issued_at: claims_iat,
+                expires_at: claims_exp,
+                nonce: nonce.clone(),
+                scopes,
+                claims: claim_map,
+            };
+            validate_claims(&claims, &challenge, &cfg, now)?;
+            let session = match mint_session(&cfg, &claims, &challenge, now) {
+                Ok(session) => session,
+                Err(err) => {
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ = registry.record_operation(
+                            "identity",
+                            &project_id,
+                            "rejected",
+                            &format!("complete-auth: {}", err),
+                        );
+                    }
+                    return Err(err);
+                }
+            };
+            save_session(&dir, &project_id, &session)?;
+            let _ = delete_identity_challenge(&dir, &project_id, state);
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "identity",
+                    &project_id,
+                    "done",
+                    &format!(
+                        "complete-auth: session {} minted for subject {}",
+                        session.session_id, session.subject
+                    ),
+                );
+            }
+            let outcome = IdentityOutcome::Session(session);
+            let json = serde_json::json!({
+                "contract": IDENTITY_CONTRACT_VERSION,
+                "project_id": project_id,
+                "outcome": outcome,
+            });
+            Ok(as_output(
+                format,
+                render_identity_outcome_human(&outcome),
+                json,
+            ))
+        }
+        IdentityCommands::SessionList { target } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let sessions = list_identity_sessions(&dir, &project_id)?;
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "identity",
+                    &project_id,
+                    "done",
+                    &format!("session-list: {} session(s)", sessions.len()),
+                );
+            }
+            let human = if sessions.is_empty() {
+                format!("no admin sessions for project `{project_id}`")
+            } else {
+                let mut text = format!("admin sessions for project `{project_id}`:");
+                for s in &sessions {
+                    text.push_str(&format!("\n  - {}", render_identity_session_human(s)));
+                }
+                text
+            };
+            let json = serde_json::json!({
+                "contract": IDENTITY_CONTRACT_VERSION,
+                "project_id": project_id,
+                "sessions": sessions,
+            });
+            Ok(as_output(format, human, json))
+        }
+        IdentityCommands::SessionInspect { target, session } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let loaded = match load_session(&dir, &project_id, session)? {
+                Some(session) => session,
+                None => {
+                    let owner = forge::identity::lookup_session_in_sibling_projects(&dir, session)?;
+                    match owner {
+                        Some((_, owner_id, _)) => {
+                            return Err(ForgeError::IdentitySessionCrossProject {
+                                reason: format!(
+                                    "session `{session}` was minted for project `{owner_id}`; \
+                                     inspecting it through project `{project_id}` is refused"
+                                ),
+                            });
+                        }
+                        None => {
+                            return Err(ForgeError::IdentitySessionNotFound {
+                                reason: format!(
+                                    "session `{session}` was not found under \
+                                     `.forge/identity/{project_id}/` and no other project owns it"
+                                ),
+                            });
+                        }
+                    }
+                }
+            };
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "identity",
+                    &project_id,
+                    "done",
+                    &format!("session-inspect: session {session}"),
+                );
+            }
+            let json = serde_json::json!({
+                "contract": IDENTITY_CONTRACT_VERSION,
+                "project_id": project_id,
+                "session": loaded,
+            });
+            Ok(as_output(
+                format,
+                render_identity_session_human(&loaded),
+                json,
+            ))
+        }
+        IdentityCommands::SessionValidate {
+            target,
+            session,
+            permission,
+        } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let loaded = match load_session(&dir, &project_id, session)? {
+                Some(session) => session,
+                None => {
+                    let registry = open_registry(db_path).ok();
+                    let mut owner: Option<(String, std::path::PathBuf)> = None;
+                    if let Some(registry) = registry {
+                        let all = registry.list().unwrap_or_default();
+                        let projects: Vec<(String, std::path::PathBuf)> = all
+                            .into_iter()
+                            .map(|p| (p.id, std::path::PathBuf::from(p.path)))
+                            .collect();
+                        if let Some((_, owner_id, owner_dir)) =
+                            forge::identity::lookup_session_across_projects(session, projects)?
+                        {
+                            owner = Some((owner_id, owner_dir));
+                        }
+                    }
+                    if owner.is_none() {
+                        if let Some((_, owner_id, owner_dir)) =
+                            forge::identity::lookup_session_in_sibling_projects(&dir, session)?
+                        {
+                            owner = Some((owner_id, owner_dir));
+                        }
+                    }
+                    match owner {
+                        Some((owner_id, _)) => {
+                            return Err(ForgeError::IdentitySessionCrossProject {
+                                reason: format!(
+                                    "session `{session}` was minted for project `{owner_id}`; \
+                                     presenting it to project `{project_id}` is refused; \
+                                     sessions are project-scoped and may not be shared across \
+                                     unrelated applications"
+                                ),
+                            });
+                        }
+                        None => {
+                            return Err(ForgeError::IdentitySessionNotFound {
+                                reason: format!(
+                                    "session `{session}` was not found under \
+                                     `.forge/identity/{project_id}/` and no other registered \
+                                     project owns it"
+                                ),
+                            });
+                        }
+                    }
+                }
+            };
+            let now = chrono::Utc::now();
+            match validate_session(&loaded, &project_id, permission, now) {
+                Ok(()) => {
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ = registry.record_operation(
+                            "identity",
+                            &project_id,
+                            "done",
+                            &format!("session-validate: session {session} granted {permission}"),
+                        );
+                    }
+                    let json = serde_json::json!({
+                        "contract": IDENTITY_CONTRACT_VERSION,
+                        "project_id": project_id,
+                        "session": loaded,
+                        "granted": true,
+                        "permission": permission,
+                    });
+                    Ok(as_output(
+                        format,
+                        format!(
+                            "session `{}` granted `{permission}` for project `{project_id}`",
+                            session
+                        ),
+                        json,
+                    ))
+                }
+                Err(err) => {
+                    if let Ok(registry) = open_registry(db_path) {
+                        let _ = registry.record_operation(
+                            "identity",
+                            &project_id,
+                            "rejected",
+                            &format!("session-validate: {} ({})", err, err.code()),
+                        );
+                    }
+                    Err(err)
+                }
+            }
+        }
+        IdentityCommands::SessionTerminate { target, session } => {
+            let (dir, project_id) = resolve_identity_target(db_path, target)?;
+            let mut loaded = match load_session(&dir, &project_id, session)? {
+                Some(session) => session,
+                None => {
+                    let owner = forge::identity::lookup_session_in_sibling_projects(&dir, session)?;
+                    match owner {
+                        Some((_, owner_id, _)) => {
+                            return Err(ForgeError::IdentitySessionCrossProject {
+                                reason: format!(
+                                    "session `{session}` was minted for project `{owner_id}`; \
+                                     terminating it through project `{project_id}` is refused"
+                                ),
+                            });
+                        }
+                        None => {
+                            return Err(ForgeError::IdentitySessionNotFound {
+                                reason: format!(
+                                    "session `{session}` was not found under \
+                                     `.forge/identity/{project_id}/` and no other project owns it"
+                                ),
+                            });
+                        }
+                    }
+                }
+            };
+            terminate_session(&mut loaded);
+            save_session(&dir, &project_id, &loaded)?;
+            delete_session_file_at(&dir, &project_id, session)?;
+            if let Ok(registry) = open_registry(db_path) {
+                let _ = registry.record_operation(
+                    "identity",
+                    &project_id,
+                    "done",
+                    &format!("session-terminate: session {session}"),
+                );
+            }
+            let json = serde_json::json!({
+                "contract": IDENTITY_CONTRACT_VERSION,
+                "project_id": project_id,
+                "session": loaded,
+                "terminated": true,
+            });
+            Ok(as_output(
+                format,
+                format!(
+                    "session `{session}` terminated for project `{project_id}`; state=`revoked`"
+                ),
+                json,
+            ))
+        }
+    }
+}
+
+fn delete_session_file_at(
+    dir: &Path,
+    project_id: &str,
+    session_id: &str,
+) -> Result<(), ForgeError> {
+    let path = forge::identity::session_path_for(dir, project_id, session_id)?;
+    if !path.exists() {
+        return Ok(());
+    }
+    std::fs::remove_file(&path).map_err(|err| ForgeError::IdentityInvalid {
+        reason: format!("cannot delete session file {}: {err}", path.display()),
+    })?;
+    Ok(())
+}
+
+fn parse_rfc3339(raw: &str, field: &str) -> Result<chrono::DateTime<chrono::Utc>, ForgeError> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .map_err(|err| ForgeError::IdentityInvalid {
+            reason: format!("identity {field} `{raw}` is not RFC 3339: {err}"),
+        })
+}
+
+/// Resolve a target string (registered id or filesystem path) to a
+/// project directory and the manifest project id. Mirrors the upgrade
+/// resolution contract so the CLI accepts both spellings.
+fn resolve_identity_target(db_path: &Path, target: &str) -> Result<(PathBuf, String), ForgeError> {
+    let candidate = Path::new(target);
+    if candidate.is_dir() {
+        let dir = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+        return Ok((dir, manifest.project.id));
+    }
+    let registry = open_registry(db_path)?;
+    let record = registry.inspect(target)?;
+    let dir = PathBuf::from(&record.path);
+    if !dir.is_dir() {
+        return Err(ForgeError::PathUnavailable { path: record.path });
+    }
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
+    Ok((dir, manifest.project.id))
 }

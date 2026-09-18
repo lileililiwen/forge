@@ -290,6 +290,73 @@ pub struct ReleaseDocsMeta {
     pub translate: Vec<String>,
 }
 
+/// OIDC admin federation block. Each project owns its own
+/// per-project client id and redirect URI; the issuer and
+/// admin claim live in the manifest so a project's OIDC
+/// configuration is the source of truth (and the doctor
+/// surface can re-validate it without contacting any
+/// external provider).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct IdentityMeta {
+    /// OIDC provider name (kebab-case, e.g. `okta`, `auth0`,
+    /// `keycloak`). The catalog only stores provider metadata
+    /// — actual provider discovery and JWKS retrieval are
+    /// out of scope for the v0.1 contract.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// OIDC issuer URL (the `iss` claim the provider issues).
+    /// Must be HTTPS, no whitespace, no shell metacharacters.
+    #[serde(default)]
+    pub issuer: Option<String>,
+    /// Per-project OIDC client id registered at the provider.
+    #[serde(default)]
+    pub client_id: Option<String>,
+    /// Optional OIDC audience (`aud` claim). Defaults to the
+    /// client id when omitted so a single-project client does
+    /// not need a separate audience value.
+    #[serde(default)]
+    pub audience: Option<String>,
+    /// Per-project admin redirect URI. The OIDC provider
+    /// returns to this address after authentication.
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
+    /// Scopes the project requests (`openid` is always
+    /// included; this list may add `profile`, `email`,
+    /// `groups`, etc.).
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    /// OIDC JWKS URI used to verify id_token signatures
+    /// (deferred — captured here so a future integration can
+    /// resolve the keys without changing the manifest).
+    #[serde(default)]
+    pub jwks_uri: Option<String>,
+    /// State/nonce lifetime in seconds. Bounded between
+    /// [`MIN_STATE_TTL_SECONDS`] and [`MAX_STATE_TTL_SECONDS`].
+    #[serde(default)]
+    pub state_ttl_seconds: Option<i64>,
+    /// Admin session lifetime in seconds. Bounded between
+    /// [`MIN_SESSION_TTL_SECONDS`] and [`MAX_SESSION_TTL_SECONDS`].
+    #[serde(default)]
+    pub session_ttl_seconds: Option<i64>,
+    /// Claim name whose value gates admin access (e.g.
+    /// `groups`, `roles`, `https://forge/permission`). The
+    /// provider login alone is never enough; the claim value
+    /// must match one of `admin_values`.
+    #[serde(default)]
+    pub admin_claim: Option<String>,
+    /// Claim values that grant admin access. Empty list
+    /// means no value grants admin; a request whose claim
+    /// value is not in the list is refused with
+    /// `identity-permission-denied`.
+    #[serde(default)]
+    pub admin_values: Vec<String>,
+    /// Secret reference (e.g. `env://OIDC_CLIENT_SECRET`)
+    /// for the per-project client. The manifest never embeds
+    /// a secret; Core never logs the resolved value.
+    #[serde(default)]
+    pub client_secret_ref: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ReleaseMeta {
     /// Versioning scheme; only `semver` is supported in v0.5.
@@ -354,6 +421,8 @@ struct RawManifest {
     docs: Option<DocsMeta>,
     #[serde(default)]
     release: Option<ReleaseMeta>,
+    #[serde(default)]
+    identity: Option<IdentityMeta>,
 }
 
 /// Validated, normalized project manifest.
@@ -369,6 +438,7 @@ pub struct Manifest {
     pub distribution: Option<DistributionMeta>,
     pub docs: Option<DocsMeta>,
     pub release: Option<ReleaseMeta>,
+    pub identity: Option<IdentityMeta>,
 }
 
 impl Manifest {
@@ -429,6 +499,7 @@ impl Manifest {
             distribution: raw.distribution,
             docs: raw.docs,
             release: raw.release,
+            identity: raw.identity,
         })
     }
 

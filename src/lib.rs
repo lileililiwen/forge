@@ -14,6 +14,7 @@ pub mod doctor;
 pub mod feature;
 pub mod generate;
 pub mod gitops;
+pub mod identity;
 pub mod import;
 pub mod mcp;
 pub mod planner;

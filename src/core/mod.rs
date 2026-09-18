@@ -201,6 +201,26 @@ pub enum ForgeError {
 
     #[error("procedure run failed at step '{step}': {reason}")]
     ProcedureRunFailed { step: String, reason: String },
+
+    #[error("identity invalid: {reason}")]
+    IdentityInvalid { reason: String },
+
+    #[error("identity auth failed: {reason}")]
+    IdentityAuthFailed { reason: String },
+
+    #[error("identity session expired: {reason}")]
+    IdentitySessionExpired { reason: String },
+
+    #[error("identity session not found: {reason}")]
+    IdentitySessionNotFound { reason: String },
+
+    #[error("identity session cross-project: {reason}; sessions are project-scoped and may not be presented to a different project")]
+    IdentitySessionCrossProject { reason: String },
+
+    #[error(
+        "identity permission denied: {reason}; provider login does not imply admin authorization"
+    )]
+    IdentityPermissionDenied { reason: String },
 }
 
 impl ForgeError {
@@ -271,6 +291,12 @@ impl ForgeError {
             ForgeError::ProcedureUnsupportedOperation { .. } => "procedure-unsupported-operation",
             ForgeError::ProcedureBypassRefused { .. } => "procedure-bypass-refused",
             ForgeError::ProcedureRunFailed { .. } => "procedure-run-failed",
+            ForgeError::IdentityInvalid { .. } => "identity-invalid",
+            ForgeError::IdentityAuthFailed { .. } => "identity-auth-failed",
+            ForgeError::IdentitySessionExpired { .. } => "identity-session-expired",
+            ForgeError::IdentitySessionNotFound { .. } => "identity-session-not-found",
+            ForgeError::IdentitySessionCrossProject { .. } => "identity-session-cross-project",
+            ForgeError::IdentityPermissionDenied { .. } => "identity-permission-denied",
         }
     }
 

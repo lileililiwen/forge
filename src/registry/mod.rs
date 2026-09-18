@@ -45,15 +45,66 @@ CREATE TABLE IF NOT EXISTS projects (
     observed_at      TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
-    op_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind       TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    state      TEXT NOT NULL DEFAULT 'pending',
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    detail     TEXT
+    op_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind            TEXT NOT NULL,
+    project_id      TEXT NOT NULL,
+    state           TEXT NOT NULL DEFAULT 'pending',
+    started_at      TEXT NOT NULL,
+    finished_at     TEXT,
+    detail          TEXT,
+    idempotency_key TEXT,
+    request_hash    TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS operations_idempotency_uniq
+    ON operations (kind, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 ";
+
+/// Apply in-place schema migrations for registries
+/// created by an earlier `forge` build. The current
+/// schema is created by [`SCHEMA_SQL`]; older schemas
+/// need additive `ALTER TABLE` statements to add the
+/// `idempotency_key` and `request_hash` columns. Each
+/// statement is allowed to fail with
+/// `SqliteFailure(..., "duplicate column name: ...")` —
+/// that means the column already exists and the
+/// migration is a no-op.
+fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
+    let migrations: &[&str] = &[
+        "ALTER TABLE operations ADD COLUMN idempotency_key TEXT",
+        "ALTER TABLE operations ADD COLUMN request_hash TEXT",
+    ];
+    for stmt in migrations {
+        if let Err(err) = conn.execute(stmt, []) {
+            let message = err.to_string();
+            // SQLite raises "duplicate column name" when
+            // the column is already there. Anything else
+            // is a real failure that should bubble up.
+            if !message.contains("duplicate column name") {
+                return Err(ForgeError::Registry {
+                    reason: format!("migration `{stmt}` failed: {message}"),
+                });
+            }
+        }
+    }
+    // Idempotency unique index may already be present
+    // from a fresh install; ignore the duplicate error
+    // here as well.
+    if let Err(err) = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS operations_idempotency_uniq
+            ON operations (kind, idempotency_key)
+            WHERE idempotency_key IS NOT NULL",
+        [],
+    ) {
+        let message = err.to_string();
+        if !message.contains("already exists") {
+            return Err(ForgeError::Registry {
+                reason: format!("idempotency index creation failed: {message}"),
+            });
+        }
+    }
+    Ok(())
+}
 
 /// Persisted project identity plus timestamped observations.
 /// `available` is computed at read time, never stored: a missing path
@@ -96,7 +147,7 @@ impl ProjectRecord {
 }
 
 /// One journal entry; surfaced for reconciliation evidence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OperationEntry {
     pub op_id: i64,
     pub kind: String,
@@ -105,6 +156,21 @@ pub struct OperationEntry {
     pub started_at: String,
     pub finished_at: Option<String>,
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_hash: Option<String>,
+}
+
+/// Outcome of [`Registry::reserve_idempotent_operation`]. `Reserved`
+/// means a fresh pending operation was inserted; `Reused` means the
+/// caller already reserved (or finalized) an operation with the same
+/// `(kind, idempotency_key, request_hash)` triple and should look up
+/// the prior record instead of running the work again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReservationOutcome {
+    Reserved { op_id: i64 },
+    Reused { op_id: i64 },
 }
 
 pub struct Registry {
@@ -130,6 +196,7 @@ impl Registry {
         })?;
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA_SQL)?;
+        apply_migrations(&conn)?;
         let mut registry = Registry { conn };
         registry.reconcile_journal()?;
         Ok(registry)
@@ -150,7 +217,8 @@ impl Registry {
 
     pub fn journal_entries(&self) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
-            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail
+            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
+                    idempotency_key, request_hash
              FROM operations ORDER BY op_id",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -162,6 +230,8 @@ impl Registry {
                 started_at: row.get(4)?,
                 finished_at: row.get(5)?,
                 detail: row.get(6)?,
+                idempotency_key: row.get(7)?,
+                request_hash: row.get(8)?,
             })
         })?;
         let mut out = Vec::new();
@@ -169,6 +239,31 @@ impl Registry {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// Look up a single journal entry by op_id.
+    pub fn operation(&self, op_id: i64) -> Result<Option<OperationEntry>, ForgeError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
+                    idempotency_key, request_hash
+             FROM operations WHERE op_id = ?1",
+        )?;
+        let entry = stmt
+            .query_row(params![op_id], |row| {
+                Ok(OperationEntry {
+                    op_id: row.get(0)?,
+                    kind: row.get(1)?,
+                    project_id: row.get(2)?,
+                    state: row.get(3)?,
+                    started_at: row.get(4)?,
+                    finished_at: row.get(5)?,
+                    detail: row.get(6)?,
+                    idempotency_key: row.get(7)?,
+                    request_hash: row.get(8)?,
+                })
+            })
+            .optional()?;
+        Ok(entry)
     }
 
     /// Append one journal entry for a non-registration operation (e.g.
@@ -189,6 +284,106 @@ impl Registry {
             params![kind, project_id, state, now, now, detail],
         )?;
         Ok(())
+    }
+
+    /// Reserve a `pending` operation with an idempotency key and a
+    /// SHA-style request fingerprint. The pair is unique per `kind`, so
+    /// a caller that retries with the same key + same fingerprint
+    /// receives the original `op_id` (and a previously committed final
+    /// state) while a caller that reuses the key with a different
+    /// fingerprint is rejected with
+    /// [`ForgeError::IdempotencyKeyConflict`].
+    ///
+    /// `project_id` is the owning project (or a transport-level
+    /// synthetic id such as the registry-wide `__api__`). The key is
+    /// stored verbatim so a duplicate request with the same key on a
+    /// different transport can be detected by the caller.
+    pub fn reserve_idempotent_operation(
+        &self,
+        kind: &str,
+        project_id: &str,
+        idempotency_key: &str,
+        request_hash: &str,
+    ) -> Result<ReservationOutcome, ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        // Conflict check first: a key reused with a different fingerprint
+        // is refused before any row is written. The unique index is the
+        // secondary guard against double insertion under concurrency.
+        if let Some(existing) = self.operation_by_idempotency(kind, idempotency_key)? {
+            if existing.request_hash.as_deref() != Some(request_hash) {
+                return Err(ForgeError::IdempotencyKeyConflict {
+                    reason: format!(
+                        "idempotency key `{idempotency_key}` was previously used for a \
+                         different `{kind}` request; refusing to silently re-interpret the \
+                         key as a new operation"
+                    ),
+                });
+            }
+            return Ok(ReservationOutcome::Reused {
+                op_id: existing.op_id,
+            });
+        }
+        self.conn.execute(
+            "INSERT INTO operations
+                (kind, project_id, state, started_at, idempotency_key, request_hash)
+             VALUES (?1, ?2, 'pending', ?3, ?4, ?5)",
+            params![kind, project_id, now, idempotency_key, request_hash],
+        )?;
+        Ok(ReservationOutcome::Reserved {
+            op_id: self.conn.last_insert_rowid(),
+        })
+    }
+
+    /// Finalize a previously reserved operation by writing the terminal
+    /// state and the human-readable detail. The transition is recorded
+    /// as a single append (no row replacement) so the journal stays
+    /// evidence-complete.
+    pub fn finalize_operation(
+        &self,
+        op_id: i64,
+        state: &str,
+        detail: &str,
+    ) -> Result<(), ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE operations SET state = ?1, finished_at = ?2, detail = ?3
+             WHERE op_id = ?4",
+            params![state, now, detail, op_id],
+        )?;
+        Ok(())
+    }
+
+    /// Look up an operation by `(kind, idempotency_key)`. Returns
+    /// `None` when the key has never been recorded for this kind.
+    pub fn operation_by_idempotency(
+        &self,
+        kind: &str,
+        idempotency_key: &str,
+    ) -> Result<Option<OperationEntry>, ForgeError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
+                    idempotency_key, request_hash
+             FROM operations
+             WHERE kind = ?1 AND idempotency_key = ?2
+             ORDER BY op_id DESC
+             LIMIT 1",
+        )?;
+        let entry = stmt
+            .query_row(params![kind, idempotency_key], |row| {
+                Ok(OperationEntry {
+                    op_id: row.get(0)?,
+                    kind: row.get(1)?,
+                    project_id: row.get(2)?,
+                    state: row.get(3)?,
+                    started_at: row.get(4)?,
+                    finished_at: row.get(5)?,
+                    detail: row.get(6)?,
+                    idempotency_key: row.get(7)?,
+                    request_hash: row.get(8)?,
+                })
+            })
+            .optional()?;
+        Ok(entry)
     }
 
     /// Validate the manifest in `dir` (read-only) and persist the project.

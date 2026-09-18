@@ -1,0 +1,2035 @@
+//! Optional HTTP transport over Core (`core-http-api`).
+//!
+//! Forge Core owns every domain rule; this module is a thin
+//! HTTP/1.1 transport that exposes the stable project and
+//! lifecycle operations listed in [requirement.md §35]. The
+//! API server defaults to a loopback-only bind so an
+//! unauthenticated public listener is impossible by
+//! construction; production exposure is the responsibility
+//! of the operator and is out of scope for v0.1.
+//!
+//! ## Why
+//!
+//! The brief calls for an optional HTTP API that lets
+//! callers reach the same Core contracts the CLI and MCP
+//! surfaces consume. The same typed outcomes must flow
+//! through every transport: the API validates input, then
+//! dispatches through the existing `forge::core` modules
+//! (registry, doctor, feature, upgrade, spec, agent,
+//! deploy) and renders the response. No business rule is
+//! duplicated in the transport.
+//!
+//! ## Authorization and idempotency
+//!
+//! Every request (other than `GET /healthz`) requires an
+//! `Authorization: Bearer <session-id>` header. The token
+//! is an OIDC admin session minted by the
+//! `central-admin-identity` surface; it lives at
+//! `.forge/identity/<project>/sessions/<id>.json` and is
+//! strictly project-scoped. A token minted for project A
+//! cannot authorize a request against project B; the
+//! request is refused with
+//! [`ForgeError::ApiProjectMismatch`] (R2 failure
+//! scenario). Mutating routes additionally require the
+//! session to carry the `admin:access` permission; a
+//! session without that permission is refused with
+//! [`ForgeError::ApiUnauthorized`].
+//!
+//! Mutating routes accept an `Idempotency-Key` header so
+//! retries are safe. The `(kind, key)` pair is unique in
+//! the registry's operations table; an identical retry
+//! reuses the original `op_id` (R2 boundary scenario:
+//! external side effects are not repeated). A retry that
+//! reuses the key with a different request body is
+//! refused with [`ForgeError::IdempotencyKeyConflict`] so
+//! the operator never silently reinterprets a prior
+//! operation.
+//!
+//! ## Async operation model
+//!
+//! Every mutating route returns `202 Accepted` with a
+//! `Location: /v1/operations/<id>` header and a JSON
+//! envelope containing the operation's recorded state.
+//! The operation is journaled in the same `operations`
+//! table every other transport writes to; the API layer
+//! is therefore a peer of the CLI and MCP journals. A
+//! `GET /v1/operations/<id>` request returns the latest
+//! state so a caller can poll for progress or terminal
+//! outcomes.
+//!
+//! ## Risks
+//!
+//! Binding HTTP broadens access beyond a local process.
+//! This module therefore defaults to `127.0.0.1` and
+//! refuses non-loopback binds unless the operator passes
+//! `--bind 0.0.0.0` explicitly. Authentication is required
+//! on every route other than the loopback health check;
+//! the loopback health check is the only anonymous
+//! surface and only returns `200 ok` plus the contract
+//! version.
+
+use std::collections::BTreeMap;
+use std::io::{self, BufRead, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use chrono::{DateTime, Utc};
+use serde_json::Value;
+
+use crate::agent::{
+    apply_transition as apply_agent_transition, new_session, read_session, AgentProvider,
+    SessionTransition,
+};
+use crate::core::ForgeError;
+use crate::deploy::DeployRequest;
+use crate::doctor::{parse_target_level, run_doctor, RegistryObservation};
+use crate::feature::add_feature;
+use crate::generate::{generate, normalize_explicit, GeneratedProject};
+use crate::policy::{run_driftwatch, DriftWatchConfig};
+use crate::registry::{Registry, ReservationOutcome};
+use crate::spec::{ensure_single_project, generate_spec, FindingSource, SpecRequest};
+use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
+
+/// Contract data version for the API surface. The version
+/// is the source of truth for `/healthz` and the response
+/// envelope; an older client can refuse the version
+/// mismatch instead of silently reinterpreting the
+/// response.
+pub const API_CONTRACT_VERSION: &str = "0.1.0";
+
+/// Default bind address. Loopback-only so an
+/// unauthenticated public listener is impossible by
+/// construction.
+pub const DEFAULT_BIND_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
+/// Default port the API server binds to when the
+/// operator does not pass `--port`. The value is the
+/// unprivileged 8765 range to avoid colliding with
+/// system services.
+pub const DEFAULT_PORT: u16 = 8765;
+
+/// Maximum request body size. Anything larger is refused
+/// with `413 Payload Too Large` so a malicious caller
+/// cannot pin the server to an unbounded memory
+/// allocation. 1 MiB is more than enough for the routes
+/// in scope (deploys and feature installs carry typed
+/// JSON, not artifacts).
+pub const MAX_BODY_BYTES: usize = 1024 * 1024;
+
+/// Maximum time a single connection may be held idle
+/// while reading. Bounded so a slow-loris client cannot
+/// pin a worker thread.
+pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Maximum time a single request handler may run
+/// end-to-end. Bounded so a misbehaving adapter (e.g. an
+/// external deploy binary that hangs) cannot keep the
+/// listener tied up indefinitely.
+pub const HANDLER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Synthetic project id recorded in the operations table
+/// when the API handles a request that is not bound to
+/// one specific registered project (for example
+/// `POST /v1/projects` for fleet creation). The id is
+/// never visible to operators as a registered project.
+pub const API_SYNTHETIC_PROJECT: &str = "__api__";
+
+/// Operator-facing API configuration. Bounded to the
+/// fields the API surface depends on; the rest of the
+/// Forge environment is resolved through existing
+/// helpers (registry path, identity directory, …).
+#[derive(Debug, Clone)]
+pub struct ApiConfig {
+    pub bind: IpAddr,
+    pub port: u16,
+    pub max_body_bytes: usize,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            bind: DEFAULT_BIND_ADDR,
+            port: DEFAULT_PORT,
+            max_body_bytes: MAX_BODY_BYTES,
+        }
+    }
+}
+
+impl ApiConfig {
+    /// Build the configuration from the environment. The
+    /// `FORGE_API_BIND` and `FORGE_API_PORT` variables
+    /// override the defaults when set; an empty or
+    /// unparseable value is ignored so the operator gets
+    /// the safe default rather than a panic.
+    pub fn from_env() -> Self {
+        let mut cfg = Self::default();
+        if let Ok(value) = std::env::var("FORGE_API_BIND") {
+            if let Ok(parsed) = value.trim().parse::<IpAddr>() {
+                cfg.bind = parsed;
+            }
+        }
+        if let Ok(value) = std::env::var("FORGE_API_PORT") {
+            if let Ok(parsed) = value.trim().parse::<u16>() {
+                cfg.port = parsed;
+            }
+        }
+        cfg
+    }
+
+    /// Resolved socket address.
+    pub fn socket_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.bind, self.port)
+    }
+}
+
+/// One parsed HTTP/1.1 request. Body is a `Vec<u8>` so
+/// the handler can decide whether to interpret it as
+/// JSON, render it as text, or skip it entirely (for
+/// `GET`).
+#[derive(Debug, Clone)]
+pub struct ApiRequest {
+    pub method: String,
+    pub path: String,
+    pub query: Option<String>,
+    pub headers: BTreeMap<String, String>,
+    pub body: Vec<u8>,
+    pub idempotency_key: Option<String>,
+    pub bearer_token: Option<String>,
+    pub remote_addr: Option<SocketAddr>,
+    pub started_at: DateTime<Utc>,
+}
+
+impl ApiRequest {
+    #[allow(dead_code)]
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Decoded JSON body, or an empty `Value::Null` for
+    /// empty bodies. The transport never fails on
+    /// missing bodies: an empty `GET` body is normal.
+    pub fn json_body(&self) -> Value {
+        if self.body.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&self.body).unwrap_or(Value::Null)
+        }
+    }
+}
+
+/// One rendered HTTP/1.1 response. Status, headers and
+/// body are the only fields the transport cares about;
+/// every other invariant (valid JSON, project-scoped
+/// session, idempotency replay) is enforced by the
+/// handler that built the response.
+#[derive(Debug, Clone)]
+pub struct ApiResponse {
+    pub status: u16,
+    pub headers: BTreeMap<String, String>,
+    pub body: Vec<u8>,
+}
+
+impl ApiResponse {
+    pub fn json(status: u16, value: Value) -> Self {
+        let body = serde_json::to_vec(&value).unwrap_or_else(|_| b"{}".to_vec());
+        let mut headers = BTreeMap::new();
+        headers.insert("content-type".to_string(), "application/json".to_string());
+        headers.insert(
+            "x-forge-contract".to_string(),
+            API_CONTRACT_VERSION.to_string(),
+        );
+        Self {
+            status,
+            headers,
+            body,
+        }
+    }
+
+    pub fn with_header(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.headers.insert(name.to_string(), value.into());
+        self
+    }
+
+    /// Build a typed error response. The JSON body carries
+    /// the stable `code` plus the human message so a
+    /// caller can render a structured diagnostic without
+    /// parsing free-form text.
+    pub fn from_error(err: &ForgeError) -> Self {
+        let status = err_status(err);
+        let body = serde_json::json!({
+            "error": {
+                "code": err.code(),
+                "message": err.to_string(),
+            },
+            "contract": API_CONTRACT_VERSION,
+        });
+        Self::json(status, body)
+    }
+}
+
+fn err_status(err: &ForgeError) -> u16 {
+    match err.code() {
+        "api-unauthorized" | "identity-session-expired" | "identity-session-not-found" => 401,
+        "api-project-mismatch"
+        | "identity-session-cross-project"
+        | "identity-permission-denied" => 403,
+        "idempotency-key-conflict"
+        | "push-confirm-required"
+        | "release-check-failed"
+        | "deploy-health-failed" => 409,
+        "api-invalid"
+        | "manifest-invalid"
+        | "manifest-not-found"
+        | "path-unavailable"
+        | "unknown-project"
+        | "unknown-profile"
+        | "unknown-feature"
+        | "incompatible-feature"
+        | "feature-ownership-conflict"
+        | "spec-invalid"
+        | "deploy-invalid"
+        | "release-invalid" => 400,
+        _ => 500,
+    }
+}
+
+/// Outcome of dispatching one request. A successful
+/// `Ok` carries the response; an `Err` carries the typed
+/// Core failure to render.
+pub type DispatchResult = Result<ApiResponse, ForgeError>;
+
+/// Match the request against the route table. Returns
+/// `None` for unmatched paths so the handler can render
+/// `404`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Route {
+    Healthz,
+    ListProjects,
+    CreateProject,
+    InspectProject { id: String },
+    Doctor { id: String },
+    AddFeature { id: String },
+    UpgradeProject { id: String },
+    GenerateSpec { id: String },
+    AgentTransition { id: String },
+    ApplyDeployment { id: String },
+    GetOperation { op_id: i64 },
+}
+
+pub fn route_request(method: &str, path: &str) -> Option<Route> {
+    let path = path.split('?').next().unwrap_or(path);
+    let path = path.trim_end_matches('/');
+    let normalized = if path.is_empty() { "/" } else { path };
+    let segments: Vec<&str> = normalized.trim_start_matches('/').split('/').collect();
+    match (method, segments.as_slice()) {
+        ("GET", ["healthz"]) => Some(Route::Healthz),
+        ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
+        ("POST", ["v1", "projects"]) => Some(Route::CreateProject),
+        ("GET", ["v1", "projects", id]) => Some(Route::InspectProject {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "doctor"]) => Some(Route::Doctor {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "features"]) => Some(Route::AddFeature {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "upgrade"]) => Some(Route::UpgradeProject {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "specs"]) => Some(Route::GenerateSpec {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "agents"]) => Some(Route::AgentTransition {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "deployments"]) => Some(Route::ApplyDeployment {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "operations", op_id]) => op_id
+            .parse::<i64>()
+            .ok()
+            .map(|id| Route::GetOperation { op_id: id }),
+        _ => None,
+    }
+}
+
+fn method_not_allowed() -> ApiResponse {
+    ApiResponse::json(
+        405,
+        serde_json::json!({
+            "error": {
+                "code": "method-not-allowed",
+                "message": "method not allowed for this route; see /healthz for the advertised contract"
+            },
+            "contract": API_CONTRACT_VERSION,
+        }),
+    )
+}
+
+fn not_found() -> ApiResponse {
+    ApiResponse::json(
+        404,
+        serde_json::json!({
+            "error": {
+                "code": "route-not-found",
+                "message": "no API route matches the request"
+            },
+            "contract": API_CONTRACT_VERSION,
+        }),
+    )
+}
+
+fn bad_request(reason: &str) -> ApiResponse {
+    ApiResponse::json(
+        400,
+        serde_json::json!({
+            "error": {
+                "code": "api-invalid",
+                "message": reason
+            },
+            "contract": API_CONTRACT_VERSION,
+        }),
+    )
+}
+
+/// Decide whether the request requires a session and, if
+/// so, what permission is needed for the action.
+fn required_permission(route: &Route) -> Option<&'static str> {
+    match route {
+        Route::Healthz | Route::GetOperation { .. } => None,
+        Route::ListProjects | Route::InspectProject { .. } | Route::Doctor { .. } => None,
+        Route::CreateProject
+        | Route::AddFeature { .. }
+        | Route::UpgradeProject { .. }
+        | Route::GenerateSpec { .. }
+        | Route::AgentTransition { .. }
+        | Route::ApplyDeployment { .. } => Some("admin:access"),
+    }
+}
+
+/// Decide whether the route is a mutating call. Mutating
+/// routes journal a `pending` operation up front and
+/// return `202 Accepted`; read-only routes return
+/// `200 OK` synchronously. Surfaced for the
+/// authorization layer so it can pick the right session
+/// permission.
+#[allow(dead_code)]
+fn is_mutating(route: &Route) -> bool {
+    matches!(
+        route,
+        Route::CreateProject
+            | Route::AddFeature { .. }
+            | Route::UpgradeProject { .. }
+            | Route::GenerateSpec { .. }
+            | Route::AgentTransition { .. }
+            | Route::ApplyDeployment { .. }
+    )
+}
+
+/// Dispatch one request through Core. The caller is
+/// responsible for parsing the wire bytes into
+/// [`ApiRequest`] and for rendering the returned
+/// [`ApiResponse`] back on the socket; this function
+/// holds the entire business contract.
+pub fn handle(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiResponse {
+    let route = match route_request(&request.method, &request.path) {
+        Some(route) => route,
+        None => {
+            // The path matched no route at all, but a path
+            // like `/v1/projects/{id}/doctor` with the
+            // wrong method should still surface as 405
+            // rather than 404 when the path shape is
+            // recognised.
+            if let Some(alt) = route_request(alt_method(&request.method), &request.path) {
+                let _ = alt;
+                return method_not_allowed();
+            }
+            return not_found();
+        }
+    };
+
+    // 1. Authorization: every route (other than /healthz
+    // and /v1/operations/{id}) demands a session. Read
+    // routes demand any valid session; mutating routes
+    // demand admin:access. A token for project A cannot
+    // authorize project B.
+    if let Err(response) = authorize(db_path, &route, request, now) {
+        return response;
+    }
+
+    // 2. Dispatch.
+    match route.clone() {
+        Route::Healthz => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "status": "ok",
+                "contract": API_CONTRACT_VERSION,
+                "bind": request
+                    .remote_addr
+                    .map(|a| a.ip().to_string())
+                    .unwrap_or_default(),
+            }),
+        ),
+        Route::ListProjects => handle_list_projects(db_path),
+        Route::CreateProject => handle_create_project(db_path, request, now),
+        Route::InspectProject { id } => handle_inspect_project(db_path, &id),
+        Route::Doctor { id } => handle_doctor(db_path, &id, request, now),
+        Route::AddFeature { id } => handle_add_feature(db_path, &id, request, now),
+        Route::UpgradeProject { id } => handle_upgrade(db_path, &id, request, now),
+        Route::GenerateSpec { id } => handle_generate_spec(db_path, &id, request, now),
+        Route::AgentTransition { id } => handle_agent_transition(db_path, &id, request, now),
+        Route::ApplyDeployment { id } => handle_apply_deployment(db_path, &id, request, now),
+        Route::GetOperation { op_id } => handle_get_operation(db_path, op_id),
+    }
+}
+
+fn alt_method(method: &str) -> &'static str {
+    if method.eq_ignore_ascii_case("GET") {
+        "POST"
+    } else {
+        "GET"
+    }
+}
+
+/// Authorization step. Returns `Ok(())` when the caller
+/// is permitted to issue the request; returns
+/// `Err(response)` with the rendered error response
+/// otherwise. The session is loaded through the identity
+/// surface so a token minted for project A cannot
+/// authorize project B.
+fn authorize(
+    db_path: &Path,
+    route: &Route,
+    request: &ApiRequest,
+    now: DateTime<Utc>,
+) -> Result<(), ApiResponse> {
+    if matches!(route, Route::Healthz) {
+        return Ok(());
+    }
+    let token = request.bearer_token.as_deref().ok_or_else(|| {
+        ApiResponse::json(
+            401,
+            serde_json::json!({
+                "error": {
+                    "code": "api-unauthorized",
+                    "message": "missing Authorization: Bearer <session-id> header"
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        )
+    })?;
+    if token.is_empty() || !is_hex(token) {
+        return Err(ApiResponse::json(
+            401,
+            serde_json::json!({
+                "error": {
+                    "code": "api-unauthorized",
+                    "message": "bearer token must be a non-empty hex session id"
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ));
+    }
+    // The match is exhaustive over every route that
+    // requires authorization. Healthz is already handled
+    // by the early return above.
+    let result: Result<(), ApiResponse> = match route {
+        Route::Healthz => Ok(()),
+        Route::GetOperation { .. } => {
+            // Operation lookups are read-only; the session
+            // is looked up against the registry's known
+            // projects to discover the owner.
+            let registry = match Registry::open(db_path) {
+                Ok(reg) => reg,
+                Err(err) => return Err(ApiResponse::from_error(&err)),
+            };
+            let projects: Vec<(String, PathBuf)> = registry
+                .list()
+                .ok()
+                .map(|records| {
+                    records
+                        .into_iter()
+                        .map(|r| (r.id, PathBuf::from(r.path)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            match crate::identity::lookup_session_across_projects(token, projects) {
+                Ok(Some(_)) => Ok(()),
+                Ok(None) => Err(ApiResponse::json(
+                    401,
+                    serde_json::json!({
+                        "error": {
+                            "code": "api-unauthorized",
+                            "message": "bearer session was not found in any registered project's identity store"
+                        },
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                )),
+                Err(err) => Err(ApiResponse::from_error(&err)),
+            }
+        }
+        Route::ListProjects | Route::CreateProject => {
+            // Fleet routes: walk the registry to find
+            // which project minted the session, then
+            // validate the permission for the action.
+            let registry = match Registry::open(db_path) {
+                Ok(reg) => reg,
+                Err(err) => return Err(ApiResponse::from_error(&err)),
+            };
+            let projects: Vec<(String, PathBuf)> = registry
+                .list()
+                .ok()
+                .map(|records| {
+                    records
+                        .into_iter()
+                        .map(|r| (r.id, PathBuf::from(r.path)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (session, owner_id, owner_dir) =
+                match crate::identity::lookup_session_across_projects(token, projects) {
+                    Ok(Some(value)) => value,
+                    Ok(None) => {
+                        return Err(ApiResponse::json(
+                            401,
+                            serde_json::json!({
+                                "error": {
+                                    "code": "api-unauthorized",
+                                    "message": "bearer session was not found in any registered project's identity store"
+                                },
+                                "contract": API_CONTRACT_VERSION,
+                            }),
+                        ));
+                    }
+                    Err(err) => return Err(ApiResponse::from_error(&err)),
+                };
+            if let Err(err) = check_session_state(&session, &owner_id, now) {
+                return Err(ApiResponse::from_error(&err));
+            }
+            if let Some(perm) = required_permission(route) {
+                if let Err(err) = check_session_permission(&session, &owner_id, perm) {
+                    return Err(ApiResponse::from_error(&err));
+                }
+                if let Err(err) = crate::identity::validate_session(&session, &owner_id, perm, now)
+                {
+                    return Err(ApiResponse::from_error(&err));
+                }
+            }
+            // The session is valid for the owning project.
+            // The actual call target (e.g. `POST /v1/projects`
+            // for fleet-level creation) does not need the
+            // per-project identity config: the registry
+            // enforces id/path uniqueness at write time.
+            let _ = owner_dir;
+            Ok(())
+        }
+        Route::InspectProject { id }
+        | Route::Doctor { id }
+        | Route::AddFeature { id }
+        | Route::UpgradeProject { id }
+        | Route::GenerateSpec { id }
+        | Route::AgentTransition { id }
+        | Route::ApplyDeployment { id } => {
+            // Project-scoped route: load the project,
+            // locate the session in the project directory
+            // (the common case) or in any other
+            // registered project's identity store (the
+            // cross-project boundary case). When the
+            // session's actual owner differs from the
+            // target project, refuse with
+            // `api-project-mismatch` so a token minted
+            // for project A cannot authorize project B.
+            let registry = match Registry::open(db_path) {
+                Ok(reg) => reg,
+                Err(err) => return Err(ApiResponse::from_error(&err)),
+            };
+            // The project must exist in the registry
+            // before any session lookup, otherwise the
+            // caller could probe arbitrary project
+            // identifiers.
+            let record = match registry.inspect(id) {
+                Ok(value) => value,
+                Err(err) => return Err(ApiResponse::from_error(&err)),
+            };
+            let project_dir = PathBuf::from(record.path);
+            // Direct path: the session lives in the
+            // target project's identity store. Cross-
+            // project fallback: the session may live
+            // anywhere in the registered fleet.
+            let resolved = match crate::identity::load_session(&project_dir, id, token) {
+                Ok(Some(value)) => Some((value, id.to_string())),
+                Ok(None) => {
+                    let projects: Vec<(String, PathBuf)> = registry
+                        .list()
+                        .ok()
+                        .map(|records| {
+                            records
+                                .into_iter()
+                                .map(|r| (r.id, PathBuf::from(r.path)))
+                                .filter(|(pid, _)| pid != id)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    match crate::identity::lookup_session_across_projects(token, projects) {
+                        Ok(Some((session, owner_id, _dir))) => Some((session, owner_id)),
+                        Ok(None) => None,
+                        Err(err) => return Err(ApiResponse::from_error(&err)),
+                    }
+                }
+                Err(err) => return Err(ApiResponse::from_error(&err)),
+            };
+            let (session, owner_id) = match resolved {
+                Some(value) => value,
+                None => {
+                    return Err(ApiResponse::json(
+                        401,
+                        serde_json::json!({
+                            "error": {
+                                "code": "api-unauthorized",
+                                "message": "bearer session was not found in this project's identity store"
+                            },
+                            "contract": API_CONTRACT_VERSION,
+                        }),
+                    ));
+                }
+            };
+            if owner_id != *id {
+                return Err(ApiResponse::from_error(&ForgeError::ApiProjectMismatch {
+                    reason: format!(
+                        "session was minted for project `{owner_id}`; presenting it to project `{id}` is refused"
+                    ),
+                }));
+            }
+            if let Some(perm) = required_permission(route) {
+                if let Err(err) = crate::identity::validate_session(&session, id, perm, now) {
+                    return Err(ApiResponse::from_error(&err));
+                }
+            } else {
+                // Read-only route: still require a
+                // non-revoked, non-expired session for
+                // this project.
+                if let Err(err) = check_session_state(&session, id, now) {
+                    return Err(ApiResponse::from_error(&err));
+                }
+            }
+            Ok(())
+        }
+    };
+    result
+}
+
+fn check_session_state(
+    session: &crate::identity::AdminSession,
+    project_id: &str,
+    now: DateTime<Utc>,
+) -> Result<(), ForgeError> {
+    use crate::identity::SessionState;
+    if session.project_id != project_id {
+        return Err(ForgeError::ApiProjectMismatch {
+            reason: format!(
+                "session was minted for project `{}`; presenting it to project `{project_id}` is refused",
+                session.project_id
+            ),
+        });
+    }
+    if session.state == SessionState::Revoked {
+        return Err(ForgeError::ApiUnauthorized {
+            reason: format!(
+                "session `{}` is revoked; a new challenge must be built",
+                session.session_id
+            ),
+        });
+    }
+    if session.is_expired(now) {
+        return Err(ForgeError::ApiUnauthorized {
+            reason: format!(
+                "session `{}` expired at {}",
+                session.session_id,
+                session.expires_at.to_rfc3339()
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn check_session_permission(
+    session: &crate::identity::AdminSession,
+    project_id: &str,
+    perm: &str,
+) -> Result<(), ForgeError> {
+    if !session.permissions.iter().any(|p| p == perm) {
+        return Err(ForgeError::ApiUnauthorized {
+            reason: format!(
+                "session `{}` for project `{project_id}` does not carry the `{perm}` permission; minted permissions: {:?}",
+                session.session_id, session.permissions
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn is_hex(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+// ---- handlers ------------------------------------------------------
+
+fn handle_list_projects(db_path: &Path) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.list() {
+        Ok(projects) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "projects": projects,
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_inspect_project(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.inspect(id) {
+        Ok(record) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "project": record,
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_doctor(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_dir = PathBuf::from(&record.path);
+    let level = match request.json_body().get("target").and_then(|v| v.as_str()) {
+        Some(raw) => match parse_target_level(raw) {
+            Ok(value) => Some(value),
+            Err(err) => return ApiResponse::from_error(&err),
+        },
+        None => None,
+    };
+    let observation = Some(RegistryObservation {
+        registered: true,
+        observed_at: Some(record.observed_at.clone()),
+    });
+    let policy_outcome = run_driftwatch(&project_dir, &DriftWatchConfig::from_env());
+    match run_doctor(
+        &project_dir,
+        level,
+        observation.as_ref(),
+        Some(&policy_outcome),
+    ) {
+        Ok(report) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "doctor": report,
+                "policy": serde_json::to_value(&policy_outcome).unwrap_or(Value::Null),
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_create_project(db_path: &Path, request: &ApiRequest, _now: DateTime<Utc>) -> ApiResponse {
+    let body = request.json_body();
+    let path = match body.get("path").and_then(|v| v.as_str()) {
+        Some(value) => value,
+        None => return bad_request("create_project requires a `path` field"),
+    };
+    let profile = match body.get("profile").and_then(|v| v.as_str()) {
+        Some(value) => value,
+        None => return bad_request("create_project requires a `profile` field"),
+    };
+    let id = match body.get("id").and_then(|v| v.as_str()) {
+        Some(value) => value,
+        None => return bad_request("create_project requires an `id` field"),
+    };
+    let name = body.get("name").and_then(|v| v.as_str());
+    let features: Vec<String> = body
+        .get("features")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Err(reason) = crate::core::validate_project_id(id) {
+        return bad_request(&format!("invalid project id: {reason}"));
+    }
+    let destination = PathBuf::from(path);
+    let normalized =
+        match normalize_explicit(Some(profile), Some(id), name, &features, &destination) {
+            Ok(value) => value,
+            Err(err) => return ApiResponse::from_error(&err),
+        };
+    let (created, _op_id, project_id) = match run_with_operation(
+        db_path,
+        "api.create_project",
+        API_SYNTHETIC_PROJECT,
+        request,
+        |op_id, _registry| {
+            let mut registry = Registry::open(db_path)?;
+            let generated: GeneratedProject = generate(&mut registry, &normalized)?;
+            let value = serde_json::to_value(&generated).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            let project_id = generated.record.id.clone();
+            let detail = format!(
+                "api create_project `{}` ({}) from {}@{}",
+                generated.record.id,
+                generated.record.path,
+                profile,
+                crate::generate::GENERATOR_VERSION
+            );
+            let _ = registry.record_operation("api", &project_id, "done", &detail);
+            Ok((value, op_id, project_id))
+        },
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "created": created,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": project_id,
+        }),
+    )
+}
+
+fn handle_add_feature(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let feature = match body.get("feature").and_then(|v| v.as_str()) {
+        Some(value) => value,
+        None => return bad_request("add_feature requires a `feature` field"),
+    };
+    let version = body.get("version").and_then(|v| v.as_str());
+    let (outcome, op_id, _pid) = match run_with_operation(
+        db_path,
+        "api.add_feature",
+        id,
+        request,
+        |op_id, _registry| {
+            let mut registry = Registry::open(db_path)?;
+            let outcome = add_feature(&mut registry, id, feature, version)?;
+            let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok((value, op_id, id.to_string()))
+        },
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "feature": outcome,
+            "operation_id": op_id,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_upgrade(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let feature = body.get("feature").and_then(|v| v.as_str());
+    let confirm = body
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !confirm {
+        return ApiResponse::json(
+            409,
+            serde_json::json!({
+                "error": {
+                    "code": "api-confirm-required",
+                    "message": "upgrade requires `confirm: true`; refusing implicit project mutation"
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        );
+    }
+    let dry_run = body
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let (value, _op_id, _pid) =
+        match run_with_operation(db_path, "api.upgrade", id, request, |op_id, _registry| {
+            if dry_run {
+                let registry = Registry::open(db_path)?;
+                let plan = plan_upgrade(&registry, id, feature)?;
+                let value = serde_json::to_value(&plan).map_err(|err| ForgeError::Registry {
+                    reason: err.to_string(),
+                })?;
+                return Ok((value, op_id, id.to_string()));
+            }
+            let mut registry = Registry::open(db_path)?;
+            let outcome: UpgradeOutcome = apply_upgrade(&mut registry, id, feature)?;
+            let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok((value, op_id, id.to_string()))
+        }) {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "upgrade": value,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_generate_spec(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let findings: Vec<String> = body
+        .get("findings")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if findings.is_empty() {
+        return bad_request("generate_spec requires at least one finding id");
+    }
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let project_dir = match Registry::open(db_path)
+        .ok()
+        .and_then(|registry| registry.inspect(id).ok())
+        .map(|record| PathBuf::from(record.path))
+    {
+        Some(value) => value,
+        None => {
+            return ApiResponse::from_error(&ForgeError::UnknownProject {
+                query: id.to_string(),
+            });
+        }
+    };
+    let spec_request = SpecRequest {
+        project_path: project_dir,
+        finding_ids: findings,
+        reason,
+    };
+    if let Err(err) = ensure_single_project(&spec_request) {
+        return ApiResponse::from_error(&err);
+    }
+    let sources: Vec<FindingSource> = Vec::new();
+    let now = Utc::now();
+    let (value, _op_id, _pid) = match run_with_operation(
+        db_path,
+        "api.generate_spec",
+        id,
+        request,
+        |op_id, _registry| {
+            let outcome = generate_spec(&spec_request, &sources, now)?;
+            let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok((value, op_id, id.to_string()))
+        },
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "spec": value,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_agent_transition(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let session_id = match body.get("session").and_then(|v| v.as_str()) {
+        Some(value) => value,
+        None => return bad_request("agents requires a `session` field"),
+    };
+    let transition = match body.get("transition").and_then(|v| v.as_str()) {
+        Some(value) => value,
+        None => return bad_request("agents requires a `transition` field"),
+    };
+    let provider = body
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("opencode");
+    let spec = body.get("spec").and_then(|v| v.as_str()).map(String::from);
+    let provider_id = match provider {
+        "opencode" => AgentProvider::Opencode,
+        "codex" => AgentProvider::Codex,
+        other => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "api-invalid",
+                        "message": format!("unknown agent provider `{other}`; expected one of: opencode, codex")
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let transition_kind = match transition {
+        "start" => SessionTransition::Start,
+        "pause" => SessionTransition::Pause,
+        "takeover" => SessionTransition::Takeover,
+        "resume" => SessionTransition::Resume,
+        "restart" => SessionTransition::Restart,
+        "new_session" => SessionTransition::NewSession,
+        other => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "api-invalid",
+                        "message": format!("unknown agent transition `{other}`; expected one of: start, pause, takeover, resume, restart, new_session")
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_dir = match registry.inspect(id).map(|r| PathBuf::from(r.path)) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let (value, _op_id, _pid) =
+        match run_with_operation(db_path, "api.agent", id, request, |op_id, _registry| {
+            let session = match transition_kind {
+                SessionTransition::Start => new_session(
+                    &project_dir,
+                    session_id,
+                    provider_id,
+                    spec.as_deref().unwrap_or(""),
+                    now,
+                )?,
+                _ => match read_session(&project_dir, session_id)? {
+                    Some(value) => value,
+                    None => {
+                        return Err(ForgeError::AgentUnavailable {
+                            reason: format!(
+                                "session `{session_id}` was not found under `.forge/agents/`"
+                            ),
+                        });
+                    }
+                },
+            };
+            let outcome = apply_agent_transition(session, transition_kind, now)?;
+            let files = crate::agent::write_session(&project_dir, &outcome.session)?;
+            let detail = format!(
+                "api agent `{id}` session `{session_id}` {transition} -> `{}`",
+                outcome.state.label()
+            );
+            let _ = registry.record_operation("api", id, "done", &detail);
+            let value = serde_json::json!({
+                "transition": {
+                    "session_id": outcome.session.session_id,
+                    "state": outcome.state.label(),
+                    "requested": outcome.requested.label(),
+                    "evidence": outcome.evidence,
+                    "next_step": outcome.next_step,
+                    "note": outcome.note,
+                    "contract": outcome.contract,
+                },
+                "files_written": files,
+            });
+            Ok((value, op_id, id.to_string()))
+        }) {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "agent": value,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_apply_deployment(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let confirm = body
+        .get("confirm")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !confirm {
+        return ApiResponse::json(
+            409,
+            serde_json::json!({
+                "error": {
+                    "code": "deploy-confirm-required",
+                    "message": "deploy requires `confirm: true`; refusing implicit remote write"
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        );
+    }
+    let dry_run = body
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_dir = match registry.inspect(id).map(|r| PathBuf::from(r.path)) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let (manifest, config) = match crate::deploy::engine::load_config(&project_dir) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let target = body
+        .get("target_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| config.default_target.clone());
+    let deploy_request = DeployRequest {
+        project_id: id.to_string(),
+        target,
+        confirm: true,
+        dry_run,
+    };
+    let (value, _op_id, _pid) =
+        match run_with_operation(db_path, "api.deploy", id, request, |op_id, _registry| {
+            let adapter = crate::deploy::DeployAdapterConfig::from_env();
+            let report = if dry_run {
+                let plan = crate::deploy::engine::prepare_deploy(
+                    &project_dir,
+                    &manifest,
+                    &config,
+                    &deploy_request,
+                )?;
+                serde_json::to_value(&plan).map_err(|err| ForgeError::Registry {
+                    reason: err.to_string(),
+                })?
+            } else {
+                let report = crate::deploy::engine::apply_deploy(
+                    &project_dir,
+                    &manifest,
+                    &config,
+                    &deploy_request,
+                    &adapter,
+                )?;
+                serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                    reason: err.to_string(),
+                })?
+            };
+            Ok((report, op_id, id.to_string()))
+        }) {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "deploy": value,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_get_operation(db_path: &Path, op_id: i64) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.operation(op_id) {
+        Ok(Some(entry)) => {
+            ApiResponse::json(200, serde_json::to_value(&entry).unwrap_or(Value::Null))
+        }
+        Ok(None) => ApiResponse::json(
+            404,
+            serde_json::json!({
+                "error": {
+                    "code": "operation-not-found",
+                    "message": format!("operation `{op_id}` is not recorded in the registry's journal")
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// Reservation helper. Reserves a pending operation,
+/// invokes the closure, then finalizes the operation with
+/// `done` or `failed`. Returns the closure's value plus
+/// the operation id.
+///
+/// The closure receives the reserved `op_id` and a
+/// read-only [`Registry`] handle. Handlers that need to
+/// mutate the registry (for example `apply_upgrade`)
+/// should re-open the registry inside the closure
+/// because [`Registry::open`] consumes the path and the
+/// original handle is borrowed for the duration of the
+/// reservation.
+fn run_with_operation<T, F>(
+    db_path: &Path,
+    kind: &str,
+    project_id: &str,
+    request: &ApiRequest,
+    f: F,
+) -> Result<(T, i64, String), ApiResponse>
+where
+    F: FnOnce(i64, &Registry) -> Result<(T, i64, String), ForgeError>,
+{
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return Err(ApiResponse::from_error(&err)),
+    };
+    let request_hash = request_hash(request);
+    let key_owned;
+    let key = match request.idempotency_key.as_deref() {
+        Some(value) => {
+            key_owned = value.to_string();
+            Some(key_owned.as_str())
+        }
+        None => None,
+    };
+    let outcome = match key {
+        Some(value) => {
+            match registry.reserve_idempotent_operation(kind, project_id, value, &request_hash) {
+                Ok(value) => value,
+                Err(err) => return Err(ApiResponse::from_error(&err)),
+            }
+        }
+        None => {
+            // No key: insert a regular pending row and
+            // always go through finalize so the journal is
+            // consistent.
+            let detail = format!("{kind} initiated by api");
+            if let Err(err) = registry.record_operation(kind, project_id, "pending", &detail) {
+                return Err(ApiResponse::from_error(&err));
+            }
+            let entries = registry.journal_entries().ok();
+            let op_id = entries
+                .as_ref()
+                .and_then(|list| {
+                    list.iter()
+                        .rev()
+                        .find(|e| e.kind == kind && e.project_id == project_id)
+                        .map(|e| e.op_id)
+                })
+                .unwrap_or(0);
+            ReservationOutcome::Reserved { op_id }
+        }
+    };
+    let op_id = match outcome {
+        ReservationOutcome::Reserved { op_id } => op_id,
+        ReservationOutcome::Reused { op_id } => {
+            // Replay path: return the existing operation
+            // without re-running the closure.
+            return Err(pending_or_done_response(&registry, op_id, kind, project_id));
+        }
+    };
+    match f(op_id, &registry) {
+        Ok((value, op_id, project_id)) => {
+            let detail = format!("{kind} completed");
+            let _ = registry.finalize_operation(op_id, "done", &detail);
+            Ok((value, op_id, project_id))
+        }
+        Err(err) => {
+            let detail = err.to_string();
+            let _ = registry.finalize_operation(op_id, "failed", &detail);
+            Err(ApiResponse::from_error(&err))
+        }
+    }
+}
+
+fn pending_or_done_response(
+    registry: &Registry,
+    op_id: i64,
+    kind: &str,
+    project_id: &str,
+) -> ApiResponse {
+    // Try to fetch the existing entry; if we can, return
+    // its current state with `200 OK` so the retry sees
+    // the same operation identity the boundary scenario
+    // requires.
+    if let Ok(Some(entry)) = registry.operation(op_id) {
+        let status = if entry.state == "pending" { 202 } else { 200 };
+        return ApiResponse::json(
+            status,
+            serde_json::json!({
+                "operation": entry,
+                "contract": API_CONTRACT_VERSION,
+                "replay": true,
+                "kind": kind,
+                "project_id": project_id,
+            }),
+        );
+    }
+    ApiResponse::json(
+        500,
+        serde_json::json!({
+            "error": {
+                "code": "api-internal",
+                "message": "operation reservation succeeded but the record could not be re-read"
+            },
+            "contract": API_CONTRACT_VERSION,
+        }),
+    )
+}
+
+fn request_hash(request: &ApiRequest) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(request.method.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(request.path.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(&request.body);
+    hex_encode(&hasher.finalize())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+// ---- wire parser ---------------------------------------------------
+
+/// Parse one HTTP/1.1 request from the wire. The
+/// transport is intentionally minimal: it accepts the
+/// request line plus headers, reads `Content-Length`
+/// bytes, and refuses anything larger than
+/// `max_body_bytes`. The body is read into a `Vec<u8>` so
+/// the handler can interpret it.
+pub fn parse_request(
+    raw: &[u8],
+    remote_addr: Option<SocketAddr>,
+    max_body_bytes: usize,
+) -> Result<ApiRequest, ApiError> {
+    let header_end = find_header_end(raw).ok_or_else(|| {
+        ApiError::Parse("no \\r\\n\\r\\n separator between headers and body".to_string())
+    })?;
+    let body_offset = header_end + 4;
+    let body = if body_offset < raw.len() {
+        raw[body_offset..].to_vec()
+    } else {
+        Vec::new()
+    };
+    if body.len() > max_body_bytes {
+        return Err(ApiError::BodyTooLarge {
+            limit: max_body_bytes,
+            got: body.len(),
+        });
+    }
+    let header_text = std::str::from_utf8(&raw[..header_end])
+        .map_err(|err| ApiError::Parse(format!("non-UTF8 header: {err}")))?;
+    let mut lines = header_text.split("\r\n");
+    let request_line = lines
+        .next()
+        .ok_or_else(|| ApiError::Parse("request line missing".to_string()))?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or_else(|| ApiError::Parse("method missing".to_string()))?
+        .to_string();
+    let target = parts
+        .next()
+        .ok_or_else(|| ApiError::Parse("request target missing".to_string()))?;
+    let version = parts
+        .next()
+        .ok_or_else(|| ApiError::Parse("HTTP version missing".to_string()))?;
+    if !version.starts_with("HTTP/") {
+        return Err(ApiError::Parse(format!(
+            "unsupported protocol `{version}`; HTTP/1.1 only"
+        )));
+    }
+    let (path, query) = match target.split_once('?') {
+        Some((p, q)) => (p.to_string(), Some(q.to_string())),
+        None => (target.to_string(), None),
+    };
+    let mut headers = BTreeMap::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let (name, value) = line
+            .split_once(':')
+            .ok_or_else(|| ApiError::Parse(format!("malformed header `{line}`")))?;
+        headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+    }
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .filter(|value| !value.is_empty())
+        .cloned();
+    let bearer_token = headers.get("authorization").and_then(|value| {
+        let (scheme, token) = value.split_once(' ')?;
+        if scheme.eq_ignore_ascii_case("Bearer") {
+            Some(token.trim().to_string())
+        } else {
+            None
+        }
+    });
+    Ok(ApiRequest {
+        method,
+        path,
+        query,
+        headers,
+        body,
+        idempotency_key,
+        bearer_token,
+        remote_addr,
+        started_at: Utc::now(),
+    })
+}
+
+fn find_header_end(raw: &[u8]) -> Option<usize> {
+    raw.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Transport-level parse error. Never escapes the
+/// transport: the wire loop renders it as a `400` JSON
+/// response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApiError {
+    Parse(String),
+    BodyTooLarge { limit: usize, got: usize },
+    Io(String),
+    Timeout,
+}
+
+impl ApiError {
+    pub fn to_response(&self) -> ApiResponse {
+        match self {
+            ApiError::Parse(reason) => bad_request(reason),
+            ApiError::BodyTooLarge { limit, got } => ApiResponse::json(
+                413,
+                serde_json::json!({
+                    "error": {
+                        "code": "api-body-too-large",
+                        "message": format!("body is {got} bytes; limit is {limit}")
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            ),
+            ApiError::Io(reason) => ApiResponse::json(
+                500,
+                serde_json::json!({
+                    "error": {
+                        "code": "api-internal",
+                        "message": format!("transport io error: {reason}")
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            ),
+            ApiError::Timeout => ApiResponse::json(
+                408,
+                serde_json::json!({
+                    "error": {
+                        "code": "api-timeout",
+                        "message": "request exceeded the handler timeout"
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            ),
+        }
+    }
+}
+
+impl From<io::Error> for ApiError {
+    fn from(err: io::Error) -> Self {
+        ApiError::Io(err.to_string())
+    }
+}
+
+// ---- wire writer ---------------------------------------------------
+
+/// Render a response back to the socket. Single-shot
+/// write: status line, headers, body. Connection: close
+/// is the safe default for a low-throughput control
+/// plane; clients open a fresh connection per request.
+pub fn write_response(stream: &mut TcpStream, response: &ApiResponse) -> io::Result<()> {
+    let reason = reason_phrase(response.status);
+    let mut buffer = Vec::with_capacity(128 + response.body.len());
+    buffer.extend_from_slice(
+        format!("HTTP/1.1 {status} {reason}\r\n", status = response.status).as_bytes(),
+    );
+    buffer.extend_from_slice(b"connection: close\r\n");
+    for (name, value) in &response.headers {
+        buffer.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
+    }
+    buffer.extend_from_slice(format!("content-length: {}\r\n", response.body.len()).as_bytes());
+    buffer.extend_from_slice(b"\r\n");
+    buffer.extend_from_slice(&response.body);
+    stream.write_all(&buffer)?;
+    stream.flush()?;
+    let _ = stream.shutdown(Shutdown::Both);
+    Ok(())
+}
+
+fn reason_phrase(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        202 => "Accepted",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        408 => "Request Timeout",
+        409 => "Conflict",
+        413 => "Payload Too Large",
+        500 => "Internal Server Error",
+        _ => "OK",
+    }
+}
+
+// ---- TCP server loop -----------------------------------------------
+
+/// Shared shutdown signal. The server loop checks the
+/// flag at every accept so the CLI can stop the listener
+/// without killing the process.
+#[derive(Debug, Clone)]
+pub struct ShutdownSignal {
+    flag: Arc<AtomicBool>,
+}
+
+impl ShutdownSignal {
+    pub fn new() -> Self {
+        Self {
+            flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn trigger(&self) {
+        self.flag.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.flag.load(Ordering::SeqCst)
+    }
+}
+
+impl Default for ShutdownSignal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Bind a TCP listener and serve the API until the
+/// shutdown signal fires. The function returns the
+/// number of accepted connections on graceful shutdown.
+/// The listener is bound to `config.socket_addr()` so a
+/// non-loopback bind is the operator's choice, never the
+/// default.
+pub fn serve(
+    config: &ApiConfig,
+    db_path: &Path,
+    shutdown: ShutdownSignal,
+) -> Result<usize, ForgeError> {
+    let listener =
+        TcpListener::bind(config.socket_addr()).map_err(|err| ForgeError::ApiInvalid {
+            reason: format!(
+                "cannot bind api listener on {}: {err}",
+                config.socket_addr()
+            ),
+        })?;
+    listener
+        .set_nonblocking(false)
+        .map_err(|err| ForgeError::ApiInvalid {
+            reason: format!("cannot configure api listener: {err}"),
+        })?;
+    let mut accepted = 0usize;
+    for stream in listener.incoming() {
+        if shutdown.is_set() {
+            break;
+        }
+        let mut stream = match stream {
+            Ok(value) => value,
+            Err(err) => {
+                // Transient socket error: log and continue.
+                eprintln!("forge api: accept error: {err}");
+                continue;
+            }
+        };
+        accepted += 1;
+        let db_path = db_path.to_path_buf();
+        let shutdown = shutdown.clone();
+        let max_body = config.max_body_bytes;
+        let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(HANDLER_TIMEOUT));
+        // Inline handler so the test can drive the
+        // server with a single read. The accept loop is
+        // single-threaded by design (the contract is
+        // "low-throughput control plane"), but a future
+        // revision can move the per-connection logic
+        // into a thread pool without changing the wire
+        // contract.
+        let response = handle_one(&mut stream, &db_path, max_body, shutdown);
+        let _ = write_response(&mut stream, &response);
+    }
+    Ok(accepted)
+}
+
+fn handle_one(
+    stream: &mut TcpStream,
+    db_path: &Path,
+    max_body: usize,
+    _shutdown: ShutdownSignal,
+) -> ApiResponse {
+    let mut buffer = Vec::with_capacity(2048);
+    let mut chunk = [0u8; 4096];
+    let start = Instant::now();
+    loop {
+        if start.elapsed() > READ_TIMEOUT {
+            return ApiError::Timeout.to_response();
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buffer.extend_from_slice(&chunk[..n]);
+                if find_header_end(&buffer).is_some() {
+                    // Once we have the header terminator,
+                    // read Content-Length more bytes for
+                    // the body. Cap at max_body_bytes
+                    // before allocating.
+                    let header_end = find_header_end(&buffer).unwrap();
+                    let body_offset = header_end + 4;
+                    let content_length = header_content_length(&buffer[..header_end]).unwrap_or(0);
+                    let desired = body_offset + content_length;
+                    if content_length > max_body {
+                        let limit = max_body;
+                        let got = content_length;
+                        return ApiError::BodyTooLarge { limit, got }.to_response();
+                    }
+                    while buffer.len() < desired {
+                        if start.elapsed() > READ_TIMEOUT {
+                            return ApiError::Timeout.to_response();
+                        }
+                        match stream.read(&mut chunk) {
+                            Ok(0) => break,
+                            Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                            Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+                            Err(err) => return ApiError::Io(err.to_string()).to_response(),
+                        }
+                    }
+                    break;
+                }
+                if buffer.len() > max_body + 8192 {
+                    return ApiError::BodyTooLarge {
+                        limit: max_body,
+                        got: buffer.len(),
+                    }
+                    .to_response();
+                }
+            }
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+            Err(err) => return ApiError::Io(err.to_string()).to_response(),
+        }
+    }
+    let remote_addr = stream.peer_addr().ok();
+    let request = match parse_request(&buffer, remote_addr, max_body) {
+        Ok(value) => value,
+        Err(err) => return err.to_response(),
+    };
+    handle(db_path, &request, Utc::now())
+}
+
+fn header_content_length(header_text: &[u8]) -> Option<usize> {
+    let text = std::str::from_utf8(header_text).ok()?;
+    for line in text.split("\r\n").skip(1) {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("content-length") {
+                return value.trim().parse().ok();
+            }
+        }
+    }
+    None
+}
+
+// ---- test helpers --------------------------------------------------
+
+/// Read a full request from a `BufRead` source and
+/// return the response. Exposed for tests so the
+/// in-process server can be driven without a socket.
+pub fn handle_buffered<R: BufRead, W: Write>(
+    db_path: &Path,
+    reader: &mut R,
+    writer: &mut W,
+    max_body_bytes: usize,
+) -> io::Result<ApiResponse> {
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
+    let request = match parse_request(&buffer, None, max_body_bytes) {
+        Ok(value) => value,
+        Err(err) => {
+            let response = err.to_response();
+            let body = serde_json::to_string(
+                &serde_json::from_slice::<Value>(&response.body).unwrap_or(Value::Null),
+            )
+            .unwrap_or_else(|_| "{}".to_string());
+            writeln!(writer, "{}", body)?;
+            return Ok(response);
+        }
+    };
+    let response = handle(db_path, &request, Utc::now());
+    writeln!(
+        writer,
+        "{}",
+        serde_json::to_string(
+            &serde_json::from_slice::<Value>(&response.body).unwrap_or(Value::Null)
+        )
+        .unwrap_or_else(|_| "{}".to_string())
+    )?;
+    Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routing_matches_healthz_and_project_routes() {
+        assert!(matches!(
+            route_request("GET", "/healthz"),
+            Some(Route::Healthz)
+        ));
+        assert!(matches!(
+            route_request("GET", "/v1/projects"),
+            Some(Route::ListProjects)
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects"),
+            Some(Route::CreateProject)
+        ));
+        assert!(matches!(
+            route_request("GET", "/v1/projects/rust-web"),
+            Some(Route::InspectProject { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects/rust-web/doctor"),
+            Some(Route::Doctor { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects/rust-web/features"),
+            Some(Route::AddFeature { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects/rust-web/upgrade"),
+            Some(Route::UpgradeProject { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects/rust-web/specs"),
+            Some(Route::GenerateSpec { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects/rust-web/agents"),
+            Some(Route::AgentTransition { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("POST", "/v1/projects/rust-web/deployments"),
+            Some(Route::ApplyDeployment { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("GET", "/v1/operations/42"),
+            Some(Route::GetOperation { op_id: 42 })
+        ));
+    }
+
+    #[test]
+    fn routing_rejects_unknown_paths() {
+        assert!(route_request("GET", "/v2/projects").is_none());
+        assert!(route_request("GET", "/nope").is_none());
+        assert!(route_request("GET", "/v1/operations/abc").is_none());
+    }
+
+    #[test]
+    fn parse_request_extracts_method_path_and_headers() {
+        let raw = b"GET /v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer deadbeef\r\nIdempotency-Key: abc-123\r\nContent-Length: 0\r\n\r\n";
+        let req = parse_request(raw, None, MAX_BODY_BYTES).unwrap();
+        assert_eq!(req.method, "GET");
+        assert_eq!(req.path, "/v1/projects");
+        assert_eq!(req.bearer_token.as_deref(), Some("deadbeef"));
+        assert_eq!(req.idempotency_key.as_deref(), Some("abc-123"));
+    }
+
+    #[test]
+    fn parse_request_caps_body_at_max_bytes() {
+        let raw = b"POST /v1/projects HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello";
+        let err = parse_request(raw, None, 4).unwrap_err();
+        assert!(matches!(err, ApiError::BodyTooLarge { .. }));
+    }
+
+    #[test]
+    fn err_status_maps_unauthorized_and_conflict_codes() {
+        assert_eq!(
+            err_status(&ForgeError::ApiUnauthorized { reason: "x".into() }),
+            401
+        );
+        assert_eq!(
+            err_status(&ForgeError::ApiProjectMismatch { reason: "x".into() }),
+            403
+        );
+        assert_eq!(
+            err_status(&ForgeError::IdempotencyKeyConflict { reason: "x".into() }),
+            409
+        );
+        assert_eq!(err_status(&ForgeError::PushConfirmRequired), 409);
+        assert_eq!(
+            err_status(&ForgeError::UnknownProject { query: "x".into() }),
+            400
+        );
+    }
+
+    #[test]
+    fn healthz_route_does_not_require_authorization() {
+        // `GET /healthz` should render the contract version
+        // even when no bearer token is supplied.
+        let raw = b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        let request = parse_request(raw, None, MAX_BODY_BYTES).unwrap();
+        assert!(request.bearer_token.is_none());
+        assert_eq!(
+            route_request(&request.method, &request.path),
+            Some(Route::Healthz)
+        );
+    }
+
+    #[test]
+    fn required_permission_is_admin_for_mutating_routes() {
+        assert_eq!(required_permission(&Route::Healthz), None);
+        assert_eq!(required_permission(&Route::ListProjects), None);
+        assert_eq!(
+            required_permission(&Route::InspectProject { id: "a".into() }),
+            None
+        );
+        assert_eq!(
+            required_permission(&Route::CreateProject),
+            Some("admin:access")
+        );
+        assert_eq!(
+            required_permission(&Route::AddFeature { id: "a".into() }),
+            Some("admin:access")
+        );
+        assert_eq!(
+            required_permission(&Route::ApplyDeployment { id: "a".into() }),
+            Some("admin:access")
+        );
+    }
+
+    #[test]
+    fn is_mutating_classifies_routes() {
+        assert!(!is_mutating(&Route::Healthz));
+        assert!(!is_mutating(&Route::ListProjects));
+        assert!(!is_mutating(&Route::GetOperation { op_id: 1 }));
+        assert!(is_mutating(&Route::CreateProject));
+        assert!(is_mutating(&Route::AddFeature { id: "a".into() }));
+        assert!(is_mutating(&Route::ApplyDeployment { id: "a".into() }));
+    }
+
+    #[test]
+    fn api_config_from_env_overrides_bind_and_port() {
+        // Use a unique environment override and ensure
+        // the parser picks it up.
+        std::env::set_var("FORGE_API_BIND", "127.0.0.1");
+        std::env::set_var("FORGE_API_PORT", "9999");
+        let cfg = ApiConfig::from_env();
+        assert_eq!(cfg.bind, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        assert_eq!(cfg.port, 9999);
+        std::env::remove_var("FORGE_API_BIND");
+        std::env::remove_var("FORGE_API_PORT");
+    }
+
+    #[test]
+    fn synthetic_project_constant_is_stable() {
+        assert_eq!(API_SYNTHETIC_PROJECT, "__api__");
+    }
+
+    #[test]
+    fn request_hash_is_deterministic_per_request() {
+        let raw = b"POST /v1/projects/rust-web/features HTTP/1.1\r\nContent-Length: 17\r\n\r\n{\"feature\":\"x\"}";
+        let request = parse_request(raw, None, MAX_BODY_BYTES).unwrap();
+        let first = request_hash(&request);
+        let second = request_hash(&request);
+        assert_eq!(first, second);
+        let mut other = request.clone();
+        other.method = "GET".to_string();
+        assert_ne!(first, request_hash(&other));
+    }
+}

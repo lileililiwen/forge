@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod analytics;
+pub mod api;
 pub mod component;
 pub mod core;
 pub mod deploy;

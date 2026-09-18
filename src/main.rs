@@ -17,6 +17,9 @@ use forge::analytics::{
     AnalyticsInspectOptions, AnalyticsProvider, DoctorSummary, MetricsAggregateOptions,
     MetricsSummary, ANALYTICS_CONTRACT_VERSION, ANALYTICS_SYNTHETIC_PROJECT,
 };
+use forge::api::{
+    serve as api_serve, ApiConfig, ShutdownSignal, API_CONTRACT_VERSION, API_SYNTHETIC_PROJECT,
+};
 use forge::component::{
     component_catalog, inspect_component, record_qualification,
     render_outcome_human as render_component_outcome_human, render_qualify_human, resolve_outcome,
@@ -312,6 +315,11 @@ enum Commands {
     Analytics {
         #[command(subcommand)]
         command: AnalyticsCommands,
+    },
+    /// Serve the optional HTTP transport over Core on a loopback listener.
+    Api {
+        #[command(subcommand)]
+        command: ApiCommands,
     },
 }
 
@@ -842,6 +850,22 @@ enum AnalyticsCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum ApiCommands {
+    /// Run the HTTP/1.1 API server on a loopback listener. Authorization is required for every route other than the local `/healthz` health check.
+    Serve {
+        /// Bind address (default `127.0.0.1`; an explicit `0.0.0.0` is the operator's choice and is never the default).
+        #[arg(long)]
+        bind: Option<std::net::IpAddr>,
+        /// TCP port (default `8765`).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Maximum request body size in bytes (default 1 MiB).
+        #[arg(long)]
+        max_body_bytes: Option<usize>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1032,6 +1056,7 @@ fn main() -> ExitCode {
         Commands::Procedure { command } => cmd_procedure(&db_path, command, cli.format),
         Commands::Identity { command } => cmd_identity(&db_path, command, cli.format),
         Commands::Analytics { command } => cmd_analytics(&db_path, command, cli.format),
+        Commands::Api { command } => cmd_api(&db_path, command, cli.format),
     };
 
     match result {
@@ -4182,6 +4207,65 @@ fn cmd_analytics(
             window_days,
             all,
         } => cmd_analytics_metrics(db_path, target, *window_days, *all, format),
+    }
+}
+
+fn cmd_api(db_path: &Path, command: &ApiCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        ApiCommands::Serve {
+            bind,
+            port,
+            max_body_bytes,
+        } => cmd_api_serve(db_path, *bind, *port, *max_body_bytes, format),
+    }
+}
+
+fn cmd_api_serve(
+    db_path: &Path,
+    bind: Option<std::net::IpAddr>,
+    port: Option<u16>,
+    max_body_bytes: Option<usize>,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let mut config = ApiConfig::from_env();
+    if let Some(value) = bind {
+        config.bind = value;
+    }
+    if let Some(value) = port {
+        config.port = value;
+    }
+    if let Some(value) = max_body_bytes {
+        config.max_body_bytes = value;
+    }
+    let shutdown = ShutdownSignal::new();
+    let human = format!(
+        "forge api serving on http://{addr} (contract {version}, synthetic project id `{synthetic}`); press Ctrl-C to stop",
+        addr = config.socket_addr(),
+        version = API_CONTRACT_VERSION,
+        synthetic = API_SYNTHETIC_PROJECT,
+    );
+    let json = serde_json::json!({
+        "contract": API_CONTRACT_VERSION,
+        "bind": config.bind.to_string(),
+        "port": config.port,
+        "max_body_bytes": config.max_body_bytes,
+        "synthetic_project": API_SYNTHETIC_PROJECT,
+        "registry": db_path.display().to_string(),
+    });
+    if matches!(format, Format::Json) {
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+    } else {
+        println!("{human}");
+    }
+    let accepted = api_serve(&config, db_path, shutdown)?;
+    let summary = format!("forge api stopped after {accepted} accepted connection(s)");
+    let summary_json = serde_json::json!({
+        "stopped": true,
+        "accepted": accepted,
+    });
+    match format {
+        Format::Human => Ok(Output::Human(summary)),
+        Format::Json => Ok(Output::Json(summary_json)),
     }
 }
 

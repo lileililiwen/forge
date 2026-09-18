@@ -230,6 +230,22 @@ pub enum ForgeError {
 
     #[error("analytics mapping ambiguous: {reason}; refusing to attach another project's data")]
     AnalyticsMappingAmbiguous { reason: String },
+
+    #[error("api invalid: {reason}")]
+    ApiInvalid { reason: String },
+
+    #[error("api unauthorized: {reason}")]
+    ApiUnauthorized { reason: String },
+
+    #[error(
+        "api project mismatch: {reason}; the session does not authorize the requested project"
+    )]
+    ApiProjectMismatch { reason: String },
+
+    #[error(
+        "idempotency key conflict: {reason}; the same key was reused with a different request body"
+    )]
+    IdempotencyKeyConflict { reason: String },
 }
 
 impl ForgeError {
@@ -309,6 +325,10 @@ impl ForgeError {
             ForgeError::AnalyticsInvalid { .. } => "analytics-invalid",
             ForgeError::AnalyticsAdapterUnavailable { .. } => "analytics-adapter-unavailable",
             ForgeError::AnalyticsMappingAmbiguous { .. } => "analytics-mapping-ambiguous",
+            ForgeError::ApiInvalid { .. } => "api-invalid",
+            ForgeError::ApiUnauthorized { .. } => "api-unauthorized",
+            ForgeError::ApiProjectMismatch { .. } => "api-project-mismatch",
+            ForgeError::IdempotencyKeyConflict { .. } => "idempotency-key-conflict",
         }
     }
 

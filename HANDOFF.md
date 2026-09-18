@@ -1,12 +1,90 @@
-current_spec: external-planes-analytics
+current_spec: core-http-api
 
 # Forge handoff
 
 ## Current state
 
-`central-admin-identity` implemented, verified and archived on 2026-09-18
-as `2026-09-18-central-admin-identity`; canonical specs promoted to
-[openspec/specs/central-admin-identity/spec.md](openspec/specs/central-admin-identity/spec.md).
+`external-planes-analytics` implemented, verified and archived on 2026-09-18
+as `2026-09-18-external-planes-analytics`; canonical specs promoted to
+[openspec/specs/external-planes-analytics/spec.md](openspec/specs/external-planes-analytics/spec.md).
+New in this cycle: `src/analytics` (versioned
+`AnalyticsConfig`/`AnalyticsProviderConfig`/`AnalyticsProvider`
+(`UnifiedContent`/`GithubAnalytics`/`Notion`/`Confluence`/
+`GitlabAnalytics`/`CodebergAnalytics`)/
+`ProviderSupportStatus` (`Supported`/`Planned`)/
+`HealthObservation`/`ExternalPlaneReport`/`HealthObservation`/
+`MetricSnapshot`/`MetricAggregate`/`ProjectMetricsReport`/
+`MetricsSummary`/`DoctorSummary` contract `0.1.0`;
+`AnalyticsConfig::from_manifest_meta` parses the manifest's
+`analytics:` block, accepts only the bounded provider set
+(`unified-content`/`github-analytics` supported;
+`notion`/`confluence`/`gitlab-analytics`/`codeberg-analytics`
+planned), refuses unknown providers, missing
+`project_ref`, shell metacharacters in `project_ref`,
+duplicate enabled providers, oversized provider lists
+(`MAX_PROVIDERS_PER_PLANE = 8`), and out-of-range
+`default_window_days` (`MIN_WINDOW_DAYS = 1`,
+`MAX_WINDOW_DAYS = 90`) with the typed
+`analytics-invalid` code; `inspect_external_planes` returns
+the timestamped `available` / `disabled` / `unavailable`
+(adapter) / `unavailable` (catalog, planned) /
+`ambiguous-mapping` / `unconfigured` per-provider
+observation; a disabled `analytics:` block or
+`enabled: false` provider entry is reported as `disabled`
+without invoking the adapter (R1 boundary scenario); a
+planned provider is reported as `unavailable` with the
+catalog source named; an adapter whose `project_ref` does
+not match the manifest's is reported as
+`ambiguous-mapping` so the registry never binds the
+observation to another project's data (R1 failure
+scenario); the adapter is invoked through the configured
+`FORGE_ANALYTICS_BIN` (default
+`forge-analytics-adapter`, overridable per entry) with
+argument arrays and a bounded 15s wait so an unresponsive
+tool cannot hang the registry; a missing binary, non-zero
+exit, timeout, contract mismatch or unparseable output
+surfaces as `unavailable`; credential-shaped evidence
+is redacted by `redact_analytics_evidence` which delegates
+to `policy::redact_credentials`; CLI `forge analytics
+inspect [TARGET] [--dry-run]` (human/JSON, the
+`available`/`disabled`/`unavailable`/`ambiguous-mapping`
+status, the `source` discriminator, the timestamped
+`observed_at` and the per-provider `evidence` are
+rendered on stdout before the typed `error[...]` on
+stderr so a partial run is observable); CLI `forge
+analytics metrics [TARGET] [--window-days N] [--all]`
+(human/JSON, the per-source `MetricSnapshot` carries the
+`source`, `value`, `window` and `observed_at`); the
+metrics aggregator never sums snapshots from different
+windows into an authoritative total — when two snapshots
+disagree on the same window or span different windows the
+aggregate reports `state: mixed-windows` with
+`current: null` and the note names the distinct windows
+(R2 boundary scenario); a missing adapter reports the
+affected metrics as `unavailable` without fabricating
+zeros (R2 failure scenario); the optional
+`MetricsSummary` is persisted under
+`.forge/analytics/<project-id>/metrics.json` (atomic
+`.tmp` + rename) so the per-project summary is
+project-scoped; analytics operations journaled in the
+registry's `operations` table under the `analytics` kind
+with a `done` / `rejected` / `partial` verdict and the
+project id (no synthetic project is invented on a
+per-project call; the synthetic `__analytics__` project
+id is used for `--all` so the operations table stays
+project-agnostic); and the spec contract from
+`agent-runtime-workflows`, `adapter-deployment` and
+`repository-distribution` still holds after an
+`analytics` round trip on the same project (the registry
+journal stays independent of the analytics surface, the
+doctor verdict is unchanged, the feature add workflow
+remains compatible, the per-call `operations` row uses
+the real project id, a credential-shaped substring in
+analytics evidence is redacted by `redact_analytics_evidence`
+which delegates to `policy::redact_credentials`, and a
+disabled `analytics:` block or `enabled: false` provider
+entry reports `disabled` without contacting the
+provider).
 New in this cycle: `src/identity` (versioned
 `IdentityConfig`/`AuthChallenge`/`AuthCallback`/`ProviderClaims`/
 `AdminSession`/`SessionState` (`active`/`expired`/`revoked`)/
@@ -824,10 +902,136 @@ and suggested profile/maturity; `ambiguous-import` on profile or
 monorepo-root disagreement until `--profile` selects; minimal validated
 manifest written only on `--accept` after a registry identity
 pre-check, with rollback on registration failure and no legacy
-doubling), Core errors `ambiguous-import`/`import-conflict`, CLI
+ doubling), Core errors `ambiguous-import`/`import-conflict`, CLI
 `forge import [<path>] [--profile] [--accept] [--id]` (human/JSON,
 stable `error[code]` diagnostics), and `Registry::check_identity_available`
 for mutation-free collision checks.
+
+## Verification evidence (external-planes-analytics, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  26 new analytics lib unit tests for `parse_provider` (supported
+  set and unknown-provider refusal), `provider_support_status`
+  (Supported vs Planned), `AnalyticsConfig::from_manifest_meta`
+  (well-formed block, unknown provider refusal, missing
+  `project_ref`, shell metacharacter `project_ref`,
+  duplicate provider, oversized provider list, out-of-range
+  window, absent block), `inspect_external_planes` (disabled
+  master block, disabled per-entry boundary, planned provider
+  catalog source, dry-run without adapter invocation, missing
+  adapter, failing adapter, ambiguous-mapping project_ref
+  refusal), `aggregate_project_metrics` (counter metrics
+  with windows, missing repository evidence, observations
+  from the same window agree, mixed-windows refusal,
+  out-of-range window refusal), `MetricsSummary` round-trip
+  through disk, `redact_analytics_evidence` delegating to
+  the policy redactor, and the human renderers
+  (`render_report_human` / `render_metrics_human`) carrying
+  the required fields; 17 new analytics CLI contract tests
+  for the help output, the top-level help including the
+  `analytics` subcommand, `inspect` accepting a well-formed
+  block under `--dry-run`, `inspect` refusing a missing
+  block, an unknown provider, a missing `project_ref`, a
+  shell-metacharacter `project_ref`, a duplicate provider,
+  a disabled master block (boundary, no adapter contact),
+  a planned provider (catalog source, `unavailable`),
+  a missing adapter (`unavailable` with evidence), a
+  failing adapter (`unavailable` with evidence), an
+  adapter with a different `project_ref`
+  (`ambiguous-mapping` refusal), a consistent adapter
+  (`available` with `evidence: stars=42`), and a leaky
+  adapter whose evidence carries a credential-shaped
+  substring (the secret is redacted to `[REDACTED]` in
+  stdout); 6 new analytics cross-surface regression tests
+  for the registry's `analytics` journal row keeping the
+  operations table independent of the analytics surface,
+  the doctor verdict on the same project being byte-
+  identical after a successful analytics round trip, a
+  credential-shaped substring in evidence being redacted
+  through `redact_analytics_evidence` (which delegates to
+  `policy::redact_credentials`), the `forge feature add`
+  workflow remaining compatible after an analytics round
+  trip on the same project, the R1 boundary (a disabled
+  `analytics:` block or `enabled: false` provider entry is
+  reported as `disabled` without contacting the provider
+  and renders no evidence line), and the R2 boundary
+  (snapshots from different windows or disagreeing
+  values surface as `mixed-windows` with `current: null`
+  rather than silently summing across windows); plus the
+  unchanged existing test binaries (390 lib tests incl. 26
+  new analytics unit tests, 17 analytics contract, 6
+  analytics cross-surface, plus the unchanged 33
+  pre-existing test binaries).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id
+  smoke-analytics` then appending an `analytics:` block to
+  the manifest; `forge analytics inspect <proj> --dry-run`
+  returns the per-provider `available` observation with
+  the `dry-run` source named and the would-invoke evidence
+  line; `forge analytics inspect <proj>` without an
+  adapter on PATH reports both providers as `unavailable`
+  with the adapter error in the evidence and the journal
+  row recorded as `rejected`; `FORGE_ANALYTICS_BIN=…/good.sh
+  forge analytics inspect <proj>` against a fixture
+  adapter that prints
+  `{"project_ref":"owner/repo","evidence":["stars=42","growth=3"],...}`
+  reports both providers as `available` with the
+  evidence lines and the journal row recorded as `done`;
+  `forge analytics metrics <proj>` against the same
+  project aggregates the local counters
+  (`projects=1`, `quality-healthy=0`, …) plus the
+  `repository-stars=42` and `repository-stars-growth=3`
+  with the per-source `observed_at` and the
+  `window=7-day` boundary; `forge analytics metrics --all`
+  walks the registered projects and records the journal
+  under the synthetic `__analytics__` project id; `forge
+  doctor <proj>` before and after the analytics round trip
+  produces the byte-identical verdict so the existing
+  doctor contract still holds; `forge analytics inspect`
+  on a project without an `analytics:` block exits 1 with
+  `error[analytics-invalid]: analytics invalid: project
+  \`no-analytics\` has no \`analytics:\` block; declare one
+  in forge.yaml to enable the external content / analytics
+  plane`; and a string scan over the `analytics` module
+  returns no agent-provider / IDE / model identifier, so
+  an agent provider change is a no-op for the analytics
+  layer (R1 boundary).
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate external-planes-analytics --strict
+  --no-interactive`: valid pre-archive; `openspec
+  archive external-planes-analytics --yes`: archived as
+  `2026-09-18-external-planes-analytics` with the
+  canonical `spec/external-planes-analytics` promoted;
+  `openspec validate --all --strict --no-interactive`: 24
+  passed, 0 failed (post-archive, includes the promoted
+  `spec/external-planes-analytics`).
+- `git diff --check`: PASS; staged set reviewed (3 files
+  modified: `src/core/manifest.rs` for the new
+  `AnalyticsMeta` typed fields, `src/core/mod.rs` for the
+  `analytics-invalid` / `analytics-adapter-unavailable` /
+  `analytics-mapping-ambiguous` typed errors, `src/lib.rs`
+  to register the new module, `src/main.rs` for the `forge
+  analytics` subcommand, the `AnalyticsCommands` enum and
+  the `cmd_analytics_*` helpers; 3 files added:
+  `src/analytics/mod.rs` with 26 unit tests,
+  `tests/analytics_contract.rs` with 17 contract tests,
+  `tests/analytics_cross_surface.rs` with 6 cross-surface
+  regression tests; plus the promoted spec and the change
+  archive — 7 files; archive under
+  `openspec/changes/archive/2026-09-18-external-planes-analytics/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  `forge-analytics-adapter` binary is not present in the
+  local sandbox, so the contract is validated through
+  `FORGE_ANALYTICS_BIN` fixture shell scripts that stand
+  in for a real `unified-content` / `github-analytics`
+  round trip. The credential redaction rule set is the
+  same as `policy::redact_credentials`, which is itself
+  verified through the existing quality policy contract
+  tests. A real provider round trip is a downstream
+  integration step and is not claimed here.
 
 ## Verification evidence (central-admin-identity, 2026-09-18)
 
@@ -1477,12 +1681,11 @@ work has started.
 
 ## Next change
 
-Implement [external-planes-analytics](openspec/changes/external-planes-analytics/proposal.md)
+Implement [core-http-api](openspec/changes/core-http-api/proposal.md)
 only when implementation is requested. Its prerequisites
-(`agent-runtime-workflows`, `adapter-deployment`,
-`repository-distribution`) are implemented and verified. Then
-follow the roadmap prerequisites (`core-http-api`,
-`control-plane-portal`). Later changes remain planning-only
+(`external-planes-analytics`, `agent-runtime-workflows`,
+`adapter-deployment`, `repository-distribution`) are
+implemented and verified. Later changes remain planning-only
 with zero implementation tasks completed.
 
 ## Verification evidence (ai-procedure-skills, 2026-09-18)

@@ -21,4 +21,5 @@ pub mod profile;
 pub mod registry;
 pub mod release;
 pub mod spec;
+pub mod ui_pattern;
 pub mod upgrade;

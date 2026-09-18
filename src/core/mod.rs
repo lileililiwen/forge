@@ -159,6 +159,21 @@ pub enum ForgeError {
 
     #[error("component quality conflict: {reason}")]
     ComponentQualityConflict { reason: String },
+
+    #[error("ui pattern invalid: {reason}")]
+    UiPatternInvalid { reason: String },
+
+    #[error("ui pattern unsupported platform: {reason}")]
+    UiPatternUnsupportedPlatform { reason: String },
+
+    #[error("ui pattern quality conflict: {reason}")]
+    UiPatternQualityConflict { reason: String },
+
+    #[error("ui pattern deprecated dependency: {reason}")]
+    UiPatternDeprecatedDep { reason: String },
+
+    #[error("ui pattern ownership conflict: {reason}")]
+    UiPatternOwnershipConflict { reason: String },
 }
 
 impl ForgeError {
@@ -215,6 +230,11 @@ impl ForgeError {
             ForgeError::DeployHealthFailed { .. } => "deploy-health-failed",
             ForgeError::ComponentInvalid { .. } => "component-invalid",
             ForgeError::ComponentQualityConflict { .. } => "component-quality-conflict",
+            ForgeError::UiPatternInvalid { .. } => "ui-pattern-invalid",
+            ForgeError::UiPatternUnsupportedPlatform { .. } => "ui-pattern-unsupported-platform",
+            ForgeError::UiPatternQualityConflict { .. } => "ui-pattern-quality-conflict",
+            ForgeError::UiPatternDeprecatedDep { .. } => "ui-pattern-deprecated-dependency",
+            ForgeError::UiPatternOwnershipConflict { .. } => "ui-pattern-ownership-conflict",
         }
     }
 

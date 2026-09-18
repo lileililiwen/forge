@@ -1,10 +1,70 @@
-current_spec: validated-intent-planner
+current_spec: ai-procedure-skills
 
 # Forge handoff
 
 ## Current state
 
-`semantic-ui-patterns` implemented, verified and archived on 2026-09-18
+`validated-intent-planner` implemented, verified and archived on 2026-09-18
+as `2026-09-18-validated-intent-planner`; canonical specs promoted to
+[openspec/specs/validated-intent-planner/spec.md](openspec/specs/validated-intent-planner/spec.md).
+New in this cycle: `src/planner` (versioned
+`Intent`/`IntentAction` (`create_project`/`extend_project`)/
+`IntentConstraint`/`ValidatedIntent`/`AssemblyPlan`/`PlanStep`/
+`PlanStepKind` (`doctor`/`test`/`quality_policy`/`install_feature`/
+`install_component`/`install_ui_pattern`)/`UnresolvedWork`/
+`IntentValidationOutcome`/`IntentResolveOutcome`/`IntentApplyOutcome`/
+`AppliedStep` contract v0.1.0); `validate_intent` accepts only
+`create_project` / `extend_project` actions, refuses empty profile,
+capability counts above `MAX_CAPABILITIES_PER_INTENT = 32`,
+required-and-forbidden intersection, unknown profile, unknown
+constraint key, unknown capability, and a client-only profile
+paired with a server-side capability (the rejection names the
+recommended client/backend boundary, e.g. `flutter-app + rust-web
+or python-service backend`, R1 failure scenario); the validated
+intent retains the public constraint and the billing prohibition
+in the normalized form (R1 success scenario); an ambiguous
+required-architectural-choice request is surfaced as a typed
+`IntentAmbiguous` rejection so the planner never silently
+selects a profile or capability (R1 boundary scenario);
+`resolve_plan` pins every step to the profile version captured
+at validation time, the captured `intent_hash` and `catalog_hash`,
+and a deterministic plan id `<profile>-<8hex(intent_hash)>-<8hex(catalog_hash)>`;
+a re-resolve of the same intent produces the same plan id; a
+compatible request schedules dependency-ordered
+`install_feature` / `install_component` / `install_ui_pattern`
+steps from the certified supported parts, then a profile-pinned
+`test`, `quality_policy` and `doctor` gate (R2 success
+scenario); the executor re-checks `profile_version`, `intent_hash`
+and `catalog_hash` before any step so a drifted profile, drifted
+intent, or drifted catalog surfaces as a typed `PlanStale`
+error and writes no file (R2 failure scenario); requirements
+with no deterministic descriptor become bounded `UnresolvedWork`
+entries with a glue/business/spec hint and the executor records
+them as `unresolved` so a missing deterministic part is
+observable rather than masked by an AI substitution (R2
+boundary scenario); `write_plan_receipt` persists
+`.forge/planner/<plan-id>/plan.json` (atomic via `.tmp`+rename)
+and `apply_plan` requires explicit `--confirm` so an implicit
+project mutation is impossible; CLI `forge intent
+validate|resolve|apply|list` (human/JSON, `resolve` accepts
+`--action` `--profile` plus repeatable `--require`,
+`--forbid`, `--constraint KEY=VALUE` and optional `--path`,
+`apply` accepts the plan id plus `--confirm` and optional
+`--path`, `list` accepts a project directory and a `--format`);
+planner operations journaled in the registry's `operations`
+table under the `planner` kind with a `done`/`rejected`
+verdict and a synthetic `__planner__` project id that keeps
+the operations table project-agnostic without inventing a
+user-visible project; and the spec contract from
+`semantic-component-registry`, `semantic-ui-patterns`,
+`feature-lifecycle`, `doctor-maturity-assessment` and
+`quality-policy-integration` still holds after a `validate` /
+`resolve` / `apply` on the same project (the registry journal
+stays independent of the planner surface, the doctor verdict
+is unchanged byte-for-byte, feature add/remove/upgrade and
+the ownership receipt contract still hold, and a
+credential-shaped substring in planner evidence is never
+constructed by the resolver).
 as `2026-09-18-semantic-ui-patterns`; canonical specs promoted to
 [openspec/specs/semantic-ui-patterns/spec.md](openspec/specs/semantic-ui-patterns/spec.md).
 New in this cycle: `src/ui_pattern` (versioned
@@ -954,16 +1014,165 @@ for mutation-free collision checks.
   provider round trip is a downstream integration
   step and is not claimed here.
 
+## Verification evidence (validated-intent-planner, 2026-09-18)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1).
+- `cargo test`: full suite (lib + integration tests) PASS;
+  18 new planner unit tests for action parsing,
+  client-only profile + server-side capability refusal,
+  unknown profile / unknown capability / unknown
+  constraint key / required-and-forbidden intersection /
+  too-many capabilities refusals, plan id stability on
+  the same intent, catalog hash determinism,
+  `revalidate_plan` acceptance of a fresh plan and
+  refusal of a stale plan, `apply_plan` refusal
+  without `--confirm`, `write_plan_receipt` /
+  `read_plan_receipt` round trip, plan steps
+  presence, the `MAX_UNRESOLVED_PER_PLAN` constant,
+  and the executor's `unresolved` reporting; 12 new
+  planner CLI contract tests for the help output, the
+  contract version in artefacts, the human renderers
+  carrying the required and forbidden lists, the JSON
+  envelope from `forge intent validate` (profile id,
+  required capabilities, forbidden capabilities,
+  contract version), the typed `error[intent-invalid]`
+  exit-1 refusal for a Flutter + postgres request
+  with the `flutter-app` / `postgres` / `backend`
+  substrings, the typed `error[intent-invalid]`
+  exit-1 refusal for an unknown capability, the typed
+  `error[intent-invalid]` exit-1 refusal for an
+  unknown action, the receipt persisted by `forge
+  intent resolve` and round-tripped through the
+  public API, the typed `error[plan-apply-failed]`
+  refusal without `--confirm` with the manifest
+  features map preserved, the typed
+  `error[plan-stale]` refusal for a tampered receipt
+  with the manifest features map preserved, the human
+  render of an applied plan listing the steps and
+  unresolved entries, and the `forge intent list`
+  JSON envelope reporting the persisted plan; 7 new
+  planner cross-surface regression tests for the
+  registry `planner` journal row keeping the
+  operations table independent of the planner
+  surface, the doctor verdict staying byte-equivalent
+  after a `forge intent resolve`, dropping the
+  planner receipt leaving the project state intact,
+  a stale-plan refusal writing nothing, the planner
+  apply path not corrupting an existing feature
+  ownership receipt, the receipt round-tripping
+  through the public API, and the `forge feature add`
+  workflow remaining compatible after a `forge intent
+  resolve` on the same project; plus the unchanged 25
+  test binaries (289 lib tests, 12 planner contract,
+  7 planner cross-surface, 33 ui_pattern contract, 5
+  ui_pattern cross-surface, 15 component contract, 5
+  component cross-surface, 14 release contract, 4
+  release cross-surface, 12 documentation contract,
+  4 documentation cross-surface, 12 distribution
+  contract, 4 distribution cross-surface, 4
+  agent-runtime-workflows cross-surface, 8 agent
+  contract, 8 gitops contract, 13 mcp contract, 9 mcp
+  cross-surface, 8 doctor contract, 10 feature
+  contract, 12 generate contract, 10 import
+  contract, 9 profile contract, 7 quality policy
+  contract, 12 upgrade contract, 12 spec contract,
+  5 CLI contract, 4 cross-surface regression).
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- Manual smoke: `forge new --profile rust-web --id
+  planner-smoke <path>` registers a rust-web project;
+  `forge intent validate --action create_project
+  --profile rust-web --require auth --require admin
+  --forbid billing --constraint public=true` reports
+  `intent validated` with the normalized
+  `required: [admin, auth]`, `forbidden: [billing]`
+  and the `public=true` constraint preserved in the
+  `ValidatedIntent` (R1 success); `forge intent
+  validate --action create_project --profile
+  flutter-app --require auth --require postgres`
+  exits 1 with
+  `error[intent-invalid]: ... 'flutter-app' is a
+  client-only stack and cannot serve the server-side
+  capability 'postgres'; recommended boundary:
+  flutter-app + rust-web or python-service backend`
+  (R1 failure); `forge intent validate --action
+  create_project --profile rust-web --require nosuch`
+  exits 1 with
+  `error[intent-invalid]: ... does not support
+  required capability 'nosuch'` (R1 boundary); `forge
+  intent resolve ... --path <proj>` writes `plan
+  rust-web-<8hex>-<8hex>` with the five pinned steps
+  (`install_feature auth@0.1.0`, `install_feature
+  admin@0.1.0`, `test cargo test`, `quality_policy
+  driftwatch --project . --policies
+  AUTH-001,PRIVACY-003,DEPLOY-001`, `doctor forge
+  doctor --target L2`) and the receipt at
+  `.forge/planner/<plan-id>/plan.json`; `forge intent
+  apply <plan-id> --path <proj>` exits 1 with
+  `error[plan-apply-failed]: refusing to apply a
+  planner plan without --confirm` (R2 boundary);
+  `forge intent apply <plan-id> --confirm --path
+  <proj>` reports
+  `plan ... applied: 5 step(s), 4 file(s) written,
+  stale=false` and updates `forge.yaml` with the
+  `auth: 0.1.0` and `admin: 0.1.0` features; `forge
+  doctor <proj>` before and after the apply run
+  reports the same doctor findings (the planner
+  surface stays independent of the doctor surface);
+  `forge feature add notifications <proj>` still
+  succeeds after a planner resolve so the feature
+  ownership surface is unaffected; and `forge intent
+  list <proj>` reports the persisted plan id under
+  `.forge/planner/`.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate validated-intent-planner --strict
+  --no-interactive`: valid pre-archive; `openspec
+  archive validated-intent-planner --yes`: archived
+  as `2026-09-18-validated-intent-planner` with the
+  canonical `spec/validated-intent-planner` promoted;
+  `openspec validate --all --strict --no-interactive`:
+  25 passed, 0 failed (post-archive, includes the
+  promoted `spec/validated-intent-planner`).
+- `git diff --check`: PASS; staged set reviewed (3
+  files modified: `src/core/mod.rs` for the new
+  `IntentInvalid` / `IntentAmbiguous` / `PlanStale` /
+  `PlanConflict` / `PlanApplyFailed` typed errors and
+  the matching `intent-invalid` / `intent-ambiguous` /
+  `plan-stale` / `plan-conflict` / `plan-apply-failed`
+  stable codes, `src/lib.rs` to register the new
+  module, `src/main.rs` for the `forge intent`
+  subcommand, the `IntentCommands` enum and the
+  `cmd_intent` helpers plus the aliased feature
+  renderer to avoid a name clash; 3 files added:
+  `src/planner/mod.rs` with 18 unit tests,
+  `tests/planner_contract.rs` with 12 contract
+  tests, `tests/planner_cross_surface.rs` with 7
+  cross-surface regression tests; plus the promoted
+  spec and the change archive — 7 files; archive
+  under
+  `openspec/changes/archive/2026-09-18-validated-intent-planner/`).
+- No shared Gate Runtime is configured; no Gate pass
+  is claimed.
+- Real provider integration is not exercised: a real
+  natural-language model is not present in the local
+  sandbox, so the contract is validated through the
+  `Intent` / `ValidatedIntent` / `AssemblyPlan` round
+  trip and the `forge intent` CLI surface; the
+  `IntentAction` enumeration and the `--require` /
+  `--forbid` / `--constraint` flags are the
+  model-agnostic contract a provider adapter would
+  emit. A real provider round trip is a downstream
+  integration step and is not claimed here.
+
 The machine-readable line above is the single current OpenSpec pointer. It
 selects the next eligible future implementation package; it does not claim
 work has started.
 
 ## Next change
 
-Implement [validated-intent-planner](openspec/changes/validated-intent-planner/proposal.md)
+Implement [ai-procedure-skills](openspec/changes/ai-procedure-skills/proposal.md)
 only when implementation is requested. Its prerequisites
-(`semantic-component-registry`, `semantic-ui-patterns`,
-`quality-policy-integration`) are implemented and verified. Then
+(`mature-mcp-surface`, `validated-intent-planner`,
+`adapter-deployment`) are implemented and verified. Then
 follow the roadmap prerequisites. Later changes remain
 planning-only with zero implementation tasks completed.
 

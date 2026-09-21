@@ -1917,12 +1917,51 @@ for mutation-free collision checks.
 
 ## Next change
 
-None. All 24 roadmap changes are implemented, verified
-and archived; no active changes remain in
-`openspec/changes/`. The `current_spec` pointer line has
-been removed. A future portal framework (ASP.NET Core /
-Next.js) remains a downstream integration step and is
-not claimed here.
+`runtime-hardening-and-test-isolation` implemented, verified and archived on 2026-09-21
+as `2026-09-21-runtime-hardening-and-test-isolation`; canonical specs promoted to
+[openspec/specs/runtime-hardening-and-test-isolation/spec.md](openspec/specs/runtime-hardening-and-test-isolation/spec.md).
+New in this cycle: `src/release/engine.rs` `run_with_timeout` now kills and reaps
+the direct adapter child before returning a timeout (and on wait failure), matching
+policy/docs/analytics; `src/deploy/engine.rs` `wait_with_timeout` now waits after
+kill so the timed-out child is reaped; `src/mcp` round-trip test drives
+`run_session` with an explicit temporary registry instead of the host default, plus
+a sequential-independence unit test and `tests/mcp_contract.rs` regression tests
+for read-only-HOME isolation and repeated-run stability; release timeout keeps the
+typed unavailable/timeout outcome and records no successful stage. The next
+eligible package is `profile-and-release-readiness`; later packages depend on its
+evidence: `provider-integration-evidence` → `specification-governance-refresh`.
+
+`current_spec: profile-and-release-readiness`
+
+## Verification evidence (runtime-hardening-and-test-isolation, 2026-09-21)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS; `cargo clippy --all-targets
+  -- -D warnings`: PASS.
+- `cargo test`: full suite PASS (427 lib tests incl. 3 new release
+  `run_with_timeout` unit tests for adapter completion, timeout kill-and-reap
+  via `kill -0` probe, and non-zero exit without success; 1 new MCP
+  sequential-independence unit test; 15 `mcp_contract` tests incl. 2 new for
+  read-only-HOME isolation and repeated-run stability; all 41 test binaries ok).
+- Reproduced the reported failure first: with `HOME` pointed at a read-only
+  directory, `mcp::tests::run_session_round_trip_known_request_and_unknown_tool`
+  FAILED before the fix (registry-backed `list_projects` through the host
+  default) and PASSES after (explicit temporary registry).
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate runtime-hardening-and-test-isolation --strict
+  --no-interactive`: valid pre-archive; `openspec archive
+  runtime-hardening-and-test-isolation --yes`: archived as
+  `2026-09-21-runtime-hardening-and-test-isolation` with the canonical
+  `spec/runtime-hardening-and-test-isolation` promoted; `openspec validate
+  --all --strict --no-interactive`: 28 passed, 0 failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (3 files modified:
+  `src/release/engine.rs` for kill-and-wait on timeout/wait-failure,
+  `src/deploy/engine.rs` for wait-after-kill, `src/mcp/mod.rs` for isolated
+  round-trip plus independence test, `tests/mcp_contract.rs` for read-only-HOME
+  and repeat-stability tests; plus the promoted spec and the change archive).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Descendant process-group cleanup remains platform-dependent and is recorded
+  as a direct-child guarantee only, per the change design; real provider round
+  trips remain downstream integration steps and are not claimed here.
 
 ## Verification evidence (control-plane-portal, 2026-09-18)
 

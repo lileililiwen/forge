@@ -255,6 +255,9 @@ pub enum ForgeError {
 
     #[error("readiness not ready: {reason}")]
     ReadinessNotReady { reason: String },
+
+    #[error("provider invalid: {reason}")]
+    ProviderInvalid { reason: String },
 }
 
 impl ForgeError {
@@ -341,6 +344,7 @@ impl ForgeError {
             ForgeError::PortalInvalid { .. } => "portal-invalid",
             ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
             ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
+            ForgeError::ProviderInvalid { .. } => "provider-invalid",
         }
     }
 

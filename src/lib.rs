@@ -24,6 +24,7 @@ pub mod policy;
 pub mod portal;
 pub mod procedure;
 pub mod profile;
+pub mod provider;
 pub mod readiness;
 pub mod registry;
 pub mod release;

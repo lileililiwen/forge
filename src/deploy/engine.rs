@@ -438,6 +438,7 @@ fn wait_with_timeout(
             None => {
                 if start.elapsed() > timeout {
                     let _ = child.kill();
+                    let _ = child.wait();
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         format!("timeout after {:?}", timeout),

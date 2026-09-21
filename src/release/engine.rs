@@ -1641,11 +1641,17 @@ fn run_with_timeout(
             Ok(Some(status)) => return wait_with_output(child, status),
             Ok(None) => {
                 if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
                     return Err(format!("{label} exceeded the {timeout:?} timeout"));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
-            Err(err) => return Err(format!("{label} wait failed: {err}")),
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("{label} wait failed: {err}"));
+            }
         }
     }
 }
@@ -2101,5 +2107,71 @@ mod tests {
         write_release_manifest(dir, "rel-maturity", "");
         let (manifest, _) = Manifest::load_from_dir(dir, None).unwrap();
         assert!(matches!(manifest.project.maturity, Some(Maturity::L1)));
+    }
+
+    #[test]
+    fn run_with_timeout_returns_output_when_adapter_completes() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg("echo receipt-123")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null());
+        let output =
+            run_with_timeout(cmd, std::time::Duration::from_secs(10), "test adapter").unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("receipt-123"));
+    }
+
+    #[test]
+    fn run_with_timeout_kills_and_reaps_child_on_timeout() {
+        let tmp = TempDir::new().unwrap();
+        let pid_file = tmp.path().join("adapter.pid");
+        // Adapter records its pid, then sleeps past the deadline.
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("echo $$ > {} && exec sleep 30", pid_file.display()))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null());
+        let start = std::time::Instant::now();
+        let err = run_with_timeout(cmd, std::time::Duration::from_millis(300), "test adapter")
+            .expect_err("timeout must fail");
+        assert!(err.contains("timeout"), "unexpected error: {err}");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "timeout must return promptly"
+        );
+        let pid_text = std::fs::read_to_string(&pid_file).expect("pid file");
+        let pid = pid_text.trim().to_string();
+        // The direct child must be terminated and reaped: `kill -0`
+        // fails when the process no longer exists.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let probe = Command::new("kill")
+            .arg("-0")
+            .arg(&pid)
+            .output()
+            .expect("kill probe");
+        assert!(
+            !probe.status.success(),
+            "timed-out adapter child {pid} is still alive"
+        );
+    }
+
+    #[test]
+    fn run_with_timeout_reports_nonzero_exit_without_success() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg("echo boom >&2; exit 3")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::null());
+        let output =
+            run_with_timeout(cmd, std::time::Duration::from_secs(10), "test adapter").unwrap();
+        assert!(
+            !output.status.success(),
+            "non-zero exit must not read as success"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("boom"));
     }
 }

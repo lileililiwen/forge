@@ -1741,6 +1741,33 @@ mod tests {
     }
 
     #[test]
+    fn sequential_isolated_sessions_remain_independent() {
+        // Two sessions with different temporary registries must not
+        // observe each other's projects or operations.
+        let dir_a = tempfile::tempdir().unwrap();
+        let db_a = dir_a.path().join("registry.db");
+        let dir_b = tempfile::tempdir().unwrap();
+        let db_b = dir_b.path().join("registry.db");
+        let app_a = dir_a.path().join("app-a");
+        let create = request(
+            "create_project",
+            Value::from(1),
+            serde_json::json!({
+                "path": app_a.to_string_lossy(),
+                "profile": "rust-web",
+                "id": "isolated-a",
+            }),
+        );
+        let value = dispatch(Some(&db_a), &create).expect("create in session A");
+        assert_eq!(value["created"]["record"]["id"], "isolated-a");
+        let list = request("list_projects", Value::from(1), serde_json::json!({}));
+        let in_a = dispatch(Some(&db_a), &list).expect("list A");
+        let in_b = dispatch(Some(&db_b), &list).expect("list B");
+        assert_eq!(in_a["projects"].as_array().unwrap().len(), 1);
+        assert_eq!(in_b, serde_json::json!({"projects": []}));
+    }
+
+    #[test]
     fn inspect_project_unknown_id_returns_invalid_params() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("registry.db");
@@ -1757,14 +1784,22 @@ mod tests {
 
     #[test]
     fn run_session_round_trip_known_request_and_unknown_tool() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("registry.db");
+        let db_path = db.as_path();
         let input = "\
             {\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"list_projects\",\"params\":{}}\n\
             {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"deploy\",\"params\":{}}\n\
         ";
         let mut output = Vec::new();
         let mut diag = Vec::new();
-        run_session(None, Cursor::new(input.as_bytes()), &mut output, &mut diag)
-            .expect("run session");
+        run_session(
+            Some(db_path),
+            Cursor::new(input.as_bytes()),
+            &mut output,
+            &mut diag,
+        )
+        .expect("run session");
         let rendered = String::from_utf8(output).expect("utf8");
         // Two responses (one per request) on two lines.
         let mut lines = rendered.lines();

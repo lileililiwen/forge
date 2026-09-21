@@ -480,3 +480,71 @@ fn mcp_dispatch_round_trip_handles_multiple_requests() {
     assert!(three["result"]["features"].is_array());
     assert_eq!(four["error"]["code"], -32011);
 }
+
+#[test]
+fn mcp_isolated_registry_succeeds_with_readonly_home() {
+    // Read-only default home must be harmless when the caller owns
+    // an explicit temporary registry: the round trip runs against
+    // the temporary registry and never fails with a host
+    // `readonly database` error.
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let ro_home = tmp.path().join("ro-home");
+    std::fs::create_dir_all(ro_home.join(".local/share/forge")).unwrap();
+    let mut perms = std::fs::metadata(&ro_home).unwrap().permissions();
+    perms.set_mode(0o555);
+    std::fs::set_permissions(&ro_home, perms).unwrap();
+    let requests = vec![serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "list_projects", "params": {}
+    })];
+    let mut cmd = clean_cmd();
+    cmd.env("HOME", &ro_home);
+    cmd.env("XDG_DATA_HOME", ro_home.join(".no-xdg"));
+    cmd.arg("--registry").arg(&db);
+    cmd.arg("mcp").arg("serve");
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = cmd.spawn().expect("spawn forge mcp serve");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        for r in &requests {
+            let line = serde_json::to_string(r).expect("encode request");
+            stdin.write_all(line.as_bytes()).expect("write");
+            stdin.write_all(b"\n").expect("newline");
+        }
+    }
+    let output = child.wait_with_output().expect("wait forge mcp");
+    let stdout = lossy(&output.stdout);
+    let stderr = lossy(&output.stderr);
+    assert!(
+        !stdout.contains("readonly") && !stderr.contains("readonly"),
+        "isolated run must not surface host readonly error: stdout={stdout} stderr={stderr}"
+    );
+    let response = response_for(&stdout, 1);
+    assert!(
+        response["result"]["projects"].is_array(),
+        "isolated list_projects must succeed: {response}"
+    );
+    // Restore writability so TempDir cleanup can remove the fixture.
+    let mut perms = std::fs::metadata(&ro_home).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&ro_home, perms).unwrap();
+}
+
+#[test]
+fn mcp_repeated_isolated_round_trip_is_stable() {
+    // Repeated invocation against the same temporary registry must
+    // return the same result without leaking state.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let requests = vec![serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "list_projects", "params": {}
+    })];
+    let (first, _) = run_mcp(&db, &requests);
+    let (second, _) = run_mcp(&db, &requests);
+    let one = response_for(&first, 1);
+    let two = response_for(&second, 1);
+    assert_eq!(one["result"], two["result"]);
+}

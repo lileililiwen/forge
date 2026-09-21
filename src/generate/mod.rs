@@ -800,7 +800,7 @@ fn cleanup_promoted(dest: &Path, promoted: &[PathBuf], dest_existed: bool) {
     }
 }
 
-fn split_command(command: &str) -> Result<(String, Vec<String>), ForgeError> {
+pub(crate) fn split_command(command: &str) -> Result<(String, Vec<String>), ForgeError> {
     let mut parts: Vec<String> = command.split_whitespace().map(str::to_string).collect();
     if parts.is_empty() {
         return Err(ForgeError::GenerationFailed {
@@ -811,7 +811,7 @@ fn split_command(command: &str) -> Result<(String, Vec<String>), ForgeError> {
     Ok((program, parts))
 }
 
-fn toolchain_present(name: &str, available: Option<&HashSet<String>>) -> bool {
+pub(crate) fn toolchain_present(name: &str, available: Option<&HashSet<String>>) -> bool {
     if let Some(set) = available {
         return set.contains(name);
     }

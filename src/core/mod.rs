@@ -249,6 +249,12 @@ pub enum ForgeError {
 
     #[error("portal invalid: {reason}")]
     PortalInvalid { reason: String },
+
+    #[error("readiness invalid: {reason}")]
+    ReadinessInvalid { reason: String },
+
+    #[error("readiness not ready: {reason}")]
+    ReadinessNotReady { reason: String },
 }
 
 impl ForgeError {
@@ -333,6 +339,8 @@ impl ForgeError {
             ForgeError::ApiProjectMismatch { .. } => "api-project-mismatch",
             ForgeError::IdempotencyKeyConflict { .. } => "idempotency-key-conflict",
             ForgeError::PortalInvalid { .. } => "portal-invalid",
+            ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
+            ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
         }
     }
 

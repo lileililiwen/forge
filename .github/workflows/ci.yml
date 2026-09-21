@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Release check (Rust quality suite, OpenSpec validation, native matrix, gate)
+        run: >
+          scripts/release-check.sh
+          --gate-profile rust-web
+          --gate-profile nextjs-web
+          --gate-profile aspnet-web

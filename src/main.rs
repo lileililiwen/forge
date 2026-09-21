@@ -71,6 +71,10 @@ use forge::procedure::{
     PROCEDURE_CONTRACT_VERSION, PROCEDURE_SYNTHETIC_PROJECT,
 };
 use forge::profile::{inspect_profile, list_profiles, preflight_profile, resolve_profile};
+use forge::readiness::{
+    artifact_evidence, evaluate_gate, render_artifact_human, render_gate_human,
+    render_matrix_human, run_matrix, READINESS_CONTRACT_VERSION,
+};
 use forge::registry::{default_registry_path, ProjectRecord, Registry};
 use forge::release::engine::{
     apply_release, list_releases, prepare_release, read_release, PlanReport as EnginePlanReport,
@@ -330,6 +334,11 @@ enum Commands {
     Portal {
         #[command(subcommand)]
         command: PortalCommands,
+    },
+    /// Generate the supported profile fixtures natively and evaluate release readiness.
+    Readiness {
+        #[command(subcommand)]
+        command: ReadinessCommands,
     },
 }
 
@@ -897,6 +906,24 @@ enum PortalCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum ReadinessCommands {
+    /// Generate every supported profile fixture into a disposable directory and run its native build/test without Forge on PATH.
+    Matrix {
+        /// Selected profile id (repeatable, e.g. `--profile rust-web`). Defaults to every supported profile in stable catalog order.
+        #[arg(long = "profile")]
+        profiles: Vec<String>,
+    },
+    /// Report the platform-native Forge binary evidence (path, SHA-256, version smoke).
+    Artifact,
+    /// Evaluate the release gate over the selected matrix rows plus the artifact smoke.
+    Check {
+        /// Selected profile id (repeatable, e.g. `--profile rust-web`). Defaults to every supported profile in stable catalog order.
+        #[arg(long = "profile")]
+        profiles: Vec<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1089,6 +1116,7 @@ fn main() -> ExitCode {
         Commands::Analytics { command } => cmd_analytics(&db_path, command, cli.format),
         Commands::Api { command } => cmd_api(&db_path, command, cli.format),
         Commands::Portal { command } => cmd_portal(&db_path, command, cli.format),
+        Commands::Readiness { command } => cmd_readiness(command, cli.format),
     };
 
     match result {
@@ -4337,6 +4365,61 @@ fn journal_portal_operation(
 ) {
     let journal_project = project_id.unwrap_or(PORTAL_SYNTHETIC_PROJECT);
     let _ = registry.record_operation("portal", journal_project, state, detail);
+}
+
+fn cmd_readiness(command: &ReadinessCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        ReadinessCommands::Matrix { profiles } => cmd_readiness_matrix(profiles, format),
+        ReadinessCommands::Artifact => cmd_readiness_artifact(format),
+        ReadinessCommands::Check { profiles } => cmd_readiness_check(profiles, format),
+    }
+}
+
+fn cmd_readiness_matrix(profiles: &[String], format: Format) -> Result<Output, ForgeError> {
+    // The matrix touches no registry and invents no project: every fixture
+    // lives in a disposable directory and the journal stays independent of
+    // the readiness surface.
+    let report = run_matrix(profiles)?;
+    let json = serde_json::json!({
+        "contract": READINESS_CONTRACT_VERSION,
+        "matrix": report,
+    });
+    let human = render_matrix_human(&report);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_readiness_artifact(format: Format) -> Result<Output, ForgeError> {
+    let evidence = artifact_evidence()?;
+    let json = serde_json::json!({
+        "contract": READINESS_CONTRACT_VERSION,
+        "artifact": evidence,
+    });
+    let human = render_artifact_human(&evidence);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_readiness_check(profiles: &[String], format: Format) -> Result<Output, ForgeError> {
+    // The gate owns its exit code: the report always renders on stdout so a
+    // blocked gate stays observable, while the typed error renders on stderr.
+    let (report, gate) = evaluate_gate(profiles);
+    let json = serde_json::json!({
+        "contract": READINESS_CONTRACT_VERSION,
+        "gate": report,
+    });
+    let human = render_gate_human(&report);
+    match gate {
+        Ok(()) => Ok(as_output(format, human, json)),
+        Err(err) => {
+            println!(
+                "{}",
+                match format {
+                    Format::Human => human,
+                    Format::Json => serde_json::to_string_pretty(&json).unwrap(),
+                }
+            );
+            Err(err)
+        }
+    }
 }
 
 fn cmd_api_serve(

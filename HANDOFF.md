@@ -1968,7 +1968,111 @@ for the owning specs, not as verified rows. The next eligible package is
 `provider-integration-evidence`; `specification-governance-refresh` follows
 it.
 
-`current_spec: provider-integration-evidence`
+`provider-integration-evidence` implemented, verified and archived on 2026-09-21
+as `2026-09-21-provider-integration-evidence`; canonical specs promoted to
+[openspec/specs/provider-integration-evidence/spec.md](openspec/specs/provider-integration-evidence/spec.md).
+New in this cycle: `src/provider` (versioned `ProviderStatus`
+(`supported`/`unavailable`/`not-run`/`disabled`)/`SandboxKind`
+(`live`/`fixture`)/`EvidenceProvenance`/`ProviderRow`/`ProviderMatrix`/
+`ProviderDescriptor`/`RunOptions` contract `0.1.0` over five stable
+providers `driftwatch-policy`/`oidc-identity`/`analytics`/`deploy`/
+`release`; `matrix` reports every row as `not-run` unless `--live`
+with `FORGE_PROVIDER_LIVE=1`, so an unattempted sandbox is never
+`supported`; `run_controlled` drives one controlled round trip with a
+10s bounded wait and argument arrays (policy `check --project <dir>
+--format json`, analytics `health --provider/--project/--project-ref/
+--plane`, deploy `apply ... --dry-run` with a JSON stdin envelope,
+release `publish --stage package|container ... --dry-run`, identity
+in-memory challenge/callback/claims/mint/validate/terminate through
+`crate::identity` with the probe session terminated); every captured
+string — receipts, evidence, `--version` probes, diagnostics — passes
+through `redact_provider_evidence` delegating to
+`policy::redact_credentials`; provenance records provider, sandbox,
+source, project id, VCS revision (`unversioned` for temp dirs, never
+invented), timestamp, tool version, redacted receipt and teardown;
+temp probe dirs are removed and targeted runs attribute the real
+project id; analytics project-ref mismatch surfaces as structured
+`ambiguous-mapping` (never another project's data); a split release
+stays `partial` naming the delivered stage so retry skips rather than
+replays it; probes emit only `supported`/`unavailable`/`not-run`
+(`disabled` stays owned by the manifest adapters, classified by the
+schema); Core error `provider-invalid` with stable code; CLI `forge
+provider matrix [--live]` / `forge provider run <id> [TARGET]
+[--live] [--fixture PATH] [--project-ref REF]` / `forge provider
+inspect <id>` (human/JSON, unknown ids exit 1 with the typed code,
+`not-run` exits 0 without contacting anything); provider operations
+journaled under the `provider` kind with the synthetic `__provider__`
+id (or the real project id for targeted runs, never inventing a
+project); `docs/provider-evidence.md` records the matrix, opt-in and
+secret/teardown rules and every live provider not run on this host
+and why (no driftwatch binary, no OIDC issuer, no analytics adapter
+or project ref, no deployer binary, no publisher binaries); and the
+spec contracts from `mature-mcp-surface`, `core-http-api`,
+`control-plane-portal`, `doctor-maturity-assessment` and
+`feature-lifecycle` still hold after a provider round trip (MCP
+`tools/list` unchanged, API/portal/doctor/feature suites green, doctor
+verdict byte-equivalent, feature add compatible, portal dashboard
+renders). The next eligible package is
+`specification-governance-refresh`.
+
+`current_spec: specification-governance-refresh`
+
+## Verification evidence (provider-integration-evidence, 2026-09-21)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS (Rust 1.98.1);
+  `cargo clippy --all-targets -- -D warnings`: PASS (one
+  `too_many_arguments` site refactored into a `RowParams` builder plus
+  two `redundant_closure` cleanups during the cycle).
+- `cargo test`: full suite PASS — 460 lib tests incl. 24 new provider
+  unit tests at full-run time (plus 3 added after: repeat attribution,
+  git-revision binding, disabled schema round trip; final 27 lib
+  provider tests green in isolation), 12 new
+  `tests/provider_contract.rs` tests (help surface, default all-`not-run`
+  matrix, unknown-provider `provider-invalid`, no-flag `not-run`,
+  policy/identity fixture success with provenance, analytics
+  `ambiguous-mapping`, deploy `unavailable`, release `partial`,
+  credential redaction on stdout, inspect descriptor, no invented
+  project), 6 new `tests/provider_cross_surface.rs` tests (synthetic
+  `__provider__` journal without inventing a project, doctor verdict
+  byte-equivalent, feature add compatible, MCP `tools/list` unchanged,
+  portal dashboard renders, secret never verbatim); all 45 binaries ok.
+  One `api_contract` test (`missing_token_returns_401`,
+  `Connection refused`) flaked once under full-suite parallel load,
+  untouched by this change, and passes in isolation (11/11) and in the
+  final full run.
+- Manual smoke: `forge provider matrix` reports 5 `not-run` rows;
+  `forge provider run analytics <proj> --live` without
+  `FORGE_PROVIDER_LIVE=1` is `not-run` with the opt-in reason; the same
+  run with a fixture adapter reporting the manifest's `project_ref` is
+  `supported` with `sandbox: fixture`, the real project id and
+  `teardown: true`.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate provider-integration-evidence --strict
+  --no-interactive`: valid pre-archive; `openspec archive
+  provider-integration-evidence --yes`: archived as
+  `2026-09-21-provider-integration-evidence` with the canonical
+  `spec/provider-integration-evidence` promoted (9/10 tasks; 4.3
+  completes with this handoff); `openspec validate --all --strict
+  --no-interactive`: 28 passed, 0 failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (3 files modified:
+  `src/core/mod.rs` for the `provider-invalid` typed error,
+  `src/lib.rs` to register the new module, `src/main.rs` for the
+  `forge provider` subcommand, the `ProviderCommands` enum and the
+  `cmd_provider` helpers; 4 files added: `src/provider/mod.rs` with 27
+  unit tests, `tests/provider_contract.rs` with 12 contract tests,
+  `tests/provider_cross_surface.rs` with 6 cross-surface regression
+  tests, `docs/provider-evidence.md`; plus the promoted spec and the
+  change archive). Committed as `57220c8`; no push performed.
+  Pre-existing queue-setup modifications (`README.md`, `ROADMAP.md`,
+  `openspec/config.yaml`) and the `specification-governance-refresh`
+  change dir left untouched in the worktree.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- No live sandbox is configured here, so no `sandbox: live` row is
+  claimed: live DriftWatch/OIDC/analytics/deploy/release evidence
+  remains a downstream step run with `FORGE_PROVIDER_LIVE=1` and
+  runner-supplied secrets per `docs/provider-evidence.md`. Fixture
+  rows are labeled `sandbox: fixture` and are supplemental, never
+  provider support.
 
 ## Verification evidence (runtime-hardening-and-test-isolation, 2026-09-21)
 

@@ -18,4 +18,4 @@
 
 - [x] 4.1 Run the matrix, native commands, Rust quality suite and artifact smoke checks; record exact unavailable toolchains.
 - [x] 4.2 Run name preflight, strict OpenSpec validation and diff checks.
-- [ ] 4.3 Archive only after all required release-acceptance evidence is current; update roadmap and HANDOFF.
+- [x] 4.3 Archive only after all required release-acceptance evidence is current; update roadmap and HANDOFF.

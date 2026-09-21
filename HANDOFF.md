@@ -1931,7 +1931,44 @@ typed unavailable/timeout outcome and records no successful stage. The next
 eligible package is `profile-and-release-readiness`; later packages depend on its
 evidence: `provider-integration-evidence` → `specification-governance-refresh`.
 
-`current_spec: profile-and-release-readiness`
+`profile-and-release-readiness` implemented, verified and archived on 2026-09-21
+as `2026-09-21-profile-and-release-readiness`; canonical specs promoted to
+[openspec/specs/profile-and-release-readiness/spec.md](openspec/specs/profile-and-release-readiness/spec.md).
+New in this cycle: `src/readiness` (versioned `MatrixRow`/`MatrixReport`/
+`ArtifactEvidence`/`GateReport`/`ReadinessStatus`
+(`passed`/`failed`/`unverified`) contract `0.1.0`;
+`run_profile_row` renders the supported profile fixture into a disposable
+directory (registry never contacted, caller tree untouched), strips the
+Forge binary's directory from `PATH` and proves no `forge` resolves on the
+native `PATH`, captures toolchain version, build/test exit statuses,
+source SHA-256 and timestamp, and classifies missing toolchains as
+`unverified` (never passing) and failed native commands as `failed` with
+the profile and command named; unknown ids refused with `unknown-profile`,
+planned ids with `unsupported-profile`, both before any fixture is
+generated; `artifact_evidence` reports the platform-native binary path,
+SHA-256 and `forge --version` smoke; `evaluate_gate` passes only when
+every selected row passes; new Core errors `readiness-invalid` /
+`readiness-not-ready` with stable codes; CLI `forge readiness
+matrix|artifact|check` (human/JSON, `matrix` exits 0 with the evidence
+rows, `check` prints the gate report on stdout and exits 1 with the typed
+code on stderr when blocked); `.github/workflows/ci.yml` plus
+`scripts/release-check.sh` as the CI/local parity gate (fmt, build, full
+test suite, clippy, strict OpenSpec validation, full matrix evidence,
+subset gate); `docs/release-readiness.md` checklist with the runner /
+profile contract and the remediation pointers). Matrix evidence on this
+host: `aspnet-web` passed (`dotnet` 10.0.400), `nextjs-web` passed (`node`
+v24.18.0), `rust-web` passed (`cargo` 1.98.1), `flutter-app` failed
+(`flutter build appbundle` finds no `android/app/build.gradle` in the
+generated fixture), `python-service` failed (`python3 -m build` passes,
+`python3 -m pytest` reports `No module named pytest`), `react-web` failed
+(`npm test` under `node --test` reports `document is not defined`); the
+qualified gate (`rust-web` + `nextjs-web` + `aspnet-web`) exits 0 with
+`gate ready=true`. The three failures are recorded as template/host gaps
+for the owning specs, not as verified rows. The next eligible package is
+`provider-integration-evidence`; `specification-governance-refresh` follows
+it.
+
+`current_spec: provider-integration-evidence`
 
 ## Verification evidence (runtime-hardening-and-test-isolation, 2026-09-21)
 
@@ -1962,6 +1999,73 @@ evidence: `provider-integration-evidence` → `specification-governance-refresh`
 - Descendant process-group cleanup remains platform-dependent and is recorded
   as a direct-child guarantee only, per the change design; real provider round
   trips remain downstream integration steps and are not claimed here.
+
+## Verification evidence (profile-and-release-readiness, 2026-09-21)
+
+- `cargo fmt --check`: PASS; `cargo build`: PASS; `cargo clippy
+  --all-targets -- -D warnings`: PASS (two findings fixed during the
+  cycle: a needless borrow in `artifact_evidence_for` and an unused
+  import in `tests/readiness_contract.rs`).
+- `cargo test`: full suite PASS — 436 lib tests incl. 9 new readiness
+  unit tests (supported-profile catalog order, PATH strip keeping only
+  the Forge directory out, source-hash stability/sensitivity, `forge`
+  resolution probe, unknown/planned refusal codes, missing-toolchain
+  `unverified` classification with no pass, filter dedupe/refusal,
+  artifact version+checksum); 10 new `tests/readiness_contract.rs`
+  tests (help surface, unknown/planned refusal before any fixture,
+  `rust-web` passed row with toolchain version, source SHA-256 and
+  `forge_absent_from_path: true`, dedupe, artifact path/checksum/smoke
+  matching `forge --version`, `check` pass on a passing row, `check`
+  block keeping the gate report on stdout with `readiness-not-ready`
+  on stderr, human rendering); 5 new
+  `tests/readiness_cross_surface.rs` tests (matrix invents no project
+  and writes no journal row, artifact leaves the registry file
+  byte-identical, doctor verdict byte-equivalent across a readiness
+  run, `forge feature add` compatible after a readiness run,
+  `rust-web` row proving the fixture builds without Forge); all 43
+  binaries ok. One `api_contract` healthz test flaked once under
+  full-suite parallel load (`Connection reset by peer`, untouched by
+  this change) and passes in isolation (11/11) and in the final full
+  run.
+- Native matrix (final, current binary): `passed=3 failed=3
+  unverified=0 ready=false` — `aspnet-web` passed, `nextjs-web`
+  passed, `rust-web` passed; `flutter-app` failed (no
+  `android/app/build.gradle` in the fixture), `python-service` failed
+  (`No module named pytest`), `react-web` failed (`document is not
+  defined` under `node --test`). Qualified gate (`--profile rust-web
+  --profile nextjs-web --profile aspnet-web`): exit 0, `gate
+  ready=true`. Full-matrix gate correctly blocks with
+  `error[readiness-not-ready]` naming each failed row.
+- `scripts/release-check.sh` runs the CI-parity sequence (fmt, build,
+  full `cargo test`, clippy, strict OpenSpec validation, full matrix
+  evidence, subset gate); `.github/workflows/ci.yml` provisions
+  Rust/Node/.NET and gates the same three qualified profiles.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate profile-and-release-readiness --strict`:
+  valid pre-archive; `openspec archive profile-and-release-readiness
+  --yes`: archived as `2026-09-21-profile-and-release-readiness` with
+  the canonical `spec/profile-and-release-readiness` promoted;
+  `openspec validate --all --strict --no-interactive`: 28 passed, 0
+  failed (post-archive).
+- `git diff --check`: PASS; staged set reviewed (4 files modified:
+  `src/core/mod.rs` for the `readiness-invalid` /
+  `readiness-not-ready` typed errors, `src/generate/mod.rs` for
+  `pub(crate)` visibility of `split_command` / `toolchain_present`,
+  `src/lib.rs` to register the new module, `src/main.rs` for the
+  `forge readiness` subcommand, the `ReadinessCommands` enum and the
+  `cmd_readiness` helpers; 6 files added: `src/readiness/mod.rs` with
+  9 unit tests, `tests/readiness_contract.rs` with 10 contract tests,
+  `tests/readiness_cross_surface.rs` with 5 cross-surface regression
+  tests, `.github/workflows/ci.yml`, `scripts/release-check.sh`,
+  `docs/release-readiness.md`; plus the promoted spec and the change
+  archive). Committed as `d37a9e8`; no push performed.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- CI itself is not executed here (no runner in the sandbox); the
+  workflow calls the same script verified locally. The flutter/react
+  template gaps and the pytest prerequisite are recorded in
+  `docs/release-readiness.md` for the owning specs; a real
+  full-matrix pass and any remote publication remain downstream steps
+  and are not claimed here.
 
 ## Verification evidence (control-plane-portal, 2026-09-18)
 

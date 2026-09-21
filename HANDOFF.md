@@ -2015,7 +2015,43 @@ verdict byte-equivalent, feature add compatible, portal dashboard
 renders). The next eligible package is
 `specification-governance-refresh`.
 
-`current_spec: specification-governance-refresh`
+`specification-governance-refresh` implemented, verified and archived on 2026-09-21
+as `2026-09-21-specification-governance-refresh`; canonical spec promoted to
+[openspec/specs/specification-governance-refresh/spec.md](openspec/specs/specification-governance-refresh/spec.md).
+New in this cycle: accurate one-sentence purposes for all 25 canonical specs that
+carried the generated `Purpose: TBD` placeholder (the two specs with authored
+purposes, `adapter-deployment` and `repository-distribution`, untouched);
+`scripts/check-spec-governance.mjs` placeholder/link/pointer/status traceability
+(non-zero exit with file:line rule failures, PASS otherwise, negative-tested with
+probe files); `scripts/release-check.sh` runs both node checkers before strict
+validation; `docs/adr/0001-foundation-toolchain.md` status labeled as historical
+planning context over the implemented toolchain; the implementation-cycle example
+pointer generalized to `<active-change>`; `docs/requirements-coverage.md` intro
+qualified with the audit queue and the local/fixture/native/provider/release
+evidence distinction; the queue-setup `README.md` / `ROADMAP.md` /
+`openspec/config.yaml` status refresh committed as part of this change (the new
+checker requires it). No active changes remain.
+
+## Verification evidence (specification-governance-refresh, 2026-09-21)
+
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `node scripts/check-spec-governance.mjs`: PASS (probe placeholder/broken-link
+  files fail the check as designed and were removed after).
+- `openspec validate specification-governance-refresh --strict --no-interactive`:
+  valid pre-archive; `openspec archive specification-governance-refresh --yes`:
+  archived as `2026-09-21-specification-governance-refresh` with the canonical
+  `spec/specification-governance-refresh` promoted; `openspec validate --all
+  --strict --no-interactive`: 28 passed, 0 failed (post-archive). Post-archive,
+  the promoted spec's regenerated `Purpose: TBD` line was replaced with the
+  change's purpose sentence and the `current_spec` pointer removed (no active
+  changes remain); checker re-run PASS.
+- `git diff --check`: PASS; staged set reviewed (25 canonical purpose lines,
+  governance docs, release-check hook, new checker, promoted spec, change
+  archive).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Docs-only change: no Rust source touched, so there is no cargo build/test
+  delta; the change's own verification strategy (checker, strict validation,
+  link/whitespace checks, doc review) is fully executed.
 
 ## Verification evidence (provider-integration-evidence, 2026-09-21)
 
@@ -3453,7 +3489,7 @@ renders). The next eligible package is
 
 1. Run `node scripts/check-openspec-change-names.mjs` before selection; failure blocks status/instructions and implementation.
 2. Run `openspec list`, reconcile roadmap dependencies, and update the single pointer before work.
-3. Run `openspec status --change extended-profile-catalog` and `openspec instructions apply --change extended-profile-catalog`; read all selected artifacts and applicable local rules.
+3. Run `openspec status --change <active-change>` and `openspec instructions apply --change <active-change>`; read all selected artifacts and applicable local rules.
 4. Follow BFS analysis, structural pass, DFS requirement implementation, then BFS regression/completeness. Check tasks only against evidence.
 5. Run the actual local build/test/integration commands and applicable Gate before archive; record exact failures and next actions. Gate FAIL or unresolved REVIEW_REQUIRED blocks completion when a Gate is configured.
 6. Run the name checker and `openspec validate --all --strict --no-interactive`; review diffs and original impact surfaces.

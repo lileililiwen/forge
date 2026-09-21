@@ -3496,4 +3496,4 @@ checker requires it). No active changes remain.
 7. Archive verified work without `--skip-specs`, inspect promoted canonical specs, and commit only related implementation/tests/archive/specs.
 8. Advance `current_spec` to the next active eligible change, or remove the line when no active changes remain; update this evidence, commit HANDOFF separately and stop without push.
 
-Planning-only documentation does not implement, archive or commit the queued changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
+Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.

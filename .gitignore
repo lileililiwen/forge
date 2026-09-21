@@ -32,6 +32,11 @@
 .env.*
 !.env.example
 !.env.*.example
+# Transient residue (crash leftovers, editor backups, coverage reports)
+*.tmp
+*.bak
+*.orig
+lcov.info
 # Local tooling and editor state
 /.codegraph/
 /.idea/

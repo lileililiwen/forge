@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries are implemented and archived; four audit follow-up changes are queued in `openspec/changes/`. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence and specification governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus four audit follow-ups are implemented and archived; no active changes remain in `openspec/changes/`. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence and specification governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -60,4 +60,4 @@ The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versio
 
 ## Operating rule
 
-The 24 baseline changes are archived; the audit queue is intentionally active. A new implementation cycle starts with exactly one eligible change, setting the single `current_spec` pointer, and following implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.
+All 28 changes are archived; no `current_spec` pointer remains in [HANDOFF.md](HANDOFF.md). A new implementation cycle starts with exactly one eligible change, setting the single `current_spec` pointer, and following implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.

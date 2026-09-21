@@ -1,7 +1,7 @@
 # profile-registry Specification
 
 ## Purpose
-TBD - created by archiving change profile-registry. Update Purpose after archive.
+Discovery for the five MVP profiles (aspnet-web, rust-web, nextjs-web, flutter-app, python-service): versioned descriptors with capabilities, packages, layout, conventions, build/test commands, deployment defaults and quality policies, plus resolve and preflight guards.
 ## Requirements
 ### Requirement: MVP profile discovery
 

@@ -1,7 +1,7 @@
 # quality-policy-integration Specification
 
 ## Purpose
-TBD - created by archiving change quality-policy-integration. Update Purpose after archive.
+Delegated quality execution through the DriftWatch policy plane: configured checks invoked with bounded waits, findings mapped to project observations with category, policy ID, severity, tool version and evidence, and unavailable (never pass) on adapter failure.
 ## Requirements
 ### Requirement: Delegated policy execution
 

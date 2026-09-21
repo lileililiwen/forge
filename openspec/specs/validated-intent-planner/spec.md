@@ -1,7 +1,7 @@
 # validated-intent-planner Specification
 
 ## Purpose
-TBD - created by archiving change validated-intent-planner. Update Purpose after archive.
+Validated intent planning from natural-language requests: schema-validated Intent with required/forbidden capabilities and constraints, incompatibility refusal before generation, and deterministic pinned assembly plans with staleness re-checks and confirm-gated apply.
 ## Requirements
 ### Requirement: Validated intent boundary
 

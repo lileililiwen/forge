@@ -1,7 +1,7 @@
 # core-http-api Specification
 
 ## Purpose
-TBD - created by archiving change core-http-api. Update Purpose after archive.
+Stable HTTP/1.1 project and lifecycle operations (projects, doctor, features, upgrade, specs, agents, deployments, operations) reusing the CLI/MCP Core validation and results, with per-project OIDC sessions, confirm-gated mutations, idempotent operations and bounded request handling.
 ## Requirements
 ### Requirement: Equivalent HTTP domain behavior
 

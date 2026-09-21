@@ -1,7 +1,7 @@
 # release-publishing Specification
 
 ## Purpose
-TBD - created by archiving change release-publishing. Update Purpose after archive.
+Verified release preparation and staged publishing: semver/changelog/revision-bound plans with doctor/test/DriftWatch gates, confirm-gated per-stage apply (commit, tag, push, mirror, package, container, docs, notes) with tag-conflict refusal and retry-safe skipped stages.
 ## Requirements
 ### Requirement: Verified release preparation
 

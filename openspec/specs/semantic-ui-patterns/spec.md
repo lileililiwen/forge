@@ -1,7 +1,7 @@
 # semantic-ui-patterns Specification
 
 ## Purpose
-TBD - created by archiving change semantic-ui-patterns. Update Purpose after archive.
+Semantic UI pattern catalog (seventeen tested entries plus one deprecated): data, interaction, typography, spacing, responsive, state, accessibility and navigation contracts with tested per-profile adapters that install ordinary source plus receipts and refuse ownership conflicts.
 ## Requirements
 ### Requirement: Semantic UI catalog and states
 

@@ -1,7 +1,7 @@
 # specification-remediation Specification
 
 ## Purpose
-TBD - created by archiving change specification-remediation. Update Purpose after archive.
+Traceable spec remediation from capability gaps, policy findings and semantic upgrade conflicts: bounded idempotent proposals with provenance, deterministic/semantic/manual routing, and request validation before any write.
 ## Requirements
 ### Requirement: Traceable spec generation
 

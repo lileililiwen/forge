@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: all 24 entries are implemented, verified and archived; no active changes remain in `openspec/changes/`. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries are implemented and archived; four audit follow-up changes are queued in `openspec/changes/`. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence and specification governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -40,6 +40,10 @@ Follow the order below by default; every dependency was implemented and verified
 | 22 | later | [external-planes-analytics](openspec/specs/external-planes-analytics/spec.md) | `agent-runtime-workflows`, `adapter-deployment`, `repository-distribution` | §32, §33 |
 | 23 | later | [core-http-api](openspec/specs/core-http-api/spec.md) | `mature-mcp-surface`, `adapter-deployment`, `external-planes-analytics` | §35 |
 | 24 | later | [control-plane-portal](openspec/specs/control-plane-portal/spec.md) | `core-http-api`, `external-planes-analytics`, `semantic-ui-patterns` | §36 |
+| 25 | audit | `runtime-hardening-and-test-isolation` | `control-plane-portal` | cross-cutting failure boundaries |
+| 26 | audit | `profile-and-release-readiness` | `runtime-hardening-and-test-isolation` | §9, §15, §29, §34, §39, §43 |
+| 27 | audit | `provider-integration-evidence` | `profile-and-release-readiness` | §24, §30, §31, §33, §43 |
+| 28 | audit | `specification-governance-refresh` | `runtime-hardening-and-test-isolation`, `profile-and-release-readiness`, `provider-integration-evidence` | repository evidence governance |
 
 ## Release acceptance
 
@@ -56,4 +60,4 @@ The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versio
 
 ## Operating rule
 
-All changes are archived; no `current_spec` pointer remains in [HANDOFF.md](HANDOFF.md). A new change starts by creating exactly one eligible OpenSpec change, setting the single `current_spec` pointer, and following implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.
+The 24 baseline changes are archived; the audit queue is intentionally active. A new implementation cycle starts with exactly one eligible change, setting the single `current_spec` pointer, and following implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.

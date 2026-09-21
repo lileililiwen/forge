@@ -1,7 +1,7 @@
 # central-admin-identity Specification
 
 ## Purpose
-TBD - created by archiving change central-admin-identity. Update Purpose after archive.
+Federated admin sign-in over standard OIDC: PKCE challenge, callback and claims validation, and project-scoped admin sessions gated on an explicit admin-claim allow list, so a valid provider login never silently grants admin.
 ## Requirements
 ### Requirement: Federated admin sign-in
 

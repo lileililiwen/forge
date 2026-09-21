@@ -1,7 +1,7 @@
 # control-plane-portal Specification
 
 ## Purpose
-TBD - created by archiving change control-plane-portal. Update Purpose after archive.
+Read-only control-plane views over the same Core contracts as CLI and MCP: the twelve §36 sections rendered as project or fleet dashboards and single-section views with worst-status rollup, journaling portal reads without mutating any project.
 ## Requirements
 ### Requirement: Shared project and lifecycle views
 

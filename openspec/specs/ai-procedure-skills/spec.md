@@ -1,7 +1,7 @@
 # ai-procedure-skills Specification
 
 ## Purpose
-TBD - created by archiving change ai-procedure-skills. Update Purpose after archive.
+Versioned AI operating procedures for the named lifecycle workflows (create-project, upgrade-project, prepare-release, fix-quality-findings, onboard-existing-project, deploy-project, mirror-repository, translate-docs) with prerequisites, ordered Core operations and a verification block; procedures carrying bypass markers are refused rather than skipping checks.
 ## Requirements
 ### Requirement: Discoverable operation procedures
 

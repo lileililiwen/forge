@@ -2,7 +2,7 @@
 
 Date: 2026-09-16
 Scope: `core-manifest-registry` (Roadmap order 1, target v0.1)
-Status: accepted
+Status: accepted; planning context below is historical — the toolchain it records is implemented and validated in tree (see HANDOFF verification evidence). The historical wording is retained, not rewritten.
 
 ## Context
 

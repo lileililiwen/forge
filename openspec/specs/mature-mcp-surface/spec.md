@@ -1,7 +1,7 @@
 # mature-mcp-surface Specification
 
 ## Purpose
-TBD - created by archiving change mature-mcp-surface. Update Purpose after archive.
+Single MCP server over JSON-RPC 2.0 stdio exposing sixteen mature operations (six read-only, nine mutating, one external-write) that dispatch through the same Core contracts as the CLI, with confirm-gated push and no unstable internals advertised.
 ## Requirements
 ### Requirement: Shared validated MCP operations
 

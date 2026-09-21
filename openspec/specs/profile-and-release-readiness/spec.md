@@ -1,7 +1,7 @@
 # profile-and-release-readiness Specification
 
 ## Purpose
-TBD - created by archiving change profile-and-release-readiness. Update Purpose after archive.
+Reproducible release-readiness evidence: native build/test matrix rows per supported profile with missing toolchains classified unverified (never passing), artifact checksums with version smoke, and a gate that passes only when every selected row passes.
 ## Requirements
 ### Requirement: Supported profile native evidence
 

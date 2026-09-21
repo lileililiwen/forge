@@ -1,7 +1,7 @@
 # documentation-translation Specification
 
 ## Purpose
-TBD - created by archiving change documentation-translation. Update Purpose after archive.
+Source-of-truth documentation translation: incremental per-locale derivatives with source-hash freshness, explicit enablement, verbatim code preservation, external translator adapters under bounded execution, and needs-review marking on link or terminology violations.
 ## Requirements
 ### Requirement: Canonical and derivative documentation
 

@@ -4,7 +4,7 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 ## Status
 
-Implemented and verified. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 24 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites (`cargo test`, `cargo clippy --all-targets -- -D warnings`). The requirements document version is not a delivered Forge release. Generated project behavior, integrations and stack support are verified through the fixture and native-toolchain evidence recorded in [HANDOFF.md](HANDOFF.md); real provider round trips (DriftWatch binary, OIDC provider, analytics adapters, portal framework) remain downstream integration steps.
+Implemented baseline with four audit follow-up changes queued. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 24 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. The current audit found one MCP test that depends on a read-only host registry; native profile matrix, packaging/CI and real provider round trips remain separately qualified and are covered by the active queue.
 
 ## MVP and delivery
 

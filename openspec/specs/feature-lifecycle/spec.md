@@ -1,7 +1,7 @@
 # feature-lifecycle Specification
 
 ## Purpose
-TBD - created by archiving change feature-lifecycle. Update Purpose after archive.
+Versioned feature registry with compatibility, dependencies, conflicts, install/upgrade strategies, validation, documentation and tests: dependency-ordered deterministic add/remove/upgrade through manifest-only edits with ownership receipts and preflight guards.
 ## Requirements
 ### Requirement: Feature resolution and discovery
 

@@ -1,7 +1,7 @@
 # deterministic-project-generation Specification
 
 ## Purpose
-TBD - created by archiving change deterministic-project-generation. Update Purpose after archive.
+Deterministic project creation through forge new with explicit or interactive profile selection, rendering pinned native-buildable templates that produce equivalent ordinary source from identical inputs and keep working without Forge.
 ## Requirements
 ### Requirement: Equivalent deterministic creation modes
 

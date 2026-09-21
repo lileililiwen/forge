@@ -1,6 +1,6 @@
 # Requirements coverage
 
-Source: [Forge Requirements & Product Design v0.3](../requirement.md), preserved in full. Each numbered section maps to a bounded capability below. All 24 capabilities are implemented, verified and archived; mapping indicates delivered behavior with per-cycle evidence in [HANDOFF.md](../HANDOFF.md). Cross-cutting principles also apply to every package through [architecture](architecture.md) and the local governance rules.
+Source: [Forge Requirements & Product Design v0.3](../requirement.md), preserved in full. Each numbered section maps to a bounded capability below. The 24 baseline capabilities are implemented, verified and archived; mapping indicates delivered behavior with per-cycle evidence in [HANDOFF.md](../HANDOFF.md). Four audit follow-ups extend the baseline (`runtime-hardening-and-test-isolation`, `profile-and-release-readiness`, `provider-integration-evidence` archived; `specification-governance-refresh` active). Local build/test evidence, fixture-based adapter evidence, native-toolchain matrix evidence and live provider evidence are distinct states: a passing local suite or fixture round trip is never represented as native, provider or release proof. Cross-cutting principles also apply to every package through [architecture](architecture.md) and the local governance rules.
 
 | Section | Requirement area | Planned capability specifications |
 | --- | --- | --- |

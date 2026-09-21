@@ -1,7 +1,7 @@
 # extended-profile-catalog Specification
 
 ## Purpose
-TBD - created by archiving change extended-profile-catalog. Update Purpose after archive.
+Sixth supported profile react-web with a tested native-buildable template under the established profile contract, plus reserved specialist candidates discoverable as planned but refused before any file change.
 ## Requirements
 ### Requirement: React web generation support
 

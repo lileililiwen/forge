@@ -1,7 +1,7 @@
 # core-manifest-registry Specification
 
 ## Purpose
-TBD - created by archiving change core-manifest-registry. Update Purpose after archive.
+Versioned forge.yaml contract (schema 1) carrying project identity, profile, maturity, runtime, features, quality, AI, deployment, distribution and documentation metadata, plus the SQLite project registry and append-only operation journal; ambiguous sources and unsupported schemas fail without mutation.
 ## Requirements
 ### Requirement: Versioned manifest contract
 

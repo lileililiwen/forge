@@ -1,7 +1,7 @@
 # semantic-component-registry Specification
 
 ## Purpose
-TBD - created by archiving change semantic-component-registry. Update Purpose after archive.
+Semantic reusable-component registry below feature granularity: meaningful units with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, under quality levels (experimental/verified/certified/deprecated) with certified preferred and deprecated refused.
 ## Requirements
 ### Requirement: Semantic reusable unit contracts
 

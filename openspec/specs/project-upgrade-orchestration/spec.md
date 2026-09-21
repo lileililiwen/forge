@@ -1,7 +1,7 @@
 # project-upgrade-orchestration Specification
 
 ## Purpose
-TBD - created by archiving change project-upgrade-orchestration. Update Purpose after archive.
+Deterministic upgrade planning and fleet orchestration: pinned plans with compatibility checks and recovery implications, semantic-conflict handoff to spec generation, per-project failure isolation, and no-op on already-satisfied upgrades.
 ## Requirements
 ### Requirement: Deterministic upgrade planning
 

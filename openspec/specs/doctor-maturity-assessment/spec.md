@@ -1,7 +1,7 @@
 # doctor-maturity-assessment Specification
 
 ## Purpose
-TBD - created by archiving change doctor-maturity-assessment. Update Purpose after archive.
+Read-only maturity assessment through forge doctor: a stable finding inventory (PASS/WARN/FAIL/UNAVAILABLE) with evidence and remediation classes, target-gated L0–L4 applicability, and registry-observation staleness, never masking missing evidence as healthy.
 ## Requirements
 ### Requirement: Doctor finding inventory
 

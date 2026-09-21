@@ -1,7 +1,7 @@
 # agent-runtime-workflows Specification
 
 ## Purpose
-TBD - created by archiving change agent-runtime-workflows. Update Purpose after archive.
+Managed agent sessions over the existing PTY agent manager: start, pause, takeover, resume, restart and new-session operations plus spec execution, test, commit and confirm-gated push through shared Core contracts, without replacing the agent runtime.
 ## Requirements
 ### Requirement: Managed agent sessions
 

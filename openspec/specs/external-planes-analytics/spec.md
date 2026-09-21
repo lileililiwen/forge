@@ -1,7 +1,7 @@
 # external-planes-analytics Specification
 
 ## Purpose
-TBD - created by archiving change external-planes-analytics. Update Purpose after archive.
+External content and analytics plane over configured adapters (unified-content and github-analytics supported, notion/confluence/gitlab-analytics/codeberg-analytics planned): per-provider health observations, windowed metric aggregates that never sum across windows, and credential-safe evidence.
 ## Requirements
 ### Requirement: External system identity and health
 

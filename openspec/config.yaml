@@ -3,11 +3,11 @@ schema: spec-driven
 context: |
   Forge is a language-agnostic developer control plane and deterministic software assembly platform.
   requirement.md is the authoritative full product brief; ROADMAP.md orders bounded changes.
-  Repository status: planning-only, no product implementation or runtime verification.
+  Repository status: implemented baseline with four active audit follow-up packages; runtime, native-toolchain and external-provider evidence remain separately qualified.
   Recommended baseline: Rust Core/CLI, SQLite, YAML, stdio MCP; confirm in the foundation ADR.
   v0.1 is manifest, project/profile registries, import/list/inspect/new/doctor, and five MVP profiles.
   Generated projects must work without Forge; reuse DriftWatch and the existing PTY agent manager.
-  Read AGENTS.md and .ai-rules/workflow.md. Planning packages do not authorize implementation.
+  Read AGENTS.md and .ai-rules/workflow.md. Active planning packages do not authorize implementation, archive or release claims.
 rules:
   proposal:
     - Use Why, What Changes, BFS Impact Map, Capabilities, and Non-goals in that order.

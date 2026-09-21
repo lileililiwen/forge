@@ -55,6 +55,14 @@ step cargo build
 step cargo test
 step cargo clippy --all-targets -- -D warnings
 
+if command -v node >/dev/null 2>&1; then
+  step node scripts/check-openspec-change-names.mjs
+  step node scripts/check-spec-governance.mjs
+else
+  echo "release-check blocked: node is unavailable; install it to run OpenSpec name and governance checks" >&2
+  exit 1
+fi
+
 if command -v openspec >/dev/null 2>&1; then
   step openspec validate --all --strict --no-interactive
 else

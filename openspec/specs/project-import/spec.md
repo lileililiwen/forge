@@ -1,7 +1,7 @@
 # project-import Specification
 
 ## Purpose
-TBD - created by archiving change project-import. Update Purpose after archive.
+Evidence-backed import of existing projects: read-only detection of language, framework, database, Docker, CI, auth, features, DriftWatch, Git and deployment with unknown-vs-missing evidence, suggested profile/maturity, and a manifest written only on explicit accept.
 ## Requirements
 ### Requirement: Evidence-backed detection
 

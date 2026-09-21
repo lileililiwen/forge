@@ -1,7 +1,7 @@
 # runtime-hardening-and-test-isolation Specification
 
 ## Purpose
-TBD - created by archiving change runtime-hardening-and-test-isolation. Update Purpose after archive.
+Cross-cutting runtime and test hardening: bounded subprocess execution with kill-and-reap on timeout, and registry-backed transport tests isolated on temporary registries so host state (including a read-only HOME) cannot leak into results.
 ## Requirements
 ### Requirement: Isolated registry-backed test execution
 

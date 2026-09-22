@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus four audit follow-ups are implemented and archived; no active changes remain in `openspec/changes/`. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence and specification governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived; no active changes remain in `openspec/changes/`. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, and standalone governance-provider switching. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -44,6 +44,7 @@ Follow the order below by default; every dependency was implemented and verified
 | 26 | audit | `profile-and-release-readiness` | `runtime-hardening-and-test-isolation` | §9, §15, §29, §34, §39, §43 |
 | 27 | audit | `provider-integration-evidence` | `profile-and-release-readiness` | §24, §30, §31, §33, §43 |
 | 28 | audit | `specification-governance-refresh` | `runtime-hardening-and-test-isolation`, `profile-and-release-readiness`, `provider-integration-evidence` | repository evidence governance |
+| 29 | audit | `governance-provider-contract-and-local-default` | `core-manifest-registry`, `provider-integration-evidence`, `control-plane-portal` | standalone optional governance provider boundary |
 
 ## Release acceptance
 
@@ -60,4 +61,4 @@ The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versio
 
 ## Operating rule
 
-All 28 changes are archived; no `current_spec` pointer remains in [HANDOFF.md](HANDOFF.md). A new implementation cycle starts with exactly one eligible change, setting the single `current_spec` pointer, and following implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.
+All 29 changes are archived; no `current_spec` pointer remains in [HANDOFF.md](HANDOFF.md). A new implementation cycle starts with exactly one eligible change, setting the single `current_spec` pointer, and following implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.

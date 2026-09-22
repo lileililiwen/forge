@@ -43,6 +43,11 @@ use forge::feature::{
 };
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
+use forge::governance::{
+    check_project as check_governance_project, list_providers as list_governance_providers,
+    save_provider_selection, GovernanceObservation, ProviderStatus, GOVERNANCE_CONTRACT_VERSION,
+    LOCAL_PROVIDER_ID,
+};
 use forge::identity::{
     build_challenge, delete_challenge_file as delete_identity_challenge,
     list_sessions as list_identity_sessions, load_challenge, load_session, mint_session,
@@ -352,6 +357,11 @@ enum Commands {
     Provider {
         #[command(subcommand)]
         command: ProviderCommands,
+    },
+    /// Inspect and select standalone or optional external governance providers.
+    Governance {
+        #[command(subcommand)]
+        command: GovernanceCommands,
     },
 }
 
@@ -969,6 +979,45 @@ enum ProviderCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum GovernanceCommands {
+    /// List the local provider and the configured optional provider.
+    List {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Run the selected provider and record a bounded observation.
+    Status {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Alias for status that returns the full normalized observation.
+    Inspect {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Select a provider without changing forge.yaml or registry identity.
+    Use {
+        /// Provider id, or `local` for the built-in standalone provider.
+        provider: String,
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Adapter executable for an external provider.
+        #[arg(long)]
+        adapter: Option<String>,
+        /// Disable the selected external provider without removing its config.
+        #[arg(long)]
+        disable: bool,
+        /// Adapter timeout in milliseconds.
+        #[arg(long, default_value_t = 10_000)]
+        timeout_ms: u64,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1163,6 +1212,7 @@ fn main() -> ExitCode {
         Commands::Portal { command } => cmd_portal(&db_path, command, cli.format),
         Commands::Readiness { command } => cmd_readiness(command, cli.format),
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
+        Commands::Governance { command } => cmd_governance(command, cli.format),
     };
 
     match result {
@@ -4492,6 +4542,119 @@ fn cmd_provider(
         ),
         ProviderCommands::Inspect { provider } => cmd_provider_inspect(db_path, provider, format),
     }
+}
+
+fn cmd_governance(command: &GovernanceCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        GovernanceCommands::List { path } => {
+            let providers = list_governance_providers(path)?;
+            let human = providers
+                .iter()
+                .map(|provider| {
+                    format!(
+                        "{}: {}{} (protocol {})",
+                        provider.provider,
+                        if provider.enabled {
+                            "enabled"
+                        } else {
+                            "disabled"
+                        },
+                        provider
+                            .adapter
+                            .as_deref()
+                            .map(|adapter| format!(", adapter={adapter}"))
+                            .unwrap_or_default(),
+                        provider.protocol_version
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": GOVERNANCE_CONTRACT_VERSION,
+                    "providers": providers,
+                }),
+            ))
+        }
+        GovernanceCommands::Status { path } | GovernanceCommands::Inspect { path } => {
+            let observation = check_governance_project(path)?;
+            governance_output(format, observation)
+        }
+        GovernanceCommands::Use {
+            provider,
+            path,
+            adapter,
+            disable,
+            timeout_ms,
+        } => {
+            let adapter = if provider == LOCAL_PROVIDER_ID {
+                None
+            } else {
+                adapter.as_deref()
+            };
+            save_provider_selection(path, provider, adapter, !disable, *timeout_ms)?;
+            let detail = if provider == LOCAL_PROVIDER_ID {
+                "selected built-in local provider".to_string()
+            } else if *disable {
+                format!("selected external provider `{provider}` (disabled)")
+            } else {
+                format!("selected external provider `{provider}`")
+            };
+            Ok(as_output(
+                format,
+                detail,
+                serde_json::json!({
+                    "contract": GOVERNANCE_CONTRACT_VERSION,
+                    "provider": provider,
+                    "enabled": !disable,
+                    "adapter": adapter,
+                }),
+            ))
+        }
+    }
+}
+
+fn governance_output(
+    format: Format,
+    observation: GovernanceObservation,
+) -> Result<Output, ForgeError> {
+    let status = match observation.status {
+        ProviderStatus::Pass => "pass",
+        ProviderStatus::Fail => "fail",
+        ProviderStatus::Blocked => "blocked",
+        ProviderStatus::Unknown => "unknown",
+        ProviderStatus::Unavailable => "unavailable",
+        ProviderStatus::Stale => "stale",
+        ProviderStatus::Disabled => "disabled",
+        ProviderStatus::Incompatible => "incompatible",
+    };
+    let human = format!(
+        "governance: {}\nprovider: {}\nproject: {}\nobserved_at: {}\nevidence: {}{}",
+        status,
+        observation.provider,
+        observation.project_id,
+        observation.observed_at,
+        if observation.evidence.is_empty() {
+            "(none)".to_string()
+        } else {
+            observation.evidence.join(" | ")
+        },
+        observation
+            .detail
+            .as_deref()
+            .map(|detail| format!("\ndetail: {detail}"))
+            .unwrap_or_default()
+    );
+    Ok(as_output(
+        format,
+        human,
+        serde_json::json!({
+            "contract": GOVERNANCE_CONTRACT_VERSION,
+            "observation": observation,
+        }),
+    ))
 }
 
 fn cmd_provider_matrix(db_path: &Path, live: bool, format: Format) -> Result<Output, ForgeError> {

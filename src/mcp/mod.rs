@@ -213,6 +213,11 @@ pub fn tool_registry() -> Vec<McpToolDescriptor> {
                 &["path"],
             ),
         ),
+        McpToolDescriptor::read_only(
+            "run_governance",
+            "Run the selected standalone or optional governance provider for a project.",
+            schema_object(&[("path", string_type())], &["path"]),
+        ),
         McpToolDescriptor::mutating(
             "create_project",
             "Create a new project deterministically from a pinned profile.",
@@ -604,6 +609,15 @@ fn dispatch_read_only(
             let value =
                 serde_json::to_value(&report).map_err(|err| internal_error(err.to_string()))?;
             Ok(serde_json::json!({"doctor": value, "policy": redact_policy(&policy_outcome)}))
+        }
+        "run_governance" => {
+            let path = required_string(args, "path")?;
+            let canonical = canonicalize_project(&path)?;
+            let observation =
+                crate::governance::evaluate_project(&canonical).map_err(core_error)?;
+            let value = serde_json::to_value(&observation)
+                .map_err(|err| internal_error(err.to_string()))?;
+            Ok(serde_json::json!({"observation": value}))
         }
         other => Err(McpRpcError::new(
             rpc_code::METHOD_NOT_FOUND,

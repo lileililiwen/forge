@@ -756,7 +756,11 @@ fn controls_for(section: PortalSection) -> Vec<String> {
             "forge analytics metrics".to_string(),
         ],
         PortalSection::Servers => vec!["forge api serve".to_string()],
-        PortalSection::Settings => vec!["forge portal dashboard".to_string()],
+        PortalSection::Settings => vec![
+            "forge portal dashboard".to_string(),
+            "forge governance status".to_string(),
+            "forge governance use".to_string(),
+        ],
     }
 }
 
@@ -1045,14 +1049,45 @@ fn build_servers_section(records: &[ProjectRecord]) -> Vec<PortalEntry> {
 fn build_settings_section(records: &[ProjectRecord]) -> Vec<PortalEntry> {
     records
         .iter()
-        .map(|r| PortalEntry {
-            id: format!("{r_id}:settings", r_id = r.id),
-            label: format!("{} portal settings", r.name),
-            status: PortalStatus::Ok,
-            source: "manifest".to_string(),
-            observed_at: r.observed_at.clone(),
-            evidence: Vec::new(),
-            attributes: BTreeMap::new(),
+        .map(|r| {
+            let governance = crate::governance::evaluate_project(Path::new(&r.path));
+            let (status, evidence, provider) = match governance {
+                Ok(observation) => {
+                    let status = match observation.status {
+                        crate::governance::ProviderStatus::Pass => PortalStatus::Ok,
+                        crate::governance::ProviderStatus::Fail => PortalStatus::Fail,
+                        crate::governance::ProviderStatus::Blocked => PortalStatus::Warn,
+                        crate::governance::ProviderStatus::Unknown
+                        | crate::governance::ProviderStatus::Stale => PortalStatus::Unknown,
+                        crate::governance::ProviderStatus::Unavailable
+                        | crate::governance::ProviderStatus::Disabled
+                        | crate::governance::ProviderStatus::Incompatible => {
+                            PortalStatus::Unavailable
+                        }
+                    };
+                    (
+                        status,
+                        vec![format!("governance status: {:?}", observation.status)],
+                        observation.provider,
+                    )
+                }
+                Err(err) => (
+                    PortalStatus::Unavailable,
+                    vec![format!("governance unavailable: {err}")],
+                    "local".to_string(),
+                ),
+            };
+            let mut attributes = BTreeMap::new();
+            attributes.insert("governance_provider".to_string(), provider);
+            PortalEntry {
+                id: format!("{r_id}:settings", r_id = r.id),
+                label: format!("{} portal and governance settings", r.name),
+                status,
+                source: "governance".to_string(),
+                observed_at: r.observed_at.clone(),
+                evidence,
+                attributes,
+            }
         })
         .collect()
 }

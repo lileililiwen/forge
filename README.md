@@ -38,6 +38,26 @@ cargo clippy --all-targets -- -D warnings
 
 There is no Forge installation packaging yet.
 
+## Optional governance providers
+
+Forge is standalone by default. With no `.forge/providers.yaml`, the built-in
+`local` provider validates the project's canonical `forge.yaml`; no sibling
+repository, network service, account, or external binary is required.
+
+```sh
+forge governance list .
+forge governance status .
+forge governance use local .
+forge governance use workspace-governance . --adapter /path/to/adapter
+forge --format json governance status .
+```
+
+External providers use the versioned `0.1.0` JSON adapter contract and are
+optional. Provider failures are reported as `unavailable` or `incompatible`
+observations and do not disable local Forge workflows. Provider selection is
+stored under `.forge/`, not in `forge.yaml`, and switching providers preserves
+the manifest and registry identity.
+
 ## Product boundaries
 
 - Deterministic templates, packages, codemods and migrations precede AI generation.

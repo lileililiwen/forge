@@ -258,6 +258,12 @@ pub enum ForgeError {
 
     #[error("provider invalid: {reason}")]
     ProviderInvalid { reason: String },
+
+    #[error("governance invalid: {reason}")]
+    GovernanceInvalid { reason: String },
+
+    #[error("governance provider unavailable: {reason}")]
+    GovernanceUnavailable { reason: String },
 }
 
 impl ForgeError {
@@ -345,6 +351,8 @@ impl ForgeError {
             ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
             ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
             ForgeError::ProviderInvalid { .. } => "provider-invalid",
+            ForgeError::GovernanceInvalid { .. } => "governance-invalid",
+            ForgeError::GovernanceUnavailable { .. } => "governance-provider-unavailable",
         }
     }
 

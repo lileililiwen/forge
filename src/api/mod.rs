@@ -314,6 +314,7 @@ pub enum Route {
     CreateProject,
     InspectProject { id: String },
     Doctor { id: String },
+    Governance { id: String },
     AddFeature { id: String },
     UpgradeProject { id: String },
     GenerateSpec { id: String },
@@ -335,6 +336,9 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             id: (*id).to_string(),
         }),
         ("POST", ["v1", "projects", id, "doctor"]) => Some(Route::Doctor {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "projects", id, "governance"]) => Some(Route::Governance {
             id: (*id).to_string(),
         }),
         ("POST", ["v1", "projects", id, "features"]) => Some(Route::AddFeature {
@@ -404,7 +408,10 @@ fn bad_request(reason: &str) -> ApiResponse {
 fn required_permission(route: &Route) -> Option<&'static str> {
     match route {
         Route::Healthz | Route::GetOperation { .. } => None,
-        Route::ListProjects | Route::InspectProject { .. } | Route::Doctor { .. } => None,
+        Route::ListProjects
+        | Route::InspectProject { .. }
+        | Route::Doctor { .. }
+        | Route::Governance { .. } => None,
         Route::CreateProject
         | Route::AddFeature { .. }
         | Route::UpgradeProject { .. }
@@ -481,6 +488,7 @@ pub fn handle(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiRe
         Route::CreateProject => handle_create_project(db_path, request, now),
         Route::InspectProject { id } => handle_inspect_project(db_path, &id),
         Route::Doctor { id } => handle_doctor(db_path, &id, request, now),
+        Route::Governance { id } => handle_governance(db_path, &id),
         Route::AddFeature { id } => handle_add_feature(db_path, &id, request, now),
         Route::UpgradeProject { id } => handle_upgrade(db_path, &id, request, now),
         Route::GenerateSpec { id } => handle_generate_spec(db_path, &id, request, now),
@@ -632,6 +640,7 @@ fn authorize(
         }
         Route::InspectProject { id }
         | Route::Doctor { id }
+        | Route::Governance { id }
         | Route::AddFeature { id }
         | Route::UpgradeProject { id }
         | Route::GenerateSpec { id }
@@ -853,6 +862,27 @@ fn handle_doctor(
             serde_json::json!({
                 "doctor": report,
                 "policy": serde_json::to_value(&policy_outcome).unwrap_or(Value::Null),
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_governance(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::governance::evaluate_project(Path::new(&record.path)) {
+        Ok(observation) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "governance": observation,
                 "contract": API_CONTRACT_VERSION,
             }),
         ),
@@ -1886,6 +1916,10 @@ mod tests {
         assert!(matches!(
             route_request("POST", "/v1/projects/rust-web/doctor"),
             Some(Route::Doctor { ref id }) if id == "rust-web"
+        ));
+        assert!(matches!(
+            route_request("GET", "/v1/projects/rust-web/governance"),
+            Some(Route::Governance { ref id }) if id == "rust-web"
         ));
         assert!(matches!(
             route_request("POST", "/v1/projects/rust-web/features"),

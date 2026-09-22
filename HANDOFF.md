@@ -2,6 +2,28 @@
 
 ## Current state
 
+`governance-provider-contract-and-local-default` implemented, verified and
+archived on 2026-09-22 as
+`2026-09-22-governance-provider-contract-and-local-default`; canonical spec
+promoted to
+[openspec/specs/governance-provider-contract/spec.md](openspec/specs/governance-provider-contract/spec.md).
+The implementation adds the standalone `local` governance provider, optional
+`.forge/providers.yaml` selection, versioned `0.1.0` JSON executable-adapter
+checks, bounded redacted observations, provider switching without manifest or
+registry rewrites, and normalized CLI/MCP/API/portal read surfaces. No
+Workspace Governance or sibling-project code is imported or required; a future
+governance project can provide only the generic adapter boundary.
+
+## Verification evidence (governance-provider-contract-and-local-default, 2026-09-22)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 464 unit tests plus all non-skipped contract and cross-surface suites passed.
+- Governance contract/cross-surface tests: 11 passed; API contract/cross-surface tests: 17 passed; MCP contract/cross-surface tests: 20 passed; portal contract/cross-surface tests: 16 passed.
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 29 passed, 0 failed; `git diff --check`: PASS.
+- The native scaffold test was excluded from the aggregate command because it is an existing long-running native-toolchain integration test; no live sibling governance provider was claimed. Run that native test and any owning governance-project adapter fixture when those environments are available.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 `control-plane-portal` implemented, verified and archived on 2026-09-18
 as `2026-09-18-control-plane-portal`; canonical specs promoted to
 [openspec/specs/control-plane-portal/spec.md](openspec/specs/control-plane-portal/spec.md).

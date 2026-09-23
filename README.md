@@ -4,13 +4,13 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 ## Status
 
-Implemented baseline with four archived audit follow-ups. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 28 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. The last audit found one MCP test that depends on a read-only host registry; native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
+Implemented baseline with five archived audit/foundation follow-ups and the first archived sibling-integration package (`external-checker-emission`). The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 30 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. The last audit found one MCP test that depends on a read-only host registry; native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
 
 ## MVP and delivery
 
 v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These commands are available from this checkout via `cargo build`.
 
-v0.2 adds features and upgrades; v0.3 integrates DriftWatch, specs and existing agent infrastructure; v0.4 exposes mature MCP operations; v0.5 adds repository distribution, translations, releases and deployment. Advanced components, UI patterns, AI planning, identity, analytics, API and portal are implemented as later changes (`forge component`, `forge ui-pattern`, `forge intent`, `forge identity`, `forge analytics`, `forge api serve`, `forge portal dashboard|view`).
+v0.2 adds features and upgrades; v0.3 integrates DriftWatch, specs and existing agent infrastructure; v0.4 exposes mature MCP operations; v0.5 adds repository distribution, translations, releases and deployment. Advanced components, UI patterns, AI planning, identity, analytics, API and portal are implemented as later changes (`forge component`, `forge ui-pattern`, `forge intent`, `forge identity`, `forge analytics`, `forge api serve`, `forge portal dashboard|view`). Machine-facing checker emission is available as `forge check` (see [external DriftWatch checker](docs/external-checker.md)).
 
 See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](docs/requirements-coverage.md), [architecture](docs/architecture.md), and [current handoff](HANDOFF.md).
 
@@ -57,6 +57,16 @@ optional. Provider failures are reported as `unavailable` or `incompatible`
 observations and do not disable local Forge workflows. Provider selection is
 stored under `.forge/`, not in `forge.yaml`, and switching providers preserves
 the manifest and registry identity.
+
+## External DriftWatch checker
+
+Any Driftwatchdog-monitored project can gate on Forge's read-only assessment
+evidence by registering `forge check` as an external checker. The command
+prints one protocol-compatible alerts document on stdout, mutates nothing,
+journals nothing, and never drives DriftWatch itself unless the operator
+explicitly passes `--include-policy`. See
+[docs/external-checker.md](docs/external-checker.md) for the envelope
+contract and the `driftwatch.toml` registration snippet.
 
 ## Product boundaries
 

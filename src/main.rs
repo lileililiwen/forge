@@ -20,6 +20,7 @@ use forge::analytics::{
 use forge::api::{
     serve as api_serve, ApiConfig, ShutdownSignal, API_CONTRACT_VERSION, API_SYNTHETIC_PROJECT,
 };
+use forge::checker::{self, PROTOCOL_MAX_ALERTS};
 use forge::component::{
     component_catalog, inspect_component, record_qualification,
     render_outcome_human as render_component_outcome_human, render_qualify_human, resolve_outcome,
@@ -44,9 +45,9 @@ use forge::feature::{
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
 use forge::governance::{
-    check_project as check_governance_project, list_providers as list_governance_providers,
-    save_provider_selection, GovernanceObservation, ProviderStatus, GOVERNANCE_CONTRACT_VERSION,
-    LOCAL_PROVIDER_ID,
+    check_project as check_governance_project, inspect as inspect_governance_project,
+    list_providers as list_governance_providers, save_provider_selection, GovernanceObservation,
+    ProviderStatus, GOVERNANCE_CONTRACT_VERSION, LOCAL_PROVIDER_ID,
 };
 use forge::identity::{
     build_challenge, delete_challenge_file as delete_identity_challenge,
@@ -206,6 +207,19 @@ enum Commands {
         /// Assessment target level overriding the manifest (`L0`..`L4`).
         #[arg(long)]
         target: Option<String>,
+    },
+    /// Emit a Driftwatchdog-compatible external-checker document on stdout (machine-pure, read-only).
+    Check {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(value_name = "TARGET", default_value = ".")]
+        target: String,
+        /// Run the DriftWatch policy plane first and re-emit its findings as alerts
+        /// (off by default to avoid a checker/policy feedback loop).
+        #[arg(long)]
+        include_policy: bool,
+        /// Maximum number of alerts in the emitted document (1..=10000; default 64).
+        #[arg(long, default_value_t = 64)]
+        max_alerts: u32,
     },
     /// Resolve and manage versioned features.
     Feature {
@@ -1151,6 +1165,11 @@ fn main() -> ExitCode {
         Commands::Doctor { path, target } => {
             cmd_doctor(&db_path, path, target.as_deref(), cli.format)
         }
+        Commands::Check {
+            target,
+            include_policy,
+            max_alerts,
+        } => cmd_check(&db_path, target, *include_policy, *max_alerts),
         Commands::Feature { command } => cmd_feature(&db_path, command, cli.format),
         Commands::Upgrade {
             feature,
@@ -1408,6 +1427,65 @@ fn observation_for(registry: Registry, path: &Path) -> Option<RegistryObservatio
         registered: true,
         observed_at: Some(record.observed_at),
     })
+}
+
+/// Render the external-checker document for one registered project.
+///
+/// The command exists for machines (Driftwatchdog checker protocol):
+/// stdout carries exactly one compact JSON document, diagnostics go to
+/// stderr, findings never change the exit code, and nothing about the
+/// run is journaled or persisted. Both output formats print the
+/// identical document, so `--format json` cannot alter checker stdout.
+fn cmd_check(
+    db_path: &Path,
+    target: &str,
+    include_policy: bool,
+    max_alerts: u32,
+) -> Result<Output, ForgeError> {
+    if max_alerts == 0 || max_alerts as usize > PROTOCOL_MAX_ALERTS {
+        return Err(ForgeError::CheckInvalid {
+            reason: format!(
+                "--max-alerts {max_alerts} is outside the bounded range 1..={PROTOCOL_MAX_ALERTS}"
+            ),
+        });
+    }
+    // Resolve through the registry so an unregistered target fails with
+    // the typed unknown-project error before anything is written to
+    // stdout; a partial document must never be parseable by the checker.
+    let registry = open_registry(db_path)?;
+    let record = registry.inspect(target)?;
+    let dir = PathBuf::from(&record.path);
+    if !dir.is_dir() {
+        return Err(ForgeError::PathUnavailable {
+            path: record.path.clone(),
+        });
+    }
+    let observation = Some(RegistryObservation {
+        registered: true,
+        observed_at: Some(record.observed_at),
+    });
+    // The DriftWatch policy plane stays off by default: a checker run
+    // must not drive DriftWatch, which may drive Forge back through its
+    // checker registration. Only an explicit --include-policy invokes
+    // the adapter; without it the policy plane contributes no findings.
+    let policy_outcome = if include_policy {
+        Some(run_driftwatch(&dir, &DriftWatchConfig::from_env()))
+    } else {
+        None
+    };
+    let report = run_doctor(&dir, None, observation.as_ref(), policy_outcome.as_ref())?;
+    // The governance plane is evaluated read-only (no observation is
+    // persisted); a plane that cannot be evaluated projects into a
+    // warning naming the gap instead of a hard failure.
+    let governance = inspect_governance_project(&dir);
+    let document = checker::build_document(
+        &dir,
+        &report,
+        &governance,
+        &checker::now_rfc3339(),
+        max_alerts as usize,
+    );
+    Ok(Output::Human(checker::render_document(&document)?))
 }
 
 fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<Output, ForgeError> {

@@ -2,6 +2,46 @@
 
 ## Current state
 
+`external-checker-emission` implemented, verified and
+archived on 2026-09-23 as
+`2026-09-23-external-checker-emission`; canonical spec promoted to
+[openspec/specs/external-checker-emission/spec.md](openspec/specs/external-checker-emission/spec.md).
+The implementation adds the standalone `src/checker` projection
+(`forge check [TARGET] [--include-policy] [--max-alerts N]`) over the
+Driftwatchdog external-checker protocol: versioned `0.1.0`
+`CheckerDocument`/`CheckerAlert`/`AlertSeverity` contract with schema
+discriminator `forge-checker/0.1.0`; `alerts` always present (the
+sibling's forward-compatible parser refuses `{}`); severities restricted
+to `error`/`warning` with `fail`→`error` and
+`warn`/`unavailable`/`unverified`→`warning` naming the missing evidence
+while pass/not-applicable findings are omitted; `source` project-relative
+when file-scoped (absolute and traversal tokens rejected at construction,
+else the plane name `doctor`/`governance`/`readiness`); `symbol` a stable
+finding/policy id (`doctor/<id>`, raw `driftwatch-<RULE>` POLICY-IDs,
+`governance/<provider>`, `readiness/<profile>`, `check/truncated`);
+messages bounded and redacted through `policy::redact_credentials` with
+the assessed project's absolute path replaced by `<project>`;
+`--max-alerts` bounded (default 64, valid 1..=10000, typed
+`check-invalid` outside) with explicit `check/truncated` summary naming
+the dropped count; the DriftWatch policy plane is opt-in only, so a
+default checker run never invokes the adapter (feedback-loop guard); a
+strictly read-only surface (no journal row, no persisted observation,
+manifest/registry/`.forge/`/HEAD byte-identical across runs, documents
+differ only in `generated_at`); findings never alter the exit code and
+only Forge-side failures write stderr with empty stdout; human and
+`--format json` print byte-identical documents; and no MCP/API/portal
+exposure.
+
+## Verification evidence (external-checker-emission, 2026-09-23)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 479 lib tests plus all non-skipped contract and cross-surface suites passed (46 integration binaries, 0 failures).
+- New checker suites: 15 `src/checker` unit tests (severity mapping for all four finding statuses plus applicability, all eight governance provider statuses, governance-evaluation-error degradation, planned/supported/unknown readiness projection, project-relative source confinement with absolute/traversal/URL rejection, truncation bound with dropped-count summary, message char bound, credential redaction, `<project>` path replacement, always-present `alerts` key, determinism except `generated_at`, four-required-non-empty-field invariant, policy-symbol exception for `driftwatch-config` detection); 14 `tests/checker_contract.rs` tests (help surfaces, clean project → `"alerts":[]` exit 0, format parity, mixed severities with stable symbols, missing-evidence warnings, governance plane projection, unregistered target → empty stdout + `error[unknown-project]`, truncation bound, `check-invalid` range refusal, policy plane opt-in marker proof, credential redaction through the policy plane, no-mutation byte equality with repeated-run stability, and a mirrored sibling-protocol parser accepting every emitted document and refusing `{}`); 5 `tests/checker_cross_surface.rs` tests (doctor verdict byte-equivalent across a check run, inspect record and governance observation unchanged, journal row count unchanged, MCP `tools/list` snapshot never advertises the checker, portal dashboard renders and `feature add` remains compatible).
+- Real provider round trip (optional task 4.4, satisfied with live evidence): the sibling driftwatchdog binary on this host consumed the surface end to end — a `driftwatch.toml` `[[checkers]]` registration (`command = "forge"`, `args = ["check", "."]`, `env = { FORGE_REGISTRY = ... }`) run through `driftwatch check`: clean project → status `empty`, 0 alerts; after removing documentation evidence → status `success` with the persisted alert (`severity warning`, `source doctor`, `symbol doctor/docs-present`, message verbatim); with a planned profile and broken build evidence → 7 alerts, severities `error` for `doctor/features-compatible`, `doctor/build-config`, `doctor/maturity-requirements` and `warning` for `doctor/dependency-drift`, `doctor/docs-present`, `doctor/registry-observation`, `readiness/python-ai`. Alerts were read back through `driftwatch export json` with fields preserved, proving the emitted documents parse under the real sibling parser, not only the mirrored test parser. No live external governance provider was claimed.
+- The native scaffold test was excluded from the aggregate command because it is an existing long-running native-toolchain integration test. Run that native test when its environment is available.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 `governance-provider-contract-and-local-default` implemented, verified and
 archived on 2026-09-22 as
 `2026-09-22-governance-provider-contract-and-local-default`; canonical spec
@@ -3519,3 +3559,5 @@ checker requires it). No active changes remain.
 8. Advance `current_spec` to the next active eligible change, or remove the line when no active changes remain; update this evidence, commit HANDOFF separately and stop without push.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
+
+current_spec: fleet-registry-observation

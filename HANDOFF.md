@@ -2,6 +2,53 @@
 
 ## Current state
 
+`fleet-registry-observation` implemented, verified and
+archived on 2026-09-23 as
+`2026-09-23-fleet-registry-observation`; canonical spec promoted to
+[openspec/specs/fleet-registry-observation/spec.md](openspec/specs/fleet-registry-observation/spec.md).
+The implementation adds the standalone `src/fleet` projection over
+the Workspace Governance `projects.json` registry document
+(`forge fleet list|status|inspect [ID] [--workspace-registry PATH]
+[--max-age N]`, or `FORGE_WORKSPACE_REGISTRY`; the global
+`--registry` names the local SQLite database, so the workspace
+document takes its own flag): versioned `0.1.0`
+`FleetReport`/`FleetEntry`/`FleetMalformedEntry` contract with a
+`schema_version: 1` input contract that tolerates `workspace_root`,
+the `discovery` block, absent or null `adoption`, and unknown
+fields; the confinement root is the canonicalized directory of the
+registry document — the untrusted document never relocates it — so
+absolute-outside paths, `..` traversal and symlink or
+dangling-symlink escapes refuse as malformed entries; per-entry
+isolation excludes and names each malformed entry with its reason
+while valid entries keep reporting; duplicate ids, unknown or
+missing schema version, malformed JSON, oversized file (>1 MiB) or
+entry count (>1024) and `--max-age` outside 1..=31536000 refuse at
+report level with the typed `fleet-registry-invalid`; declared
+profiles and lifecycles surface verbatim from the WG vocabulary and
+are never coerced to Forge profiles; entries carry the
+`forge.yaml` presence probe and the `managed|unmanaged` label
+joined by id from the local registry only, never registering,
+importing or mutating; freshness classifies `fresh|stale|unconfigured`
+from the file mtime against the 86400s default window and a stale
+source never renders healthy; the surface is strictly read-only
+(no mirror table, no journal row, fixture trees byte-identical
+across every call); the portal renders the block only for
+`scope: fleet` projects views when a registry is configured —
+stale rolls up to `warn`, a configured-but-unobservable source is
+`unavailable`, an unconfigured one adds no entry at all; and
+`forge list` appends the same normalized fleet block only when
+configured, staying byte-identical otherwise.
+
+## Verification evidence (fleet-registry-observation, 2026-09-23)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 507 lib tests plus all non-skipped contract and cross-surface suites passed (48 integration binaries, 0 failures).
+- New fleet suites: 22 `src/fleet` unit tests (WG-shape parse with every tolerated field recorded, profiles verbatim never coerced, unknown/missing schema-version refusal, duplicate-id refusal naming the id, traversal and symlink-escape per-entry isolation with the rest rendering, internal `..` segments stay confined, absolute-inside-root acceptance, blank/invalid/oversized id and path malformed classes, freshness boundaries with a filesystem-backed backdating probe, unconfigured report, `--max-age` bound refusal, managed/unmanaged id join, 1 MiB and 1024-entry refusals, credential redaction with char bounding, determinism except `observed_at`/`age_seconds`, inspect found/malformed/missing paths, shared normalized entry fields, renderer required-field coverage, flag-then-env precedence); 16 `tests/fleet_contract.rs` tests (help surfaces, unconfigured exit 0 in human and JSON, clean projection with declared fields/source/timestamps, env-var selection, managed join without any registration write, stale registry never healthy, `--max-age` window flips fresh→stale, escaping entry named while alpha renders, duplicate/unknown-version/malformed-JSON refusals with typed code and empty stdout, bound validation before any read, inspect success plus malformed/unknown typed failures, credential-shaped declared fields redacted, whole fixture tree byte-identical across nine mixed fleet calls); 7 `tests/fleet_cross_surface.rs` tests (fleet reads never journal, `forge list` byte-identical unconfigured and only-appended configured with the local part unchanged, doctor/upgrade-dry-run/import identical with a fleet configured, portal fleet entries byte-equivalent to the CLI normalized projection while the unconfigured portal carries no `fleet:` entry, stale block rolls up to `warn` never `ok`, a malformed source renders `unavailable` rather than masking, and no MCP tool or API route exists for the fleet surface).
+- Real sibling round trip (optional task 4.3, satisfied with live evidence): the real `workspace-governance/projects.json` on this host (66 entries, document mtime 2026-09-22) consumed the surface end to end — `forge fleet status` reports `freshness=stale` (age 129330s past the 86400s window), `entries=66`, `malformed=0`; `forge fleet list` renders every declared entry with its verbatim WG profile (`typescript-product`, `dotnet-library`, …), adoption `adopted`/`unknown`, `forge_yaml=missing` and `state=unmanaged` — honest for this document because Workspace Governance resolves entry paths against an invocation-time `--root ..` while Forge's confinement root is the registry document's directory; `forge fleet inspect actoria`, the `forge list` fleet block and `forge portal view projects` (67 fleet entries, section status `warn` while stale) all served the same Core query. Next action for consumers wanting resolved `forge.yaml` evidence from the real portfolio: keep or copy the registry document at the workspace root it inventories.
+- The native scaffold test was excluded from the aggregate command because it is an existing long-running native-toolchain integration test. Run that native test when its environment is available.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 `external-checker-emission` implemented, verified and
 archived on 2026-09-23 as
 `2026-09-23-external-checker-emission`; canonical spec promoted to
@@ -3560,4 +3607,4 @@ checker requires it). No active changes remain.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
 
-current_spec: fleet-registry-observation
+current_spec: supervised-agent-adapters

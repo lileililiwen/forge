@@ -1,0 +1,11 @@
+schema: 1
+
+project:
+  id: alpha
+  name: alpha
+  profile: rust-web
+  maturity: L1
+  target_maturity: L1
+
+runtime:
+  language: rust

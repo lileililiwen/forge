@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "workspace_root": null,
+  "discovery": {
+    "mode": "explicit-plus-immediate-directories",
+    "unregistered_policy": "report",
+    "exclude": ["build", "dist", "node_modules", "target", "vendor"]
+  },
+  "projects": [
+    {
+      "id": "alpha",
+      "path": "alpha",
+      "profile": "rust-product",
+      "lifecycle": "active",
+      "adoption": "adopted"
+    },
+    {
+      "id": "beta",
+      "path": "beta",
+      "profile": "dotnet-library",
+      "lifecycle": "planning",
+      "adoption": null
+    },
+    {
+      "id": "gamma",
+      "path": "gamma",
+      "profile": "typescript-monorepo",
+      "lifecycle": "active"
+    }
+  ]
+}

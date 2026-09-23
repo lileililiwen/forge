@@ -267,6 +267,9 @@ pub enum ForgeError {
 
     #[error("governance provider unavailable: {reason}")]
     GovernanceUnavailable { reason: String },
+
+    #[error("fleet registry invalid: {reason}")]
+    FleetRegistryInvalid { reason: String },
 }
 
 impl ForgeError {
@@ -357,6 +360,7 @@ impl ForgeError {
             ForgeError::GovernanceInvalid { .. } => "governance-invalid",
             ForgeError::CheckInvalid { .. } => "check-invalid",
             ForgeError::GovernanceUnavailable { .. } => "governance-provider-unavailable",
+            ForgeError::FleetRegistryInvalid { .. } => "fleet-registry-invalid",
         }
     }
 

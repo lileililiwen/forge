@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "workspace_root": null,
+  "discovery": {
+    "mode": "explicit-plus-immediate-directories",
+    "unregistered_policy": "report",
+    "exclude": ["build"]
+  },
+  "projects": [
+    {
+      "id": "runner",
+      "path": "../outside-root",
+      "profile": "rust-product",
+      "lifecycle": "active",
+      "adoption": "adopted"
+    },
+    {
+      "id": "alpha",
+      "path": "alpha",
+      "profile": "rust-product",
+      "lifecycle": "active",
+      "adoption": "adopted"
+    }
+  ]
+}

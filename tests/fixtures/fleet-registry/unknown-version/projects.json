@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "workspace_root": null,
+  "discovery": {
+    "mode": "explicit",
+    "unregistered_policy": "report"
+  },
+  "projects": [
+    {
+      "id": "alpha",
+      "path": "alpha",
+      "profile": "rust-product",
+      "lifecycle": "active"
+    }
+  ]
+}

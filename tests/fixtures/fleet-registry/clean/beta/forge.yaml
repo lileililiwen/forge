@@ -1,0 +1,8 @@
+schema: 1
+
+project:
+  id: beta
+  name: beta
+  profile: dotnet-library
+  maturity: L1
+  target_maturity: L1

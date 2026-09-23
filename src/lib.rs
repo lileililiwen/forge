@@ -15,6 +15,7 @@ pub mod distribution;
 pub mod docs;
 pub mod doctor;
 pub mod feature;
+pub mod fleet;
 pub mod generate;
 pub mod gitops;
 pub mod governance;

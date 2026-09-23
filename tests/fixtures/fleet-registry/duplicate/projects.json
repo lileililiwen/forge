@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "workspace_root": null,
+  "discovery": {
+    "mode": "explicit",
+    "unregistered_policy": "report",
+    "exclude": ["build"]
+  },
+  "projects": [
+    {
+      "id": "dup",
+      "path": "alpha",
+      "profile": "rust-product",
+      "lifecycle": "active"
+    },
+    {
+      "id": "dup",
+      "path": "beta",
+      "profile": "dotnet-library",
+      "lifecycle": "active"
+    }
+  ]
+}

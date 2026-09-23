@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and the first sibling-integration package (order 31, `external-checker-emission`) is implemented, archived and promoted to its canonical spec. The remaining seven sibling-integration changes (orders 30 and 32-37) stay in `openspec/changes/`; orders 30, 32 and 37 remain blocked until their companion proposals in the driftwatchdog and workspace-governance repositories carry implementation evidence. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, and standalone governance-provider switching. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and two sibling-integration packages (orders 31, `external-checker-emission`, and 33, `fleet-registry-observation`) are implemented, archived and promoted to their canonical specs. The remaining six sibling-integration changes (orders 30, 32, and 34-37) stay in `openspec/changes/`; orders 30, 32 and 37 remain blocked until their companion proposals in the driftwatchdog and workspace-governance repositories carry implementation evidence. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, and read-only fleet observation from the workspace registry. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -48,7 +48,7 @@ Follow the order below by default; every dependency was implemented and verified
 | 30 | proposal | [driftwatch-cli-alignment](openspec/changes/driftwatch-cli-alignment/proposal.md) | `quality-policy-integration`; driftwatchdog `checker-machine-output` (external) | §23, §24, §32 |
 | 31 | sibling | [external-checker-emission](openspec/specs/external-checker-emission/spec.md) | `doctor-maturity-assessment`, `quality-policy-integration` | §23, §24, §32, §34 |
 | 32 | proposal | [workspace-governance-adapter-consumption](openspec/changes/workspace-governance-adapter-consumption/proposal.md) | `governance-provider-contract`; workspace-governance `forge-governance-adapter` (external) | §32, §38 |
-| 33 | proposal | [fleet-registry-observation](openspec/changes/fleet-registry-observation/proposal.md) | `control-plane-portal` | §7, §32, §36 |
+| 33 | sibling | [fleet-registry-observation](openspec/specs/fleet-registry-observation/spec.md) | `control-plane-portal` | §7, §32, §36 |
 | 34 | proposal | [supervised-agent-adapters](openspec/changes/supervised-agent-adapters/proposal.md) | `agent-runtime-workflows` | §21, §22, §32 |
 | 35 | proposal | [jenkins-deploy-adapter-consumption](openspec/changes/jenkins-deploy-adapter-consumption/proposal.md) | `adapter-deployment`, `provider-integration-evidence` | §30, §32, §43 |
 | 36 | proposal | [workspace-metadata-emission](openspec/changes/workspace-metadata-emission/proposal.md) | `deterministic-project-generation` | §14, §32 |
@@ -69,4 +69,4 @@ The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versio
 
 ## Operating rule
 
-All 29 baseline and audit changes plus the first sibling-integration package are archived; the `current_spec` pointer in [HANDOFF.md](HANDOFF.md) names the next eligible active change. A new implementation cycle starts with exactly one eligible change, sets the single `current_spec` pointer, and follows implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.
+All 29 baseline and audit changes plus the sibling-integration packages (orders 31 and 33) are archived; the `current_spec` pointer in [HANDOFF.md](HANDOFF.md) names the next eligible active change. A new implementation cycle starts with exactly one eligible change, sets the single `current_spec` pointer, and follows implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.

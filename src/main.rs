@@ -42,6 +42,11 @@ use forge::feature::{
     add_feature, feature_catalog, inspect_feature, remove_feature, render_outcome_human,
     render_plan_human as render_feature_plan_human, resolve_plan, upgrade_feature,
 };
+use forge::fleet::{
+    self, health_json, inspect_entry, observe, render_entry_human, render_list_block_human,
+    render_report_human as render_fleet_report_human, render_status_human, resolve_registry_path,
+    DEFAULT_MAX_AGE_SECONDS, FLEET_CONTRACT_VERSION,
+};
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
 use forge::governance::{
@@ -67,9 +72,9 @@ use forge::planner::{
 };
 use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::portal::{
-    build_dashboard, build_section_view, parse_section, render_dashboard_human,
-    render_section_human as render_portal_section_human, PortalDashboard, PORTAL_CONTRACT_VERSION,
-    PORTAL_SYNTHETIC_PROJECT,
+    build_dashboard_with_fleet, build_section_view_with_fleet, parse_section,
+    render_dashboard_human, render_section_human as render_portal_section_human, FleetProjection,
+    PortalDashboard, PORTAL_CONTRACT_VERSION, PORTAL_SYNTHETIC_PROJECT,
 };
 use forge::procedure::{
     inspect_procedure, procedure_catalog, render_inspect_human as render_procedure_inspect_human,
@@ -113,6 +118,7 @@ use forge::upgrade::{
     apply_upgrade, plan_upgrade, render_fleet_human, render_outcome_human as render_upgrade_human,
     render_plan_human as render_upgrade_plan_human, run_fleet, FleetReport, UpgradeOutcome,
 };
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -376,6 +382,11 @@ enum Commands {
     Governance {
         #[command(subcommand)]
         command: GovernanceCommands,
+    },
+    /// Observe the portfolio declared by an external workspace registry, read-only.
+    Fleet {
+        #[command(subcommand)]
+        command: FleetCommands,
     },
 }
 
@@ -1032,6 +1043,35 @@ enum GovernanceCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum FleetCommands {
+    /// List the portfolio declared by the workspace registry as timestamped fleet observations.
+    List {
+        /// Workspace registry document (`projects.json`). Defaults to $FORGE_WORKSPACE_REGISTRY.
+        #[arg(long, value_name = "PATH")]
+        workspace_registry: Option<PathBuf>,
+        /// Registry age in seconds beyond which the report is stale (1..=31536000; default 86400).
+        #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_MAX_AGE_SECONDS)]
+        max_age: i64,
+    },
+    /// Report the fleet registry health only (source, freshness, counts; no entries).
+    Status {
+        #[arg(long, value_name = "PATH")]
+        workspace_registry: Option<PathBuf>,
+        #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_MAX_AGE_SECONDS)]
+        max_age: i64,
+    },
+    /// Inspect one declared fleet entry by id (read-only; unmanaged entries can never be operated on through the mirror).
+    Inspect {
+        /// Declared fleet entry id.
+        entry: String,
+        #[arg(long, value_name = "PATH")]
+        workspace_registry: Option<PathBuf>,
+        #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_MAX_AGE_SECONDS)]
+        max_age: i64,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1232,6 +1272,7 @@ fn main() -> ExitCode {
         Commands::Readiness { command } => cmd_readiness(command, cli.format),
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
+        Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
     };
 
     match result {
@@ -1269,27 +1310,52 @@ fn as_output(format: Format, human: String, json: serde_json::Value) -> Output {
 fn cmd_list(db_path: &Path, format: Format) -> Result<Output, ForgeError> {
     let registry = open_registry(db_path)?;
     let projects = registry.list()?;
-    if projects.is_empty() {
-        return Ok(as_output(
-            format,
-            "No projects registered.".to_string(),
-            serde_json::json!({"projects": []}),
-        ));
-    }
-    let mut human = format!(
-        "{:<20} {:<12} {:<7} {}",
-        "Project", "Stack", "Level", "Health"
-    );
-    for p in &projects {
-        human.push_str(&format!(
-            "\n{:<20} {:<12} {:<7} {}",
-            truncate(&p.id, 20),
-            truncate(p.stack.as_deref().unwrap_or("unknown"), 12),
-            p.maturity.as_deref().unwrap_or("unknown"),
-            p.health(),
-        ));
-    }
-    let json = serde_json::json!({"projects": projects});
+    // Optional read-only fleet block: present only when a workspace
+    // registry is configured. An unconfigured surface stays byte-
+    // identical to the local list, and a configured-but-unobservable
+    // registry renders the typed failure rather than masking it.
+    let fleet = portal_fleet_projection(&registry);
+    let human_base = if projects.is_empty() {
+        "No projects registered.".to_string()
+    } else {
+        let mut human = format!(
+            "{:<20} {:<12} {:<7} {}",
+            "Project", "Stack", "Level", "Health"
+        );
+        for p in &projects {
+            human.push_str(&format!(
+                "\n{:<20} {:<12} {:<7} {}",
+                truncate(&p.id, 20),
+                truncate(p.stack.as_deref().unwrap_or("unknown"), 12),
+                p.maturity.as_deref().unwrap_or("unknown"),
+                p.health(),
+            ));
+        }
+        human
+    };
+    let json_base = if projects.is_empty() {
+        serde_json::json!({"projects": []})
+    } else {
+        serde_json::json!({"projects": projects})
+    };
+    let (human, json) = match &fleet {
+        None => (human_base, json_base),
+        Some(Ok(report)) => {
+            let mut json = json_base;
+            json["fleet"] = serde_json::to_value(report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            (human_base + &render_list_block_human(report), json)
+        }
+        Some(Err(err)) => {
+            let line = format!("\nfleet: unavailable — error[{}]: {}", err.code(), err);
+            let json = serde_json::json!({
+                "projects": projects,
+                "fleet_error": {"code": err.code(), "message": err.to_string()},
+            });
+            (human_base + &line, json)
+        }
+    };
     Ok(as_output(format, human, json))
 }
 
@@ -4482,7 +4548,16 @@ fn cmd_portal_dashboard(
     } else {
         Some(resolved_target.trim())
     };
-    let dashboard = build_dashboard(&registry, query)?;
+    let fleet_source = portal_fleet_projection(&registry);
+    let projection = match fleet_source.as_ref() {
+        None => None,
+        Some(Ok(report)) => Some(FleetProjection::Configured(report)),
+        Some(Err(err)) => Some(FleetProjection::Failed {
+            code: err.code(),
+            reason: err.to_string(),
+        }),
+    };
+    let dashboard = build_dashboard_with_fleet(&registry, query, projection)?;
     let detail = portal_journal_detail(&dashboard);
     journal_portal_operation(&registry, dashboard.project_id.as_deref(), "done", &detail);
     let json = serde_json::json!({
@@ -4506,7 +4581,16 @@ fn cmd_portal_view(
     } else {
         Some(target.trim())
     };
-    let view = build_section_view(&registry, query, parsed)?;
+    let fleet_source = portal_fleet_projection(&registry);
+    let projection = match fleet_source.as_ref() {
+        None => None,
+        Some(Ok(report)) => Some(FleetProjection::Configured(report)),
+        Some(Err(err)) => Some(FleetProjection::Failed {
+            code: err.code(),
+            reason: err.to_string(),
+        }),
+    };
+    let view = build_section_view_with_fleet(&registry, query, parsed, projection)?;
     let detail = format!(
         "view: section={id} status={status} entries={n}",
         id = view.section_id,
@@ -4733,6 +4817,88 @@ fn governance_output(
             "observation": observation,
         }),
     ))
+}
+
+/// Ids currently present in the local registry, used only as the
+/// managed/unmanaged join set for a fleet observation. Read-only.
+fn fleet_local_ids(registry: &Registry) -> Result<BTreeSet<String>, ForgeError> {
+    Ok(registry.list()?.into_iter().map(|r| r.id).collect())
+}
+
+/// Observe the configured workspace registry (if any) for portal and
+/// `forge list` read surfaces. A configured-but-unobservable registry
+/// projects as `Some(Err(..))` so the surfaces render `unavailable`
+/// rather than masking the gap; an unconfigured registry projects as
+/// `None` and leaves every local surface byte-identical.
+fn portal_fleet_projection(
+    registry: &Registry,
+) -> Option<Result<forge::fleet::FleetReport, ForgeError>> {
+    let path = resolve_registry_path(None)?;
+    let local_ids = match fleet_local_ids(registry) {
+        Ok(ids) => ids,
+        Err(err) => return Some(Err(err)),
+    };
+    Some(observe(Some(&path), DEFAULT_MAX_AGE_SECONDS, &local_ids))
+}
+
+fn cmd_fleet(
+    db_path: &Path,
+    command: &FleetCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (workspace_registry, max_age) = match command {
+        FleetCommands::List {
+            workspace_registry,
+            max_age,
+        }
+        | FleetCommands::Status {
+            workspace_registry,
+            max_age,
+        }
+        | FleetCommands::Inspect {
+            workspace_registry,
+            max_age,
+            ..
+        } => (workspace_registry.as_deref(), *max_age),
+    };
+    fleet::validate_max_age(max_age)?;
+    // The local registry is opened only as the read side of the
+    // managed/unmanaged join; fleet mirroring never registers, imports
+    // or mutates anything and never journals.
+    let registry = open_registry(db_path)?;
+    let local_ids = fleet_local_ids(&registry)?;
+    let path = resolve_registry_path(workspace_registry);
+    let report = observe(path.as_deref(), max_age, &local_ids)?;
+    match command {
+        FleetCommands::List { .. } => {
+            let human = render_fleet_report_human(&report);
+            let json = serde_json::json!({
+                "contract": FLEET_CONTRACT_VERSION,
+                "fleet": report,
+            });
+            Ok(as_output(format, human, json))
+        }
+        FleetCommands::Status { .. } => {
+            let human = render_status_human(&report);
+            let json = serde_json::json!({
+                "contract": FLEET_CONTRACT_VERSION,
+                "health": health_json(&report),
+            });
+            Ok(as_output(format, human, json))
+        }
+        FleetCommands::Inspect { entry, .. } => {
+            let found = inspect_entry(&report, entry)?;
+            let human = render_entry_human(&report, found);
+            let json = serde_json::json!({
+                "contract": FLEET_CONTRACT_VERSION,
+                "entry": found,
+                "source": report.source,
+                "freshness": report.freshness,
+                "observed_at": report.observed_at,
+            });
+            Ok(as_output(format, human, json))
+        }
+    }
 }
 
 fn cmd_provider_matrix(db_path: &Path, live: bool, format: Format) -> Result<Output, ForgeError> {

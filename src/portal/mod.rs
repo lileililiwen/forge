@@ -83,6 +83,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
+use crate::fleet::{FleetFreshness, FleetReport};
 use crate::registry::{ProjectRecord, Registry};
 
 /// Contract data version for the portal surface. The CLI
@@ -400,6 +401,26 @@ impl std::fmt::Display for PortalStatus {
     }
 }
 
+/// How the (optionally configured) workspace fleet registry projects
+/// into the portal. `None` (no registry configured) renders no fleet
+/// block at all, so every local portal workflow stays byte-identical;
+/// a configured registry always renders, and its source status is
+/// never masked as `ok` when it is stale or could not be observed.
+#[derive(Debug, Clone)]
+pub enum FleetProjection<'a> {
+    /// A configured registry observed successfully.
+    Configured(&'a FleetReport),
+    /// A configured registry that could not be observed (malformed or
+    /// unreadable document). The block renders `unavailable` with the
+    /// typed code and reason named.
+    Failed { code: &'static str, reason: String },
+}
+
+/// Maximum number of fleet entries rendered into one portal section.
+/// Larger portfolios roll up into the source meta entry so a runaway
+/// registry cannot push the section past `MAX_ENTRIES_PER_VIEW`.
+pub const MAX_PORTAL_FLEET_ENTRIES: usize = 128;
+
 /// Bounded entry validator. Refuses empty id, oversized
 /// id, oversized evidence and oversized attribute maps so
 /// the renderer never crashes on a malicious input.
@@ -570,6 +591,18 @@ pub fn build_dashboard(
     registry: &Registry,
     target: Option<&str>,
 ) -> Result<PortalDashboard, ForgeError> {
+    build_dashboard_with_fleet(registry, target, None)
+}
+
+/// Fleet-wide dashboard with the optional fleet block. The
+/// `fleet` argument carries the read-only workspace registry
+/// projection when a registry is configured; `None` renders no
+/// fleet block.
+pub fn build_dashboard_with_fleet(
+    registry: &Registry,
+    target: Option<&str>,
+    fleet: Option<FleetProjection<'_>>,
+) -> Result<PortalDashboard, ForgeError> {
     let now = utc_now();
     let title = "Forge Control Plane".to_string();
     let (scope, project_id, project_ids) = match target {
@@ -587,7 +620,14 @@ pub fn build_dashboard(
             (PortalScope::Fleet, None, ids)
         }
     };
-    let sections = build_all_sections(registry, scope, project_id.as_deref(), &project_ids, &now)?;
+    let sections = build_all_sections(
+        registry,
+        scope,
+        project_id.as_deref(),
+        &project_ids,
+        &now,
+        fleet,
+    )?;
     let operations = read_recent_operations(registry, project_id.as_deref(), 8)?;
     let dashboard = PortalDashboard {
         contract: PORTAL_CONTRACT_VERSION.to_string(),
@@ -610,6 +650,16 @@ pub fn build_section_view(
     target: Option<&str>,
     section: PortalSection,
 ) -> Result<PortalSectionView, ForgeError> {
+    build_section_view_with_fleet(registry, target, section, None)
+}
+
+/// Build one section view with the optional fleet block.
+pub fn build_section_view_with_fleet(
+    registry: &Registry,
+    target: Option<&str>,
+    section: PortalSection,
+    fleet: Option<FleetProjection<'_>>,
+) -> Result<PortalSectionView, ForgeError> {
     let now = utc_now();
     let (scope, project_id, project_ids) = match target {
         Some(query) => {
@@ -626,8 +676,14 @@ pub fn build_section_view(
             (PortalScope::Fleet, None, ids)
         }
     };
-    let mut sections =
-        build_all_sections(registry, scope, project_id.as_deref(), &project_ids, &now)?;
+    let mut sections = build_all_sections(
+        registry,
+        scope,
+        project_id.as_deref(),
+        &project_ids,
+        &now,
+        fleet,
+    )?;
     let view = sections
         .drain(..)
         .find(|s| s.section == section)
@@ -643,6 +699,7 @@ fn build_all_sections(
     project_id: Option<&str>,
     project_ids: &[String],
     now: &str,
+    fleet: Option<FleetProjection<'_>>,
 ) -> Result<Vec<PortalSectionView>, ForgeError> {
     let records = resolve_records(registry, project_id, project_ids)?;
     let mut sections = Vec::with_capacity(SUPPORTED_SECTIONS.len());
@@ -660,7 +717,15 @@ fn build_all_sections(
         PortalSection::Servers,
         PortalSection::Settings,
     ] {
-        let view = build_section(registry, &records, scope, project_id, section, now)?;
+        let view = build_section(
+            registry,
+            &records,
+            scope,
+            project_id,
+            section,
+            now,
+            fleet.clone(),
+        )?;
         sections.push(view);
     }
     Ok(sections)
@@ -692,9 +757,16 @@ fn build_section(
     project_id: Option<&str>,
     section: PortalSection,
     now: &str,
+    fleet: Option<FleetProjection<'_>>,
 ) -> Result<PortalSectionView, ForgeError> {
     let (entries, source) = match section {
-        PortalSection::Projects => (build_projects_section(records), "registry"),
+        PortalSection::Projects => {
+            let mut entries = build_projects_section(records);
+            if scope == PortalScope::Fleet {
+                entries.extend(fleet_block_entries(fleet, now));
+            }
+            (entries, "registry")
+        }
         PortalSection::Features => (build_features_section(records), "registry"),
         PortalSection::Components => (build_components_section(records), "registry"),
         PortalSection::Policies => (build_policies_section(records), "registry"),
@@ -730,6 +802,8 @@ fn controls_for(section: PortalSection) -> Vec<String> {
             "forge list".to_string(),
             "forge inspect <project>".to_string(),
             "forge doctor <project>".to_string(),
+            "forge fleet inspect <ID> (read-only; unmanaged entries can only be inspected)"
+                .to_string(),
         ],
         PortalSection::Features => vec![
             "forge feature list".to_string(),
@@ -805,6 +879,104 @@ fn build_projects_section(records: &[ProjectRecord]) -> Vec<PortalEntry> {
             }
         })
         .collect()
+}
+
+/// Fleet block entries for the projects section of a fleet-scope view.
+/// An unconfigured registry contributes no block (`None` never
+/// reaches here as `Unconfigured` — the caller omits it). A stale
+/// registry renders `warn`, an unobservable one `unavailable`; the
+/// worst-status roll-up then keeps the section from masking either as
+/// `ok`. `unmanaged` entries carry the full normalized projection but
+/// the read-only guarantee is named in the meta entry: fleet
+/// mirroring never registers or mutates anything.
+fn fleet_block_entries(fleet: Option<FleetProjection<'_>>, now: &str) -> Vec<PortalEntry> {
+    let Some(fleet) = fleet else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    let (report, source_status) = match &fleet {
+        FleetProjection::Failed { code, reason } => {
+            entries.push(PortalEntry {
+                id: "fleet:source".to_string(),
+                label: "workspace fleet registry".to_string(),
+                status: PortalStatus::Unavailable,
+                source: "fleet".to_string(),
+                observed_at: now.to_string(),
+                evidence: vec![format!("fleet registry unavailable: {code}: {reason}")],
+                attributes: BTreeMap::new(),
+            });
+            return entries;
+        }
+        FleetProjection::Configured(report) => (
+            *report,
+            match report.freshness {
+                FleetFreshness::Fresh if report.malformed.is_empty() => PortalStatus::Ok,
+                FleetFreshness::Fresh | FleetFreshness::Stale => PortalStatus::Warn,
+                // A stale or unobservable source is never masked as ok.
+                FleetFreshness::Unconfigured => PortalStatus::Unavailable,
+            },
+        ),
+    };
+    let mut meta_evidence = Vec::new();
+    if let Some(source) = report.source.as_ref() {
+        meta_evidence.push(format!("source={source}"));
+    }
+    meta_evidence.push(format!(
+        "freshness={} observed_at={}",
+        report.freshness.id(),
+        report.observed_at
+    ));
+    for malformed in report.malformed.iter().take(14) {
+        meta_evidence.push(format!(
+            "malformed: name={} reason={}",
+            malformed.name, malformed.reason
+        ));
+    }
+    if report.malformed.len() > 14 {
+        meta_evidence.push(format!(
+            "malformed: …{} further",
+            report.malformed.len() - 14
+        ));
+    }
+    let mut attributes = BTreeMap::new();
+    attributes.insert("freshness".to_string(), report.freshness.id().to_string());
+    attributes.insert("entries".to_string(), report.entries.len().to_string());
+    attributes.insert("malformed".to_string(), report.malformed.len().to_string());
+    if report.entries.len() > MAX_PORTAL_FLEET_ENTRIES {
+        attributes.insert(
+            "portal_rendered".to_string(),
+            format!("{MAX_PORTAL_FLEET_ENTRIES} of {}", report.entries.len()),
+        );
+    }
+    entries.push(PortalEntry {
+        id: "fleet:source".to_string(),
+        label: "workspace fleet registry".to_string(),
+        status: source_status,
+        source: "fleet".to_string(),
+        observed_at: now.to_string(),
+        evidence: meta_evidence,
+        attributes,
+    });
+    let entry_status = match report.freshness {
+        FleetFreshness::Stale | FleetFreshness::Unconfigured => PortalStatus::Warn,
+        FleetFreshness::Fresh => PortalStatus::Ok,
+    };
+    for entry in report.entries.iter().take(MAX_PORTAL_FLEET_ENTRIES) {
+        let mut attributes = BTreeMap::new();
+        for (key, value) in crate::fleet::entry_fields(entry) {
+            attributes.insert(key.to_string(), value);
+        }
+        entries.push(PortalEntry {
+            id: format!("fleet:{}", entry.id),
+            label: entry.id.clone(),
+            status: entry_status,
+            source: "fleet".to_string(),
+            observed_at: report.observed_at.clone(),
+            evidence: Vec::new(),
+            attributes,
+        });
+    }
+    entries
 }
 
 fn build_features_section(records: &[ProjectRecord]) -> Vec<PortalEntry> {
@@ -1583,6 +1755,16 @@ portal:
         project_id: Option<&str>,
         now: &str,
     ) -> Result<PortalDashboard, ForgeError> {
+        build_dashboard_from_records_with_fleet(records, scope, project_id, now, None)
+    }
+
+    fn build_dashboard_from_records_with_fleet(
+        records: &[ProjectRecord],
+        scope: PortalScope,
+        project_id: Option<&str>,
+        now: &str,
+        fleet: Option<FleetProjection<'_>>,
+    ) -> Result<PortalDashboard, ForgeError> {
         let mut sections = Vec::new();
         for section in [
             PortalSection::Projects,
@@ -1599,7 +1781,13 @@ portal:
             PortalSection::Settings,
         ] {
             let (entries, source) = match section {
-                PortalSection::Projects => (build_projects_section(records), "registry"),
+                PortalSection::Projects => {
+                    let mut entries = build_projects_section(records);
+                    if scope == PortalScope::Fleet {
+                        entries.extend(fleet_block_entries(fleet.clone(), now));
+                    }
+                    (entries, "registry")
+                }
                 PortalSection::Features => (build_features_section(records), "registry"),
                 PortalSection::Components => (build_components_section(records), "registry"),
                 PortalSection::Policies => (build_policies_section(records), "registry"),
@@ -1829,5 +2017,169 @@ portal:
             assert!(!section.label().is_empty());
             assert!(SUPPORTED_SECTIONS.contains(&section.id()));
         }
+    }
+
+    fn fleet_entry(id: &str, managed: bool) -> crate::fleet::FleetEntry {
+        crate::fleet::FleetEntry {
+            id: id.to_string(),
+            path: id.to_string(),
+            profile: "rust-product".to_string(),
+            lifecycle: "active".to_string(),
+            adoption: Some("adopted".to_string()),
+            forge_yaml_present: managed,
+            locally_registered: managed,
+            state: if managed {
+                crate::fleet::FleetState::Managed
+            } else {
+                crate::fleet::FleetState::Unmanaged
+            },
+        }
+    }
+
+    fn fleet_report(freshness: crate::fleet::FleetFreshness) -> FleetReport {
+        FleetReport {
+            contract: crate::fleet::FLEET_CONTRACT_VERSION.to_string(),
+            source: Some("/ws/projects.json".to_string()),
+            observed_at: "2026-09-24T12:00:00Z".to_string(),
+            freshness,
+            max_age_seconds: 86_400,
+            age_seconds: Some(10),
+            entries: vec![fleet_entry("alpha", true), fleet_entry("beta", false)],
+            malformed: Vec::new(),
+        }
+    }
+
+    fn projects_view_status_and_entries(
+        scope: PortalScope,
+        fleet: Option<FleetProjection<'_>>,
+    ) -> (Vec<PortalEntry>, PortalStatus) {
+        let mut entries = build_projects_section(&[]);
+        if scope == PortalScope::Fleet {
+            entries.extend(fleet_block_entries(fleet, "2026-09-24T12:00:00Z"));
+        }
+        let status = PortalSectionView::rollup_status(&entries);
+        (entries, status)
+    }
+
+    #[test]
+    fn fleet_block_is_absent_when_unconfigured_or_project_scope() {
+        // Unconfigured: no fleet block at all (workflows byte-identical).
+        let (entries, status) = projects_view_status_and_entries(PortalScope::Fleet, None);
+        assert!(entries.is_empty());
+        assert_eq!(status, PortalStatus::Ok);
+        // Project scope never renders the fleet block even when configured.
+        let report = fleet_report(crate::fleet::FleetFreshness::Fresh);
+        let (entries, _) = projects_view_status_and_entries(
+            PortalScope::Project,
+            Some(FleetProjection::Configured(&report)),
+        );
+        assert!(
+            entries.is_empty(),
+            "project scope must not carry fleet entries"
+        );
+    }
+
+    #[test]
+    fn fleet_block_carries_normalized_entries_in_fleet_scope() {
+        let report = fleet_report(crate::fleet::FleetFreshness::Fresh);
+        let (entries, status) = projects_view_status_and_entries(
+            PortalScope::Fleet,
+            Some(FleetProjection::Configured(&report)),
+        );
+        assert_eq!(entries.len(), 3, "meta + 2 fleet entries");
+        assert_eq!(entries[0].id, "fleet:source");
+        assert_eq!(entries[0].status, PortalStatus::Ok);
+        assert_eq!(entries[1].id, "fleet:alpha");
+        assert_eq!(entries[1].status, PortalStatus::Ok);
+        assert_eq!(entries[2].id, "fleet:beta");
+        assert_eq!(
+            entries[2].attributes.get("state").map(String::as_str),
+            Some("unmanaged")
+        );
+        assert_eq!(
+            entries[1].attributes.get("forge_yaml").map(String::as_str),
+            Some("present")
+        );
+        assert_eq!(
+            entries[2].attributes.get("forge_yaml").map(String::as_str),
+            Some("missing")
+        );
+        // The section roll-up keeps a fresh clean block at ok.
+        assert_eq!(status, PortalStatus::Ok);
+    }
+
+    #[test]
+    fn stale_fleet_block_never_rolls_up_as_ok() {
+        let report = fleet_report(crate::fleet::FleetFreshness::Stale);
+        let (entries, status) = projects_view_status_and_entries(
+            PortalScope::Fleet,
+            Some(FleetProjection::Configured(&report)),
+        );
+        assert_eq!(status, PortalStatus::Warn, "stale must be at most warn");
+        assert!(entries.iter().all(|e| e.status == PortalStatus::Warn));
+        let meta = &entries[0];
+        assert!(meta
+            .evidence
+            .iter()
+            .any(|line| line.contains("freshness=stale")));
+    }
+
+    #[test]
+    fn malformed_fleet_entries_keep_the_meta_out_of_ok_and_name_reasons() {
+        let mut report = fleet_report(crate::fleet::FleetFreshness::Fresh);
+        report.malformed.push(crate::fleet::FleetMalformedEntry {
+            name: "runner".to_string(),
+            reason: "traverses outside the registry workspace root".to_string(),
+        });
+        let (entries, status) = projects_view_status_and_entries(
+            PortalScope::Fleet,
+            Some(FleetProjection::Configured(&report)),
+        );
+        assert_eq!(status, PortalStatus::Warn);
+        assert!(entries[0]
+            .evidence
+            .iter()
+            .any(|line| line.contains("malformed") && line.contains("runner")));
+        assert_eq!(
+            entries.len(),
+            3,
+            "malformed entries are named in the meta, not listed"
+        );
+    }
+
+    #[test]
+    fn failed_fleet_source_is_unavailable_not_masked() {
+        let (entries, status) = projects_view_status_and_entries(
+            PortalScope::Fleet,
+            Some(FleetProjection::Failed {
+                code: "fleet-registry-invalid",
+                reason: "unknown registry schema_version 7".to_string(),
+            }),
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, PortalStatus::Unavailable);
+        assert_eq!(status, PortalStatus::Unavailable);
+        assert!(entries[0].evidence[0].contains("fleet-registry-invalid"));
+    }
+
+    #[test]
+    fn oversized_fleet_blocks_truncate_with_an_explicit_note() {
+        let mut report = fleet_report(crate::fleet::FleetFreshness::Fresh);
+        report.entries = (0..(MAX_PORTAL_FLEET_ENTRIES + 10))
+            .map(|i| fleet_entry(&format!("p{i}"), false))
+            .collect();
+        let (entries, _) = projects_view_status_and_entries(
+            PortalScope::Fleet,
+            Some(FleetProjection::Configured(&report)),
+        );
+        assert_eq!(entries.len(), MAX_PORTAL_FLEET_ENTRIES + 1);
+        assert_eq!(
+            entries[0]
+                .attributes
+                .get("portal_rendered")
+                .map(String::as_str),
+            Some("128 of 138")
+        );
+        validate_entries(&entries).expect("the rendered block stays inside the view bound");
     }
 }

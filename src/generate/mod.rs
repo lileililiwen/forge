@@ -17,6 +17,8 @@
 //! creations. Rendered file bytes are otherwise byte-identical for identical
 //! requests.
 
+pub mod workspace;
+
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{BufRead, Write};
@@ -41,6 +43,9 @@ pub struct CreationRequest {
     pub name: String,
     pub features: Vec<String>,
     pub destination: PathBuf,
+    /// Emit the Workspace Governance `.project.json` declaration
+    /// (`--no-workspace-metadata` opts out; transports default to `true`).
+    pub workspace_metadata: bool,
 }
 
 /// Outcome of [`generate`]: the registered record plus what was rendered.
@@ -50,6 +55,11 @@ pub struct GeneratedProject {
     pub files: Vec<String>,
     pub native_verified: bool,
     pub native_note: String,
+    /// Honest omission notes (e.g. a profile without a governance
+    /// mapping). Empty in normal runs, so rendered output stays
+    /// byte-identical to pre-change releases.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 /// Native verification outcome. Rendering alone never yields `verified`.
@@ -149,6 +159,7 @@ pub fn normalize_explicit(
         name,
         features: closed_features,
         destination: dest.to_path_buf(),
+        workspace_metadata: true,
     })
 }
 
@@ -262,6 +273,7 @@ pub fn parse_interactive(
         name,
         features: closed_features,
         destination: dest.to_path_buf(),
+        workspace_metadata: true,
     })
 }
 
@@ -580,6 +592,12 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
         }
     }
     files.push(("forge.yaml".to_string(), manifest));
+    // Workspace Governance declaration + ownership receipt: staged as
+    // ordinary template files so the staging, promotion and cleanup
+    // guarantees cover them identically. Unmapped profiles stage nothing.
+    if request.workspace_metadata {
+        files.extend(workspace::staged_files(&request.id, &descriptor));
+    }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(files)
 }
@@ -668,6 +686,14 @@ pub fn generate(
     let _ = check_request(&request.profile, &request.id, &request.features)?;
     let files = template_files(request)?;
     check_files_inside(&files)?;
+    let mut notes = Vec::new();
+    if request.workspace_metadata {
+        if let Ok(descriptor) = inspect_profile(&request.profile) {
+            if descriptor.workspace.is_none() {
+                notes.push(workspace::omission_note(&request.profile));
+            }
+        }
+    }
 
     if request.destination.is_file() {
         return Err(ForgeError::GenerationConflict {
@@ -762,6 +788,7 @@ pub fn generate(
                         .unwrap_or_else(|_| "toolchain".to_string()),
                     request.profile
                 ),
+                notes,
             })
         }
         Err(err) => {
@@ -911,6 +938,66 @@ mod tests {
 
     fn open_registry(dir: &TempDir) -> Registry {
         Registry::open(&dir.path().join("registry.db")).unwrap()
+    }
+
+    #[test]
+    fn workspace_metadata_staged_by_default_and_omitted_on_opt_out() {
+        let tmp = TempDir::new().unwrap();
+        for profile in [
+            "aspnet-web",
+            "flutter-app",
+            "nextjs-web",
+            "python-service",
+            "react-web",
+            "rust-web",
+        ] {
+            let id = format!("meta-{profile}");
+            let req = normalize_explicit(
+                Some(profile),
+                Some(&id),
+                None,
+                &[],
+                &dest(&tmp, &format!("meta-{profile}")),
+            )
+            .unwrap();
+            let files = render_files(&req).unwrap();
+            let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+            assert!(
+                paths.contains(&workspace::METADATA_PATH),
+                "{profile}: {paths:?}"
+            );
+            assert!(
+                paths.contains(&workspace::RECEIPT_PATH),
+                "{profile}: {paths:?}"
+            );
+            let mut opted_out = req.clone();
+            opted_out.workspace_metadata = false;
+            let legacy = render_files(&opted_out).unwrap();
+            let expected: Vec<(String, String)> = files
+                .iter()
+                .filter(|(p, _)| p != workspace::METADATA_PATH && p != workspace::RECEIPT_PATH)
+                .cloned()
+                .collect();
+            assert_eq!(
+                legacy, expected,
+                "{profile}: opt-out must equal the prior output"
+            );
+            // Receipt records exactly the staged declaration bytes.
+            let declaration = files
+                .iter()
+                .find(|(p, _)| p == workspace::METADATA_PATH)
+                .map(|(_, c)| c.clone())
+                .unwrap();
+            let receipt = files
+                .iter()
+                .find(|(p, _)| p == workspace::RECEIPT_PATH)
+                .map(|(_, c)| c.clone())
+                .unwrap();
+            assert!(
+                receipt.contains(&workspace::sha256_hex(declaration.as_bytes())),
+                "{profile}"
+            );
+        }
     }
 
     #[test]

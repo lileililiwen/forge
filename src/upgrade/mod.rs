@@ -366,6 +366,21 @@ fn conflict_error(conflict: &SemanticConflict) -> ForgeError {
     }
 }
 
+/// Standard ownership-conflict refusal for a user-edited generated
+/// workspace declaration: the edited file is preserved, nothing changes.
+fn metadata_conflict_error(project_id: &str) -> ForgeError {
+    ForgeError::FeatureOwnershipConflict {
+        reason: format!(
+            "ownership-conflict handoff for project '{project_id}' workspace metadata: owned \
+             file '{}' differs from the content recorded at generation; manual edits block the \
+             upgrade and are preserved; suggested follow-up `forge spec generate --project \
+             {project_id}  # resolve .project.json edits, then re-run `forge upgrade {project_id}``; \
+             no files were changed",
+            crate::generate::workspace::METADATA_PATH
+        ),
+    }
+}
+
 /// Whether an upgrade error message reports partial application (some
 /// features applied before the failure). Fleet maps partial errors to
 /// `failure` and pre-mutation errors to `blocked`.
@@ -429,6 +444,24 @@ fn execute_plan(
                 );
                 return Err(err);
             }
+        }
+    }
+
+    // Workspace metadata ownership: a user-edited generated declaration
+    // blocks the upgrade exactly like a drifted feature receipt. The
+    // edited file is preserved and nothing mutates.
+    if let Ok(descriptor) = crate::profile::inspect_profile(&manifest.project.profile) {
+        if crate::generate::workspace::plan_action(dir, &manifest.project.id, &descriptor)
+            == crate::generate::workspace::MetadataAction::Conflict
+        {
+            let err = metadata_conflict_error(&manifest.project.id);
+            let _ = registry.record_operation(
+                "upgrade",
+                &manifest.project.id,
+                "blocked",
+                &err.to_string(),
+            );
+            return Err(err);
         }
     }
 
@@ -502,6 +535,32 @@ fn execute_plan(
     let mut files = vec!["forge.yaml".to_string()];
     for id in &applied {
         files.push(format!("{}/{id}.receipt", crate::feature::RECEIPT_DIR));
+    }
+    // An unedited generated declaration whose manifest or descriptor
+    // moved since generation is refreshed to the honest current content.
+    // User-edited files already blocked the upgrade above; a declaration
+    // without a Forge receipt stays foreign content and is never written.
+    if let Ok(descriptor) = crate::profile::inspect_profile(&live.project.profile) {
+        let action = crate::generate::workspace::plan_action(dir, &live.project.id, &descriptor);
+        match crate::generate::workspace::apply_action(dir, &action) {
+            Ok(changed) => {
+                for rel in changed {
+                    if !files.contains(&rel) {
+                        files.push(rel);
+                    }
+                }
+            }
+            Err(err) => {
+                let note = format!(
+                    "partial upgrade: features applied ({}); workspace metadata refresh for \
+                     project '{}' could not write: {err}",
+                    applied.join(", "),
+                    live.project.id
+                );
+                let _ = registry.record_operation("upgrade", &live.project.id, "failed", &note);
+                return Err(ForgeError::IncompatibleFeature { reason: note });
+            }
+        }
     }
     files.sort();
     files.dedup();

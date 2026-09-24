@@ -77,6 +77,28 @@ pub struct ProfileDescriptor {
     pub requires_database: bool,
     #[serde(default)]
     pub description: Option<String>,
+    /// Workspace Governance metadata mapping (`.project.json` emission).
+    /// `None` is the no-mapping sentinel: generation omits the file and
+    /// prints a note, and never guesses a governance profile.
+    #[serde(default)]
+    pub workspace: Option<WorkspaceMapping>,
+}
+
+/// Explicit per-profile Workspace Governance mapping used by generation to
+/// emit an honest initial `.project.json` (sibling `schema_version: 1`).
+/// The governance profile string must exist in the sibling's vocabulary;
+/// the mapping lives in the descriptor so each profile decides its own
+/// adoption shape (or opts out with no mapping).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceMapping {
+    /// Governance profile vocabulary value (e.g. `rust-product`).
+    pub governance_profile: String,
+    /// Declaration kind (e.g. `product`; `control-plane` when declared).
+    pub kind: String,
+    /// Gate runtime name, emitted only when the profile declares one.
+    /// No supported profile declares a gate runtime today.
+    #[serde(default)]
+    pub gate_runtime: Option<String>,
 }
 
 fn default_support_status() -> ProfileSupportStatus {
@@ -185,7 +207,24 @@ fn descriptor_with_status(
         quality_policies: quality_policies.iter().map(|s| s.to_string()).collect(),
         requires_database,
         description: Some(description.to_string()),
+        workspace: None,
     }
+}
+
+/// Attach a Workspace Governance mapping to a descriptor (generation
+/// emits `.project.json` only for profiles carrying one). The gate runtime
+/// stays undeclared: no supported profile runs a shared Gate Runtime.
+fn with_governance(
+    mut profile: ProfileDescriptor,
+    governance_profile: &str,
+    kind: &str,
+) -> ProfileDescriptor {
+    profile.workspace = Some(WorkspaceMapping {
+        governance_profile: governance_profile.to_string(),
+        kind: kind.to_string(),
+        gate_runtime: None,
+    });
+    profile
 }
 
 /// All supported profile descriptors in stable ID order. Resolvers,
@@ -381,8 +420,9 @@ pub fn planned_profiles() -> Vec<ProfileDescriptor> {
 /// in stable ID order. [`mvp_profiles`] is the public alias.
 fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
     vec![
-        descriptor(
-            "aspnet-web",
+        with_governance(
+            descriptor(
+                "aspnet-web",
             "0.1.0",
             "adapter-dotnet",
             "csharp",
@@ -422,9 +462,13 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             &["AUTH-001", "PRIVACY-003", "DEPLOY-001"],
             true,
             "ASP.NET Core server-rendered web stack",
+            ),
+            "dotnet-product",
+            "product",
         ),
-        descriptor(
-            "flutter-app",
+        with_governance(
+            descriptor(
+                "flutter-app",
             "0.1.0",
             "adapter-flutter",
             "dart",
@@ -450,9 +494,13 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             &["PRIVACY-003", "A11Y-001"],
             false,
             "Flutter client application; server-side capabilities live behind a backend boundary",
+            ),
+            "flutter-product",
+            "product",
         ),
-        descriptor(
-            "nextjs-web",
+        with_governance(
+            descriptor(
+                "nextjs-web",
             "0.1.0",
             "adapter-nextjs",
             "typescript",
@@ -487,9 +535,13 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             &["AUTH-001", "A11Y-001", "DEPLOY-001"],
             false,
             "Next.js web stack without a forced database dependency",
+            ),
+            "typescript-product",
+            "product",
         ),
-        descriptor(
-            "python-service",
+        with_governance(
+            descriptor(
+                "python-service",
             "0.1.0",
             "adapter-python",
             "python",
@@ -528,9 +580,13 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             &["AUTH-001", "PRIVACY-003", "DEPLOY-001"],
             true,
             "Python API service stack",
+            ),
+            "python-product",
+            "product",
         ),
-        descriptor(
-            "react-web",
+        with_governance(
+            descriptor(
+                "react-web",
             "0.1.0",
             "adapter-react",
             "typescript",
@@ -568,9 +624,13 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "React SPA web stack; client-only rendering with no server-side runtime; \
              server capabilities (postgres, redis, email, storage, background-jobs, \
              rate-limit, audit) live behind a backend profile",
+            ),
+            "typescript-product",
+            "product",
         ),
-        descriptor(
-            "rust-web",
+        with_governance(
+            descriptor(
+                "rust-web",
             "0.1.0",
             "adapter-rust",
             "rust",
@@ -606,6 +666,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             &["AUTH-001", "PRIVACY-003", "DEPLOY-001"],
             true,
             "Rust Axum web service stack",
+            ),
+            "rust-product",
+            "product",
         ),
     ]
 }
@@ -660,6 +723,18 @@ pub fn validate_descriptor(profile: &ProfileDescriptor) -> Result<(), ForgeError
         Some("build_command")
     } else if profile.test_command.trim().is_empty() {
         Some("test_command")
+    } else if profile
+        .workspace
+        .as_ref()
+        .is_some_and(|w| w.governance_profile.trim().is_empty())
+    {
+        Some("workspace.governance_profile")
+    } else if profile
+        .workspace
+        .as_ref()
+        .is_some_and(|w| w.kind.trim().is_empty())
+    {
+        Some("workspace.kind")
     } else {
         None
     };
@@ -846,6 +921,52 @@ mod tests {
         assert!(!react.capabilities.iter().any(|c| c == "redis"));
         assert!(!react.capabilities.iter().any(|c| c == "background-jobs"));
         assert!(!react.capabilities.iter().any(|c| c == "storage"));
+    }
+
+    #[test]
+    fn supported_profiles_declare_workspace_mappings() {
+        let expected = [
+            ("aspnet-web", "dotnet-product"),
+            ("flutter-app", "flutter-product"),
+            ("nextjs-web", "typescript-product"),
+            ("python-service", "python-product"),
+            ("react-web", "typescript-product"),
+            ("rust-web", "rust-product"),
+        ];
+        for (id, governance) in expected {
+            let p = inspect_profile(id).unwrap();
+            let w = p
+                .workspace
+                .as_ref()
+                .unwrap_or_else(|| panic!("{id} declares a governance mapping"));
+            assert_eq!(w.governance_profile, governance, "{id}");
+            assert_eq!(w.kind, "product", "{id}");
+            // No shared Gate Runtime is configured, so no profile declares one.
+            assert_eq!(w.gate_runtime, None, "{id}");
+        }
+        // Planned candidates hold the no-mapping sentinel: nothing is ever
+        // guessed for a profile without a tested scaffold.
+        for p in planned_profiles() {
+            assert!(p.workspace.is_none(), "{} must have no mapping", p.id);
+        }
+    }
+
+    #[test]
+    fn workspace_mapping_parses_and_rejects_blank_governance_profile() {
+        let yaml = b"id: custom-web\nversion: 0.1.0\nadapter: adapter-custom\nlanguage: rust\ntoolchain: cargo\nbuild_command: cargo build\ntest_command: cargo test\nworkspace:\n  governance_profile: '  '\n  kind: product\n";
+        let err = descriptor_from_yaml(yaml).expect_err("blank governance profile must fail");
+        assert_eq!(err.code(), "invalid-profile");
+        assert!(
+            err.to_string().contains("workspace.governance_profile"),
+            "{err}"
+        );
+
+        let yaml = b"id: custom-web\nversion: 0.1.0\nadapter: adapter-custom\nlanguage: rust\ntoolchain: cargo\nbuild_command: cargo build\ntest_command: cargo test\n";
+        let p = descriptor_from_yaml(yaml).unwrap();
+        assert!(
+            p.workspace.is_none(),
+            "absent mapping parses to the sentinel"
+        );
     }
 
     #[test]

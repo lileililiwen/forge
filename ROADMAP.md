@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and four sibling-integration packages (orders 31, `external-checker-emission`, 33, `fleet-registry-observation`, 34, `supervised-agent-adapters`, and 35, `jenkins-deploy-adapter-consumption`) are implemented, archived and promoted to their canonical specs. The remaining four sibling-integration changes (orders 30, 32, 36 and 37) stay in `openspec/changes/`; orders 30, 32 and 37 remain blocked until their companion proposals in the driftwatchdog and workspace-governance repositories carry implementation evidence. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, and the executable Jenkins deploy executor boundary. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and five sibling-integration packages (orders 31, `external-checker-emission`, 33, `fleet-registry-observation`, 34, `supervised-agent-adapters`, 35, `jenkins-deploy-adapter-consumption`, and 36, `workspace-metadata-emission`) are implemented, archived and promoted to their canonical specs. The remaining three sibling-integration proposals (orders 30, 32 and 37) stay in `openspec/changes/`; all three remain blocked until their companion proposals in the driftwatchdog and workspace-governance repositories carry implementation evidence. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, and sibling-compatible workspace metadata at generation. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -51,7 +51,7 @@ Follow the order below by default; every dependency was implemented and verified
 | 33 | sibling | [fleet-registry-observation](openspec/specs/fleet-registry-observation/spec.md) | `control-plane-portal` | §7, §32, §36 |
 | 34 | sibling | [supervised-agent-adapters](openspec/specs/agent-runtime-workflows/spec.md) | `agent-runtime-workflows` | §21, §22, §32 |
 | 35 | sibling | [jenkins-deploy-adapter-consumption](openspec/specs/adapter-deployment/spec.md) | `adapter-deployment`, `provider-integration-evidence` | §30, §32, §43 |
-| 36 | proposal | [workspace-metadata-emission](openspec/changes/workspace-metadata-emission/proposal.md) | `deterministic-project-generation` | §14, §32 |
+| 36 | sibling | [deterministic-project-generation](openspec/specs/deterministic-project-generation/spec.md) | `deterministic-project-generation` | §14, §32 |
 | 37 | proposal | [gate-runtime-evidence](openspec/changes/gate-runtime-evidence/proposal.md) | `driftwatch-cli-alignment`, `profile-and-release-readiness` | §24, §25, §29, §32 |
 
 ## Release acceptance
@@ -69,4 +69,4 @@ The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versio
 
 ## Operating rule
 
-All 29 baseline and audit changes plus the sibling-integration packages (orders 31, 33, 34 and 35) are archived; the `current_spec` pointer in [HANDOFF.md](HANDOFF.md) names the next eligible active change. A new implementation cycle starts with exactly one eligible change, sets the single `current_spec` pointer, and follows implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.
+All 29 baseline and audit changes plus the sibling-integration packages (orders 31, 33, 34, 35 and 36) are archived; the `current_spec` pointer in [HANDOFF.md](HANDOFF.md) names the next eligible active change. A new implementation cycle starts with exactly one eligible change, sets the single `current_spec` pointer, and follows implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.

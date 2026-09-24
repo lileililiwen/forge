@@ -204,6 +204,10 @@ enum Commands {
         /// Run the profile's native build/test after generation.
         #[arg(long)]
         verify_native: bool,
+        /// Omit the Workspace Governance `.project.json` declaration
+        /// (output is then byte-identical to pre-metadata releases).
+        #[arg(long)]
+        no_workspace_metadata: bool,
     },
     /// Inspect project health and evidence-based maturity without changing files.
     Doctor {
@@ -1198,6 +1202,7 @@ fn main() -> ExitCode {
             name,
             features,
             verify_native,
+            no_workspace_metadata,
         } => cmd_new(
             &db_path,
             path,
@@ -1206,6 +1211,7 @@ fn main() -> ExitCode {
             name.as_deref(),
             features,
             *verify_native,
+            !no_workspace_metadata,
             cli.format,
         ),
         Commands::Doctor { path, target } => {
@@ -1418,9 +1424,10 @@ fn cmd_new(
     name: Option<&str>,
     features: &[String],
     verify_native_flag: bool,
+    workspace_metadata: bool,
     format: Format,
 ) -> Result<Output, ForgeError> {
-    let request = if profile.is_some() {
+    let mut request = if profile.is_some() {
         normalize_explicit(profile, id, name, features, path)?
     } else {
         let stdin = std::io::stdin();
@@ -1428,6 +1435,7 @@ fn cmd_new(
         let mut writer = std::io::stderr();
         parse_interactive(&mut reader, &mut writer, path, profile, id, name, features)?
     };
+    request.workspace_metadata = workspace_metadata;
     let mut registry = open_registry(db_path)?;
     let mut generated = generate(&mut registry, &request)?;
     if verify_native_flag {
@@ -1438,7 +1446,7 @@ fn cmd_new(
             report.build_command, report.test_command, report.profile
         );
     }
-    let human = format!(
+    let mut human = format!(
         "created {} ({}) from {}@{}\nfiles: {}\n{}",
         generated.record.id,
         generated.record.path,
@@ -1447,7 +1455,10 @@ fn cmd_new(
         generated.files.join(", "),
         generated.native_note
     );
-    let json = serde_json::json!({
+    for note in &generated.notes {
+        human.push_str(&format!("\n{note}"));
+    }
+    let mut json = serde_json::json!({
         "created": generated.record,
         "profile": request.profile,
         "generator": forge::generate::GENERATOR_VERSION,
@@ -1455,6 +1466,9 @@ fn cmd_new(
         "native_verified": generated.native_verified,
         "native_note": generated.native_note,
     });
+    if !generated.notes.is_empty() {
+        json["notes"] = serde_json::json!(generated.notes);
+    }
     Ok(as_output(format, human, json))
 }
 

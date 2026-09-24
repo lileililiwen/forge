@@ -913,6 +913,20 @@ pub fn run_doctor(
     // skipped entirely (automatic-workflow boundary).
     findings.extend(docs_freshness_findings(dir, &manifest));
 
+    // Workspace Governance declaration: presence is informational
+    // evidence only. It never gates health, maturity or the checker
+    // plane (adoption is the sibling's own workflow decision).
+    if file_exists(dir, crate::generate::workspace::METADATA_PATH) {
+        findings.push(Finding::new(
+            "workspace-metadata",
+            FindingStatus::Pass,
+            vec![crate::generate::workspace::METADATA_PATH.to_string()],
+            false,
+            Remediation::Manual,
+            "workspace governance declaration is present (informational; not Forge maturity evidence)",
+        ));
+    }
+
     let (dw_present, dw_evidence) = detect_driftwatch(dir);
     findings.push(Finding::new(
         "driftwatch-config",

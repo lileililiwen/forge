@@ -92,6 +92,9 @@ pub struct ImportProposal {
     pub driftwatch: Detection,
     pub git_remote: Detection,
     pub deployment: Detection,
+    /// Presence of a Workspace Governance `.project.json`. Informational
+    /// only: import never creates, rewrites or removes the file.
+    pub workspace_metadata: Detection,
     pub suggested_profile: Option<String>,
     pub suggested_maturity: Option<String>,
     pub confidence: String,
@@ -477,6 +480,23 @@ fn detect_ci(dir: &Path) -> Detection {
     }
 }
 
+/// Observe (never manage) a sibling Workspace Governance declaration.
+/// Presence is recorded as informational evidence; the file's bytes are
+/// foreign content that import will not create, rewrite or remove.
+fn detect_workspace_metadata(dir: &Path) -> Detection {
+    if exists(dir, crate::generate::workspace::METADATA_PATH) {
+        Detection::detected(
+            "present",
+            vec![crate::generate::workspace::METADATA_PATH.to_string()],
+        )
+    } else {
+        Detection::missing(vec![format!(
+            "no {} declaration",
+            crate::generate::workspace::METADATA_PATH
+        )])
+    }
+}
+
 fn detect_driftwatch(dir: &Path) -> Detection {
     let mut evidence = Vec::new();
     for file in [
@@ -712,6 +732,7 @@ pub fn inspect_import(
         driftwatch: detect_driftwatch(dir),
         git_remote: detect_git_remote(dir),
         deployment: detect_deployment(dir, recognized),
+        workspace_metadata: detect_workspace_metadata(dir),
         suggested_profile: suggested.map(str::to_string),
         suggested_maturity: suggested.map(|_| "L1".to_string()),
         confidence,
@@ -878,6 +899,7 @@ pub fn render_proposal_human(proposal: &ImportProposal) -> String {
         field("DriftWatch", &proposal.driftwatch),
         field("Git remote", &proposal.git_remote),
         field("Deployment", &proposal.deployment),
+        field("Workspace metadata", &proposal.workspace_metadata),
         String::new(),
         format!(
             "Suggested profile:\n{}",

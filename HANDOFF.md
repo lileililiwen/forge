@@ -129,12 +129,14 @@ declarations; the registry gained no columns, journal
 kind, MCP tool, API route or portal surface; and
 generated projects still build and test with their
 native toolchains with the file present and absent —
-the declaration is inert metadata. No active eligible changes remain:
-the three remaining active changes are blocked proposals (orders 30
+the declaration is inert metadata. At that close the
+three remaining active changes were proposals (orders 30
 `driftwatch-cli-alignment`, 32 `workspace-governance-adapter-consumption`
-and 37 `gate-runtime-evidence`) requiring companion implementation
+and 37 `gate-runtime-evidence`) awaiting companion implementation
 evidence in the driftwatchdog and workspace-governance repositories
-before selection.
+before selection; the driftwatchdog companion
+(`checker-machine-output`) landed the same day and order 30 archived
+above, leaving orders 32 and 37 roadmap-eligible.
 
 ## Verification evidence (workspace-metadata-emission, 2026-09-24)
 

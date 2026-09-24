@@ -4,7 +4,7 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 ## Status
 
-Implemented baseline with five archived audit/foundation follow-ups and the first archived sibling-integration package (`external-checker-emission`). The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 30 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. The last audit found one MCP test that depends on a read-only host registry; native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
+Implemented baseline with five archived audit/foundation follow-ups and eight archived sibling-integration packages (newest `gate-runtime-evidence`). The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 37 archived OpenSpec changes and promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. The last audit found one MCP test that depends on a read-only host registry; native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
 
 ## MVP and delivery
 
@@ -79,6 +79,40 @@ journals nothing, and never drives DriftWatch itself unless the operator
 explicitly passes `--include-policy`. See
 [docs/external-checker.md](docs/external-checker.md) for the envelope
 contract and the `driftwatch.toml` registration snippet.
+
+## Shared gate runtime evidence
+
+Driftwatchdog's Gate owns plan resolution, blocking policy, its own run
+history and exit semantics. `forge gate [TARGET]` resolves the runtime a
+project declares (`FORGE_GATE_BIN` explicitly, else `.project.json`
+`verification.gate_runtime`, else the ordered `driftwatchdog` → `driftwatch`
+probe), executes the real `gate --format json` through one bounded
+argument-array invocation, and journals a revision-bound record at
+`.forge/gate/<project-id>/evidence.json`. A parseable status document is
+evidence whatever the exit code — a blocked gate records `blocked` and
+exits non-zero, mirroring the sibling — while an unresolvable binary, a
+timeout or an unparseable answer stays honestly `unavailable` with prior
+evidence untouched. `forge gate . --dry-run` rehearses through the
+runtime's side-effect-free plan preview and persists or journals nothing.
+
+```sh
+forge gate .
+forge gate . --dry-run
+forge gate status .
+forge --format json gate <project-id-or-path>
+```
+
+Doctor's `gate-evidence` finding, the release `gate` check kind and the
+`gate-runtime` provider row consume the same record: stale evidence never
+satisfies a verification claim, an absent one reads `unverified` and never
+a pass, and captured output is credential-redacted and host-path-scrubbed.
+No gate tool is exposed over MCP or the API, and no gate pass is claimed
+for this repository — the real run honestly reports
+`gate-runtime-unavailable` until the sibling store (`driftwatch init`) is
+initialized in this checkout. See
+[docs/provider-evidence.md](docs/provider-evidence.md) for the probe
+boundary and `tests/fixtures/gate/NOTES.md` for the verbatim sibling
+captures.
 
 ## Product boundaries
 

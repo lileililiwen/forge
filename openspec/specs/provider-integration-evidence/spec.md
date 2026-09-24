@@ -1,7 +1,7 @@
 # provider-integration-evidence Specification
 
 ## Purpose
-Opt-in controlled provider round trips with provenance: five stable providers reported not-run unless live with FORGE_PROVIDER_LIVE=1, bounded fixture adapters labeled fixture (never support), credential redaction, teardown, and split-stage partial outcomes.
+Opt-in controlled provider round trips with provenance: six stable providers reported not-run unless live with FORGE_PROVIDER_LIVE=1, bounded fixture adapters labeled fixture (never support), credential redaction, teardown, and split-stage partial outcomes.
 ## Requirements
 ### Requirement: Controlled provider round trips
 

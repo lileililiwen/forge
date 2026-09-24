@@ -138,17 +138,17 @@ const ADAPTER_OK_BODY: &str = r#"#!/bin/sh
 # Stand-in deploy adapter: reads the payload on stdin,
 # acknowledges the apply and reports a `running` observation.
 cat >/dev/null
-printf '%s' '{"contract":"0.1.0","apply_status":"delivered","apply_note":"fixture adapter applied the artifact","apply_evidence":["compose up: app-0.1.0"],"observation_status":"running","observation_detail":"docker service app is running","observation_evidence":["docker ps: app healthy"],"recovery":[]}'
+printf '%s' '{"contract":"forge-deploy-executor/0.1.0","apply_status":"delivered","apply_note":"fixture adapter applied the artifact","apply_evidence":["compose up: app-0.1.0"],"observation_status":"running","observation_detail":"docker service app is running","observation_evidence":["docker ps: app healthy"],"recovery":[]}'
 "#;
 
 const ADAPTER_FAIL_BODY: &str = r#"#!/bin/sh
 cat >/dev/null
-printf '%s' '{"contract":"0.1.0","apply_status":"failed","apply_note":"fixture adapter could not apply the artifact","apply_evidence":["docker compose up failed"],"observation_status":"unknown","observation_detail":"target unreachable","observation_evidence":[],"recovery":["re-run forge deploy apply with --confirm"]}'
+printf '%s' '{"contract":"forge-deploy-executor/0.1.0","apply_status":"failed","apply_note":"fixture adapter could not apply the artifact","apply_evidence":["docker compose up failed"],"observation_status":"unknown","observation_detail":"target unreachable","observation_evidence":[],"recovery":["re-run forge deploy apply with --confirm"]}'
 "#;
 
 const ADAPTER_UNKNOWN_BODY: &str = r#"#!/bin/sh
 cat >/dev/null
-printf '%s' '{"contract":"0.1.0","apply_status":"delivered","apply_note":"fixture adapter applied the artifact","apply_evidence":["compose up: app-0.1.0"],"observation_status":"unknown","observation_detail":"target unreachable: ssh handshake refused","observation_evidence":[],"recovery":[]}'
+printf '%s' '{"contract":"forge-deploy-executor/0.1.0","apply_status":"delivered","apply_note":"fixture adapter applied the artifact","apply_evidence":["compose up: app-0.1.0"],"observation_status":"unknown","observation_detail":"target unreachable: ssh handshake refused","observation_evidence":[],"recovery":[]}'
 "#;
 
 #[test]
@@ -450,6 +450,157 @@ fn apply_refuses_when_adapter_binary_missing() {
     assert!(
         !state_path.exists(),
         "state dir must not exist for a missing adapter: {state_path:?}"
+    );
+}
+
+#[test]
+fn apply_refuses_pre_namespacing_contract_and_names_the_mismatch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-contract-mismatch",
+        "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
+    );
+    // A stale executor answering with the bare `0.1.0` wire
+    // value must be refused as a contract mismatch naming
+    // both sides, and must never masquerade as delivered.
+    let stale = write_adapter_script(
+        proj.parent().unwrap(),
+        "stale-contract.sh",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s' '{"contract":"0.1.0","apply_status":"delivered","apply_note":"stale executor","apply_evidence":[],"observation_status":"running","observation_detail":"stale","observation_evidence":[],"recovery":[]}'
+"#,
+    );
+    let mut cmd = clean_cmd();
+    cmd.arg("--registry")
+        .arg(&db)
+        .arg("--format")
+        .arg("json")
+        .arg("deploy")
+        .arg("apply")
+        .arg(&proj)
+        .arg("--confirm")
+        .env("FORGE_DEPLOYER_BIN", &stale);
+    let out = cmd.output().expect("apply");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        out.stdout.is_empty(),
+        "a contract refusal must not render a deploy report: {}",
+        lossy(&out.stdout)
+    );
+    let stderr = lossy(&out.stderr);
+    assert!(stderr.contains("deploy-target-unavailable"), "{stderr}");
+    assert!(
+        stderr.contains("forge-deploy-executor/0.1.0") && stderr.contains("`0.1.0`"),
+        "the refusal must name both the expected and observed contract: {stderr}"
+    );
+    assert!(
+        !proj.join(".forge/deploy").exists(),
+        "a refused contract must never persist state"
+    );
+}
+
+#[test]
+fn non_zero_exit_with_envelope_records_failed_stage_not_unavailable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-nonzero-envelope",
+        "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
+    );
+    // The runtime's own failed-stage report arrives with a
+    // non-zero exit: Forge records the named stage outcome
+    // with the adapter's evidence (observable on stdout)
+    // rather than collapsing it into `unavailable`.
+    let failed = write_adapter_script(
+        tmp.path(),
+        "failed-stage.sh",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s' '{"contract":"forge-deploy-executor/0.1.0","apply_status":"failed","apply_note":"job registration refused","apply_evidence":["jenkins-local exit 6: governance check failed"],"observation_status":"unknown","observation_detail":"no observation possible","observation_evidence":[],"recovery":["resolve the governance findings before rerunning"],"source":"fixture-jenkins/0.1.0","source_revision":"cafe1234"}'
+exit 1
+"#,
+    );
+    let mut cmd = clean_cmd();
+    cmd.arg("--registry")
+        .arg(&db)
+        .arg("--format")
+        .arg("json")
+        .arg("deploy")
+        .arg("apply")
+        .arg(&proj)
+        .arg("--confirm")
+        .env("FORGE_DEPLOYER_BIN", &failed);
+    let out = cmd.output().expect("apply");
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|_| panic!("stdout: {}", lossy(&out.stdout)));
+    let apply = json["deploy"]["stages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["stage"] == "apply")
+        .expect("apply stage");
+    assert_eq!(apply["status"], "failed");
+    assert_eq!(apply["note"], "job registration refused");
+    let evidence: Vec<&str> = apply["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e.as_str().unwrap_or(""))
+        .collect();
+    assert!(
+        evidence
+            .iter()
+            .any(|e| e.contains("governance check failed")),
+        "the runtime's evidence must survive: {evidence:?}"
+    );
+    assert!(
+        evidence.contains(&"executor=fixture-jenkins/0.1.0@cafe1234"),
+        "the stage must attribute to the adapter and revision: {evidence:?}"
+    );
+    let stderr = lossy(&out.stderr);
+    assert!(stderr.contains("deploy-health-failed"), "{stderr}");
+    assert!(
+        !proj.join(".forge/deploy").exists(),
+        "a failed stage must not persist a deploy record"
+    );
+}
+
+#[test]
+fn dry_run_apply_never_persists_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-dryrun-state",
+        "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
+    );
+    let adapter = write_adapter_script(tmp.path(), "fake-deployer.sh", ADAPTER_OK_BODY);
+    let mut cmd = clean_cmd();
+    cmd.arg("--registry")
+        .arg(&db)
+        .arg("deploy")
+        .arg("apply")
+        .arg(&proj)
+        .arg("--confirm")
+        .arg("--dry-run")
+        .env("FORGE_DEPLOYER_BIN", &adapter);
+    let out = cmd.output().expect("apply dry-run");
+    // The rehearsal reports its result; Forge never writes a
+    // state record for it, so the last real deploy's evidence
+    // (here: none) stands.
+    let stdout = lossy(&out.stdout);
+    assert!(stdout.contains("delivered"), "{stdout}");
+    assert!(
+        !proj.join(".forge/deploy").exists(),
+        "a dry-run rehearsal must not persist deploy state"
     );
 }
 

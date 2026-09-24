@@ -342,7 +342,7 @@ pub fn inspect(provider: &str) -> Result<ProviderDescriptor, ForgeError> {
         "driftwatch-policy" => "probe runs `<bin> check --project <dir> --format json` with a bounded wait; missing binary, non-zero exit, timeout or unparseable output records `unavailable`, never a policy PASS",
         "oidc-identity" => "probe runs the in-memory challenge/callback/claims/mint/validate/terminate lifecycle through the identity contract; cross-project, expired, revoked and non-admin outcomes stay refusals, never sessions",
         "analytics" => "probe runs `<bin> health --provider <p> --project <id> --project-ref <ref> --plane <plane>`; a mismatched project_ref records `ambiguous-mapping`, never another project's data",
-        "deploy" => "probe runs `<bin> apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run`; only a delivered envelope records `supported`, and teardown removes the probe state",
+        "deploy" => "probe runs `<bin> apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` under the frozen `forge-deploy-executor/0.1.0` envelope contract; only a contract-conformant delivered dry-run envelope records `supported`, a missing or unknown discriminator records `unavailable`, and teardown removes the probe state",
         "release" => "probe runs `<bin> publish --stage <s> --project <id> --revision <rev> --dry-run` for the package and container stages; a split outcome records `partial`, and retry never replays a delivered stage blindly",
         _ => "unknown provider",
     };
@@ -909,8 +909,9 @@ fn probe_deploy(options: &RunOptions, project_id: &str, revision: Option<String>
         .clone()
         .unwrap_or_else(|| "unversioned".to_string());
     let stdin_payload = serde_json::json!({
-        "contract": PROVIDER_CONTRACT_VERSION,
+        "contract": crate::deploy::DEPLOY_EXECUTOR_CONTRACT,
         "project_id": project_id,
+        "deploy_id": format!("{project_id}-local-{rev}"),
         "target": "local",
         "revision": rev,
         "dry_run": true,
@@ -972,6 +973,29 @@ fn probe_deploy(options: &RunOptions, project_id: &str, revision: Option<String>
             );
         }
     };
+    // The `deploy` row is only reachable against an adapter
+    // that speaks the frozen executor contract: a missing or
+    // unknown discriminator is a contract violation, not a
+    // provider success, and the row stays unavailable naming
+    // what was observed.
+    let envelope_contract = payload
+        .get("contract")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if envelope_contract != crate::deploy::DEPLOY_EXECUTOR_CONTRACT {
+        return unavailable_row(
+            "deploy",
+            sandbox,
+            &source,
+            project_id,
+            revision,
+            &format!(
+                "deploy adapter envelope contract `{envelope_contract}` does not match expected `{}`",
+                crate::deploy::DEPLOY_EXECUTOR_CONTRACT
+            ),
+            None,
+        );
+    }
     let status = payload
         .get("status")
         .or_else(|| payload.get("apply_status"))
@@ -988,11 +1012,26 @@ fn probe_deploy(options: &RunOptions, project_id: &str, revision: Option<String>
             None,
         );
     }
+    // The row names the adapter and its revision (when the
+    // envelope self-identifies), so a `supported` deploy row
+    // is attributable to a specific executor build rather
+    // than an anonymous binary. A dry-run probe never
+    // triggers a real deployment side effect.
+    let mut evidence = vec![format!("adapter_status={status}")];
+    if let Some(adapter_source) = payload.get("source").and_then(|v| v.as_str()) {
+        let adapter_revision = payload
+            .get("source_revision")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        evidence.push(format!(
+            "adapter_source={adapter_source}@{adapter_revision}"
+        ));
+    }
     params("deploy", sandbox, &source, project_id, revision, None).supported(
         tool_version,
         vec![truncate_receipt(&out.stdout)],
-        vec![format!("adapter_status={status}")],
-        "deploy probe observed a delivered dry-run envelope; no remote write was performed",
+        evidence,
+        "deploy probe observed a delivered dry-run envelope over the executor contract; no remote write was performed",
     )
 }
 
@@ -1696,7 +1735,7 @@ mod tests {
         let good = write_fixture(
             &dir,
             "good.sh",
-            "#!/bin/sh\ncat >/dev/null\necho '{\"contract\":\"0.1.0\",\"status\":\"delivered\",\"evidence\":[],\"note\":\"ok\"}'\n",
+            "#!/bin/sh\ncat >/dev/null\necho '{\"contract\":\"forge-deploy-executor/0.1.0\",\"status\":\"delivered\",\"evidence\":[],\"note\":\"ok\"}'\n",
         );
         let row = run_controlled_temp(
             "deploy",
@@ -1709,6 +1748,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(row.status, "supported");
+        let stale = write_fixture(
+            &dir,
+            "stale-contract.sh",
+            "#!/bin/sh\ncat >/dev/null\necho '{\"contract\":\"0.1.0\",\"status\":\"delivered\",\"evidence\":[],\"note\":\"ok\"}'\n",
+        );
+        let row = run_controlled_temp(
+            "deploy",
+            &RunOptions {
+                fixture: Some(stale),
+                ..Default::default()
+            },
+            "evidence-probe",
+            "owner/repo",
+        )
+        .unwrap();
+        assert_eq!(row.status, "unavailable");
+        assert!(
+            row.evidence
+                .iter()
+                .any(|e| e.contains("forge-deploy-executor/0.1.0")),
+            "the mismatch refusal must name the expected contract: {:?}",
+            row.evidence
+        );
         let bad = write_fixture(&dir, "bad.sh", "#!/bin/sh\ncat >/dev/null\nexit 1\n");
         let row = run_controlled_temp(
             "deploy",

@@ -80,9 +80,20 @@ use crate::core::manifest::{DeploymentHealthMeta, DeploymentMeta, Manifest};
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
 
-/// Contract data version for the deploy surface. The adapter
-/// speaks the same version over its stdin/stdout.
+/// Contract data version for the deploy surface. The plan,
+/// report and persisted state carry this version.
 pub const DEPLOY_CONTRACT_VERSION: &str = "0.1.0";
+
+/// Contract discriminator for the deploy *executor* boundary
+/// (`jenkins-deploy-adapter-consumption`). The adapter
+/// speaks this id over its stdin payload and stdout
+/// envelope; it is frozen in
+/// `docs/adapter-contracts/deploy-executor.md`. A third-party
+/// adapter emits this exact string; anything else (including
+/// the bare `0.1.0` pre-namespacing value) is refused as a
+/// contract mismatch so a stale executor can never masquerade
+/// as conformant.
+pub const DEPLOY_EXECUTOR_CONTRACT: &str = "forge-deploy-executor/0.1.0";
 
 /// Deploy state subdirectory inside the project. Each deploy
 /// owns `<project>/.forge/deploy/<project-id>/<deploy-id>/state.json`.
@@ -615,6 +626,14 @@ pub struct DeployState {
     pub stage_outcomes: Vec<DeployStageOutcome>,
     #[serde(default)]
     pub last_observation: Option<HealthObservation>,
+    /// The last `running` observation this deploy recorded.
+    /// An unreachable or unrecognized target never erases
+    /// it: `current_state` still reports `unknown` for the
+    /// live observation while prior proof of health remains
+    /// attributable (R2 boundary: disconnected is unknown,
+    /// not offline proof).
+    #[serde(default)]
+    pub last_observed_running: Option<HealthObservation>,
     #[serde(default)]
     pub last_run_at: String,
 }

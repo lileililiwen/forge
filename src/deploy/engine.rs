@@ -25,9 +25,10 @@ use super::{
     redact_deploy_evidence, save_deploy_state, state_path_for, CapturedArtifact,
     DeployAdapterConfig, DeployConfig, DeployHealthSpec, DeployIdentity, DeployListEntry,
     DeployPlan, DeployReport, DeployRequest, DeployStageOutcome, DeployState, DeployTargetSpec,
-    HealthObservation, DEPLOY_ADAPTER_TIMEOUT, DEPLOY_CONTRACT_VERSION, HEALTH_DOCKER, HEALTH_HTTP,
-    HEALTH_PROCESS, STATUS_DELIVERED, STATUS_DISABLED, STATUS_FAILED, STATUS_RUNNING,
-    STATUS_SKIPPED, STATUS_UNKNOWN, TARGET_DOCKER_COMPOSE, TARGET_LOCAL, TARGET_SSH,
+    HealthObservation, DEPLOY_ADAPTER_TIMEOUT, DEPLOY_CONTRACT_VERSION, DEPLOY_EXECUTOR_CONTRACT,
+    HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS, STATUS_DELIVERED, STATUS_DISABLED, STATUS_FAILED,
+    STATUS_RUNNING, STATUS_SKIPPED, STATUS_UNKNOWN, TARGET_DOCKER_COMPOSE, TARGET_LOCAL,
+    TARGET_SSH,
 };
 
 /// Read-only plan report. The transport renders this
@@ -87,10 +88,23 @@ fn short_revision(sha: &str) -> String {
     sha.chars().take(12).collect()
 }
 
+/// Which executor verb Forge invokes. `apply` runs (or
+/// rehearses, with `--dry-run`) the named deployment;
+/// `observe` is read-only health status and must never
+/// trigger a deploy side effect. The frozen argv for each
+/// operation is documented in
+/// `docs/adapter-contracts/deploy-executor.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdapterOp {
+    Apply,
+    Observe,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AdapterRequest {
     contract: String,
     project_id: String,
+    deploy_id: String,
     target: DeployTargetSpec,
     artifact: Option<CapturedArtifact>,
     health: Option<DeployHealthSpec>,
@@ -108,6 +122,14 @@ struct AdapterResponse {
     observation_detail: String,
     observation_evidence: Vec<String>,
     recovery: Vec<String>,
+    /// Optional adapter self-identification (e.g.
+    /// `forge-deployer-jenkins/0.1.0`). Forge attributes the
+    /// stage evidence to it when present.
+    source: Option<String>,
+    /// Optional revision of the adapter's backing runtime
+    /// scripts (e.g. the jenkins-local checkout's HEAD).
+    /// Absent never reads as a claimed production version.
+    source_revision: Option<String>,
 }
 
 impl AdapterResponse {
@@ -121,11 +143,10 @@ impl AdapterResponse {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if contract != DEPLOY_CONTRACT_VERSION {
+        if contract != DEPLOY_EXECUTOR_CONTRACT {
             return Err(ForgeError::DeployTargetUnavailable {
                 reason: format!(
-                    "deploy adapter contract `{contract}` does not match expected `{}`",
-                    DEPLOY_CONTRACT_VERSION
+                    "deploy adapter contract `{contract}` does not match expected `{DEPLOY_EXECUTOR_CONTRACT}`"
                 ),
             });
         }
@@ -183,7 +204,36 @@ impl AdapterResponse {
                         .collect()
                 })
                 .unwrap_or_default(),
+            source: obj
+                .get("source")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_string()),
+            source_revision: obj
+                .get("source_revision")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_string()),
         })
+    }
+
+    /// Attribution line naming the executor and its revision
+    /// so every stage outcome is traceable to the adapter
+    /// that produced it. An absent self-identification
+    /// surfaces as the configured binary plus `unknown`
+    /// revision — never a claimed version.
+    fn attribution(&self, fallback_bin: &str) -> String {
+        let source = self.source.clone().unwrap_or_else(|| {
+            Path::new(fallback_bin)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| fallback_bin.to_string())
+        });
+        let revision = self
+            .source_revision
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        format!("executor={source}@{revision}")
     }
 }
 
@@ -207,25 +257,34 @@ pub fn apply_deploy(
     let plan = prepare_deploy(project_dir, manifest, config, request)?;
     let state_path = state_path_for(project_dir, &plan.project_id, &plan.identity)?;
     let prior_state = load_deploy_state(&state_path)?;
-    let response = invoke_adapter(adapters, &plan, request.dry_run)?;
+    let response = invoke_adapter(adapters, &plan, AdapterOp::Apply, request.dry_run)?;
     let now = Utc::now().to_rfc3339();
     let observation = build_observation(&response, &plan, &now);
+    let attribution = redact_deploy_evidence(&response.attribution(&adapters.deployer_bin));
+    let mut apply_evidence: Vec<String> = response
+        .apply_evidence
+        .iter()
+        .map(|s| redact_deploy_evidence(s))
+        .collect();
+    apply_evidence.push(attribution.clone());
     let apply_outcome = DeployStageOutcome {
         stage: "apply".to_string(),
         target: plan.target.name.clone(),
         status: response.apply_status.clone(),
         note: redact_deploy_evidence(&response.apply_note),
-        evidence: response
-            .apply_evidence
-            .iter()
-            .map(|s| redact_deploy_evidence(s))
-            .collect(),
+        evidence: apply_evidence,
         recovery: response
             .recovery
             .iter()
             .map(|s| redact_deploy_evidence(s))
             .collect(),
     };
+    let mut observe_evidence: Vec<String> = observation
+        .evidence
+        .iter()
+        .map(|s| redact_deploy_evidence(s))
+        .collect();
+    observe_evidence.push(attribution);
     let observe_outcome = DeployStageOutcome {
         stage: "observe".to_string(),
         target: plan.target.name.clone(),
@@ -236,11 +295,7 @@ pub fn apply_deploy(
             observation.status.clone()
         },
         note: redact_deploy_evidence(&observation.detail),
-        evidence: observation
-            .evidence
-            .iter()
-            .map(|s| redact_deploy_evidence(s))
-            .collect(),
+        evidence: observe_evidence,
         recovery: Vec::new(),
     };
     let stages = vec![apply_outcome.clone(), observe_outcome.clone()];
@@ -253,13 +308,19 @@ pub fn apply_deploy(
     next_state.health = plan.health.clone();
     next_state.stage_outcomes = stages.clone();
     next_state.last_observation = Some(observation.clone());
+    if observation.status == STATUS_RUNNING {
+        next_state.last_observed_running = Some(observation.clone());
+    }
     next_state.last_run_at = now.clone();
     // Only persist when the apply stage did not fail with a
     // missing binary or contract mismatch. A failed adapter
-    // leaves the prior observation intact.
-    if apply_outcome.status == STATUS_DELIVERED
-        || apply_outcome.status == STATUS_SKIPPED
-        || apply_outcome.status == STATUS_DISABLED
+    // leaves the prior observation intact. A dry-run
+    // rehearsal never mutates the persisted record: the last
+    // real deploy's evidence stands unchanged.
+    if !request.dry_run
+        && (apply_outcome.status == STATUS_DELIVERED
+            || apply_outcome.status == STATUS_SKIPPED
+            || apply_outcome.status == STATUS_DISABLED)
     {
         save_deploy_state(&state_path, &next_state)?;
     }
@@ -318,14 +379,31 @@ fn build_observation(
     }
 }
 
+/// Invoke the executor adapter under the frozen
+/// `forge-deploy-executor/0.1.0` contract.
+///
+/// Classification rules (contract-pinned):
+///
+/// - exit 0 with a parseable, contract-conformant envelope →
+///   the stage outcome exactly as the envelope names it;
+/// - non-zero exit WITH a parseable, contract-conformant
+///   envelope → the named stage failed with the envelope's
+///   evidence; the prior DeployState is preserved because a
+///   failed apply stage never persists;
+/// - non-zero exit WITHOUT a parseable envelope, an unknown
+///   contract, a timeout or a spawn failure →
+///   `deploy-target-unavailable`; the prior DeployState
+///   stands and the refusal names what was observed.
 fn invoke_adapter(
     adapters: &DeployAdapterConfig,
     plan: &DeployPlan,
+    op: AdapterOp,
     dry_run: bool,
 ) -> Result<AdapterResponse, ForgeError> {
     let payload = AdapterRequest {
-        contract: DEPLOY_CONTRACT_VERSION.to_string(),
+        contract: DEPLOY_EXECUTOR_CONTRACT.to_string(),
         project_id: plan.project_id.clone(),
+        deploy_id: plan.identity.id.clone(),
         target: plan.target.clone(),
         artifact: plan.artifact.clone(),
         health: plan.health.clone(),
@@ -333,32 +411,60 @@ fn invoke_adapter(
         dry_run,
     };
     let mut cmd = Command::new(&adapters.deployer_bin);
-    cmd.arg("apply")
-        .arg("--target")
-        .arg(&plan.target.name)
-        .arg("--kind")
-        .arg(&plan.target.kind)
-        .arg("--project")
-        .arg(&plan.project_id)
-        .arg("--revision")
-        .arg(&plan.identity.source_revision);
-    if let Some(artifact) = &plan.artifact {
-        cmd.arg("--artifact").arg(&artifact.path);
-    }
-    if let Some(health) = &plan.health {
-        cmd.arg("--health-kind").arg(&health.kind);
-        if let Some(service) = &health.service {
-            cmd.arg("--health-service").arg(service);
+    match op {
+        AdapterOp::Apply => {
+            cmd.arg("apply")
+                .arg("--target")
+                .arg(&plan.target.name)
+                .arg("--kind")
+                .arg(&plan.target.kind)
+                .arg("--project")
+                .arg(&plan.project_id)
+                .arg("--revision")
+                .arg(&plan.identity.source_revision);
+            if let Some(artifact) = &plan.artifact {
+                cmd.arg("--artifact").arg(&artifact.path);
+            }
+            if let Some(health) = &plan.health {
+                cmd.arg("--health-kind").arg(&health.kind);
+                if let Some(service) = &health.service {
+                    cmd.arg("--health-service").arg(service);
+                }
+                if let Some(url) = &health.url {
+                    cmd.arg("--health-url").arg(url);
+                }
+                if let Some(process) = &health.process {
+                    cmd.arg("--health-process").arg(process);
+                }
+            }
+            if dry_run {
+                cmd.arg("--dry-run");
+            }
         }
-        if let Some(url) = &health.url {
-            cmd.arg("--health-url").arg(url);
+        AdapterOp::Observe => {
+            // Observe is a read-only verb: the executor must
+            // report health for the persisted deploy identity
+            // and never re-applies the artifact.
+            cmd.arg("observe")
+                .arg("--target")
+                .arg(&plan.target.name)
+                .arg("--project")
+                .arg(&plan.project_id)
+                .arg("--deploy-id")
+                .arg(&plan.identity.id);
+            if let Some(health) = &plan.health {
+                cmd.arg("--health-kind").arg(&health.kind);
+                if let Some(service) = &health.service {
+                    cmd.arg("--health-service").arg(service);
+                }
+                if let Some(url) = &health.url {
+                    cmd.arg("--health-url").arg(url);
+                }
+                if let Some(process) = &health.process {
+                    cmd.arg("--health-process").arg(process);
+                }
+            }
         }
-        if let Some(process) = &health.process {
-            cmd.arg("--health-process").arg(process);
-        }
-    }
-    if dry_run {
-        cmd.arg("--dry-run");
     }
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
@@ -398,7 +504,32 @@ fn invoke_adapter(
             reason: format!("deploy adapter `{}` failed: {err}", adapters.deployer_bin),
         }
     })?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if !output.status.success() {
+        // A non-zero exit that still carries a contract-
+        // conformant envelope is a FAILED STAGE with the
+        // runtime's own evidence, not an unavailable
+        // executor: the stage outcome records what the
+        // adapter named while the prior DeployState stands
+        // (a failed apply stage is never persisted below).
+        // A contradictory envelope — non-zero exit claiming
+        // delivery — is downgraded to `failed`: the exit
+        // code is authoritative, so a stale or buggy
+        // executor can never masquerade as a success.
+        if let Ok(mut response) = AdapterResponse::parse(&stdout) {
+            if response.apply_status == STATUS_DELIVERED
+                || response.apply_status == STATUS_SKIPPED
+                || response.apply_status == STATUS_DISABLED
+            {
+                let claim = response.apply_status.clone();
+                response.apply_status = STATUS_FAILED.to_string();
+                response.apply_note = format!(
+                    "adapter exited {} while claiming `{claim}`; the exit status is authoritative, so the stage is recorded as failed",
+                    output.status
+                );
+            }
+            return Ok(response);
+        }
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(ForgeError::DeployTargetUnavailable {
             reason: format!(
@@ -408,7 +539,6 @@ fn invoke_adapter(
             ),
         });
     }
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     AdapterResponse::parse(&stdout)
 }
 
@@ -500,19 +630,22 @@ pub fn observe_deploy(
             plan.artifact = Some(load_artifact(project_dir, relative)?);
         }
     }
-    let response = invoke_adapter(adapters, &plan, request.dry_run)?;
+    let response = invoke_adapter(adapters, &plan, AdapterOp::Observe, request.dry_run)?;
     let now = Utc::now().to_rfc3339();
     let observation = build_observation(&response, &plan, &now);
+    let attribution = redact_deploy_evidence(&response.attribution(&adapters.deployer_bin));
+    let mut observe_evidence: Vec<String> = observation
+        .evidence
+        .iter()
+        .map(|s| redact_deploy_evidence(s))
+        .collect();
+    observe_evidence.push(attribution);
     let observe_outcome = DeployStageOutcome {
         stage: "observe".to_string(),
         target: target.name.clone(),
         status: observation.status.clone(),
         note: redact_deploy_evidence(&observation.detail),
-        evidence: observation
-            .evidence
-            .iter()
-            .map(|s| redact_deploy_evidence(s))
-            .collect(),
+        evidence: observe_evidence,
         recovery: Vec::new(),
     };
     let mut next_state = prior.clone();
@@ -524,6 +657,9 @@ pub fn observe_deploy(
     next_state.health = plan.health.clone();
     next_state.stage_outcomes = vec![observe_outcome.clone()];
     next_state.last_observation = Some(observation.clone());
+    if observation.status == STATUS_RUNNING {
+        next_state.last_observed_running = Some(observation.clone());
+    }
     next_state.last_run_at = now.clone();
     save_deploy_state(&state_path, &next_state)?;
     let healthy = observe_outcome.status == STATUS_RUNNING
@@ -701,6 +837,7 @@ mod tests {
     use super::*;
     use crate::core::manifest::Manifest;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn write_minimal_project(dir: &Path) {
@@ -883,5 +1020,322 @@ mod tests {
         // silently fall through to a planned adapter.
         let err = prepare_deploy(Path::new("."), &manifest, &config, &req).unwrap_err();
         assert_eq!(err.code(), "deploy-target-unavailable");
+    }
+
+    /// Write an executable adapter script and return its path.
+    fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, body).unwrap();
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    const ENVELOPE_OK: &str = r#"{"contract":"forge-deploy-executor/0.1.0","apply_status":"delivered","apply_note":"applied","apply_evidence":[],"observation_status":"running","observation_detail":"up","observation_evidence":[],"recovery":[],"source":"fixture-executor/0.1.0","source_revision":"cafe1234"}"#;
+
+    fn envelope_script(dir: &Path, name: &str, envelope: &str, exit_code: i32) -> PathBuf {
+        write_script(
+            dir,
+            name,
+            &format!("#!/bin/sh\ncat >/dev/null\nprintf '%s' '{envelope}'\nexit {exit_code}\n"),
+        )
+    }
+
+    fn apply_request(manifest: &Manifest, config: &DeployConfig) -> DeployRequest {
+        DeployRequest {
+            project_id: manifest.project.id.clone(),
+            target: config.default_target.clone(),
+            confirm: true,
+            dry_run: false,
+        }
+    }
+
+    #[test]
+    fn executor_envelope_requires_namespaced_contract() {
+        // The frozen discriminator is `forge-deploy-executor/0.1.0`.
+        let good = AdapterResponse::parse(ENVELOPE_OK).expect("conformant envelope");
+        assert_eq!(good.apply_status, "delivered");
+        assert_eq!(good.source.as_deref(), Some("fixture-executor/0.1.0"));
+        assert_eq!(good.source_revision.as_deref(), Some("cafe1234"));
+        // The bare pre-namespacing `0.1.0` value must be
+        // refused and the refusal names both sides.
+        let stale = ENVELOPE_OK.replace(
+            "\"contract\":\"forge-deploy-executor/0.1.0\"",
+            "\"contract\":\"0.1.0\"",
+        );
+        let err = AdapterResponse::parse(&stale).unwrap_err();
+        assert_eq!(err.code(), "deploy-target-unavailable");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("forge-deploy-executor/0.1.0") && msg.contains("`0.1.0`"),
+            "refusal must name the observed and expected contract: {msg}"
+        );
+        let err = AdapterResponse::parse("not json at all").unwrap_err();
+        assert_eq!(err.code(), "deploy-target-unavailable");
+    }
+
+    #[test]
+    fn attribution_evidence_names_executor_and_revision() {
+        let response = AdapterResponse::parse(ENVELOPE_OK).unwrap();
+        assert_eq!(
+            response.attribution("forge-deployer"),
+            "executor=fixture-executor/0.1.0@cafe1234"
+        );
+        // An envelope without self-identification attributes
+        // to the configured binary with an explicit unknown
+        // revision — never a claimed version.
+        let bare = ENVELOPE_OK.replace(
+            ",\"source\":\"fixture-executor/0.1.0\",\"source_revision\":\"cafe1234\"",
+            "",
+        );
+        let response = AdapterResponse::parse(&bare).unwrap();
+        assert_eq!(
+            response.attribution("/opt/bin/custom-deployer"),
+            "executor=custom-deployer@unknown"
+        );
+    }
+
+    #[test]
+    fn non_zero_exit_with_envelope_records_failed_stage_preserving_prior_state() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        // First apply succeeds: the delivered state is persisted.
+        let good = envelope_script(tmp.path(), "good.sh", ENVELOPE_OK, 0);
+        let report = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: good.display().to_string(),
+            },
+        )
+        .unwrap();
+        assert!(report.healthy);
+        let state_path = Path::new(&report.state_path);
+        let state_bytes_before = fs::read(state_path).unwrap();
+        assert!(String::from_utf8_lossy(&state_bytes_before).contains("delivered"));
+        // Second apply: the adapter exits non-zero WITH a
+        // contract-conformant envelope naming a failed stage.
+        // The failure is recorded exactly as named and the
+        // prior DeployState bytes stay untouched.
+        let failing = ENVELOPE_OK
+            .replace(
+                "\"apply_status\":\"delivered\"",
+                "\"apply_status\":\"failed\"",
+            )
+            .replace(
+                "\"apply_note\":\"applied\"",
+                "\"apply_note\":\"job registration refused\"",
+            );
+        let bad = envelope_script(tmp.path(), "bad.sh", &failing, 1);
+        let report = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: bad.display().to_string(),
+            },
+        )
+        .unwrap();
+        assert!(!report.healthy);
+        let apply = report
+            .stages
+            .iter()
+            .find(|s| s.stage == "apply")
+            .expect("apply stage");
+        assert_eq!(apply.status, "failed");
+        assert_eq!(apply.note, "job registration refused");
+        assert!(apply
+            .evidence
+            .iter()
+            .any(|e| e.starts_with("executor=fixture-executor/0.1.0@")));
+        let state_bytes_after = fs::read(state_path).unwrap();
+        assert_eq!(
+            state_bytes_before, state_bytes_after,
+            "a failed stage must never overwrite the prior state"
+        );
+    }
+
+    #[test]
+    fn non_zero_delivered_claim_is_downgraded_to_failed() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        // A contradictory envelope — claiming `delivered`
+        // while exiting non-zero — records `failed`: the exit
+        // status is authoritative, so a broken executor can
+        // never masquerade as a success.
+        let contradictory = envelope_script(tmp.path(), "contradictory.sh", ENVELOPE_OK, 7);
+        let report = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: contradictory.display().to_string(),
+            },
+        )
+        .unwrap();
+        let apply = report
+            .stages
+            .iter()
+            .find(|s| s.stage == "apply")
+            .expect("apply stage");
+        assert_eq!(apply.status, "failed");
+        assert!(
+            apply.note.contains("authoritative"),
+            "note must name the downgrade reason: {}",
+            apply.note
+        );
+        assert!(!report.healthy);
+        // Nothing was persisted for the downgraded run.
+        assert!(!tmp
+            .path()
+            .join(".forge/deploy")
+            .join(&manifest.project.id)
+            .exists());
+    }
+
+    #[test]
+    fn non_zero_without_envelope_stays_unavailable() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        let noisy = write_script(
+            tmp.path(),
+            "noisy.sh",
+            "#!/bin/sh\ncat >/dev/null\necho 'docker: cannot connect to daemon' >&2\nexit 1\n",
+        );
+        let err = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: noisy.display().to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "deploy-target-unavailable");
+        assert!(err.to_string().contains("cannot connect to daemon"));
+    }
+
+    #[test]
+    fn observe_invokes_the_read_only_observe_verb() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        let argv_log = tmp.path().join("argv.log");
+        // The fixture records each invocation's argv and
+        // always answers with the conformant envelope.
+        let script = write_script(
+            tmp.path(),
+            "logger.sh",
+            &format!(
+                "#!/bin/sh\necho \"$@\" >> '{}'\ncat >/dev/null\nprintf '%s' '{ENVELOPE_OK}'\n",
+                argv_log.display()
+            ),
+        );
+        let adapters = DeployAdapterConfig {
+            deployer_bin: script.display().to_string(),
+        };
+        let report = apply_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
+        assert!(!fs::read(&argv_log).unwrap().is_empty());
+        observe_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
+        let log = String::from_utf8_lossy(&fs::read(&argv_log).unwrap()).to_string();
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 2, "one apply plus one observe call: {lines:?}");
+        assert!(lines[0].starts_with("apply "), "first call: {}", lines[0]);
+        assert!(
+            lines[1].starts_with("observe ")
+                && lines[1].contains("--deploy-id")
+                && lines[1].contains(&report.identity.id),
+            "observe must use the read-only verb with the deploy id: {}",
+            lines[1]
+        );
+        assert!(
+            !lines[1].contains("--artifact"),
+            "observe must never carry an apply artifact: {}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn unknown_observation_preserves_last_good_running() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        let good = envelope_script(tmp.path(), "good.sh", ENVELOPE_OK, 0);
+        let adapters = DeployAdapterConfig {
+            deployer_bin: good.display().to_string(),
+        };
+        let report = apply_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
+        let state = load_deploy_state(Path::new(&report.state_path)).unwrap();
+        assert_eq!(state.current_state(), STATUS_RUNNING);
+        assert!(state.last_observed_running.is_some());
+        // The deployment reports a state outside the mapping
+        // table: observe returns `unknown` while the previous
+        // good observation remains the recorded history entry.
+        let unreachable = ENVELOPE_OK
+            .replace(
+                "\"observation_status\":\"running\"",
+                "\"observation_status\":\"unheard-of-state\"",
+            )
+            .replace(
+                "\"observation_detail\":\"up\"",
+                "\"observation_detail\":\"status outside the mapping table\"",
+            );
+        let flaky = envelope_script(tmp.path(), "flaky.sh", &unreachable, 0);
+        let adapters = DeployAdapterConfig {
+            deployer_bin: flaky.display().to_string(),
+        };
+        let report = observe_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
+        assert!(!report.healthy);
+        assert_eq!(report.stages[0].status, STATUS_UNKNOWN);
+        let state = load_deploy_state(Path::new(&report.state_path)).unwrap();
+        assert_eq!(state.current_state(), STATUS_UNKNOWN);
+        let preserved = state
+            .last_observed_running
+            .expect("the prior good observation must survive an unknown re-observation");
+        assert_eq!(preserved.status, STATUS_RUNNING);
+        assert_eq!(preserved.detail, "up");
+    }
+
+    #[test]
+    fn legacy_state_without_last_good_observation_still_loads() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("state.json");
+        fs::write(
+            &path,
+            r#"{"contract":"0.1.0","identity":{"project_id":"app","target":"home","source_revision":"deadbeef","id":"app-home-deadbeef"},"target":{"name":"home","kind":"local","host":null,"user":null,"path":null,"service":null,"note":null},"adapter":"local","artifact":null,"health":null,"stage_outcomes":[],"last_observation":null,"last_run_at":""}"#,
+        )
+        .unwrap();
+        let state = load_deploy_state(&path).unwrap();
+        assert!(state.last_observed_running.is_none());
+        assert_eq!(state.identity.id, "app-home-deadbeef");
+    }
+
+    #[test]
+    fn bounded_wait_times_out_on_hanged_adapter() {
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let err = wait_with_timeout(child, std::time::Duration::from_millis(200))
+            .expect_err("hanged adapter must not be waited on forever");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
     }
 }

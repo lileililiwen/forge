@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""forge-deployer-jenkins — reference deploy executor adapter.
+
+Translates the frozen Forge executor contract
+(``forge-deploy-executor/0.1.0``, see
+``docs/adapter-contracts/deploy-executor.md``) onto the workspace's
+existing jenkins-local deployment scripts. All deployment logic
+(sync, compose, job registration, host paths, secrets) stays in
+jenkins-local; this adapter owns only the translation table recorded
+in ``adapters/jenkins/jenkins-adapter.md`` and the envelope schema.
+
+Trust model: the adapter is an operator-installed binary (same as
+``FORGE_DEPLOYER_BIN``). It is invoked with argument arrays and never
+interpolates arguments into a shell. Jenkins credentials stay in the
+Mac-side credential store; Forge receives neither secrets nor
+absolute host paths (both are scrubbed from evidence here and
+redacted again Forge-side).
+
+Exit-code classification (contract-pinned):
+
+- exit 0     + envelope   -> the stage outcome as named
+- exit != 0  + envelope   -> the named stage FAILED with evidence
+- exit != 0, no envelope  -> executor UNAVAILABLE (prior state stands)
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+CONTRACT = "forge-deploy-executor/0.1.0"
+SOURCE = "forge-deployer-jenkins/0.1.0"
+MAX_EVIDENCE_LINES = 8
+MAX_EVIDENCE_CHARS = 300
+PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+SECRET_RES = [
+    re.compile(
+        r"(?i)(token|secret|password|passwd|api[_-]?key|authorization)([=:]\s*|[\s\"']+)\S+"
+    ),
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"xox[aprsb]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+]
+HOST_PATH_RE = re.compile(r"/(?:Users|home|var|opt|private|root)/[^\s\"']+")
+# jenkins-local exit-code guidance (facts recorded in jenkins-adapter.md).
+EXIT_RECOVERY = {
+    2: "fix the invocation: project.sh rejected the arguments",
+    3: "complete the Mac-side project configuration or shared-database step "
+    "named by the output, then rerun the apply",
+    4: "initialize the Jenkins credential file on the Mac host, then rerun the apply",
+    5: "install Workspace Governance at the root the deployment expects, "
+    "then rerun the apply",
+    6: "Workspace Governance rejected this deployment; resolve its check "
+    "findings before rerunning",
+}
+
+# Revision of the jenkins-local checkout, resolved by scripts_dir().
+JENKINS_REVISION = "unknown"
+
+
+def scrub(line):
+    """Remove credential shapes and absolute host paths from one line."""
+    for pattern in SECRET_RES:
+        line = pattern.sub("[REDACTED]", line)
+    line = HOST_PATH_RE.sub("<host-path>", line)
+    if len(line) > MAX_EVIDENCE_CHARS:
+        line = line[: MAX_EVIDENCE_CHARS - 1] + "…"
+    return line
+
+
+def evidence_of(text):
+    lines = [scrub(item.strip()) for item in text.splitlines() if item.strip()]
+    return lines[-MAX_EVIDENCE_LINES:]
+
+
+def revision_of(directory):
+    """Best-effort VCS revision of the jenkins-local checkout."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", directory, "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    sha = out.stdout.strip()
+    return sha if out.returncode == 0 and sha else "unknown"
+
+
+def scripts_dir():
+    """Resolve and validate the jenkins-local checkout, or exit 2.
+
+    A missing or incomplete executor is UNAVAILABLE (exit non-zero
+    without an envelope): Forge preserves the prior DeployState and
+    the operator sees the resolution attempt, never a synthesized
+    stage outcome.
+    """
+    global JENKINS_REVISION
+    directory = os.environ.get("FORGE_JENKINS_LOCAL_DIR", "").strip()
+    if not directory:
+        sys.stderr.write(
+            "forge-deployer-jenkins: FORGE_JENKINS_LOCAL_DIR is not set; "
+            "point it at the jenkins-local checkout that owns deployment\n"
+        )
+        sys.exit(2)
+    if not os.path.isdir(directory):
+        sys.stderr.write(
+            f"forge-deployer-jenkins: FORGE_JENKINS_LOCAL_DIR `{directory}` "
+            "is not a directory\n"
+        )
+        sys.exit(2)
+    JENKINS_REVISION = (
+        os.environ.get("FORGE_JENKINS_REVISION", "").strip() or revision_of(directory)
+    )[:40]
+    return directory
+
+
+def run_script(directory, name, args):
+    """Invoke one jenkins-local verb with an argv array (no shell)."""
+    if name == "project-action.sh" and os.environ.get("FORGE_JENKINS_STATUS_CMD"):
+        command = [os.environ["FORGE_JENKINS_STATUS_CMD"]] + args
+    else:
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            sys.stderr.write(
+                f"forge-deployer-jenkins: `{name}` is missing from the "
+                "jenkins-local checkout\n"
+            )
+            sys.exit(2)
+        command = [path] + args
+    return subprocess.run(command, capture_output=True, text=True, timeout=55, check=False)
+
+
+def emit(status, note, evidence, observation, detail, obs_evidence, recovery, exit_code):
+    """Print the single contract envelope and exit."""
+    document = {
+        "contract": CONTRACT,
+        "apply_status": scrub(status),
+        "apply_note": scrub(note),
+        "apply_evidence": evidence,
+        "observation_status": scrub(observation),
+        "observation_detail": scrub(detail),
+        "observation_evidence": obs_evidence,
+        "recovery": [scrub(item) for item in recovery],
+        "source": SOURCE,
+        "source_revision": scrub(JENKINS_REVISION) or "unknown",
+        "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    json.dump(document, sys.stdout)
+    sys.stdout.write("\n")
+    sys.exit(exit_code)
+
+
+def fail_apply(reason, evidence, recovery):
+    emit(
+        "failed",
+        reason,
+        evidence,
+        "unknown",
+        "no observation possible after a failed apply",
+        [],
+        recovery,
+        1,
+    )
+
+
+def do_apply(args, dry_run):
+    directory = scripts_dir()
+    if not PROJECT_NAME_RE.match(args.project):
+        sys.stderr.write("forge-deployer-jenkins: invalid project name for jenkins-local\n")
+        sys.exit(2)
+    if args.kind not in ("local", "docker-compose"):
+        fail_apply(
+            f"kind `{args.kind}` is not wired through the Jenkins executor",
+            [],
+            ["declare the target as `local` or `docker-compose`"],
+        )
+    script_args = [args.project, "deploy"] + (["--dry-run"] if dry_run else [])
+    run = run_script(directory, "project.sh", script_args)
+    evidence = evidence_of(run.stdout) + evidence_of(run.stderr)
+    if run.returncode != 0:
+        recovery = EXIT_RECOVERY.get(run.returncode, ["inspect the jenkins-local output above"])
+        fail_apply(
+            f"jenkins-local project.sh exited with status {run.returncode}",
+            evidence,
+            [recovery],
+        )
+    if dry_run:
+        emit(
+            "delivered",
+            "dry-run rehearsal through jenkins-local project.sh: "
+            "no side effect performed",
+            evidence,
+            "unknown",
+            "dry-run rehearsal: no live health observation was attempted",
+            [],
+            [],
+            0,
+        )
+    emit(
+        "delivered",
+        "Jenkins build triggered through jenkins-local project.sh; "
+        "run `forge deploy observe` after the pipeline finishes",
+        evidence,
+        "unknown",
+        "deployment triggered; health not yet observed",
+        [],
+        [],
+        0,
+    )
+
+
+def observe_health(args, directory):
+    """Read-only status observation mapped through the health table."""
+    run = run_script(directory, "project-action.sh", [args.project, "status"])
+    evidence = evidence_of(run.stdout) + evidence_of(run.stderr)
+
+    def observation(status, detail):
+        emit(
+            "unknown",
+            "observe is read-only and produced no apply outcome",
+            [],
+            status,
+            detail,
+            evidence,
+            [],
+            0,
+        )
+
+    if run.returncode != 0:
+        observation(
+            "unknown",
+            "status command exited with status "
+            f"{run.returncode}; unknown is not offline proof",
+        )
+    containers = "missing"
+    for line in run.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[0] == args.project:
+            containers = fields[2]
+            break
+    # Explicit health vocabulary (jenkins-adapter.md): running ->
+    # running; stopped -> down (failed); anything unrecognized ->
+    # unknown. There is no optimistic healthy default.
+    if containers == "running":
+        observation("running", "jenkins-local status: running")
+    if containers == "stopped":
+        observation("failed", "jenkins-local status: stopped (deployment down)")
+    observation(
+        "unknown",
+        f"jenkins-local status `{containers}` is outside the health mapping "
+        "table; the last good observation stays the recorded history entry",
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="forge-deployer-jenkins")
+    parser.add_argument("--version", action="store_true")
+    sub = parser.add_subparsers(dest="operation")
+    apply_p = sub.add_parser("apply")
+    apply_p.add_argument("--target", required=True)
+    apply_p.add_argument("--kind", required=True)
+    apply_p.add_argument("--project", required=True)
+    apply_p.add_argument("--revision", required=True)
+    apply_p.add_argument("--artifact")
+    apply_p.add_argument("--health-kind")
+    apply_p.add_argument("--health-service")
+    apply_p.add_argument("--health-url")
+    apply_p.add_argument("--health-process")
+    apply_p.add_argument("--dry-run", action="store_true")
+    observe_p = sub.add_parser("observe")
+    observe_p.add_argument("--target", required=True)
+    observe_p.add_argument("--project", required=True)
+    observe_p.add_argument("--deploy-id", required=True)
+    observe_p.add_argument("--health-kind")
+    observe_p.add_argument("--health-service")
+    observe_p.add_argument("--health-url")
+    observe_p.add_argument("--health-process")
+    args = parser.parse_args()
+    if args.version:
+        print(f"{SOURCE} (contract {CONTRACT})")
+        return 0
+    # Drain the optional stdin payload so scripted callers see EOF;
+    # argv is authoritative for the operation itself.
+    if not sys.stdin.isatty():
+        try:
+            sys.stdin.read()
+        except Exception:  # noqa: BLE001, S110 - payload is supplementary context
+            pass
+    try:
+        if args.operation == "apply":
+            do_apply(args, args.dry_run)
+        elif args.operation == "observe":
+            observe_health(args, scripts_dir())
+        else:
+            sys.stderr.write("usage: forge-deployer-jenkins apply|observe ... (see --help)\n")
+            return 2
+    except subprocess.TimeoutExpired:
+        # The executor could not complete its own bounded call: report
+        # UNAVAILABLE (no envelope) so the prior state stands.
+        sys.stderr.write("forge-deployer-jenkins: jenkins-local call exceeded its bound\n")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

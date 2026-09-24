@@ -122,12 +122,12 @@ fn write_adapter_script(dir: &Path, name: &str, body: &str) -> PathBuf {
 
 const ADAPTER_OK_BODY: &str = r#"#!/bin/sh
 cat >/dev/null
-printf '%s' '{"contract":"0.1.0","apply_status":"delivered","apply_note":"fixture adapter applied the artifact","apply_evidence":["compose up: app-0.1.0"],"observation_status":"running","observation_detail":"docker service app is running","observation_evidence":["docker ps: app healthy"],"recovery":[]}'
+printf '%s' '{"contract":"forge-deploy-executor/0.1.0","apply_status":"delivered","apply_note":"fixture adapter applied the artifact","apply_evidence":["compose up: app-0.1.0"],"observation_status":"running","observation_detail":"docker service app is running","observation_evidence":["docker ps: app healthy"],"recovery":[]}'
 "#;
 
 const ADAPTER_LEAK_BODY: &str = r#"#!/bin/sh
 cat >/dev/null
-printf '%s' '{"contract":"0.1.0","apply_status":"delivered","apply_note":"token ghp_abcdefghijklmnopqrstuvwxyz0123456789 was used","apply_evidence":["compose up: app-0.1.0"],"observation_status":"running","observation_detail":"docker service app is running","observation_evidence":["docker ps: app healthy"],"recovery":[]}'
+printf '%s' '{"contract":"forge-deploy-executor/0.1.0","apply_status":"delivered","apply_note":"token ghp_abcdefghijklmnopqrstuvwxyz0123456789 was used","apply_evidence":["compose up: app-0.1.0"],"observation_status":"running","observation_detail":"docker service app is running","observation_evidence":["docker ps: app healthy"],"recovery":[]}'
 "#;
 
 #[test]

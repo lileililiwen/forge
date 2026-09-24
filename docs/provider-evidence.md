@@ -12,7 +12,7 @@ a healthy result.
 | `driftwatch-policy` | `check --project <dir> --format json` | `driftwatch` | `FORGE_DRIFTWATCH_BIN` |
 | `oidc-identity` | in-memory challenge/callback/claims/mint/validate/terminate | none (no external binary) | n/a |
 | `analytics` | `health --provider <p> --project <id> --project-ref <ref> --plane <plane>` | `forge-analytics-adapter` | `FORGE_ANALYTICS_BIN` |
-| `deploy` | `apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` | `forge-deployer` | `FORGE_DEPLOYER_BIN` |
+| `deploy` | `apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` under the `forge-deploy-executor/0.1.0` envelope contract ([contract](adapter-contracts/deploy-executor.md), [reference adapter](../adapters/jenkins/jenkins-adapter.md)) | `forge-deployer` | `FORGE_DEPLOYER_BIN` |
 | `release` | `publish --stage <s> --project <id> --revision <rev> --dry-run` (package + container) | `forge-package-publisher` | `FORGE_PACKAGE_BIN` |
 
 Row statuses: `supported` (controlled round trip with provenance),
@@ -67,8 +67,11 @@ claim below is `not-run` by design:
   evidence uses the in-memory fixture lifecycle.
 - Real analytics sources (`unified-content`, `github-analytics`): no
   adapter binary or project ref; evidence uses fixture scripts.
-- Real deploy targets (`local`, `docker-compose`): no deployer
-  binary; evidence uses fixture scripts with `--dry-run`.
+- Real deploy targets (`local`, `docker-compose`): no live Jenkins
+  round trip is claimed; evidence uses the reference adapter
+  `adapters/jenkins/forge-deployer-jenkins` against stubbed
+  jenkins-local trees with `--dry-run`. Production promotion is a
+  jenkins-local adoption step (see its checklist).
 - Real release registries (package, container, notes): no publisher
   binaries; evidence uses fixture scripts with `--dry-run`.
 

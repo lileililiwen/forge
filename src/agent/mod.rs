@@ -5,13 +5,21 @@
 //! outcomes without reinterpreting them.
 //!
 //! The contract is intentionally honest about provider support:
-//! `start`/`new_session` always succeed when the adapter binary is
-//! present on PATH, and `resume`/`restart` follow the recorded
-//! transition log. `pause` and `takeover` are explicitly
-//! `unsupported` on the bundled OpenCode/Codex adapters because the
-//! existing PTY-based manager is not wired into this build, so the
-//! router returns an explicit `unsupported` outcome instead of
-//! simulating a successful pause (R1 failure scenario).
+//! the bundled OpenCode/Codex adapters' `start`/`new_session`
+//! always succeed when the adapter binary is present on PATH, and
+//! `resume`/`restart` follow the recorded transition log. On the
+//! bundled adapters `pause` and `takeover` remain explicitly
+//! `unsupported` because the bundled surface does not expose those
+//! primitives. The `ariadex` provider instead delegates every
+//! transition to the real supervised runtime (`supervised-agent-
+//! adapters`): ordered binary resolution (`FORGE_ARIADEX_BIN`
+//! first, then the PATH name), argument-array invocation with a
+//! bounded wait, and a state claim taken only from what
+//! `ariadex status --json` actually reported — an unknown or
+//! unlive runtime maps to `disconnected`, never to `active`,
+//! and `takeover` records attach guidance instead of hijacking
+//! the operator's terminal.
+
 //!
 //! Session storage lives under the project root so each project
 //! owns its own sessions and the registry's operation journal
@@ -38,9 +46,11 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::core::manifest::{Manifest, CANONICAL_MANIFEST};
 use crate::core::ForgeError;
+use crate::policy::redact_credentials;
 
 /// Contract data version for the agent session and transition API.
 pub const AGENT_CONTRACT_VERSION: &str = "0.1.0";
@@ -58,15 +68,52 @@ pub const MAX_TRANSITIONS_PER_SESSION: usize = 256;
 /// `unavailable` evidence; the session file is preserved.
 pub const ADAPTER_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Environment variable naming the `ariadex` binary. Checked
+/// before the PATH probe, matching the `FORGE_DEPLOYER_BIN` /
+/// `FORGE_ANALYTICS_BIN` pattern the deploy and analytics planes
+/// use.
+pub const ARIADEX_BIN_ENV: &str = "FORGE_ARIADEX_BIN";
+
+/// Default PATH name for the supervised session runtime.
+pub const DEFAULT_ARIADEX_BIN: &str = "ariadex";
+
+/// Environment variable naming the `sisyphusfy` iteration
+/// supervisor binary.
+pub const SISYPHUSFY_BIN_ENV: &str = "FORGE_SISYPHUSFY_BIN";
+
+/// Default PATH name for the spec-execution supervisor.
+pub const DEFAULT_SISYPHUSFY_BIN: &str = "sisyphusfy";
+
+/// The only run-spec supervisor id accepted by
+/// `forge agent run-spec --provider` and the MCP `run_agent`
+/// `provider` argument on a `run_spec` transition.
+pub const SISYPHUSFY_SUPERVISOR: &str = "sisyphusfy";
+
+/// Bounded wait for a delegated `sisyphusfy run`. The supervisor
+/// drives a whole iteration loop, so this is deliberately far
+/// longer than a lifecycle probe; a supervisor that exceeds it is
+/// recorded as `unverified`, never as `done`.
+pub const RUN_SPEC_WAIT_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// Character bound for every single captured runtime-output line
+/// promoted into session evidence (redaction applies first).
+pub const MAX_EVIDENCE_CHARS: usize = 300;
+
 /// Supported agent providers. Each provider has its own adapter
 /// that reports which transitions it actually supports. New
 /// providers can be added without breaking existing sessions
 /// because the provider id is recorded with every transition.
+/// `opencode`/`codex` are the bundled PATH-probed adapters;
+/// `ariadex` delegates the whole session lifecycle to the
+/// workspace's supervised tmux runtime (`supervised-agent-
+/// adapters`), and `sisyphusfy` is a spec-execution supervisor
+/// (see `run_spec`), never a session provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentProvider {
     Opencode,
     Codex,
+    Ariadex,
 }
 
 impl AgentProvider {
@@ -74,6 +121,7 @@ impl AgentProvider {
         match self {
             AgentProvider::Opencode => "opencode",
             AgentProvider::Codex => "codex",
+            AgentProvider::Ariadex => "ariadex",
         }
     }
 
@@ -84,7 +132,14 @@ impl AgentProvider {
         match self {
             AgentProvider::Opencode => "opencode",
             AgentProvider::Codex => "codex",
+            AgentProvider::Ariadex => DEFAULT_ARIADEX_BIN,
         }
+    }
+
+    /// Whether the provider delegates its lifecycle to a real
+    /// supervised runtime instead of the bundled PATH-probe rules.
+    pub fn is_supervised(&self) -> bool {
+        matches!(self, AgentProvider::Ariadex)
     }
 }
 
@@ -161,6 +216,18 @@ pub struct TransitionRecord {
     pub note: String,
 }
 
+/// Where the truth about a session actually lives for a
+/// supervised provider. The session record stays a Forge-owned
+/// pointer — it never copies runtime state — but names the
+/// backing runtime, the handle the runtime itself reported, and
+/// the version probe that attributed the surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeBacking {
+    pub runtime: String,
+    pub handle: String,
+    pub adapter_version: String,
+}
+
 /// One session record anchored to a project and (optionally) a
 /// spec. The session is the only place that records the chosen
 /// provider and the spec id the session is bound to, so a future
@@ -180,6 +247,12 @@ pub struct AgentSession {
     pub started_at: DateTime<Utc>,
     pub last_transition_at: DateTime<Utc>,
     pub transitions: Vec<TransitionRecord>,
+    /// Optional backing runtime descriptor. Bundled adapters keep
+    /// `backing: None`; session files written before the
+    /// `supervised-agent-adapters` change deserialize unchanged
+    /// through the serde default.
+    #[serde(default)]
+    pub backing: Option<RuntimeBacking>,
 }
 
 impl AgentSession {
@@ -191,7 +264,10 @@ impl AgentSession {
 /// Outcome of a transition request. Always carries the full
 /// session after the transition, the recorded evidence, the
 /// available next step (when one is appropriate), and a note for
-/// the transport.
+/// the transport. `verdict` is `Some` only for delegated
+/// run-spec executions (`done` / `partial` / `unverified`) so
+/// transports can journal the supervisor's verdict without
+/// inventing a vocabulary for the bundled path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AgentTransitionOutcome {
     pub contract: String,
@@ -201,6 +277,8 @@ pub struct AgentTransitionOutcome {
     pub evidence: Vec<String>,
     pub next_step: Option<String>,
     pub note: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
 }
 
 /// Resolve `dir/.forge/agents/<session-id>/` to the on-disk path.
@@ -272,6 +350,7 @@ pub fn new_session(
         started_at: now,
         last_transition_at: now,
         transitions: Vec::new(),
+        backing: None,
     })
 }
 
@@ -280,13 +359,16 @@ pub fn new_session(
 /// session; callers are expected to persist the returned session.
 ///
 /// Pre-flight: the requested transition must be available on the
-/// session's provider (e.g. `pause`/`takeover` are not available
-/// on the bundled adapters, so they always return
+/// session's provider. Bundled providers: `pause`/`takeover` are
+/// not available on the bundled adapters, so they always return
 /// `SessionState::Unsupported` with explicit evidence and a
-/// recovery note). This is the change-specific risk in the
+/// recovery note. This is the change-specific risk in the
 /// design: providers differ in pause and takeover support, and
 /// the router returns an explicit unsupported state rather than
-/// simulating success.
+/// simulating success. Supervised providers (ariadex): every
+/// transition is delegated to the runtime's real verb and the
+/// resulting state is taken from `ariadex status` only — an
+/// unknown report maps to `disconnected`, never to `active`.
 pub fn apply_transition(
     session: AgentSession,
     transition: SessionTransition,
@@ -300,27 +382,42 @@ pub fn apply_transition(
             ),
         });
     }
-    let (state, evidence, note, next_step) = match transition {
-        SessionTransition::Start | SessionTransition::NewSession | SessionTransition::Resume => {
-            start_or_resume(&session, transition)?
-        }
-        SessionTransition::Restart => restart(&session)?,
-        SessionTransition::Pause => unsupported(
-            &session,
-            transition,
-            "the bundled adapter does not expose a pause primitive; the existing PTY-based \
-             manager is the integration point but is not wired into this build",
-        ),
-        SessionTransition::Takeover => unsupported(
-            &session,
-            transition,
-            "the bundled adapter does not expose a takeover primitive; the existing PTY-based \
-             manager is the integration point but is not wired into this build",
-        ),
+    let (state, evidence, note, next_step, backing) = if session.provider.is_supervised() {
+        let delegated = ariadex_transition(&session, transition)?;
+        (
+            delegated.state,
+            delegated.evidence,
+            delegated.note,
+            delegated.next_step,
+            delegated.backing,
+        )
+    } else {
+        let (state, evidence, note, next_step) = match transition {
+            SessionTransition::Start
+            | SessionTransition::NewSession
+            | SessionTransition::Resume => start_or_resume(&session, transition)?,
+            SessionTransition::Restart => restart(&session)?,
+            SessionTransition::Pause => unsupported(
+                &session,
+                transition,
+                "the bundled adapter does not expose a pause primitive; the existing PTY-based \
+                 manager is the integration point but is not wired into this build",
+            ),
+            SessionTransition::Takeover => unsupported(
+                &session,
+                transition,
+                "the bundled adapter does not expose a takeover primitive; the existing PTY-based \
+                 manager is the integration point but is not wired into this build",
+            ),
+        };
+        (state, evidence, note, next_step, None)
     };
     let mut updated = session;
     updated.state = state;
     updated.last_transition_at = now;
+    if let Some(backing) = backing {
+        updated.backing = Some(backing);
+    }
     updated.transitions.push(TransitionRecord {
         kind: transition,
         state,
@@ -336,6 +433,7 @@ pub fn apply_transition(
         evidence,
         next_step,
         note,
+        verdict: None,
     })
 }
 
@@ -431,6 +529,699 @@ fn next_step_for(session: &AgentSession) -> Option<String> {
             session.spec_id, session.session_id
         ))
     }
+}
+
+// ---- supervised runtime adapters (`supervised-agent-adapters) ---------
+
+/// Result of one delegated ariadex transition: the state the
+/// runtime actually reported, the evidence attributing it, and the
+/// backing pointer the session record should keep.
+struct AriadexOutcome {
+    state: SessionState,
+    evidence: Vec<String>,
+    note: String,
+    next_step: Option<String>,
+    backing: Option<RuntimeBacking>,
+}
+
+/// One completed runtime subprocess invocation.
+struct RuntimeOutput {
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+impl RuntimeOutput {
+    fn succeeded(&self) -> bool {
+        self.exit_code == Some(0)
+    }
+
+    /// The first non-empty output line (stdout then stderr),
+    /// redacted and char-bounded for promotion into evidence.
+    fn first_line(&self) -> String {
+        format!("{}{}", self.stdout, self.stderr)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(bounded_evidence)
+            .unwrap_or_else(|| "(empty output)".to_string())
+    }
+}
+
+/// How an invocation failed: never started (a typed
+/// `agent-unavailable` for the caller) or exceeded the bounded
+/// wait (recorded as `disconnected`, never as a claimed state).
+enum InvokeFailure {
+    Spawn(String),
+    Timeout(Duration),
+}
+
+/// Redact and char-bound one captured runtime-output fragment
+/// before it becomes session evidence.
+fn bounded_evidence(text: &str) -> String {
+    let redacted = redact_credentials(text);
+    let total = redacted.chars().count();
+    let mut out: String = redacted.chars().take(MAX_EVIDENCE_CHARS).collect();
+    if total > MAX_EVIDENCE_CHARS {
+        out.push('…');
+    }
+    out
+}
+
+/// Trim a runtime-reported handle to a bounded, control-char-free
+/// string. The handle is the sibling's own session id; Forge only
+/// stores it as a pointer.
+fn sanitize_handle(raw: &str) -> String {
+    raw.trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(64)
+        .collect()
+}
+
+/// Ordered binary resolution for a runtime adapter: the non-empty
+/// environment override wins, then a PATH search for `name`. The
+/// attempt list is returned (also on failure) so an unavailable
+/// runtime can report exactly what was tried.
+fn resolve_binary_path(
+    env_var: &str,
+    env_value: Option<&std::ffi::OsStr>,
+    path_dirs: &[PathBuf],
+    name: &str,
+) -> Result<(PathBuf, Vec<String>), Vec<String>> {
+    let mut attempts = Vec::new();
+    if let Some(value) = env_value {
+        if !value.to_string_lossy().trim().is_empty() {
+            let display = value.to_string_lossy().to_string();
+            let candidate = PathBuf::from(value);
+            if candidate.is_file() {
+                attempts.push(format!("env {env_var}=`{display}`"));
+                return Ok((candidate, attempts));
+            }
+            // A bare command name under the override resolves
+            // through PATH under that name; a dead path records the
+            // miss and falls through to the default name.
+            let probe_name = candidate
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(name);
+            if candidate.components().count() == 1 {
+                for dir in path_dirs {
+                    let hit = dir.join(probe_name);
+                    if hit.is_file() {
+                        attempts.push(format!(
+                            "env {env_var}=`{display}` resolved via PATH `{}`",
+                            hit.display()
+                        ));
+                        return Ok((hit, attempts));
+                    }
+                }
+            }
+            attempts.push(format!("env {env_var}=`{display}` (not found)"));
+        } else {
+            attempts.push(format!("env {env_var} (set but empty, ignored)"));
+        }
+    }
+    for dir in path_dirs {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            attempts.push(format!("PATH `{}`", candidate.display()));
+            return Ok((candidate, attempts));
+        }
+    }
+    attempts.push(format!("PATH name `{name}` (not found)"));
+    Err(attempts)
+}
+
+/// Read the process environment and resolve a runtime binary.
+fn resolve_runtime_binary(
+    env_var: &str,
+    name: &str,
+) -> Result<(PathBuf, Vec<String>), Vec<String>> {
+    let env_value = std::env::var_os(env_var);
+    let path_dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    resolve_binary_path(env_var, env_value.as_deref(), &path_dirs, name)
+}
+
+/// Spawn a runtime subprocess with an argument array (never a
+/// shell), a null stdin so an interactive sibling verb cannot
+/// hijack the operator's terminal, the project directory as cwd
+/// (ariadex treats the working directory as the project), and a
+/// bounded wait so an unresponsive runtime cannot hang the CLI.
+fn invoke_runtime(
+    binary: &Path,
+    args: &[&str],
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<RuntimeOutput, InvokeFailure> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    let mut cmd = Command::new(binary);
+    for arg in args {
+        cmd.arg(arg);
+    }
+    cmd.current_dir(cwd);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            return Err(InvokeFailure::Spawn(format!(
+                "cannot spawn `{}`: {err}",
+                binary.display()
+            )));
+        }
+    };
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let stderr_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let stdout_reader = {
+        let buf = Arc::clone(&stdout_buf);
+        thread::spawn(move || {
+            if let Some(mut stdout) = stdout {
+                let mut local = Vec::new();
+                let _ = stdout.read_to_end(&mut local);
+                if let Ok(mut guard) = buf.lock() {
+                    *guard = local;
+                }
+            }
+        })
+    };
+    let stderr_reader = {
+        let buf = Arc::clone(&stderr_buf);
+        thread::spawn(move || {
+            if let Some(mut stderr) = stderr {
+                let mut local = Vec::new();
+                let _ = stderr.read_to_end(&mut local);
+                if let Ok(mut guard) = buf.lock() {
+                    *guard = local;
+                }
+            }
+        })
+    };
+    let start = std::time::Instant::now();
+    let exit_code = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.code(),
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_reader.join();
+                    let _ = stderr_reader.join();
+                    return Err(InvokeFailure::Timeout(timeout));
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(err) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(InvokeFailure::Spawn(format!(
+                    "cannot wait on runtime: {err}"
+                )));
+            }
+        }
+    };
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
+    let stdout_bytes = stdout_buf
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    let stderr_bytes = stderr_buf
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    Ok(RuntimeOutput {
+        exit_code,
+        stdout: String::from_utf8_lossy(&stdout_bytes).to_string(),
+        stderr: String::from_utf8_lossy(&stderr_bytes).to_string(),
+    })
+}
+
+/// Read the first JSON document out of a runtime's stdout. The
+/// sibling sometimes appends plain text after the document
+/// (`status --json` blocker lines) and the duplicate-owner `start`
+/// path prints two documents back-to-back; only the first complete
+/// value is ever consumed.
+fn first_json_document(stdout: &str) -> Option<Value> {
+    let trimmed = stdout.trim_start();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    serde_json::Deserializer::from_str(trimmed)
+        .into_iter::<Value>()
+        .next()?
+        .ok()
+}
+
+/// Parse `ariadex --version` (documented shape: `ariadex 0.1.0`,
+/// optionally `+g<sha>` / `-dirty` build suffixes). Anything else
+/// means the binary does not expose the documented surface and the
+/// caller must refuse rather than best-effort parse.
+fn parse_ariadex_version(stdout: &str) -> Option<String> {
+    let line = stdout.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let rest = line.strip_prefix("ariadex ")?.trim();
+    let version: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '-'))
+        .collect();
+    let core = version.split(['+', '-']).next().filter(|s| !s.is_empty())?;
+    let mut parts = core.split('.');
+    let major_ok = parts.next()?.parse::<u32>().is_ok();
+    let minor_ok = parts.next()?.parse::<u32>().is_ok();
+    if major_ok && minor_ok {
+        Some(version)
+    } else {
+        None
+    }
+}
+
+/// Map an `ariadex status --json` document to a Forge session
+/// state. Only a live daemon reporting `AUTO`/`PAUSE` justifies an
+/// `active`/`paused` claim; every other report — `MANUAL`, an
+/// unknown mode, a stale daemon, the local no-daemon view, or an
+/// unreadable shape — maps to `disconnected` with the raw mode
+/// kept in the evidence. A state the runtime did not report is
+/// never synthesized.
+fn map_ariadex_status(doc: &Value) -> (SessionState, String, Option<String>, String) {
+    let (source, daemon_form) = match doc.get("daemon") {
+        Some(inner) if inner.is_object() => (inner, true),
+        _ => (doc, false),
+    };
+    let mode = source
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let handle = source
+        .get("session")
+        .and_then(Value::as_str)
+        .map(sanitize_handle)
+        .filter(|s| !s.is_empty());
+    let daemon = if daemon_form {
+        match source.get("alive").and_then(Value::as_bool) {
+            Some(true) => "alive",
+            Some(false) => "stale",
+            None => "unknown",
+        }
+    } else {
+        "absent"
+    };
+    let state = if daemon == "alive" {
+        match mode.as_str() {
+            "AUTO" => SessionState::Active,
+            "PAUSE" => SessionState::Paused,
+            _ => SessionState::Disconnected,
+        }
+    } else {
+        SessionState::Disconnected
+    };
+    (state, mode, handle, daemon.to_string())
+}
+
+/// A point-in-time live probe for `forge agent status` against a
+/// supervised session. The probe is read-only: it renders what the
+/// runtime reports right now next to the stored record and never
+/// mutates the session file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LiveRuntimeStatus {
+    pub runtime: String,
+    pub state: String,
+    pub mode: String,
+    pub handle: String,
+    pub daemon: String,
+    pub note: String,
+}
+
+/// Delegate the live probe for one session. Returns `None` for the
+/// bundled adapters (whose recorded state is their own surface).
+/// Every failure path — unresolved binary, vanished project,
+/// timeout, non-zero exit, unreadable document — still produces a
+/// rendered status; only the recorded transitions are preserved.
+pub fn live_runtime_status(session: &AgentSession) -> Option<LiveRuntimeStatus> {
+    if !session.provider.is_supervised() {
+        return None;
+    }
+    let runtime = session.provider.label().to_string();
+    let stored_handle = session
+        .backing
+        .as_ref()
+        .map(|b| b.handle.clone())
+        .unwrap_or_default();
+    let live = |state: &str, daemon: &str, mode: String, handle: String, note: String| {
+        Some(LiveRuntimeStatus {
+            runtime: runtime.clone(),
+            state: state.to_string(),
+            mode,
+            handle,
+            daemon: daemon.to_string(),
+            note,
+        })
+    };
+    let (binary, _attempts) = match resolve_runtime_binary(ARIADEX_BIN_ENV, DEFAULT_ARIADEX_BIN) {
+        Ok(resolved) => resolved,
+        Err(attempts) => {
+            return live(
+                "unavailable",
+                "unresolved",
+                String::new(),
+                stored_handle,
+                format!(
+                    "binary resolution attempts: {}",
+                    bounded_evidence(&attempts.join(", "))
+                ),
+            );
+        }
+    };
+    let project_dir = PathBuf::from(&session.project_path);
+    if !project_dir.is_dir() {
+        return live(
+            "disconnected",
+            "absent",
+            String::new(),
+            stored_handle,
+            format!("project path `{}` no longer exists", session.project_path),
+        );
+    }
+    let status = match invoke_runtime(
+        &binary,
+        &["status", "--json"],
+        &project_dir,
+        ADAPTER_WAIT_TIMEOUT,
+    ) {
+        Ok(output) => output,
+        Err(InvokeFailure::Timeout(dur)) => {
+            return live(
+                "disconnected",
+                "unreachable",
+                String::new(),
+                stored_handle,
+                format!("`ariadex status` exceeded the bounded {dur:?} wait"),
+            );
+        }
+        Err(InvokeFailure::Spawn(detail)) => {
+            return live(
+                "disconnected",
+                "unreachable",
+                String::new(),
+                stored_handle,
+                bounded_evidence(&detail),
+            );
+        }
+    };
+    let doc = if status.succeeded() {
+        first_json_document(&status.stdout)
+    } else {
+        None
+    };
+    let Some(doc) = doc else {
+        let note = if status.succeeded() {
+            format!("no parsable status document: {}", status.first_line())
+        } else {
+            format!(
+                "`ariadex status` exited {}: {}",
+                status
+                    .exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".to_string()),
+                status.first_line()
+            )
+        };
+        return live("disconnected", "absent", String::new(), stored_handle, note);
+    };
+    let (state, mode, handle, daemon) = map_ariadex_status(&doc);
+    let handle = handle.unwrap_or_default();
+    let mut note = format!("live ariadex report: mode={mode} daemon={daemon}");
+    let mut state = state;
+    if !stored_handle.is_empty() && handle != stored_handle {
+        // The stored pointer is gone from the runtime's view:
+        // surface the loss instead of claiming an active session
+        // the runtime no longer associates with this record.
+        state = SessionState::Disconnected;
+        note.push_str(&format!(
+            "; the runtime does not report the stored handle `{stored_handle}` (loss recorded, session file preserved)"
+        ));
+    }
+    live(state.label(), &daemon, mode, handle, note)
+}
+
+/// Build the recorded `disconnected` outcome for a runtime that
+/// gave no live report. The session file and its transitions stay;
+/// the detail is what the runtime actually said.
+fn disconnected_outcome(
+    session: &AgentSession,
+    mut evidence: Vec<String>,
+    detail: &str,
+    adapter_version: &str,
+) -> AriadexOutcome {
+    evidence.push(format!("status: {detail}"));
+    AriadexOutcome {
+        state: SessionState::Disconnected,
+        evidence,
+        note: format!(
+            "the ariadex runtime reported no live state for session `{}` ({detail}); the session file and its transitions are preserved",
+            session.session_id
+        ),
+        next_step: Some(format!(
+            "recover the runtime with `ariadex start` in {} and rerun the transition",
+            session.project_path
+        )),
+        backing: session.backing.clone().or(Some(RuntimeBacking {
+            runtime: "ariadex".to_string(),
+            handle: String::new(),
+            adapter_version: adapter_version.to_string(),
+        })),
+    }
+}
+
+/// Delegate one session transition to the ariadex runtime. Every
+/// verb runs in the session's project directory; the resulting
+/// state comes only from a bounded `ariadex status --json` probe
+/// afterwards. Refusals, timeouts and unreadable reports map to
+/// `disconnected`/`unsupported` with the runtime's own bounded,
+/// redacted output in the evidence. `takeover` is guidance only —
+/// the sibling's terminal `attach` is never hijacked.
+fn ariadex_transition(
+    session: &AgentSession,
+    transition: SessionTransition,
+) -> Result<AriadexOutcome, ForgeError> {
+    let (binary, _attempts) = resolve_runtime_binary(ARIADEX_BIN_ENV, DEFAULT_ARIADEX_BIN)
+        .map_err(|attempts| ForgeError::AgentUnavailable {
+            reason: format!(
+                "provider `ariadex` resolved to no runtime binary (attempts: {}); bundled providers `opencode`/`codex` remain fully usable",
+                attempts.join(", ")
+            ),
+        })?;
+    let project_dir = PathBuf::from(&session.project_path);
+    if !project_dir.is_dir() {
+        return Err(ForgeError::PathUnavailable {
+            path: session.project_path.clone(),
+        });
+    }
+    if transition == SessionTransition::Restart && session.state == SessionState::Stopped {
+        return Err(ForgeError::AgentUnavailable {
+            reason: format!(
+                "session `{}` is in state `stopped`; restart requires a non-terminal session",
+                session.session_id
+            ),
+        });
+    }
+    let mut evidence = vec![
+        format!("provider: {}", session.provider.label()),
+        format!("transition: {}", transition.label()),
+        format!("binary: {}", binary.display()),
+    ];
+    // Attribute the delegated surface to a documented version
+    // probe before running anything.
+    let adapter_version = match invoke_runtime(
+        &binary,
+        &["--version"],
+        &project_dir,
+        ADAPTER_WAIT_TIMEOUT,
+    ) {
+        Ok(output) => match parse_ariadex_version(&output.stdout) {
+            Some(version) => {
+                evidence.push(format!("version: {version}"));
+                version
+            }
+            None => {
+                evidence.push(format!("version-probe: {}", output.first_line()));
+                return Ok(AriadexOutcome {
+                    state: SessionState::Unsupported,
+                    evidence,
+                    note: format!(
+                        "the ariadex version probe did not return the documented surface; transition `{}` was not delegated and no runtime state was claimed",
+                        transition.label()
+                    ),
+                    next_step: Some(
+                        "install or pin the `ariadex` runtime this adapter was written against; bundled providers `opencode`/`codex` remain usable"
+                            .to_string(),
+                    ),
+                    backing: session.backing.clone(),
+                });
+            }
+        },
+        Err(InvokeFailure::Spawn(detail)) => {
+            return Err(ForgeError::AgentUnavailable {
+                reason: format!(
+                    "provider `ariadex` binary `{}` cannot be spawned: {detail}",
+                    binary.display()
+                ),
+            });
+        }
+        Err(InvokeFailure::Timeout(dur)) => {
+            evidence.push(format!("version-probe: timed out after {dur:?}"));
+            return Ok(disconnected_outcome(
+                session,
+                evidence,
+                &format!("the version probe exceeded the bounded {dur:?} wait"),
+                "unknown",
+            ));
+        }
+    };
+    let verbs: Vec<Vec<&str>> = match transition {
+        SessionTransition::Start => vec![vec!["start"]],
+        // Design: `restart`/`new-session` run stop-then-start
+        // through the sibling's verbs.
+        SessionTransition::NewSession | SessionTransition::Restart => {
+            vec![vec!["stop"], vec!["start"]]
+        }
+        SessionTransition::Resume => vec![vec!["resume"]],
+        SessionTransition::Pause => vec![vec!["pause"]],
+        SessionTransition::Takeover => vec![],
+    };
+    let mut refusals: Vec<String> = Vec::new();
+    for verb in &verbs {
+        let joined = verb.join(" ");
+        evidence.push(format!("verb: ariadex {joined}"));
+        match invoke_runtime(&binary, verb, &project_dir, ADAPTER_WAIT_TIMEOUT) {
+            Ok(output) => {
+                if !output.succeeded() {
+                    let detail = output.first_line();
+                    evidence.push(format!("verb-refused: {detail}"));
+                    refusals.push(format!("`ariadex {joined}`: {detail}"));
+                }
+            }
+            Err(InvokeFailure::Timeout(dur)) => {
+                evidence.push(format!("verb: `ariadex {joined}` timed out after {dur:?}"));
+                return Ok(disconnected_outcome(
+                    session,
+                    evidence,
+                    &format!("`ariadex {joined}` exceeded the bounded {dur:?} wait"),
+                    &adapter_version,
+                ));
+            }
+            Err(InvokeFailure::Spawn(detail)) => {
+                return Err(ForgeError::AgentUnavailable {
+                    reason: format!("provider `ariadex`: {detail}"),
+                });
+            }
+        }
+    }
+    // The state Forge claims comes only from the sibling's status
+    // surface, after the verb.
+    let status = match invoke_runtime(
+        &binary,
+        &["status", "--json"],
+        &project_dir,
+        ADAPTER_WAIT_TIMEOUT,
+    ) {
+        Ok(status) => status,
+        Err(InvokeFailure::Spawn(detail)) => {
+            return Err(ForgeError::AgentUnavailable {
+                reason: format!("provider `ariadex`: {detail}"),
+            });
+        }
+        Err(InvokeFailure::Timeout(dur)) => {
+            evidence.push(format!("status: `ariadex status` timed out after {dur:?}"));
+            return Ok(disconnected_outcome(
+                session,
+                evidence,
+                &format!("`ariadex status` exceeded the bounded {dur:?} wait"),
+                &adapter_version,
+            ));
+        }
+    };
+    let doc = if status.succeeded() {
+        first_json_document(&status.stdout)
+    } else {
+        None
+    };
+    let Some(doc) = doc else {
+        let detail = if status.succeeded() {
+            format!("no parsable status document: {}", status.first_line())
+        } else {
+            format!(
+                "`ariadex status` exited {}: {}",
+                status
+                    .exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".to_string()),
+                status.first_line()
+            )
+        };
+        return Ok(disconnected_outcome(
+            session,
+            evidence,
+            &detail,
+            &adapter_version,
+        ));
+    };
+    let (state, mode, handle, daemon) = map_ariadex_status(&doc);
+    evidence.push(format!(
+        "ariadex-mode: {}",
+        if mode.is_empty() { "(absent)" } else { &mode }
+    ));
+    evidence.push(format!("ariadex-daemon: {daemon}"));
+    let handle = handle.unwrap_or_default();
+    evidence.push(format!(
+        "handle: {}",
+        if handle.is_empty() { "(none)" } else { &handle }
+    ));
+    if transition == SessionTransition::Takeover {
+        evidence.push("takeover: guidance only (no process hijack)".to_string());
+    }
+    let backing = RuntimeBacking {
+        runtime: "ariadex".to_string(),
+        handle,
+        adapter_version: adapter_version.clone(),
+    };
+    let note = if refusals.is_empty() {
+        format!(
+            "transition `{}` delegated to the ariadex runtime; state `{}` is what `ariadex status` reported",
+            transition.label(),
+            state.label()
+        )
+    } else {
+        format!(
+            "the ariadex runtime refused {} but reported state `{}`; Forge records the runtime's report, not a simulated success",
+            refusals.join("; "),
+            state.label()
+        )
+    };
+    let next_step = match transition {
+        SessionTransition::Takeover => Some(format!(
+            "attach the supervised session: `ariadex attach` in {}",
+            session.project_path
+        )),
+        _ => None,
+    };
+    Ok(AriadexOutcome {
+        state,
+        evidence,
+        note,
+        next_step,
+        backing: Some(backing),
+    })
 }
 
 /// Persist a session under `.forge/agents/<session-id>/` in
@@ -551,9 +1342,18 @@ pub fn list_sessions(dir: &Path) -> Result<Vec<SessionListEntry>, ForgeError> {
 /// the session but the spec itself cannot be found (R1 boundary
 /// scenario: a session that ends without verification is recorded
 /// distinctly from a successful spec completion).
+///
+/// With `supervisor = Some("sisyphusfy")` the bound spec's task
+/// file is delegated to the sibling iteration loop and the
+/// journaled verdict comes from the supervisor's independent
+/// verification outcome — never from an agent completion claim.
+/// Any other supervisor id is refused before anything runs, and an
+/// ariadex session without an explicit supervisor is refused with
+/// the runtime's own scheduler path named.
 pub fn run_spec(
     dir: &Path,
     session_id: &str,
+    supervisor: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<AgentTransitionOutcome, ForgeError> {
     let session = read_session(dir, session_id)?.ok_or_else(|| ForgeError::AgentUnavailable {
@@ -578,7 +1378,272 @@ pub fn run_spec(
             ),
         });
     }
-    apply_transition(session, SessionTransition::Start, now)
+    match supervisor {
+        None => {
+            if session.provider.is_supervised() {
+                return Err(ForgeError::AgentUnavailable {
+                    reason: "provider `ariadex` drives specs inside its own supervised scheduler (`ariadex status` reports the next action); delegate this spec with `forge agent run-spec --provider sisyphusfy`".to_string(),
+                });
+            }
+            apply_transition(session, SessionTransition::Start, now)
+        }
+        Some(value) if value == SISYPHUSFY_SUPERVISOR => run_spec_sisyphusfy(dir, &session, now),
+        Some(other) => Err(ForgeError::AgentUnavailable {
+            reason: format!(
+                "unknown run-spec supervisor `{other}`; supported supervisors: {SISYPHUSFY_SUPERVISOR}"
+            ),
+        }),
+    }
+}
+
+/// Classify one `sisyphusfy run --json` outcome document into the
+/// run-spec verdict vocabulary. Only a clean exit with `complete`
+/// and an independently passing verification yields `done`;
+/// incomplete-loop reports yield `partial` with the sibling's
+/// named reason; anything that cannot establish verified
+/// completion (including an unparsable document) is `unverified`
+/// and never `done`.
+fn classify_sisyphusfy_output(exit_ok: bool, stdout: &str) -> (&'static str, Vec<String>, String) {
+    let mut evidence = Vec::new();
+    let Some(doc) = first_json_document(stdout) else {
+        let raw: Vec<&str> = stdout.lines().take(2).collect();
+        evidence.push("outcome: the supervisor emitted no parsable JSON document".to_string());
+        evidence.push(format!(
+            "raw-outcome: {}",
+            bounded_evidence(&raw.join(" / "))
+        ));
+        return (
+            "unverified",
+            evidence,
+            "the outcome document cannot be parsed".to_string(),
+        );
+    };
+    let stop_reason = doc
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if let Some(iterations) = doc.get("iterations").and_then(Value::as_i64) {
+        evidence.push(format!("iterations: {iterations}"));
+    }
+    let verification_status = doc
+        .get("verification")
+        .and_then(|v| v.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("absent")
+        .to_string();
+    let verification_source = doc
+        .get("verification")
+        .and_then(|v| v.get("source"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    evidence.push(format!("stop_reason: {stop_reason}"));
+    evidence.push(format!(
+        "verification: status={verification_status} source={verification_source}"
+    ));
+    if stop_reason.is_empty() {
+        return (
+            "unverified",
+            evidence,
+            "the outcome document carries no stop_reason".to_string(),
+        );
+    }
+    if exit_ok != (stop_reason == "complete") {
+        return (
+            "unverified",
+            evidence,
+            "the supervisor exit disagrees with the outcome document".to_string(),
+        );
+    }
+    if stop_reason == "complete" {
+        return if verification_status == "success" {
+            (
+                "done",
+                evidence,
+                "the supervisor's independent verification passed".to_string(),
+            )
+        } else {
+            (
+                "unverified",
+                evidence,
+                format!(
+                    "the loop completed without a passing verification (status `{verification_status}`)"
+                ),
+            )
+        };
+    }
+    const PARTIAL_REASONS: [&str; 10] = [
+        "blocked",
+        "max_iterations",
+        "timeout",
+        "interrupted",
+        "agent_failed",
+        "unchanged_state",
+        "models_exhausted",
+        "adapter_error",
+        "command_not_found",
+        "context_budget_exceeded",
+    ];
+    let named_reason = doc
+        .get("blocked_reason")
+        .and_then(|value| match value {
+            Value::String(text) => Some(text.as_str()),
+            Value::Array(items) => items.iter().filter_map(Value::as_str).next(),
+            _ => None,
+        })
+        .or_else(|| {
+            doc.get("agent_error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+        })
+        .map(bounded_evidence);
+    if let Some(detail) = &named_reason {
+        evidence.push(format!("supervisor-reason: {detail}"));
+    }
+    if PARTIAL_REASONS.contains(&stop_reason.as_str()) {
+        let reason = match named_reason {
+            Some(detail) => format!("`{stop_reason}` ({detail})"),
+            None => format!("`{stop_reason}`"),
+        };
+        return ("partial", evidence, reason);
+    }
+    (
+        "unverified",
+        evidence,
+        format!("stop_reason `{stop_reason}` cannot establish verified completion"),
+    )
+}
+
+/// Delegate the bound spec's task file to the sisyphusfy iteration
+/// supervisor. Forge writes nothing new: the existing
+/// `.forge/specs/<spec>/` files are the task input, fed through the
+/// sibling's documented low-level verb (`loop --task-path <file>
+/// --json --adapter <provider>`) so the supervisor itself owns the
+/// agent CLI grammar and refuses adapters it does not know. The
+/// verdict is the supervisor's verification outcome only; agent
+/// self-claims never upgrade to `done`.
+fn run_spec_sisyphusfy(
+    dir: &Path,
+    session: &AgentSession,
+    now: DateTime<Utc>,
+) -> Result<AgentTransitionOutcome, ForgeError> {
+    if session.transitions.len() >= MAX_TRANSITIONS_PER_SESSION {
+        return Err(ForgeError::AgentUnavailable {
+            reason: format!(
+                "session `{}` already records the maximum {MAX_TRANSITIONS_PER_SESSION} transitions; start a new session",
+                session.session_id
+            ),
+        });
+    }
+    let tasks_path = dir
+        .join(".forge/specs")
+        .join(&session.spec_id)
+        .join("tasks.md");
+    if !tasks_path.is_file() {
+        return Err(ForgeError::SpecInvalid {
+            reason: format!(
+                "bound spec `{}` has no `tasks.md` to hand to the supervisor; session `{}` stays in state `{}`",
+                session.spec_id,
+                session.session_id,
+                session.state.label()
+            ),
+        });
+    }
+    let (binary, _attempts) = resolve_runtime_binary(SISYPHUSFY_BIN_ENV, DEFAULT_SISYPHUSFY_BIN)
+        .map_err(|attempts| ForgeError::AgentUnavailable {
+            reason: format!(
+                "supervisor `sisyphusfy` resolved to no runtime binary (attempts: {}); the session and its spec binding are unchanged",
+                attempts.join(", ")
+            ),
+        })?;
+    let tasks_arg = format!(".forge/specs/{}/tasks.md", session.spec_id);
+    let adapter = session.provider.label();
+    let mut evidence = vec![
+        format!("supervisor: {SISYPHUSFY_SUPERVISOR}"),
+        format!("binary: {}", binary.display()),
+        format!("task-file: {tasks_arg}"),
+        format!("adapter: {adapter}"),
+    ];
+    let (verdict, reason) = match invoke_runtime(
+        &binary,
+        &[
+            "loop",
+            "--task-path",
+            &tasks_arg,
+            "--json",
+            "--adapter",
+            adapter,
+        ],
+        dir,
+        RUN_SPEC_WAIT_TIMEOUT,
+    ) {
+        Ok(output) => {
+            evidence.push(format!(
+                "run: exit={}",
+                output
+                    .exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".to_string())
+            ));
+            let (verdict, run_evidence, reason) =
+                classify_sisyphusfy_output(output.succeeded(), &output.stdout);
+            evidence.extend(run_evidence);
+            evidence.push(format!("verdict: {verdict}"));
+            (verdict, reason)
+        }
+        Err(InvokeFailure::Timeout(dur)) => {
+            evidence.push(format!("run: timed out after {dur:?}"));
+            evidence.push("verdict: unverified".to_string());
+            (
+                "unverified",
+                format!("the supervisor exceeded the bounded {dur:?} wait"),
+            )
+        }
+        Err(InvokeFailure::Spawn(detail)) => {
+            return Err(ForgeError::AgentUnavailable {
+                reason: format!(
+                    "supervisor `sisyphusfy`: {detail}; the session and its spec binding are unchanged"
+                ),
+            });
+        }
+    };
+    let note = format!(
+        "run-spec `{}` delegated to supervisor `sisyphusfy`; verdict `{}` ({reason}); the supervisor's independent verification, not any agent claim, set the verdict",
+        session.spec_id, verdict
+    );
+    evidence_bound(&mut evidence);
+    let mut updated = session.clone();
+    updated.state = SessionState::Active;
+    updated.last_transition_at = now;
+    updated.transitions.push(TransitionRecord {
+        kind: SessionTransition::Start,
+        state: SessionState::Active,
+        at: now,
+        evidence: evidence.clone(),
+        note: note.clone(),
+    });
+    Ok(AgentTransitionOutcome {
+        contract: AGENT_CONTRACT_VERSION.to_string(),
+        session: updated,
+        requested: SessionTransition::Start,
+        state: SessionState::Active,
+        evidence,
+        next_step: None,
+        note,
+        verdict: Some(verdict.to_string()),
+    })
+}
+
+/// Defense-in-depth bound over every evidence string a delegated
+/// run produced (individual fragments were already bounded; this
+/// guarantees the record can never exceed the contract's line
+/// budget).
+fn evidence_bound(evidence: &mut [String]) {
+    for item in evidence.iter_mut() {
+        if item.chars().count() > MAX_EVIDENCE_CHARS {
+            *item = bounded_evidence(item);
+        }
+    }
 }
 
 /// Best-effort `which`-style probe using `Command::new` with an
@@ -614,10 +1679,23 @@ pub fn manifest_path_for(project_path: &Path) -> PathBuf {
 
 /// Run a one-off adapter probe so the CLI can confirm a binary
 /// is present without mutating any state. Returns `Ok(())` when
-/// the binary exists on PATH; otherwise a typed error. The probe
-/// is intentionally read-only: no subprocess is spawned, no
+/// the binary resolves (env override first for supervised
+/// providers, PATH probe for the bundled adapters); otherwise a
+/// typed error naming the resolution attempts. The probe is
+/// intentionally read-only: no subprocess is spawned, no
 /// environment is changed.
 pub fn probe_provider(provider: AgentProvider) -> Result<(), ForgeError> {
+    if provider.is_supervised() {
+        return resolve_runtime_binary(ARIADEX_BIN_ENV, provider.binary())
+            .map(|_| ())
+            .map_err(|attempts| ForgeError::AgentUnavailable {
+                reason: format!(
+                    "provider `{}` resolved to no runtime binary (attempts: {}); install the runtime or set {ARIADEX_BIN_ENV}",
+                    provider.label(),
+                    attempts.join(", ")
+                ),
+            });
+    }
     let binary = provider.binary();
     if command_on_path(binary) {
         return Ok(());
@@ -809,6 +1887,7 @@ mod tests {
         let err = run_spec(
             tmp.path(),
             "sess-run",
+            None,
             DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
         )
         .unwrap_err();
@@ -841,5 +1920,285 @@ mod tests {
         let read_back = read_session(tmp.path(), "sess-rt").unwrap().unwrap();
         assert_eq!(read_back.transitions.len(), 1);
         assert_eq!(read_back.transitions[0].kind, SessionTransition::Start);
+    }
+
+    #[test]
+    fn legacy_session_files_without_backing_deserialize_unchanged() {
+        // A session.json written before `supervised-agent-adapters`
+        // carries no `backing` key at all; the serde default must
+        // keep it loadable (and the cross-surface suites keep
+        // writing exactly this shape).
+        let legacy = r#"{"contract":"0.1.0","session_id":"sess-old","project_id":"old","project_path":"/tmp/old","provider":"codex","spec_id":"","state":"active","started_at":"1970-01-01T00:00:00+00:00","last_transition_at":"1970-01-01T00:00:00+00:00","transitions":[]}"#;
+        let session: AgentSession = serde_json::from_str(legacy).expect("legacy session loads");
+        assert_eq!(session.session_id, "sess-old");
+        assert!(session.backing.is_none());
+    }
+
+    #[test]
+    fn backing_roundtrips_through_session_json() {
+        let tmp = TempDir::new().unwrap();
+        write_manifest(tmp.path(), "backing-app");
+        let now = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
+        let mut session =
+            new_session(tmp.path(), "sess-b", AgentProvider::Ariadex, "", now).unwrap();
+        session.state = SessionState::Active;
+        session.backing = Some(RuntimeBacking {
+            runtime: "ariadex".to_string(),
+            handle: "cafe1234abcd".to_string(),
+            adapter_version: "0.1.0".to_string(),
+        });
+        write_session(tmp.path(), &session).unwrap();
+        let read_back = read_session(tmp.path(), "sess-b").unwrap().unwrap();
+        let backing = read_back.backing.expect("backing persisted");
+        assert_eq!(backing.runtime, "ariadex");
+        assert_eq!(backing.handle, "cafe1234abcd");
+        assert_eq!(backing.adapter_version, "0.1.0");
+        assert_eq!(read_back.provider, AgentProvider::Ariadex);
+    }
+
+    #[test]
+    fn provider_enum_supervised_vocabulary() {
+        assert_eq!(AgentProvider::Ariadex.label(), "ariadex");
+        assert_eq!(AgentProvider::Ariadex.binary(), "ariadex");
+        assert!(AgentProvider::Ariadex.is_supervised());
+        assert!(!AgentProvider::Opencode.is_supervised());
+        assert!(!AgentProvider::Codex.is_supervised());
+        let serialized = serde_json::to_string(&AgentProvider::Ariadex).unwrap();
+        assert_eq!(serialized, "\"ariadex\"");
+    }
+
+    #[test]
+    fn ordered_binary_resolution_prefers_env_then_path() {
+        let tmp = TempDir::new().unwrap();
+        let dir_a = tmp.path().join("a");
+        let dir_b = tmp.path().join("b");
+        fs::create_dir_all(&dir_a).unwrap();
+        fs::create_dir_all(&dir_b).unwrap();
+        let in_a = dir_a.join("ariadex");
+        fs::write(&in_a, b"#!/bin/sh\n").unwrap();
+
+        // PATH search finds the first executable-shaped candidate.
+        let (resolved, attempts) = resolve_binary_path(
+            "FORGE_ARIADEX_BIN",
+            None,
+            &[dir_a.clone(), dir_b.clone()],
+            "ariadex",
+        )
+        .expect("resolves via PATH");
+        assert_eq!(resolved, in_a);
+        assert!(
+            attempts.iter().any(|a| a.contains("PATH")),
+            "attempts={attempts:?}"
+        );
+
+        // The env override wins over PATH when it names a real file,
+        // and is recorded as the attempt.
+        let pinned = tmp.path().join("pinned-ariadex");
+        fs::write(&pinned, b"#!/bin/sh\n").unwrap();
+        let env_value = std::ffi::OsString::from(&pinned);
+        let (resolved, attempts) = resolve_binary_path(
+            "FORGE_ARIADEX_BIN",
+            Some(&env_value),
+            std::slice::from_ref(&dir_a),
+            "ariadex",
+        )
+        .expect("env override resolves");
+        assert_eq!(resolved, pinned);
+        assert!(
+            attempts[0].contains("FORGE_ARIADEX_BIN"),
+            "attempts={attempts:?}"
+        );
+
+        // A dead env path records the miss in the attempt list and
+        // falls through (it never silently runs a nonexistent pin).
+        let dead = std::ffi::OsString::from("/nonexistent/ariadex");
+        let err = resolve_binary_path(
+            "FORGE_ARIADEX_BIN",
+            Some(&dead),
+            std::slice::from_ref(&dir_b),
+            "ariadex",
+        )
+        .unwrap_err();
+        assert!(
+            err.iter()
+                .any(|a| a.contains("/nonexistent/ariadex") && a.contains("not found")),
+            "attempts={err:?}"
+        );
+
+        // An empty env value is ignored, not trusted.
+        let empty = std::ffi::OsString::from("  ");
+        let (resolved, _attempts) = resolve_binary_path(
+            "FORGE_ARIADEX_BIN",
+            Some(&empty),
+            std::slice::from_ref(&dir_a),
+            "ariadex",
+        )
+        .expect("falls through to PATH");
+        assert_eq!(resolved, in_a);
+
+        // Nothing found → the failure carries the attempt list.
+        let err = resolve_binary_path("FORGE_ARIADEX_BIN", None, &[dir_b], "ariadex").unwrap_err();
+        assert!(
+            err.iter().any(|a| a.contains("not found")),
+            "attempts={err:?}"
+        );
+    }
+
+    #[test]
+    fn first_json_document_survives_trailing_text_and_double_docs() {
+        // `status --json` may append `blocker ...` lines after the document.
+        let text = "{\n  \"mode\": \"AUTO\",\n  \"session\": \"abc123\"\n}\nblocker u-1: stuck\n";
+        let doc = first_json_document(text).expect("first doc");
+        assert_eq!(doc["mode"], "AUTO");
+        // Duplicate-owner `start --json` prints two documents back-to-back.
+        let double =
+            "{\"duplicate\": true, \"started\": false}\n{\"ok\": true, \"reused\": true}\n";
+        let doc = first_json_document(double).expect("first of two");
+        assert_eq!(doc["duplicate"], true);
+        // Compact refusals parse; plain text yields None.
+        assert!(first_json_document("{\"ok\": false, \"error\": \"no daemon\"}").is_some());
+        assert!(first_json_document("managed runtime started").is_none());
+        assert!(first_json_document("").is_none());
+    }
+
+    #[test]
+    fn version_probe_parses_documented_surface_only() {
+        assert_eq!(
+            parse_ariadex_version("ariadex 0.1.0\n").as_deref(),
+            Some("0.1.0")
+        );
+        assert_eq!(
+            parse_ariadex_version("ariadex 0.1.0+g1a2b3c4-dirty\n").as_deref(),
+            Some("0.1.0+g1a2b3c4-dirty")
+        );
+        assert_eq!(parse_ariadex_version("ariadex dev-build\n"), None);
+        assert_eq!(parse_ariadex_version("0.1.0\n"), None);
+        assert_eq!(parse_ariadex_version("ariadex\n"), None);
+        assert_eq!(parse_ariadex_version(""), None);
+    }
+
+    #[test]
+    fn status_mapping_never_claims_active_without_a_live_daemon() {
+        let alive_auto: Value =
+            serde_json::json!({"daemon": {"alive": true, "mode": "AUTO", "session": "cafe12"}});
+        let (state, mode, handle, daemon) = map_ariadex_status(&alive_auto);
+        assert_eq!(state, SessionState::Active);
+        assert_eq!(mode, "AUTO");
+        assert_eq!(handle.as_deref(), Some("cafe12"));
+        assert_eq!(daemon, "alive");
+
+        let alive_pause: Value =
+            serde_json::json!({"daemon": {"alive": true, "mode": "PAUSE", "session": "cafe12"}});
+        assert_eq!(map_ariadex_status(&alive_pause).0, SessionState::Paused);
+
+        // MANUAL is a real mode but not an automated-running state.
+        let alive_manual: Value = serde_json::json!({"daemon": {"alive": true, "mode": "MANUAL"}});
+        let (state, _, _, _) = map_ariadex_status(&alive_manual);
+        assert_eq!(state, SessionState::Disconnected);
+
+        let stale: Value =
+            serde_json::json!({"daemon": {"alive": false, "mode": "AUTO", "session": "cafe12"}});
+        let (state, _, _, daemon) = map_ariadex_status(&stale);
+        assert_eq!(state, SessionState::Disconnected);
+        assert_eq!(daemon, "stale");
+
+        // Local (no daemon) view: the manager is gone → disconnected
+        // even though durable mode reads AUTO.
+        let local: Value =
+            serde_json::json!({"mode": "AUTO", "session": "cafe12", "agent": "opencode"});
+        let (state, mode, _, daemon) = map_ariadex_status(&local);
+        assert_eq!(state, SessionState::Disconnected);
+        assert_eq!(mode, "AUTO");
+        assert_eq!(daemon, "absent");
+
+        // Unknown shapes never map to active.
+        let junk: Value = serde_json::json!({"unexpected": true});
+        assert_eq!(map_ariadex_status(&junk).0, SessionState::Disconnected);
+    }
+
+    #[test]
+    fn sisyphusfy_verdict_requires_independent_verification() {
+        // clean exit + complete + passing verification → done
+        let done = serde_json::json!({
+            "stop_reason": "complete", "iterations": 3,
+            "verification": {"status": "success", "source": "configured"}
+        });
+        let (verdict, evidence, reason) =
+            classify_sisyphusfy_output(true, &serde_json::to_string(&done).unwrap());
+        assert_eq!(verdict, "done");
+        assert!(evidence.iter().any(|e| e == "stop_reason: complete"));
+        assert!(reason.contains("verification passed"), "reason={reason}");
+
+        // complete without a passing verification → unverified
+        let unverified = serde_json::json!({
+            "stop_reason": "complete", "iterations": 1,
+            "verification": {"status": "skipped", "source": "unavailable"}
+        });
+        let (verdict, _, _) =
+            classify_sisyphusfy_output(true, &serde_json::to_string(&unverified).unwrap());
+        assert_eq!(verdict, "unverified");
+
+        // blocked iteration → partial naming the supervisor's reason
+        let blocked = serde_json::json!({
+            "stop_reason": "blocked", "iterations": 2,
+            "verification": {"status": "skipped", "source": "unavailable"},
+            "blocked_reason": ["NEED_PERMISSION"]
+        });
+        let (verdict, evidence, reason) =
+            classify_sisyphusfy_output(false, &serde_json::to_string(&blocked).unwrap());
+        assert_eq!(verdict, "partial");
+        assert!(reason.contains("blocked"), "reason={reason}");
+        assert!(reason.contains("NEED_PERMISSION"), "reason={reason}");
+        assert!(evidence
+            .iter()
+            .any(|e| e == "supervisor-reason: NEED_PERMISSION"));
+
+        // agent_failed → partial; verification_failed → unverified
+        let failed = serde_json::json!({
+            "stop_reason": "agent_failed", "iterations": 1,
+            "verification": {"status": "skipped", "source": "unavailable"},
+            "agent_error": {"message": "exited with code 1"}
+        });
+        let (verdict, _, reason) =
+            classify_sisyphusfy_output(false, &serde_json::to_string(&failed).unwrap());
+        assert_eq!(verdict, "partial");
+        assert!(reason.contains("exited with code 1"), "reason={reason}");
+        let verify_failed = serde_json::json!({
+            "stop_reason": "verification_failed", "iterations": 1,
+            "verification": {"status": "failure", "source": "configured"}
+        });
+        let (verdict, _, _) =
+            classify_sisyphusfy_output(false, &serde_json::to_string(&verify_failed).unwrap());
+        assert_eq!(verdict, "unverified");
+
+        // unparsable outcome → unverified, never done, raw failure bounded
+        let (verdict, evidence, _) = classify_sisyphusfy_output(false, "not a json document\n");
+        assert_eq!(verdict, "unverified");
+        assert!(evidence
+            .iter()
+            .any(|e| e.starts_with("raw-outcome: not a json document")));
+
+        // exit/document disagreement → unverified (a stray exit 0 with a
+        // non-complete stop reason never upgrades)
+        let disagree = serde_json::json!({"stop_reason": "complete", "iterations": 9});
+        let (verdict, _, reason) =
+            classify_sisyphusfy_output(false, &serde_json::to_string(&disagree).unwrap());
+        assert_eq!(verdict, "unverified");
+        assert!(reason.contains("disagree"), "reason={reason}");
+    }
+
+    #[test]
+    fn evidence_is_redacted_and_char_bounded() {
+        let secret = "daemon token AKIA1234567890ABCDEF restarted";
+        let bounded = bounded_evidence(secret);
+        assert!(
+            !bounded.contains("AKIA1234567890ABCDEF"),
+            "bounded={bounded}"
+        );
+        let long = "x".repeat(MAX_EVIDENCE_CHARS + 200);
+        let bounded = bounded_evidence(&long);
+        assert!(bounded.chars().count() <= MAX_EVIDENCE_CHARS + 1);
+        assert!(bounded.ends_with('…'));
+        assert_eq!(sanitize_handle("  abc\u{7}def  "), "abcdef");
     }
 }

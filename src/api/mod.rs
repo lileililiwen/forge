@@ -1151,13 +1151,14 @@ fn handle_agent_transition(
     let provider_id = match provider {
         "opencode" => AgentProvider::Opencode,
         "codex" => AgentProvider::Codex,
+        "ariadex" => AgentProvider::Ariadex,
         other => {
             return ApiResponse::json(
                 400,
                 serde_json::json!({
                     "error": {
                         "code": "api-invalid",
-                        "message": format!("unknown agent provider `{other}`; expected one of: opencode, codex")
+                        "message": format!("unknown agent provider `{other}`; expected one of: opencode, codex, ariadex")
                     },
                     "contract": API_CONTRACT_VERSION,
                 }),

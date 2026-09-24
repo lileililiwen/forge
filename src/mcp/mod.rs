@@ -805,13 +805,41 @@ fn mcp_run_agent(db_path: &Path, args: &Map<String, Value>) -> Result<Value, Mcp
     let now = chrono::Utc::now();
     let (manifest, _) = Manifest::load_from_dir(&canonical, None).map_err(core_error)?;
     let project_id = manifest.project.id;
+    if transition == "run_spec" {
+        let supervisor = if provider == crate::agent::SISYPHUSFY_SUPERVISOR {
+            Some(crate::agent::SISYPHUSFY_SUPERVISOR)
+        } else {
+            match provider.as_str() {
+                "opencode" | "codex" | "ariadex" => None,
+                other => {
+                    return Err(McpRpcError::new(
+                        rpc_code::INVALID_PARAMS,
+                        format!(
+                            "unknown agent provider `{other}`; expected one of: opencode, codex, ariadex, sisyphusfy (run_spec only)"
+                        ),
+                    ));
+                }
+            }
+        };
+        return mcp_run_agent_run_spec(
+            db_path,
+            &canonical,
+            &project_id,
+            &session_id,
+            supervisor,
+            now,
+        );
+    }
     let provider_id = match provider.as_str() {
         "opencode" => AgentProvider::Opencode,
         "codex" => AgentProvider::Codex,
+        "ariadex" => AgentProvider::Ariadex,
         other => {
             return Err(McpRpcError::new(
                 rpc_code::INVALID_PARAMS,
-                format!("unknown agent provider `{other}`; expected one of: opencode, codex"),
+                format!(
+                    "unknown agent provider `{other}`; expected one of: opencode, codex, ariadex"
+                ),
             ));
         }
     };
@@ -822,9 +850,6 @@ fn mcp_run_agent(db_path: &Path, args: &Map<String, Value>) -> Result<Value, Mcp
         "resume" => SessionTransition::Resume,
         "restart" => SessionTransition::Restart,
         "new_session" => SessionTransition::NewSession,
-        "run_spec" => {
-            return mcp_run_agent_run_spec(db_path, &canonical, &project_id, &session_id, now);
-        }
         other => {
             return Err(McpRpcError::new(
                 rpc_code::INVALID_PARAMS,
@@ -875,18 +900,24 @@ fn mcp_run_agent_run_spec(
     canonical: &Path,
     project_id: &str,
     session_id: &str,
+    supervisor: Option<&str>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Value, McpRpcError> {
-    let outcome = run_session_spec(canonical, session_id, now).map_err(core_error)?;
+    let outcome = run_session_spec(canonical, session_id, supervisor, now).map_err(core_error)?;
     let files = crate::agent::write_session(canonical, &outcome.session).map_err(core_error)?;
     let registry = open_registry(db_path)?;
+    let verdict = outcome
+        .verdict
+        .clone()
+        .unwrap_or_else(|| "done".to_string());
     let detail = format!(
-        "mcp run_agent `{}` run_spec session `{}` -> `{}`",
+        "mcp run_agent `{}` run_spec session `{}` -> `{}` (verdict `{}`)",
         project_id,
         session_id,
-        outcome.state.label()
+        outcome.state.label(),
+        verdict
     );
-    let _ = registry.record_operation("mcp", project_id, "done", &detail);
+    let _ = registry.record_operation("mcp", project_id, &verdict, &detail);
     Ok(serde_json::json!({
         "transition": agent_outcome_envelope(&outcome),
         "files_written": files,
@@ -897,9 +928,11 @@ fn mcp_run_agent_run_spec(
 /// matching the CLI's `forge agent` envelope: `session_id`
 /// and `project_id` are hoisted so a model can address the
 /// session without navigating into a nested `session`
-/// object, mirroring the CLI's `agent_outcome_output`.
+/// object, mirroring the CLI's `agent_outcome_output`. The
+/// `verdict` key appears only for delegated run-spec
+/// executions, mirroring the CLI envelope.
 fn agent_outcome_envelope(outcome: &AgentTransitionOutcome) -> Value {
-    serde_json::json!({
+    let mut value = serde_json::json!({
         "session_id": outcome.session.session_id,
         "project_id": outcome.session.project_id,
         "provider": outcome.session.provider.label(),
@@ -910,7 +943,11 @@ fn agent_outcome_envelope(outcome: &AgentTransitionOutcome) -> Value {
         "next_step": outcome.next_step,
         "note": outcome.note,
         "contract": outcome.contract,
-    })
+    });
+    if let Some(verdict) = &outcome.verdict {
+        value["verdict"] = serde_json::Value::String(verdict.clone());
+    }
+    value
 }
 
 fn mcp_run_tests(args: &Map<String, Value>) -> Result<Value, McpRpcError> {

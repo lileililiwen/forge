@@ -1,0 +1,43 @@
+{
+  "contract": "driftwatch-checker/0.1.0",
+  "tool": "driftwatchdog",
+  "version": "0.1.0",
+  "generated_at": "2026-09-24T09:58:09.108887067+00:00",
+  "checkers": [
+    {
+      "name": "docs",
+      "status": "ok",
+      "alerts": []
+    },
+    {
+      "name": "auth",
+      "status": "alerting",
+      "alerts": [
+        {
+          "severity": "error",
+          "message": "missing auth marker; token ghp_abcdefghijklmnopqrstuvwxyz0123456789 leaked in src/main.rs",
+          "source": "src/main.rs",
+          "symbol": "AUTH-001",
+          "extra": {
+            "category": "security"
+          }
+        }
+      ]
+    },
+    {
+      "name": "broken",
+      "status": "protocol-error",
+      "alerts": [],
+      "error": "checker output is not valid JSON: expected ident at line 1 column 2"
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "ok": 1,
+    "alerting": 1,
+    "failed": 0,
+    "timeout": 0,
+    "protocol_error": 1,
+    "alerts": 1
+  }
+}

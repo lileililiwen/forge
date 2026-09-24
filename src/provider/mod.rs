@@ -80,7 +80,7 @@ pub const PROVIDER_IDS: &[&str] = &[
 /// default. Every default is overridable per run so tests substitute
 /// fixture scripts without touching the source tree.
 pub const DEFAULT_PROBE_BINARIES: &[(&str, &str)] = &[
-    ("driftwatch-policy", "driftwatch"),
+    ("driftwatch-policy", "driftwatchdog|driftwatch"),
     ("analytics", "forge-analytics-adapter"),
     ("deploy", "forge-deployer"),
     ("release", "forge-package-publisher"),
@@ -339,7 +339,7 @@ pub fn matrix(live: bool) -> ProviderMatrix {
 pub fn inspect(provider: &str) -> Result<ProviderDescriptor, ForgeError> {
     let id = parse_provider(provider)?;
     let boundary = match id.as_str() {
-        "driftwatch-policy" => "probe runs `<bin> check --project <dir> --format json` with a bounded wait; missing binary, non-zero exit, timeout or unparseable output records `unavailable`, never a policy PASS",
+        "driftwatch-policy" => "probe runs `<bin> check --dry-run --format json` (or `gate --format json` for gate-managed projects, whose only side effect is a `gate_runs` row in the project's own `.driftwatch/` store) with the project as the working directory and a bounded wait; a parseable document — including a blocked gate or failing checker — records `supported`, while a missing binary (probe order: `driftwatchdog`, `driftwatch`), timeout or unparseable output records `unavailable`, never a policy PASS",
         "oidc-identity" => "probe runs the in-memory challenge/callback/claims/mint/validate/terminate lifecycle through the identity contract; cross-project, expired, revoked and non-admin outcomes stay refusals, never sessions",
         "analytics" => "probe runs `<bin> health --provider <p> --project <id> --project-ref <ref> --plane <plane>`; a mismatched project_ref records `ambiguous-mapping`, never another project's data",
         "deploy" => "probe runs `<bin> apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` under the frozen `forge-deploy-executor/0.1.0` envelope contract; only a contract-conformant delivered dry-run envelope records `supported`, a missing or unknown discriminator records `unavailable`, and teardown removes the probe state",
@@ -365,9 +365,17 @@ struct CapturedRun {
     timed_out: bool,
 }
 
-fn run_bounded(binary: &Path, args: &[String], stdin_bytes: Option<&[u8]>) -> CapturedRun {
+fn run_bounded(
+    binary: &Path,
+    args: &[String],
+    stdin_bytes: Option<&[u8]>,
+    cwd: Option<&Path>,
+) -> CapturedRun {
     let mut cmd = Command::new(binary);
     cmd.args(args);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
     cmd.stdin(if stdin_bytes.is_some() {
         std::process::Stdio::piped()
     } else {
@@ -439,7 +447,7 @@ fn run_bounded(binary: &Path, args: &[String], stdin_bytes: Option<&[u8]>) -> Ca
 }
 
 fn probe_version(binary: &Path) -> Option<String> {
-    let out = run_bounded(binary, &["--version".to_string()], None);
+    let out = run_bounded(binary, &["--version".to_string()], None, None);
     if out.timed_out || out.exit_code != Some(0) {
         return None;
     }
@@ -544,9 +552,22 @@ fn resolve_probe_binary(provider: &str, options: &RunOptions) -> String {
             }
         }
     }
-    default_binary_for(provider)
-        .unwrap_or("forge-provider-probe")
-        .to_string()
+    match default_binary_for(provider) {
+        // Providers whose real binaries ship under several names (the
+        // sibling is `driftwatchdog` on cargo hosts, `driftwatch` on npm
+        // hosts) list them `|`-separated in resolution order: probe the
+        // PATH in order and run the first hit, so a host with only one
+        // name installed still resolves.
+        Some(default) if default.contains('|') => {
+            let candidates: Vec<&str> = default.split('|').collect();
+            let path_env = std::env::var_os("PATH").unwrap_or_default();
+            crate::policy::first_binary_on_path(&path_env, &candidates)
+                .map(|found| found.display().to_string())
+                .unwrap_or_else(|| default.to_string())
+        }
+        Some(default) => default.to_string(),
+        None => "forge-provider-probe".to_string(),
+    }
 }
 
 fn sandbox_of(options: &RunOptions) -> SandboxKind {
@@ -702,21 +723,42 @@ fn probe_policy(
     workdir: &Path,
     revision: Option<String>,
 ) -> ProviderRow {
-    let binary = resolve_probe_binary("driftwatch-policy", options);
     let sandbox = sandbox_of(options);
-    let source = sandbox_source(&binary, sandbox);
-    let tool_version = probe_version(Path::new(&binary));
-    let out = run_bounded(
-        Path::new(&binary),
-        &[
-            "check".to_string(),
-            "--project".to_string(),
-            workdir.display().to_string(),
-            "--format".to_string(),
-            "json".to_string(),
-        ],
-        None,
-    );
+    let source_name = policy_probe_target(options)
+        .map(|found| {
+            if options.fixture.is_some() {
+                found.display().to_string()
+            } else {
+                found
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("driftwatch")
+                    .to_string()
+            }
+        })
+        .unwrap_or_else(|| crate::policy::DRIFTWATCH_BINARY_CANDIDATES[0].to_string());
+    let source = sandbox_source(&source_name, sandbox);
+    let tool_version = policy_probe_target(options).and_then(|found| probe_version(&found));
+    let Some(target) = policy_probe_target(options) else {
+        return unavailable_row(
+            "driftwatch-policy",
+            sandbox,
+            &source,
+            project_id,
+            revision,
+            &format!(
+                "no driftwatch binary found: tried '{}' (argument-array probe, bounded wait); \
+                 nothing was contacted",
+                crate::policy::DRIFTWATCH_BINARY_CANDIDATES.join("', '")
+            ),
+            Some(workdir),
+        );
+    };
+    let surface = crate::policy::policy_surface_args(workdir)
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect::<Vec<String>>();
+    let out = run_bounded(&target, &surface, None, Some(workdir));
     if out.timed_out {
         return unavailable_row(
             "driftwatch-policy",
@@ -728,23 +770,22 @@ fn probe_policy(
             Some(workdir),
         );
     }
-    if out.exit_code != Some(0) {
-        return unavailable_row(
-            "driftwatch-policy",
-            sandbox,
-            &source,
-            project_id,
-            revision,
-            &format!(
-                "driftwatch exited with status {:?}: {}",
-                out.exit_code,
-                out.stderr.trim()
-            ),
-            Some(workdir),
-        );
-    }
-    let value: serde_json::Value = match serde_json::from_str(&out.stdout) {
-        Ok(value) => value,
+    // A parseable document is a successful round trip whatever the exit
+    // code: a blocked gate or a failing checker is evidence, not adapter
+    // failure. Only unparseable/empty stdout degrades to unavailable.
+    let value: serde_json::Value = match serde_json::from_str::<serde_json::Value>(&out.stdout) {
+        Ok(value) if value.is_object() => value,
+        Ok(_) => {
+            return unavailable_row(
+                "driftwatch-policy",
+                sandbox,
+                &source,
+                project_id,
+                revision,
+                "driftwatch output is valid JSON but not a policy document object",
+                Some(workdir),
+            );
+        }
         Err(err) => {
             return unavailable_row(
                 "driftwatch-policy",
@@ -752,27 +793,40 @@ fn probe_policy(
                 &source,
                 project_id,
                 revision,
-                &format!("driftwatch output is not parseable JSON: {err}"),
+                &format!(
+                    "driftwatch output is not parseable JSON (exit {:?}): {err}: {}",
+                    out.exit_code,
+                    out.stderr.trim()
+                ),
                 Some(workdir),
             );
         }
     };
-    if !value.is_object() && !value.is_array() {
-        return unavailable_row(
-            "driftwatch-policy",
-            sandbox,
-            &source,
-            project_id,
-            revision,
-            "driftwatch output is valid JSON but not a policy report envelope",
-            Some(workdir),
-        );
-    }
     let receipt = vec![truncate_receipt(&out.stdout)];
-    let evidence = vec![format!(
+    let mut evidence = vec![format!(
         "tool_version={}",
         tool_version.as_deref().unwrap_or("unknown")
     )];
+    // Shape attribution so a human reading the row can tell which
+    // surface answered without re-running anything.
+    if let Some(contract) = value.get("contract").and_then(|c| c.as_str()) {
+        evidence.push(format!("contract={contract}"));
+    }
+    if let Some(rows) = value.get("checkers").and_then(|c| c.as_array()) {
+        evidence.push(format!("checkers={}", rows.len()));
+    }
+    if let Some(findings) = value.get("findings").and_then(|f| f.as_array()) {
+        evidence.push(format!("findings={}", findings.len()));
+    }
+    if let Some(blocked) = value.get("blocked").and_then(|b| b.as_bool()) {
+        evidence.push(format!("gate_blocked={blocked}"));
+    }
+    if out.exit_code != Some(0) {
+        evidence.push(format!(
+            "exit={:?}: parseable document; findings keep their own severities",
+            out.exit_code
+        ));
+    }
     params(
         "driftwatch-policy",
         sandbox,
@@ -785,8 +839,25 @@ fn probe_policy(
         tool_version,
         receipt,
         evidence,
-        "policy probe observed a well-formed report; findings keep their own severities",
+        "policy probe observed a well-formed document; findings keep their own severities",
     )
+}
+
+/// Where the driftwatch-policy probe sends its invocation: the fixture
+/// script, then `FORGE_DRIFTWATCH_BIN`, then the ordered PATH probe of
+/// the real sibling binary names. `None` means nothing is installed and
+/// the probe must contact nothing.
+fn policy_probe_target(options: &RunOptions) -> Option<std::path::PathBuf> {
+    if let Some(fixture) = &options.fixture {
+        return Some(fixture.clone());
+    }
+    if let Ok(value) = std::env::var("FORGE_DRIFTWATCH_BIN") {
+        if !value.trim().is_empty() {
+            return Some(std::path::PathBuf::from(value));
+        }
+    }
+    let path_env = std::env::var_os("PATH").unwrap_or_default();
+    crate::policy::first_binary_on_path(&path_env, crate::policy::DRIFTWATCH_BINARY_CANDIDATES)
 }
 
 fn probe_analytics(
@@ -812,6 +883,7 @@ fn probe_analytics(
             "--plane".to_string(),
             "content".to_string(),
         ],
+        None,
         None,
     );
     if out.timed_out {
@@ -932,6 +1004,7 @@ fn probe_deploy(options: &RunOptions, project_id: &str, revision: Option<String>
             "--dry-run".to_string(),
         ],
         Some(&stdin_bytes),
+        None,
     );
     if out.timed_out {
         return unavailable_row(
@@ -1053,6 +1126,7 @@ fn probe_release_stage(
             rev.to_string(),
             "--dry-run".to_string(),
         ],
+        None,
         None,
     );
     if out.timed_out {

@@ -1,0 +1,8 @@
+gate plan (dry-run; nothing was executed)
+contract version: 1 | profile: minimal | rule-pack: local | manifest: sha256:dc1fb6a3db59efd5
+blocking: review_required_blocks=true
+execution mode: dry-run
+checks:
+  - docs [required] via project-runtime
+project commands:
+  (none)

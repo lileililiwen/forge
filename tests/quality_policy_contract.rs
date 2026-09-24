@@ -352,7 +352,7 @@ if [ \"$1\" = \"--version\" ]; then
   echo 'driftwatch 0.1.0'
   exit 0
 fi
-project_dir=\"$3\"
+project_dir=$(pwd)
 project_id=$(basename \"$project_dir\")
 cat <<JSON
 {\"tool\":\"driftwatch\",\"tool_version\":\"0.1.0\",\"contract\":\"0.1.0\",\

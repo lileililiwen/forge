@@ -525,6 +525,9 @@ fn detect_driftwatch(dir: &Path) -> (bool, Vec<String>) {
         "driftwatch.json",
         ".driftwatch.yaml",
         ".driftwatch.yml",
+        "driftwatch.toml",
+        "gate.toml",
+        ".ai-gate/gate.yaml",
     ] {
         if file_exists(dir, file) {
             evidence.push(file.to_string());

@@ -16,9 +16,9 @@
 //! invocation times out or the output is not parseable JSON, and it never
 //! maps an absent policy run to a `PASS`.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -30,10 +30,16 @@ use serde::{Deserialize, Serialize};
 /// tool version (reported per run inside [`PolicyReport::tool_version`]).
 pub const POLICY_CONTRACT_VERSION: &str = "0.1.0";
 
-/// Default binary used to invoke DriftWatch. Overridable through the
-/// `FORGE_DRIFTWATCH_BIN` environment variable so tests can substitute a
-/// fixture binary; nothing in the source tree rewrites this value.
-pub const DEFAULT_DRIFTWATCH_BIN: &str = "driftwatch";
+/// Ordered binary candidates for the policy plane when no explicit
+/// `FORGE_DRIFTWATCH_BIN` override is set: the cargo/installer name first,
+/// then the npm launcher alias. First executable hit wins.
+pub const DRIFTWATCH_BINARY_CANDIDATES: &[&str] = &["driftwatchdog", "driftwatch"];
+
+/// Sibling machine-readable checker-report contract emitted by
+/// `driftwatch check --format json` (driftwatchdog change
+/// `checker-machine-output`). Same-major documents may add top-level
+/// fields; consumers must ignore the unknown ones.
+pub const CHECKER_REPORT_CONTRACT: &str = "driftwatch-checker/0.1.0";
 
 /// Default per-run timeout. The adapter uses `Command::spawn` + bounded
 /// `wait_timeout` so an unresponsive DriftWatch cannot hang the registry.
@@ -190,22 +196,21 @@ pub struct PolicyObservation {
 }
 
 /// Configuration for the DriftWatch adapter. The CLI fills this from the
-/// `FORGE_DRIFTWATCH_BIN` environment variable (or a default) plus the
-/// per-run timeout, then hands it to [`run_driftwatch`].
+/// `FORGE_DRIFTWATCH_BIN` environment variable (an explicit operator
+/// choice) plus the per-run timeout, then hands it to [`run_driftwatch`].
+/// With no override, [`DRIFTWATCH_BINARY_CANDIDATES`] is probed in order.
 #[derive(Debug, Clone)]
 pub struct DriftWatchConfig {
-    pub binary: OsString,
+    pub binary: Option<OsString>,
     pub timeout: Duration,
 }
 
 impl DriftWatchConfig {
-    /// Resolve the adapter binary from the environment, falling back to
-    /// [`DEFAULT_DRIFTWATCH_BIN`]. Whitespace-only values are ignored so
-    /// `FORGE_DRIFTWATCH_BIN=""` keeps the default.
+    /// Resolve the adapter override from the environment. Whitespace-only
+    /// values are ignored so `FORGE_DRIFTWATCH_BIN=""` keeps ordered
+    /// candidate probing.
     pub fn from_env() -> Self {
-        let binary = std::env::var_os("FORGE_DRIFTWATCH_BIN")
-            .filter(|v| !v.as_os_str().is_empty())
-            .unwrap_or_else(|| OsString::from(DEFAULT_DRIFTWATCH_BIN));
+        let binary = std::env::var_os("FORGE_DRIFTWATCH_BIN").filter(|v| !v.as_os_str().is_empty());
         DriftWatchConfig {
             binary,
             timeout: DEFAULT_TIMEOUT,
@@ -213,32 +218,94 @@ impl DriftWatchConfig {
     }
 }
 
+/// First candidate name that exists as an executable file on `path_env`
+/// (a `PATH`-shaped list of directories). Pure function of the inputs so
+/// resolution order is testable without mutating the process environment.
+pub fn first_binary_on_path(path_env: &OsStr, candidates: &[&str]) -> Option<PathBuf> {
+    candidates.iter().find_map(|name| {
+        for dir in std::env::split_paths(path_env) {
+            if dir.as_os_str().is_empty() {
+                continue;
+            }
+            let candidate = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+            let Ok(meta) = fs::metadata(&candidate) else {
+                continue;
+            };
+            if !meta.is_file() {
+                continue;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if meta.permissions().mode() & 0o111 == 0 {
+                    continue;
+                }
+            }
+            return Some(candidate);
+        }
+        None
+    })
+}
+
+/// Where the adapter sends `dir`: gate-managed projects run the gate
+/// surface, everything else the checker surface. The checker side uses
+/// the sibling's documented no-persistence composition
+/// (`check --dry-run --format json` emits the same versioned document
+/// while writing nothing). The gate side has no such composition: the
+/// sibling's `gate --dry-run` renders the human-readable plan and exits
+/// before its JSON writer — verified live against
+/// `driftwatchdog/commands/gate.rs` and captured in
+/// `tests/fixtures/driftwatch/NOTES.md` — so Forge runs the real
+/// `gate --format json`, whose only Forge-visible side effect is a
+/// `gate_runs` row in the project's own `.driftwatch/` store (sibling
+/// state, never Forge registry state). One source of truth for the
+/// adapter and the provider probe.
+pub fn policy_surface_args(dir: &Path) -> Vec<&'static str> {
+    let gate_managed =
+        dir.join("gate.toml").is_file() || dir.join(".ai-gate").join("gate.yaml").is_file();
+    if gate_managed {
+        vec!["gate", "--format", "json"]
+    } else {
+        vec!["check", "--dry-run", "--format", "json"]
+    }
+}
+
 /// Invoke DriftWatch for `dir` and return the normalized outcome.
 ///
-/// The process is started with `Command::new(binary).args(...)` — never
-/// through a shell — and its current directory is `dir` so DriftWatch can
-/// only observe the project it was asked to evaluate. stdout is the only
-/// trusted channel; stderr is captured into the unavailable reason for
-/// diagnostics. A version probe (`<binary> --version`) is performed first
-/// so the report names the tool version that produced the findings, and
-/// failure of the probe is not a hard error: the adapter still runs the
-/// `check` invocation and records `unknown` for the tool version when
-/// probe output is missing or unparseable.
+/// Binary resolution is an ordered probe: the explicit
+/// `FORGE_DRIFTWATCH_BIN` override runs exactly that binary (no further
+/// probing), otherwise the first executable hit of
+/// [`DRIFTWATCH_BINARY_CANDIDATES`] wins. The project directory is the
+/// working directory — Forge never sends the sibling's grammar a
+/// fabricated `--project` flag — and the surface follows the project:
+/// gate-managed directories run `gate --format json`, everything else
+/// `check --dry-run --format json` (the sibling's `checker-machine-output`
+/// contract; see [`policy_surface_args`] for why only the checker side
+/// has a no-persistence composition).
+///
+/// Classification: a parseable document — including one reporting a
+/// blocked gate or a failing checker, whatever the process exit code —
+/// becomes normalized findings. Only a missing binary, a timeout, or an
+/// unparseable stdout is `Unavailable`, and an unknown document contract
+/// names the version it could not parse. The adapter never maps an absent
+/// policy run to a `PASS`, invokes through a shell, or trusts the tool's
+/// own words: captured text passes the redaction pipeline, and an
+/// absolute project root reported by the document is replaced with
+/// `<project>` before findings are built.
 pub fn run_driftwatch(dir: &Path, config: &DriftWatchConfig) -> PolicyOutcome {
     if !dir.is_dir() {
         return PolicyOutcome::Unavailable {
             reason: format!("project path '{}' is not a directory", dir.display()),
         };
     }
-    let tool_version = probe_version(&config.binary, config.timeout);
-    let mut command = Command::new(&config.binary);
-    command
-        .arg("check")
-        .arg("--project")
-        .arg(dir)
-        .arg("--format")
-        .arg("json")
-        .current_dir(dir);
+    let target = match resolve_binary(config) {
+        Ok(target) => target,
+        Err(reason) => return PolicyOutcome::Unavailable { reason },
+    };
+    let tool_version = probe_version(&target, config.timeout);
+    let args = policy_surface_args(dir);
+    let mut command = Command::new(&target);
+    command.args(args).current_dir(dir);
     let output = match run_with_timeout(&mut command, config.timeout) {
         Ok(out) => out,
         Err(reason) => {
@@ -247,15 +314,6 @@ pub fn run_driftwatch(dir: &Path, config: &DriftWatchConfig) -> PolicyOutcome {
             };
         }
     };
-    if !output.status.success() {
-        return PolicyOutcome::Unavailable {
-            reason: format!(
-                "driftwatch exited with status {}: {}",
-                output.status,
-                stderr_summary(&output.stderr)
-            ),
-        };
-    }
     let raw = match String::from_utf8(output.stdout) {
         Ok(s) => s,
         Err(_) => {
@@ -264,8 +322,359 @@ pub fn run_driftwatch(dir: &Path, config: &DriftWatchConfig) -> PolicyOutcome {
             };
         }
     };
-    let mut report: PolicyReport = match serde_json::from_str(&raw) {
-        Ok(r) => r,
+    let status_note = || {
+        format!(
+            "driftwatch exited with status {}: {}",
+            output.status,
+            stderr_summary(&output.stderr)
+        )
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(err) => {
+            // A stale sibling (one that rejects the JSON flag outright)
+            // exits non-zero with empty stdout; name the failure the
+            // process actually reported, not just the bare parse error.
+            let mut reason =
+                format!("driftwatch output is not parseable as a policy document: {err}");
+            if !output.status.success() {
+                reason.push_str(&format!("; {}", status_note()));
+            }
+            return PolicyOutcome::Unavailable { reason };
+        }
+    };
+    let document_contract = value.get("contract").and_then(|c| c.as_str());
+    if let Some(contract) = document_contract {
+        if let Some(rest) = contract.strip_prefix("driftwatch-checker/") {
+            // Same-major tolerance: the sibling's forward-compat rule adds
+            // top-level fields only, so any 0.x document parses.
+            let minor = rest.split('.').next().unwrap_or_default();
+            if !contract.starts_with("driftwatch-checker/0.") || minor.is_empty() {
+                return PolicyOutcome::Unavailable {
+                    reason: format!(
+                        "driftwatch returned an unsupported document contract '{contract}'; \
+                         Forge parses '{CHECKER_REPORT_CONTRACT}' (same-major only); never a PASS"
+                    ),
+                };
+            }
+            return map_checker_document(value, &target, tool_version, dir);
+        }
+        if contract != POLICY_CONTRACT_VERSION {
+            return PolicyOutcome::Unavailable {
+                reason: format!(
+                    "driftwatch returned an unsupported document contract '{contract}'; \
+                     Forge parses '{POLICY_CONTRACT_VERSION}' and '{CHECKER_REPORT_CONTRACT}'; \
+                     never a PASS"
+                ),
+            };
+        }
+    }
+    if value.get("findings").is_some() {
+        // Legacy adapter-report shape (fixture scripts and external
+        // adapters emit it): non-zero exit stays unavailable, matching
+        // the prior contract.
+        if !output.status.success() {
+            return PolicyOutcome::Unavailable {
+                reason: status_note(),
+            };
+        }
+        return map_legacy_report(value, tool_version, dir);
+    }
+    if value.get("blocked").is_some() && value.get("results").is_some() {
+        return map_gate_document(value, &target, tool_version, dir);
+    }
+    if !output.status.success() {
+        return PolicyOutcome::Unavailable {
+            reason: status_note(),
+        };
+    }
+    PolicyOutcome::Unavailable {
+        reason: "driftwatch output is valid JSON but not a recognized policy document \
+                 (checker report, gate status or adapter report)"
+            .to_string(),
+    }
+}
+
+/// Ordered binary resolution. An override runs exactly as given — it may
+/// be a fixture path — and is never replaced by probing. Without one, the
+/// first candidate present on `PATH` wins; absence of every candidate is
+/// reported as unavailable naming the attempted names.
+fn resolve_binary(config: &DriftWatchConfig) -> Result<OsString, String> {
+    if let Some(binary) = &config.binary {
+        return Ok(binary.clone());
+    }
+    let path_env = std::env::var_os("PATH").unwrap_or_default();
+    first_binary_on_path(&path_env, DRIFTWATCH_BINARY_CANDIDATES)
+        .map(|found| found.into_os_string())
+        .ok_or_else(|| {
+            format!(
+                "no driftwatch binary found: tried '{}' (FORGE_DRIFTWATCH_BIN unset); local \
+                 workflows continue without the policy plane",
+                DRIFTWATCH_BINARY_CANDIDATES.join("', '")
+            )
+        })
+}
+
+fn binary_display_name(target: &OsStr) -> String {
+    Path::new(target)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("driftwatch")
+        .to_string()
+}
+
+/// Map the `driftwatch-checker/0.1.0` envelope: each alert becomes a
+/// finding; failed/timeout/protocol-error rows become fail findings
+/// carrying the row's own bounded error note; clean rows add nothing.
+fn map_checker_document(
+    value: serde_json::Value,
+    target: &OsStr,
+    tool_version: String,
+    dir: &Path,
+) -> PolicyOutcome {
+    let project_root = value
+        .get("project")
+        .and_then(|p| p.as_str())
+        .map(str::to_string);
+    let mut findings: Vec<PolicyFinding> = Vec::new();
+    let rows = match value.get("checkers").and_then(|c| c.as_array()) {
+        Some(rows) => rows.clone(),
+        None => {
+            return PolicyOutcome::Unavailable {
+                reason: "checker report document carries no 'checkers' array".to_string(),
+            };
+        }
+    };
+    for row in rows {
+        let name = row
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("checker");
+        let status = row
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        match status {
+            "ok" => {}
+            "alerting" => {
+                let alerts = row
+                    .get("alerts")
+                    .and_then(|a| a.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                if alerts.is_empty() {
+                    findings.push(fail_finding(
+                        name,
+                        format!("checker '{name}' reported status 'alerting' with no alerts"),
+                        vec![],
+                    ));
+                    continue;
+                }
+                for alert in alerts {
+                    let severity = alert
+                        .get("severity")
+                        .and_then(|s| s.as_str())
+                        .and_then(PolicySeverity::from_str)
+                        // An alert with missing or unknown severity is
+                        // still an alert: it must never read as PASS.
+                        .unwrap_or(PolicySeverity::Warn);
+                    let symbol = alert.get("symbol").and_then(|s| s.as_str());
+                    let id = match symbol {
+                        Some(symbol) if !symbol.is_empty() => format!("{name}/{symbol}"),
+                        _ => name.to_string(),
+                    };
+                    let message = alert
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("checker reported an alert");
+                    let category = alert
+                        .get("extra")
+                        .and_then(|e| e.get("category"))
+                        .and_then(|c| c.as_str())
+                        .filter(|c| !c.trim().is_empty())
+                        .unwrap_or("driftwatch")
+                        .to_string();
+                    let mut evidence = Vec::new();
+                    if let Some(source) = alert.get("source").and_then(|s| s.as_str()) {
+                        evidence.push(format!("source={source}"));
+                    }
+                    evidence.push(format!("checker={name} status={status}"));
+                    findings.push(PolicyFinding {
+                        id,
+                        category,
+                        severity,
+                        applicable: true,
+                        message: message.to_string(),
+                        evidence,
+                        reason: None,
+                    });
+                }
+            }
+            "failed" | "timeout" | "protocol-error" => {
+                let note = row
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("the checker produced no error note");
+                findings.push(fail_finding(
+                    name,
+                    format!("checker '{name}' {status}: {note}"),
+                    vec![format!("checker={name} status={status}")],
+                ));
+            }
+            other => {
+                findings.push(fail_finding(
+                    name,
+                    format!("checker '{name}' reported an unknown status '{other}'"),
+                    vec![format!("checker={name} status={other}")],
+                ));
+            }
+        }
+    }
+    let mut report = PolicyReport {
+        tool: binary_display_name(target),
+        tool_version: doc_version(&value).unwrap_or(tool_version),
+        contract: POLICY_CONTRACT_VERSION.to_string(),
+        source_revision: source_revision_for(dir),
+        findings,
+    };
+    if let Some(root) = project_root {
+        scrub_project_root(&mut report, Some(&root), dir);
+    } else {
+        scrub_project_root(&mut report, None, dir);
+    }
+    redact_report_in_place(&mut report);
+    PolicyOutcome::Reported(report)
+}
+
+/// Map the gate status document (`gate --format json`). A blocked
+/// aggregate maps its failing checks to fail findings — evidence, not
+/// adapter failure — review-required checks to warns, and not-applicable
+/// checks to not-applicable pass findings.
+fn map_gate_document(
+    value: serde_json::Value,
+    target: &OsStr,
+    tool_version: String,
+    dir: &Path,
+) -> PolicyOutcome {
+    let results = match value.get("results").and_then(|r| r.as_array()) {
+        Some(results) => results.clone(),
+        None => {
+            return PolicyOutcome::Unavailable {
+                reason: "gate status document carries no 'results' array".to_string(),
+            };
+        }
+    };
+    let mut findings: Vec<PolicyFinding> = Vec::new();
+    for result in results {
+        let gate_id = result
+            .get("gate_id")
+            .and_then(|g| g.as_str())
+            .unwrap_or("gate");
+        let status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("UNKNOWN");
+        let diagnostic = result
+            .get("diagnostic")
+            .and_then(|d| d.as_str())
+            .map(str::to_string);
+        let remediation = result
+            .get("remediation")
+            .and_then(|r| r.as_str())
+            .map(str::to_string);
+        let missing: Vec<String> = result
+            .get("missing_evidence")
+            .and_then(|m| m.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        match status {
+            "PASS" => {}
+            "FAIL" => {
+                let mut evidence: Vec<String> =
+                    missing.iter().map(|m| format!("missing={m}")).collect();
+                if let Some(remediation) = &remediation {
+                    evidence.push(format!("remediation={remediation}"));
+                }
+                evidence.push(format!("gate={gate_id} status=FAIL"));
+                findings.push(fail_finding(
+                    gate_id,
+                    diagnostic.unwrap_or_else(|| format!("gate '{gate_id}' failed")),
+                    evidence,
+                ));
+            }
+            "REVIEW_REQUIRED" => {
+                let mut evidence: Vec<String> =
+                    missing.iter().map(|m| format!("missing={m}")).collect();
+                if let Some(remediation) = &remediation {
+                    evidence.push(format!("remediation={remediation}"));
+                }
+                evidence.push(format!("gate={gate_id} status=REVIEW_REQUIRED"));
+                findings.push(PolicyFinding {
+                    id: gate_id.to_string(),
+                    category: "driftwatch".to_string(),
+                    severity: PolicySeverity::Warn,
+                    applicable: true,
+                    message: diagnostic
+                        .unwrap_or_else(|| format!("gate '{gate_id}' requires human review")),
+                    evidence,
+                    reason: None,
+                });
+            }
+            "NOT_APPLICABLE" => findings.push(PolicyFinding {
+                id: gate_id.to_string(),
+                category: "driftwatch".to_string(),
+                severity: PolicySeverity::Pass,
+                applicable: false,
+                message: format!("gate '{gate_id}' is not applicable"),
+                evidence: vec![format!("gate={gate_id} status=NOT_APPLICABLE")],
+                reason: diagnostic.or(remediation),
+            }),
+            other => findings.push(fail_finding(
+                gate_id,
+                format!("gate '{gate_id}' reported an unknown status '{other}'"),
+                vec![format!("gate={gate_id} status={other}")],
+            )),
+        }
+    }
+    let blocked = value
+        .get("blocked")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let aggregate = value
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or("UNKNOWN");
+    if blocked && findings.is_empty() {
+        findings.push(fail_finding(
+            "gate",
+            format!("gate aggregate is blocked (status {aggregate}) without per-gate detail"),
+            vec!["blocked=true".to_string()],
+        ));
+    }
+    let mut report = PolicyReport {
+        tool: binary_display_name(target),
+        tool_version: doc_version(&value).unwrap_or(tool_version),
+        contract: POLICY_CONTRACT_VERSION.to_string(),
+        source_revision: source_revision_for(dir),
+        findings,
+    };
+    // The gate document reports no project field; scrub Forge's own
+    // execution directory from any path the gates printed.
+    scrub_project_root(&mut report, None, dir);
+    redact_report_in_place(&mut report);
+    PolicyOutcome::Reported(report)
+}
+
+/// Legacy adapter-report shape: unchanged behavior for fixture scripts
+/// and external adapters that already emit a `PolicyReport`.
+fn map_legacy_report(value: serde_json::Value, tool_version: String, dir: &Path) -> PolicyOutcome {
+    let mut report: PolicyReport = match serde_json::from_value(value) {
+        Ok(report) => report,
         Err(err) => {
             return PolicyOutcome::Unavailable {
                 reason: format!("driftwatch output is not parseable as policy report: {err}"),
@@ -276,19 +685,71 @@ pub fn run_driftwatch(dir: &Path, config: &DriftWatchConfig) -> PolicyOutcome {
         report.tool = "driftwatch".to_string();
     }
     if report.tool_version.is_empty() {
-        report.tool_version = tool_version.clone();
+        report.tool_version = tool_version;
     }
-    // Server-side scope guarantee: every evidence line is redacted
-    // through the same pipeline before any caller sees it, so a
-    // credential-like value cannot reach storage or display.
-    redact_report_in_place(&mut report);
     if report.contract.is_empty() {
         report.contract = POLICY_CONTRACT_VERSION.to_string();
     }
     if report.source_revision.is_none() {
         report.source_revision = source_revision_for(dir);
     }
+    // Server-side scope guarantee: every evidence line is redacted
+    // through the same pipeline before any caller sees it, so a
+    // credential-like value cannot reach storage or display.
+    redact_report_in_place(&mut report);
     PolicyOutcome::Reported(report)
+}
+
+fn fail_finding(id: &str, message: String, evidence: Vec<String>) -> PolicyFinding {
+    PolicyFinding {
+        id: id.to_string(),
+        category: "driftwatch".to_string(),
+        severity: PolicySeverity::Fail,
+        applicable: true,
+        message,
+        evidence,
+        reason: None,
+    }
+}
+
+fn doc_version(value: &serde_json::Value) -> Option<String> {
+    let raw = value.get("version").and_then(|v| v.as_str())?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    Some(
+        crate::policy::redact_credentials(raw)
+            .chars()
+            .take(120)
+            .collect(),
+    )
+}
+
+/// Replace host paths with `<project>` in every finding string. The
+/// needles are the directory Forge actually executed in and — when the
+/// document reports one — the tool's own project root (the sibling may
+/// omit the optional field). Whatever the tool prints about absolute
+/// paths on this machine never persists into Forge evidence.
+fn scrub_project_root(report: &mut PolicyReport, root: Option<&str>, dir: &Path) {
+    let mut needles: Vec<String> = Vec::new();
+    if let Some(current) = dir.canonicalize().ok().map(|p| p.display().to_string()) {
+        needles.push(current);
+    }
+    if let Some(reported) = root {
+        if !needles.iter().any(|n| n == reported) {
+            needles.push(reported.to_string());
+        }
+    }
+    for finding in &mut report.findings {
+        for needle in &needles {
+            finding.message = finding.message.replace(needle, "<project>");
+            finding.evidence = finding
+                .evidence
+                .iter()
+                .map(|line| line.replace(needle, "<project>"))
+                .collect();
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -764,6 +1225,392 @@ mod tests {
         }
     }
 
+    fn write_script(dir: &Path, name: &str, body: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        fs::write(&path, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
+    fn script_config(path: &Path) -> DriftWatchConfig {
+        DriftWatchConfig {
+            binary: Some(path.as_os_str().to_os_string()),
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    fn fixture_doc(name: &str) -> serde_json::Value {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/driftwatch")
+            .join(name);
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("fixture {}: {err}", path.display()));
+        serde_json::from_str(&text).expect("fixture is valid JSON")
+    }
+
+    #[test]
+    fn verbatim_sibling_fixtures_project_honestly() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("forge.yaml"), "schema: 1\n").unwrap();
+        let target = OsStr::new("/usr/bin/driftwatchdog");
+
+        // The passing document maps to an honest empty report.
+        match map_checker_document(
+            fixture_doc("checker-report-passing.json"),
+            target,
+            "probe".to_string(),
+            tmp.path(),
+        ) {
+            PolicyOutcome::Reported(report) => {
+                assert!(report.findings.is_empty(), "{:?}", report.findings);
+                assert_eq!(report.tool, "driftwatchdog");
+                assert_eq!(report.tool_version, "0.1.0", "document version wins");
+                assert_eq!(report.contract, POLICY_CONTRACT_VERSION);
+            }
+            other => panic!("passing fixture must report: {other:?}"),
+        }
+
+        // The alerting document: error severity fails, declared category
+        // survives, and the fixture's embedded GitHub PAT is redacted.
+        match map_checker_document(
+            fixture_doc("checker-report-alerting.json"),
+            target,
+            "probe".to_string(),
+            tmp.path(),
+        ) {
+            PolicyOutcome::Reported(report) => {
+                // Mixed outcomes in one document: alerting maps to its
+                // alert findings and the broken checker stays visible as
+                // its own fail finding — no crash, no masking.
+                assert_eq!(report.findings.len(), 2, "{:?}", report.findings);
+                let finding = report
+                    .findings
+                    .iter()
+                    .find(|f| f.id == "auth/AUTH-001")
+                    .expect("alert finding");
+                assert_eq!(finding.severity, PolicySeverity::Fail);
+                assert_eq!(finding.category, "security");
+                assert!(!finding.message.contains("ghp_"), "{}", finding.message);
+                assert!(
+                    finding.message.contains("[REDACTED]"),
+                    "{}",
+                    finding.message
+                );
+                let broken = report
+                    .findings
+                    .iter()
+                    .find(|f| f.id == "broken")
+                    .expect("isolated failure stays visible");
+                assert_eq!(broken.severity, PolicySeverity::Fail);
+                assert!(broken.message.contains("protocol-error"), "{broken:?}");
+            }
+            other => panic!("alerting fixture must report: {other:?}"),
+        }
+
+        // The blocked gate document produces the failing gate's findings.
+        match map_gate_document(
+            fixture_doc("gate-status-blocked.json"),
+            target,
+            "probe".to_string(),
+            tmp.path(),
+        ) {
+            PolicyOutcome::Reported(report) => {
+                let finding = report
+                    .findings
+                    .iter()
+                    .find(|f| f.id == "docs")
+                    .expect("blocked gate names its failing check");
+                assert_eq!(finding.severity, PolicySeverity::Fail);
+                assert!(
+                    report
+                        .findings
+                        .iter()
+                        .any(|f| f.evidence.iter().any(|e| e.starts_with("remediation="))),
+                    "{:?}",
+                    report.findings
+                );
+            }
+            other => panic!("blocked gate must report: {other:?}"),
+        }
+        // A passing gate document stays reported with nothing to show.
+        match map_gate_document(
+            fixture_doc("gate-status-pass.json"),
+            target,
+            "probe".to_string(),
+            tmp.path(),
+        ) {
+            PolicyOutcome::Reported(report) => assert!(report.findings.is_empty()),
+            other => panic!("pass gate must report: {other:?}"),
+        }
+
+        // The unknown-contract fixture is refused through the real entry
+        // point, naming the version and never reporting.
+        let script = write_script(
+            tmp.path(),
+            "dw-9.sh",
+            &format!(
+                "#!/bin/sh\ncat '{}'\n",
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/driftwatch/checker-report-unknown-contract.json")
+                    .display()
+            ),
+        );
+        let outcome = run_driftwatch(tmp.path(), &script_config(&script));
+        match outcome {
+            PolicyOutcome::Unavailable { reason } => {
+                assert!(reason.contains("driftwatch-checker/9.0.0"), "{reason}");
+            }
+            other => panic!("unknown contract must refuse: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn first_binary_on_path_prefers_driftwatchdog_then_alias() {
+        let tmp = TempDir::new().unwrap();
+        let bin = tmp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let both = write_script(&bin, "driftwatchdog", "#!/bin/sh\necho wd\n");
+        let alias = write_script(&bin, "driftwatch", "#!/bin/sh\necho dw\n");
+        let path = std::env::join_paths([&bin]).unwrap();
+        assert_eq!(
+            first_binary_on_path(&path, DRIFTWATCH_BINARY_CANDIDATES),
+            Some(both)
+        );
+        // Alias-only hosts resolve the npm launcher name.
+        fs::remove_file(tmp.path().join("bin").join("driftwatchdog")).unwrap();
+        assert_eq!(
+            first_binary_on_path(&path, DRIFTWATCH_BINARY_CANDIDATES),
+            Some(alias)
+        );
+        // Empty PATH and non-executable files find nothing.
+        assert_eq!(
+            first_binary_on_path(OsStr::new(""), DRIFTWATCH_BINARY_CANDIDATES),
+            None
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let plain = bin.join("driftwatchdog");
+            fs::write(&plain, "not executable").unwrap();
+            fs::set_permissions(&plain, fs::Permissions::from_mode(0o644)).unwrap();
+            // The non-executable first candidate is skipped; the probe
+            // continues to the alias rather than selecting a dead file.
+            let found = first_binary_on_path(&path, DRIFTWATCH_BINARY_CANDIDATES);
+            assert_eq!(found, Some(bin.join("driftwatch")));
+            let plain_alias = bin.join("driftwatch");
+            fs::set_permissions(&plain_alias, fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(
+                first_binary_on_path(&path, DRIFTWATCH_BINARY_CANDIDATES),
+                None,
+                "a non-executable candidate must not be selected"
+            );
+        }
+    }
+
+    #[test]
+    fn surface_follows_gate_manifests() {
+        let tmp = TempDir::new().unwrap();
+        assert_eq!(
+            policy_surface_args(tmp.path()),
+            vec!["check", "--dry-run", "--format", "json"]
+        );
+        fs::write(tmp.path().join("gate.toml"), "[gate]\n").unwrap();
+        assert_eq!(
+            policy_surface_args(tmp.path()),
+            vec!["gate", "--format", "json"]
+        );
+        let tmp2 = TempDir::new().unwrap();
+        fs::create_dir_all(tmp2.path().join(".ai-gate")).unwrap();
+        fs::write(tmp2.path().join(".ai-gate/gate.yaml"), "version: 1\n").unwrap();
+        assert_eq!(
+            policy_surface_args(tmp2.path()),
+            vec!["gate", "--format", "json"]
+        );
+    }
+
+    #[test]
+    fn checker_envelope_maps_alerts_rows_and_scrubs_roots() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("forge.yaml"), "schema: 1\n").unwrap();
+        let doc = format!(
+            "{{\"contract\":\"driftwatch-checker/0.1.0\",\"tool\":\"driftwatch\",\"version\":\"0.4.2\",\"project\":\"{}\",\"generated_at\":\"2026-09-24T00:00:00Z\",\"checkers\":[{{\"name\":\"sec-scan\",\"status\":\"alerting\",\"alerts\":[{{\"severity\":\"warning\",\"message\":\"auth gap in {}\",\"source\":\"src/main.rs\",\"symbol\":\"SEC-001\",\"extra\":{{\"category\":\"security\"}}}},{{\"message\":\"unclassified\",\"source\":\"x\",\"symbol\":\"X-1\"}}]}},{{\"name\":\"gate-probe\",\"status\":\"failed\",\"alerts\":[],\"error\":\"checker exited with status 3\"}},{{\"name\":\"quiet\",\"status\":\"ok\",\"alerts\":[]}}],\"summary\":{{\"total\":3,\"ok\":1,\"alerting\":1,\"failed\":1,\"timeout\":0,\"protocol_error\":0,\"alerts\":2}}}}",
+            tmp.path().display(),
+            tmp.path().display()
+        );
+        let script = write_script(
+            &proj,
+            "dw-env.sh",
+            &format!(
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.4.2'; exit 0; fi\ncat <<'DWEOF'\n{doc}\nDWEOF\n"
+            ),
+        );
+        let outcome = run_driftwatch(&proj, &script_config(&script));
+        let report = outcome.report().expect("envelope maps to a report");
+        // The observation names the resolved binary and the document's version.
+        assert_eq!(report.tool, "dw-env");
+        assert_eq!(report.tool_version, "0.4.2");
+        assert_eq!(report.contract, POLICY_CONTRACT_VERSION);
+        assert_eq!(report.findings.len(), 3, "{:?}", report.findings);
+        let alert = &report.findings[0];
+        assert_eq!(alert.id, "sec-scan/SEC-001");
+        assert_eq!(alert.category, "security", "declared category preserved");
+        assert_eq!(alert.severity, PolicySeverity::Warn);
+        // Host paths from the document are scrubbed to <project>.
+        assert!(
+            !alert.message.contains(&tmp.path().display().to_string()),
+            "leaked root: {}",
+            alert.message
+        );
+        assert!(alert.message.contains("<project>"), "{}", alert.message);
+        // A severity-less alert stays warn, never pass.
+        assert_eq!(report.findings[1].id, "sec-scan/X-1");
+        assert_eq!(report.findings[1].severity, PolicySeverity::Warn);
+        // The failed row becomes a fail finding carrying the runtime note.
+        let failed = &report.findings[2];
+        assert_eq!(failed.id, "gate-probe");
+        assert_eq!(failed.severity, PolicySeverity::Fail);
+        assert!(failed.message.contains("exited with status 3"));
+        // The clean row adds no findings; report source_revision is stamped.
+        assert_eq!(
+            report.findings.iter().filter(|f| f.id == "quiet").count(),
+            0
+        );
+        assert!(report.source_revision.is_some());
+    }
+
+    #[test]
+    fn checker_envelope_nonzero_exit_is_still_evidence() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("forge.yaml"), "schema: 1\n").unwrap();
+        let script = write_script(
+            &proj,
+            "dw-part.sh",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then exit 1; fi\ncat <<'DWEOF'\n{\"contract\":\"driftwatch-checker/0.1.0\",\"tool\":\"driftwatch\",\"version\":\"0.4.2\",\"checkers\":[{\"name\":\"boom\",\"status\":\"timeout\",\"alerts\":[],\"error\":\"checker exceeded timeout\"}],\"summary\":{\"total\":1,\"ok\":0,\"alerting\":0,\"failed\":0,\"timeout\":1,\"protocol_error\":0,\"alerts\":0}}\nDWEOF\nexit 2\n",
+        );
+        let outcome = run_driftwatch(&proj, &script_config(&script));
+        let report = outcome
+            .report()
+            .expect("parseable failing document reports");
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.findings[0].severity, PolicySeverity::Fail);
+        assert_eq!(
+            report.findings[0].message,
+            "checker 'boom' timeout: checker exceeded timeout"
+        );
+        assert_eq!(
+            report.tool_version, "0.4.2",
+            "document version wins over probe"
+        );
+    }
+
+    #[test]
+    fn blocked_gate_document_maps_findings_not_unavailable() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("forge.yaml"), "schema: 1\n").unwrap();
+        // gate-managed surface selection proves itself: the stub only
+        // answers the gate argv with a document.
+        fs::write(proj.join("gate.toml"), "[gate]\nrules = []\n").unwrap();
+        let script = write_script(
+            &proj,
+            "dw-gate.sh",
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'driftwatchdog 0.4.2'; exit 0; fi\ncat <<'DWEOF'\n{\"status\":\"FAIL\",\"blocked\":true,\"failures\":[\"product-quality\"],\"pending_reviews\":[\"ux-review\"],\"not_applicable\":[],\"manifest_digest\":\"abc\",\"rule_pack_version\":1,\"results\":[{\"gate_id\":\"build\",\"source\":\"ci\",\"status\":\"PASS\",\"severity\":\"info\",\"findings\":[],\"evidence\":[],\"missing_evidence\":[]},{\"gate_id\":\"product-quality\",\"source\":\"quality\",\"status\":\"FAIL\",\"severity\":\"error\",\"findings\":[],\"evidence\":[],\"missing_evidence\":[\"tests:run\"],\"diagnostic\":\"tests failing\",\"remediation\":\"run cargo test\"},{\"gate_id\":\"ux-review\",\"source\":\"ai\",\"status\":\"REVIEW_REQUIRED\",\"severity\":\"warning\",\"findings\":[],\"evidence\":[],\"missing_evidence\":[\"checker:run\"]},{\"gate_id\":\"deploy\",\"source\":\"gate\",\"status\":\"NOT_APPLICABLE\",\"severity\":\"info\",\"findings\":[],\"evidence\":[],\"missing_evidence\":[]}]}\nDWEOF\nexit 1\n",
+        );
+        let outcome = run_driftwatch(&proj, &script_config(&script));
+        let report = outcome.report().expect("blocked gate is evidence");
+        let by_id: std::collections::BTreeMap<&str, &PolicyFinding> =
+            report.findings.iter().map(|f| (f.id.as_str(), f)).collect();
+        assert_eq!(by_id["product-quality"].severity, PolicySeverity::Fail);
+        assert!(by_id["product-quality"].message.contains("tests failing"));
+        assert!(by_id["product-quality"]
+            .evidence
+            .iter()
+            .any(|e| e == "missing=tests:run"));
+        assert_eq!(by_id["ux-review"].severity, PolicySeverity::Warn);
+        assert!(!by_id.contains_key("build"), "PASS adds nothing");
+        assert!(!by_id["deploy"].applicable);
+        assert_eq!(by_id["deploy"].severity, PolicySeverity::Pass);
+    }
+
+    #[test]
+    fn unknown_document_contract_refuses_naming_version() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("forge.yaml"), "schema: 1\n").unwrap();
+        let script = write_script(
+            &proj,
+            "dw-future.sh",
+            "#!/bin/sh\ncat <<'DWEOF'\n{\"contract\":\"driftwatch-checker/2.0.0\",\"tool\":\"driftwatch\",\"version\":\"9.9\",\"checkers\":[],\"summary\":{}}\nDWEOF\n",
+        );
+        let outcome = run_driftwatch(&proj, &script_config(&script));
+        let reason = match outcome {
+            PolicyOutcome::Unavailable { reason } => reason,
+            other => panic!("unknown contract must refuse: {other:?}"),
+        };
+        assert!(reason.contains("driftwatch-checker/2.0.0"), "{reason}");
+        assert!(reason.contains("never a PASS"), "{reason}");
+        // Same-major additions parse (forward-compat rule).
+        let script = write_script(
+            &proj,
+            "dw-minor.sh",
+            "#!/bin/sh\ncat <<'DWEOF'\n{\"contract\":\"driftwatch-checker/0.2.0\",\"tool\":\"driftwatch\",\"version\":\"9.9\",\"checkers\":[],\"summary\":{},\"future_field\":true}\nDWEOF\n",
+        );
+        let outcome = run_driftwatch(&proj, &script_config(&script));
+        assert!(outcome.report().is_some(), "same-major must parse");
+    }
+
+    #[test]
+    fn unrecognized_json_documents_never_report() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("forge.yaml"), "schema: 1\n").unwrap();
+        let script = write_script(
+            &proj,
+            "dw-junk.sh",
+            "#!/bin/sh\necho '{\"surprise\":true}'\n",
+        );
+        let outcome = run_driftwatch(&proj, &script_config(&script));
+        assert!(!outcome.is_reported());
+        let reason = match outcome {
+            PolicyOutcome::Unavailable { reason } => reason,
+            _ => unreachable!(),
+        };
+        assert!(
+            reason.contains("not a recognized policy document"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn missing_override_does_not_fall_through_to_candidates() {
+        // Operator override runs exactly that binary: a dead override is
+        // reported unavailable, never silently replaced by PATH probing.
+        let tmp = TempDir::new().unwrap();
+        let config = DriftWatchConfig {
+            binary: Some(OsString::from(
+                "/definitely/not/a/real/driftwatch-override-xyz",
+            )),
+            timeout: Duration::from_secs(2),
+        };
+        let outcome = run_driftwatch(tmp.path(), &config);
+        let reason = match outcome {
+            PolicyOutcome::Unavailable { reason } => reason,
+            other => panic!("dead override must not report: {other:?}"),
+        };
+        assert!(reason.contains("not found"), "{reason}");
+    }
+
     #[test]
     fn redacts_aws_github_gitlab_jwt_and_kv_secrets() {
         let cases = [
@@ -891,7 +1738,7 @@ mod tests {
     fn missing_binary_reports_unavailable_with_reason() {
         let tmp = TempDir::new().unwrap();
         let config = DriftWatchConfig {
-            binary: OsString::from("definitely-not-a-real-binary-xyz"),
+            binary: Some(OsString::from("definitely-not-a-real-binary-xyz")),
             timeout: Duration::from_secs(2),
         };
         let outcome = run_driftwatch(tmp.path(), &config);
@@ -936,7 +1783,7 @@ mod tests {
         }
         fs::write(tmp.path().join("forge.yaml"), "schema: 1\n").unwrap();
         let config = DriftWatchConfig {
-            binary: OsString::from(script.as_os_str()),
+            binary: Some(OsString::from(script.as_os_str())),
             timeout: Duration::from_secs(2),
         };
         let outcome = run_driftwatch(tmp.path(), &config);
@@ -971,7 +1818,7 @@ mod tests {
         }
         fs::write(tmp.path().join("forge.yaml"), "schema: 1\n").unwrap();
         let config = DriftWatchConfig {
-            binary: OsString::from(script.as_os_str()),
+            binary: Some(OsString::from(script.as_os_str())),
             timeout: Duration::from_secs(2),
         };
         let outcome = run_driftwatch(tmp.path(), &config);
@@ -1002,7 +1849,7 @@ mod tests {
         }
         fs::write(tmp.path().join("forge.yaml"), "schema: 1\n").unwrap();
         let config = DriftWatchConfig {
-            binary: OsString::from(script.as_os_str()),
+            binary: Some(OsString::from(script.as_os_str())),
             timeout: Duration::from_secs(2),
         };
         let outcome = run_driftwatch(tmp.path(), &config);

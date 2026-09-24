@@ -9,7 +9,7 @@ a healthy result.
 
 | Id | Boundary | Live binary (default) | Override |
 | --- | --- | --- | --- |
-| `driftwatch-policy` | `check --project <dir> --format json` | `driftwatch` | `FORGE_DRIFTWATCH_BIN` |
+| `driftwatch-policy` | `check --dry-run --format json` (`gate --format json` for gate-managed projects — whose only side effect is a `gate_runs` row in the project's own `.driftwatch/` store), project as working directory; ordered binary probe `driftwatchdog` → `driftwatch` | `driftwatchdog` / `driftwatch` | `FORGE_DRIFTWATCH_BIN` |
 | `oidc-identity` | in-memory challenge/callback/claims/mint/validate/terminate | none (no external binary) | n/a |
 | `analytics` | `health --provider <p> --project <id> --project-ref <ref> --plane <plane>` | `forge-analytics-adapter` | `FORGE_ANALYTICS_BIN` |
 | `deploy` | `apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` under the `forge-deploy-executor/0.1.0` envelope contract ([contract](adapter-contracts/deploy-executor.md), [reference adapter](../adapters/jenkins/jenkins-adapter.md)) | `forge-deployer` | `FORGE_DEPLOYER_BIN` |
@@ -61,8 +61,18 @@ synthetic `__provider__` id and invent no registered project.
 No live sandbox is configured in the local environment, so every live
 claim below is `not-run` by design:
 
-- Real `driftwatch` binary: not installed; policy evidence uses
-  fixture scripts (`sandbox: fixture`).
+- Real `driftwatch` binary: the policy plane probes the cargo name
+  `driftwatchdog` first and then the npm launcher alias `driftwatch`.
+  Live status (this host, 2026-09-24): `forge provider run
+  driftwatch-policy <project> --live` round-tripped `supported`
+  (`sandbox: live`, `source: live:driftwatchdog`) through both the
+  `FORGE_DRIFTWATCH_BIN` override and the ordered PATH probe against a
+  release build of the sibling at commit `25811ed`
+  (`driftwatch-checker/0.1.0` document, `check --dry-run --format json`
+  persisting nothing); the stale `~/.cargo/bin/driftwatchdog` install
+  predates the envelope and is honestly classified `unavailable`. On
+  hosts without either name the row stays `unavailable`; tests use
+  fixture scripts and PATH-controlled stubs (`sandbox: fixture`).
 - Real OIDC issuer: no issuer URL, client or test subject; identity
   evidence uses the in-memory fixture lifecycle.
 - Real analytics sources (`unified-content`, `github-analytics`): no

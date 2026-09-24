@@ -1,0 +1,20 @@
+{
+  "blocked": false,
+  "failures": [],
+  "manifest_digest": "sha256:dc1fb6a3db59efd5",
+  "not_applicable": [],
+  "pending_reviews": [],
+  "results": [
+    {
+      "evidence": [],
+      "findings": [],
+      "gate_id": "docs",
+      "missing_evidence": [],
+      "severity": "info",
+      "source": "adapter:project-runtime",
+      "status": "PASS"
+    }
+  ],
+  "rule_pack_version": "local",
+  "status": "PASS"
+}

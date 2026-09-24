@@ -2,6 +2,71 @@
 
 ## Current state
 
+`jenkins-deploy-adapter-consumption` implemented, verified and
+archived on 2026-09-24 as
+`2026-09-24-jenkins-deploy-adapter-consumption`; its two
+requirements were promoted into
+[openspec/specs/adapter-deployment/spec.md](openspec/specs/adapter-deployment/spec.md).
+The implementation freezes the executor boundary Forge already
+calls as the versioned `forge-deploy-executor/0.1.0` JSON-envelope
+contract documented in
+`docs/adapter-contracts/deploy-executor.md` — fixed stdin payload
+and stdout envelope schemas, a namespaced wire discriminator
+distinct from Forge's own `0.1.0` report/state version (the bare
+pre-namespacing value is refused, naming both sides, so a stale
+executor can never masquerade as conformant), and classification
+rules where a parseable non-zero result records the named stage as
+failed with the runtime's own evidence while an unparseable,
+contract-violating, timed-out or unspawnable result stays
+`deploy-target-unavailable` with the prior DeployState
+byte-identical; a contradictory non-zero envelope claiming
+`delivered` is downgraded to `failed` because the exit status is
+authoritative. Observe now invokes the adapter through a dedicated
+read-only `observe --target --project --deploy-id` verb instead of
+reissuing the `apply` argv; every stage outcome carries an
+`executor=<source>@<revision>` attribution line (an
+unself-identified adapter attributes to its binary name with
+`unknown` revision, never a claimed version); a dry-run rehearsal
+never persists deploy state; and the previously documented
+`last_observed_running` field now preserves the last good
+observation across unknown re-observations (serde default keeps
+every pre-change state file loadable) while `current_state`
+honestly reports `unknown`. The bundled reference adapter
+`adapters/jenkins/forge-deployer-jenkins` (Python 3 stdlib,
+translation only, no deployment logic) maps the contract onto the
+real jenkins-local verbs — `project.sh <p> deploy --dry-run` for
+the side-effect-free preview, `project.sh <p> deploy` for the real
+trigger with the 0/2/3/4/5/6 exit-code-to-recovery guidance
+recorded in `adapters/jenkins/jenkins-adapter.md`, and
+`project-action.sh <p> status` filtered through an explicit
+CONTAINERS-column health vocabulary (running→`running`,
+stopped→`failed` down, `partial`/`not-created`/absent
+row/failing command→`unknown` — no optimistic healthy default) —
+scrubs credential shapes and absolute host paths to
+`[REDACTED]`/`<host-path>` before the engine's own
+`policy::redact_credentials` pass, is configured only through
+`FORGE_JENKINS_LOCAL_DIR` (plus optional status-command and
+revision overrides), and treats an incomplete checkout as
+unavailable rather than acting on part of it. The provider matrix
+`deploy` row requires the executor contract (a missing or unknown
+discriminator is `unavailable` naming the mismatch), attributes
+the adapter and its revision, and still probes `--dry-run` only;
+deploy stays out of the MCP mature tool registry; the API mutation
+route is unchanged; production promotion onto a live Jenkins host
+is an explicitly deferred, jenkins-local-owned adoption checklist.
+
+## Verification evidence (jenkins-deploy-adapter-consumption, 2026-09-24)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 525 lib tests plus all non-skipped contract and cross-surface suites passed (53 result groups, 1032 tests total, 0 failures).
+- New supervised suites: 9 `src/deploy` engine unit tests (namespaced-envelope acceptance and `0.1.0`/non-JSON refusal naming both contract sides, attribution fallback to binary-name@unknown, non-zero-with-envelope recorded as a failed stage with the prior state file byte-identical, contradictory delivered-claim downgrade, non-zero-without-envelope staying `unavailable`, observe issuing the read-only verb with `--deploy-id` and never an artifact, unmapped observation status preserving `last_observed_running` while `current_state` reports `unknown`, legacy state files without the new field loading unchanged, bounded wait timing out on a hanged child); 3 new `tests/deploy_contract.rs` CLI tests (pre-namespacing contract refused with empty stdout and a typed unavailable naming the mismatch and persisting nothing, non-zero failed envelope rendered as a failed stage with surviving runtime evidence plus attribution and `deploy-health-failed`, dry-run rehearsal never writing a state record); 10 `tests/deploy_adapter_contract.rs` tests (adapter version grammar, dry-run rehearsal delivering without side effect or state, real trigger delivering and observing through the read-only verb with trace-order proof that observe never applies, running/stopped/partial health mappings with last-good preservation via `deploy inspect`, blocked exit-3 surfacing the runtime's own guidance as evidence plus named recovery, secret and host-path scrubbing through stdout and the persisted record, missing executor configuration typed `unavailable` inventing no state, incomplete jenkins tree leaving the prior record byte-identical, provider `deploy` row reaching `supported` with `adapter_source=forge-deployer-jenkins/0.1.0@<rev>` on a dry-run that leaves zero side effects, and the same row `unavailable` naming the missing configuration when the executor is unconfigured).
+- Real sibling round trip (task 4.4, live evidence): the real `/home/paul/code/jenkins-local` checkout (HEAD `2e82292`) consumed the surface end to end — `forge provider run deploy --fixture adapters/jenkins/forge-deployer-jenkins` reported `supported` (`sandbox: fixture`) with evidence `adapter_status=delivered` and `adapter_source=forge-deployer-jenkins/0.1.0@2e82292` plus a `--version` tool-probe line, and `forge deploy apply --dry-run --confirm` delegated the real `project.sh <id> deploy --dry-run` verb, recorded the script's own "Would sync, configure shared PostgreSQL when needed, register the Jenkins job, and trigger it." preview as attributed evidence, and wrote no persisted state (a following observe refused `deploy-target-stale`, proving rehearsals leave no shadow record); the real project.sh returns before the Mac handoff on `--dry-run`, so the run contacted no host, triggered no Jenkins build and left the jenkins-local tree byte-identical (`git status` unchanged apart from its pre-existing untracked paths). Live production Jenkins evidence remains deferred to the jenkins-local adoption checklist in `adapters/jenkins/jenkins-adapter.md`.
+- Adapter lint: `python3 -m py_compile adapters/jenkins/forge-deployer-jenkins` and `ruff check adapters/jenkins/forge-deployer-jenkins`: PASS (chosen commands; the adapter is Python 3 stdlib, and `shellcheck` is not installed on this host).
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 35 passed, 0 failed; `git diff --check`: PASS.
+- The native scaffold test was excluded from the aggregate command because it is an existing long-running native-toolchain integration test. Run that native test when its environment is available.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 `supervised-agent-adapters` implemented, verified and
 archived on 2026-09-24 as
 `2026-09-24-supervised-agent-adapters`; its three requirements were
@@ -3667,4 +3732,4 @@ checker requires it). No active changes remain.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
 
-current_spec: jenkins-deploy-adapter-consumption
+current_spec: workspace-metadata-emission

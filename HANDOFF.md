@@ -2,6 +2,65 @@
 
 ## Current state
 
+`workspace-governance-adapter-consumption` implemented, verified and
+archived on 2026-09-24 as
+`2026-09-24-workspace-governance-adapter-consumption`; its two
+requirements (known-provider preset resolution, provider input
+isolation) were promoted into
+[openspec/specs/governance-provider-contract/spec.md](openspec/specs/governance-provider-contract/spec.md).
+The governance plane now consumes the real sibling end to end:
+`forge governance use workspace-governance . [--workspace-root R]`
+resolves the packaged candidate
+`R/workspace-governance/scripts/forge_governance_adapter.py` from the
+argument or `FORGE_WORKSPACE_ROOT` only — never a parent-directory
+search and never the network (live verification disproved the design's
+flat `R/scripts/...` layout: the checkout nests one level inside the
+portfolio it governs, so the root names the same value the adapter's
+own `WORKSPACE_ROOT` input takes) — verifies the candidate is an
+existing executable regular file, refuses otherwise with the typed
+`governance-invalid` naming the exact candidate path while the
+previously selected provider stays in force, and stores the resolved
+absolute adapter path plus the workspace root in
+`.forge/providers.yaml`; every adapter run re-supplies the stored root
+as `WORKSPACE_ROOT` exactly as the sibling documents its own
+invocation, so later checks never depend on the environment staying
+set. An explicit `--adapter` always wins and is stored verbatim;
+`--workspace-root` without a preset is refused rather than silently
+dropped; `serde(default)` keeps every pre-change selection file and
+every pre-change providers.yaml byte-loadable, the contract v0.1.0
+boundary is unchanged, and the local default, MCP/API/portal read
+surfaces and doctor verdicts consume normalized observations exactly
+as before. The sibling ships the adapter as git mode `100644` while its
+other scripts are `100755`, so the direct-exec boundary honestly
+refuses the real root's candidate (live verbatim in
+`docs/provider-evidence.md`): **next action (sibling-owned)** — commit
+`git update-index --chmod=+x scripts/forge_governance_adapter.py` in
+Workspace Governance; until then the real-root live row stays honestly
+`not-run`, and the documented explicit-adapter remedy carries any
+non-executable checkout. Four audit-shaped fixture stubs capture the
+sibling adapter's real observation documents verbatim (`pass`/`fail`
+`DECLARATION_MISSING`-first/`blocked` adoption-gap/`unknown`
+`PROJECT_UNKNOWN`, sibling HEAD `204d140`) with the divergences from
+the design's guessed codes recorded in
+`tests/fixtures/governance-audit/NOTES.md`; a removed configured
+checkout surfaces bounded `unavailable` detail that never reads as
+healthy through the checker plane (warning), the portal settings
+section (`unavailable`/`fail` rollup) or any Forge exit-code contract,
+and a failing live adapter keeps mapping `fail` to `error` severity
+everywhere.
+
+## Verification evidence (workspace-governance-adapter-consumption, 2026-09-24)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 58 result groups, 1125 tests, 0 failures.
+- Native toolchain test (excluded from the aggregate as the known long-running scaffold build): `cargo test --lib -- --exact generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain` — PASS (891s, real cargo build+test of the generated tree, unaffected by this change's surfaces).
+- New/extended suites: 9 `src/governance` unit tests (no position taken for preset-less providers, refusal naming both explicit inputs when no root is supplied, blank env treated as absent, missing/directory/non-executable candidates each refusing while naming the exact candidate path, executable candidate resolving to a canonical absolute path, flag-beats-env with no fall-through to the env root, env-root resolution); 12 extended `tests/governance_contract.rs` tests (preset persistence of resolved path plus workspace root, workspace-root round-trip through reload, the four audit-shaped fixtures mapping to `pass`/`fail`/`blocked`/`unknown` with real evidence codes, revision passthrough and omission-when-unknown, credential redaction and char bounds on evidence and detail, WORKSPACE_ROOT re-supply only when a root is stored, no-root adapters see no injected WORKSPACE_ROOT, local rejecting a workspace root, relative-root refusal at persistence, legacy rootless selections loading, broken preset never disturbing the stored selection, removal-after-selection yielding bounded `unavailable`; the three pre-existing 1000ms stub timeouts raised to 5000ms against added parallel load); 13 `tests/governance_preset_contract.rs` CLI tests (help surface advertising `--workspace-root`, `--workspace-root` without a preset or adapter refuses `has no packaged adapter` and stores nothing, explicit `--adapter` alongside a workspace root stores and re-supplies it, selection storing the resolved path and `status` consuming the v0.1.0 boundary with the fixture's real revision, env-root resolution surviving env removal, argument-beats-env, explicit `--adapter` beating a resolvable preset, unresolved-root refusal naming both inputs with empty stdout and nothing stored, non-executable refusal naming the exact candidate while the previous provider stays in force and `list`/`status` remain local, directory-candidate refusal, a valid candidate above the project never discovered implicitly, removed checkout yielding `unavailable` while `list`/`use local` continue, and the registry database staying byte-identical across the full preset cycle); 3 extended `tests/governance_cross_surface.rs` tests (broken preset never rendering healthy through `forge check` or the portal settings section and a failing adapter mapping to `error` severity/`fail` status, unconfigured governance requesting no workspace root, MCP `run_governance` parity consuming the preset-selected observation).
+- Real sibling round trips (live evidence at workspace-governance `204d140`, release build): against the real portfolio root the preset refuses verbatim `candidate /home/paul/code/workspace-governance/scripts/forge_governance_adapter.py is not an executable file` (exit 1, empty stdout) because the sibling committed mode `100644`; the full matrix then ran live through a scratch portfolio holding a byte-identical copy of the sibling code with the execute bit on the copy only (real tree stayed git-clean and `664` throughout): `forge governance use workspace-governance <project> --workspace-root <scratch-portfolio>` stored the resolved candidate and root, and `forge governance status` served the real audit — `forge`→`pass` (revision `888d8058…`, `adoption=adopted`), `crossalheart`→`fail` (`DECLARATION_MISSING` first in evidence, revision `916f7942…`), adoption-gap `argoset`→`blocked` (revision `1c4177c5…`), an invented id→`unknown` (`PROJECT_UNKNOWN`, exit 0, no revision), and a later-removed candidate→`unavailable` naming the spawn failure while local commands continued; explicit-adapter remedy runs against the real registry with the real portfolio root (`WORKSPACE_ROOT=/home/paul/code`) reproduced the same live observations, and the sibling adapter's malformed-request exit 2 stayed classified `unavailable`, never a governance status.
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 33 passed, 0 failed pre-archive and 32 passed, 0 failed post-archive with the promoted `governance-provider-contract` spec (+2 requirements); `git diff --check`: PASS.
+- Next pointer: `gate-runtime-evidence` (order 37) — the only remaining active change; its own proposal records that the Driftwatchdog gate JSON exists today (`checker-machine-output` is not a prerequisite), and the driftwatch adapter change already exercised that surface.
+- No shared Gate Runtime is configured in Forge yet; no Gate pass is claimed; the `gate-runtime-evidence` change is the proposal to wire one.
+
 `driftwatch-cli-alignment` implemented, verified and
 archived on 2026-09-24 as
 `2026-09-24-driftwatch-cli-alignment`; its two
@@ -3880,4 +3939,4 @@ checker requires it). No active changes remain.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
 
-current_spec: workspace-governance-adapter-consumption
+current_spec: gate-runtime-evidence

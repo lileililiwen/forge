@@ -2,6 +2,66 @@
 
 ## Current state
 
+`supervised-agent-adapters` implemented, verified and
+archived on 2026-09-24 as
+`2026-09-24-supervised-agent-adapters`; its three requirements were
+promoted into
+[openspec/specs/agent-runtime-workflows/spec.md](openspec/specs/agent-runtime-workflows/spec.md).
+The implementation adds the supervised `ariadex` session provider and
+the `sisyphusfy` run-spec supervisor to `src/agent`: ordered binary
+resolution (`FORGE_ARIADEX_BIN`/`FORGE_SISYPHUSFY_BIN` env override
+first — trusted only when the pin names an existing file, then the
+PATH name — with the attempt list reported on absence) and bounded
+argument-array invocation with null stdin so an interactive sibling
+can never hijack the operator terminal (15s lifecycle probes, 900s
+supervised loop). Every `start`/`pause`/`resume`/`takeover`/`restart`/
+`new-session` transition on an ariadex session runs the sibling's real
+verb in the project directory and the claimed state is taken only from
+a bounded `ariadex status --json` probe afterwards — a live daemon
+reporting AUTO/PAUSE maps to `active`/`paused`, while MANUAL, a stale
+or absent daemon, an unreadable document, or a refused verb maps to
+`disconnected` with the runtime's own bounded, redacted report as
+evidence, never a synthesized `active`; a `--version` probe mismatch
+(documented grammar `ariadex <major.minor…>`) refuses delegation as
+`unsupported` naming the observed surface; `takeover` records the
+`ariadex attach` operator path as guidance and never invokes the
+sibling's exec-ing terminal verb; `restart`/`new-session` run
+stop-then-start through the sibling's verbs. Sessions persist the
+optional `backing {runtime, handle, adapter_version}` pointer (serde
+default keeps every pre-change session file loadable) and `forge agent
+status` renders a read-only live probe block whose unknown stored
+handle surfaces `disconnected` without mutating the record. `forge
+agent run-spec [TARGET] --provider sisyphusfy` hands the bound spec's
+`.forge/specs/<id>/tasks.md` to the real low-level loop verb (`loop
+--task-path <file> --json --adapter <provider>`, so the supervisor
+itself owns the agent CLI grammar and refuses adapters it does not
+know) and journals `done` only on a clean exit with `complete` plus a
+`success` verification, `partial` with the sibling's named
+stop_reason/blocked_reason for incomplete loops, and `unverified` —
+never done — for `verification_failed`, `dry_run`, verification-less
+completion, exit/document disagreement, bounded-wait overrun or an
+unparsable document. Bundled `opencode`/`codex` adapters keep their
+recorded-state behavior (pause/takeover stay PTY-honest `unsupported`
+and spawn nothing); `sisyphusfy` is a supervisor id and never a
+session provider; the MCP `run_agent` dispatch accepts the same
+provider vocabulary, hoists the run-spec verdict into the shared
+envelope and journals the real verdict, and the API agents route
+accepts `ariadex` for peer parity; the portal and checker stay
+read-only surfaces that never spawn either runtime; and every captured
+runtime-output fragment passes `policy::redact_credentials` plus the
+300-char evidence bound before it reaches the session file, the
+transports or the journal.
+
+## Verification evidence (supervised-agent-adapters, 2026-09-24)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 516 lib tests plus all non-skipped contract and cross-surface suites passed (50 integration binaries, 1010 tests total, 0 failures).
+- New supervised suites: 10 `src/agent` unit tests (legacy session file without `backing` deserializes unchanged, backing round-trip, supervised provider vocabulary, ordered resolution env-then-PATH with attempt lists plus dead-pin fallthrough, first-JSON-document extraction across trailing `blocker` lines and duplicate-owner double documents, version-probe grammar, status mapping that never claims `active` without a live daemon across AUTO/PAUSE/MANUAL/stale/local/junk, sisyphusfy verdict classification incl. complete-with-skipped-verification → `unverified` and exit/document disagreement → `unverified`, evidence redaction and char bound); 29 `tests/supervised_agent_contract.rs` tests (help surfaces, bundled pause stays PTY-`unsupported` and spawns nothing, legacy session renders, delegated start records backing runtime/handle/version and journals them, uninitialized runtime → `disconnected` never `active`, runtime absent lists resolution attempts with empty stdout while the bundled vocabulary stays runtime-free, real pause/resume primitives with transition-history preservation, refused resume from MANUAL records the runtime's truth, takeover is attach guidance that never invokes the exec-ing verb, restart stop-then-start ordering, stale daemon → `disconnected`, a lost stored handle surfaces `disconnected` in the live block with the session file byte-identical, no-daemon live probe, malformed status document → `disconnected`, version-probe mismatch delegates nothing, credential-shaped runtime stderr redacted in transport and persisted record, supervisor `done`/`partial`/`unverified` verdicts over the real `loop --task-path ... --json` log-line contract, absent supervisor preserves the session byte-identically, ariadex session without a supervisor names the scheduler and supervisor paths, unknown supervisor refused before anything runs, sisyphusfy refused as a session provider, new-session supersession through stop-then-start, env-override precedence over PATH, and no-daemon `provider not started` honesty); 8 `tests/supervised_agent_cross_surface.rs` tests (MCP `run_agent` start delegates with the identical backing record and CLI live block, MCP run-spec with the supervisor journals the verdict, sisyphusfy refused as an MCP session provider, `tools/list` advertises no new surface, the portal counts the supervised session and spawns nothing, the doctor verdict is byte-identical across a start+pause round trip, `agent list` serializes the supervised provider, and the checker never sees sessions nor spawns either runtime).
+- Live round trips (task 4.3, both providers on real installed binaries): real `ariadex` — `forge agent start --provider ariadex` against the real runtime delegated the documented verb, the real bounded `ariadex status` probe recorded the runtime's own 12-hex handle and the probed `adapter_version` (`ariadex 0.1.0+g<sha>-dirty`) with `ariadex-daemon: alive` → `active`; a real `ariadex pause` then surfaced `live: paused mode=PAUSE daemon=alive` through `forge agent status`; a real `forge agent resume` returned `active`; `ariadex stop` reconciled the daemon down and no tmux server or runtime process survived the evidence run. Real `sisyphusfy` — `forge agent run-spec --provider sisyphusfy` consumed the bound spec's tasks file through the real `loop --task-path ... --json --adapter opencode` verb under a PATH with no agent CLI installed: the real outcome document (`stop_reason: command_not_found` with the full run record) parsed to a `partial` verdict with the supervisor's named reason and the spec binding intact, without invoking any model. Live probes corrected the proposal's input-shape assumption: `run <positional>` only discovers `openspec/changes/<name>/tasks.md` or root-level task files and refuses a `.forge/specs` path with a real `{"error": "change not found"}` envelope (which the adapter classified honestly as `unverified`, session untouched), so the adapter uses the documented low-level `loop --task-path` verb — every shape recorded in `tests/fixtures/supervised/NOTES.md`.
+- The native scaffold test was excluded from the aggregate command because it is an existing long-running native-toolchain integration test. Run that native test when its environment is available.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 `fleet-registry-observation` implemented, verified and
 archived on 2026-09-23 as
 `2026-09-23-fleet-registry-observation`; canonical spec promoted to
@@ -3607,4 +3667,4 @@ checker requires it). No active changes remain.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
 
-current_spec: supervised-agent-adapters
+current_spec: jenkins-deploy-adapter-consumption

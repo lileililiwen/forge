@@ -2,6 +2,74 @@
 
 ## Current state
 
+`gate-runtime-evidence` implemented, verified and archived on 2026-09-24 as
+`2026-09-24-gate-runtime-evidence`; its three requirements (declared gate
+runtime execution, revision-bound evidence lifecycle, honest surface
+projection) were promoted into
+[openspec/specs/gate-runtime-evidence/spec.md](openspec/specs/gate-runtime-evidence/spec.md).
+Forge now executes the gate runtime a project declares instead of
+asserting one: `forge gate [TARGET]` resolves the binary through
+`FORGE_GATE_BIN` (runs exactly as named, never replaced by probing) →
+`.project.json` `verification.gate_runtime` (only `driftwatchdog` has a
+resolution path; an unknown declared name is refused by name) → the
+ordered `driftwatchdog` → `driftwatch` PATH probe shared with the policy
+plane, every refusal naming its attempts; invocation is a bounded
+argument array (null stdin, 256 KiB stdout bound, default 600s with
+`--timeout-secs` 1..=86400), and a parseable gate status document is
+evidence whatever the exit code — the sibling exits non-zero exactly
+when blocked — while a `PASS` document riding a failure exit downgrades
+to `unknown` instead of fabricating a pass. Live captures at sibling
+`25811ed` disproved the design's assumption that `gate --dry-run` has a
+JSON composition (it prints the human plan and exits before the JSON
+writer, reconfirming the prior cycle's NOTES): the rehearsal reports
+that plan preview and never persists or journals (the deploy-rehearsal
+precedent), while the evidence surface is the real `gate --format json`
+whose only side effect is one `gate_runs` row in the project's own
+`.driftwatch/` store; the real documents carry a third top-level status
+(`REVIEW_REQUIRED`) classified through `blocked`/`unknown` — never
+`passed` — per-check `REVIEW_REQUIRED` maps to `unresolved`, and unknown
+future strings never count as pass. Evidence persists atomically at
+`.forge/gate/<project-id>/evidence.json` bound to the git HEAD captured
+at invocation (an unbound revision can never read as fresh);
+`forge gate status [TARGET]` annotates `fresh|stale|absent` with exit 0
+only for fresh-passing; every attempted real run appends a `gate`
+journal row (`done|blocked|failed`) and reads journal nothing; the
+doctor `gate-evidence` finding passes fresh passing evidence, warns
+stale, fails blocked and reports `unverified` for a declared or
+gate-managed project that never ran — never PASS by silence — while
+projects without any declaration or manifest keep the finding
+not-applicable so the checker plane stays byte-identical; release
+`checks` accept a `gate` kind that can never cite stale evidence; and
+the provider matrix gained a `gate-runtime` row (six providers now)
+under the existing opt-in rules, exercising only the side-effect-free
+plan surface and never claiming a gate pass. Every captured string
+passes `policy::redact_credentials`, host paths of the assessed project
+become `<project>`, and char bounds are marked; MCP, the API and the
+portal gained no gate surface (the mature registry advertises no gate
+tool; `forge portal view gate` refuses `portal-invalid`). No executed
+gate pass is claimed for this repository: `forge gate .` rehearses this
+repo's real `.ai-gate/gate.yaml` (build/repository/security/tests
+required) and the real run honestly reports
+`gate-runtime-unavailable` at the sibling's own store boundary — **next
+action (sibling-owned)**: initialize this checkout's `.driftwatch`
+store (`driftwatch init`) before any real gate pass is claimed here;
+until then the real-run row stays honestly unavailable. The previous
+cycle's execute-bit action on the Workspace Governance adapter stays
+open with that sibling.
+
+## Verification evidence (gate-runtime-evidence, 2026-09-24)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 61 result groups, 1180 tests, 0 failures.
+- Native toolchain test (excluded from the aggregate as the known long-running scaffold build): `cargo test --lib -- --exact generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain` — PASS (546s, real cargo build+test of the generated tree, unaffected by this change's surfaces).
+- New suites (55 tests): 23 `src/gate` unit tests (override-exactness with no fall-through, declared-unknown refusal naming the value, unreadable declaration still probes with honest attempts, the four verbatim fixtures classified to their real aggregates, PASS-on-nonzero-exit contradiction to `unknown`, non-blocking `REVIEW_REQUIRED` to `unknown`, `NOT_APPLICABLE`/future row states never pass, real-run mapping with runtime/version attribution, dry-run plan preview, unparseable real run unavailable quoting the runtime's own words, hang cut off by the bounded wait, credential+host-path scrubbing with char bounds, atomic round trip with rehearsal-persistence refusal, corrupt evidence names the file and never invents absence, freshness requires the exact revision binding, journal verdict mapping, timeout bounds); 16 `tests/gate_contract.rs` CLI tests (help surface; passing run persists revision-bound evidence, journals `done`, exits 0, human/JSON carry identical aggregate/revision/runtime/timestamp; blocked run exits 1 with evidence and journal `blocked` and no unavailable label; review-required fixture blocks; missing runtime lists attempts with empty stdout, byte-identical prior evidence and a `failed` row beside the kept `done`; unknown declared runtime refused by name; dry-run previews the plan, persists and journals nothing; unparseable real-run text unavailable never-a-pass; contradictory PASS document downgrades and journals `failed`; absent→fresh→stale status lifecycle with identical record bytes and zero read-journaling; timeout bounds refuse pre-spawn and a hang times out; credential-shaped diagnostics redacted through stdout, evidence file and journal; registry identity names journal and evidence path; argument conflicts refuse before work; unknown target refuses before any invocation; env override beats the declaration and runs exactly the named binary); 8 `tests/gate_cross_surface.rs` tests (doctor never invents health from absence — not-applicable versus declared-unverified — blocked fails with healthy false and stale passing warns; run/status/doctor byte parity of observed_at/revision/runtime/aggregate; checker projects blocked as an error alert and declared-never-run as a warning while plain projects gain no alert; gate rows journal alone, foreign rows byte-preserved, reads journal nothing; MCP tools/list advertises no gate tool after runs exist and no gate API route resolves; portal renders and refuses `view gate`; the release `gate` check captures unavailable never-run, passes fresh evidence at the captured revision and flips `stale`/not-ready after the revision moves); 8 `tests/gate_provider_contract.rs` tests (six-provider stable order with gate-runtime not-run; live-without-opt-in stays not-run; inspect names `FORGE_GATE_BIN`, the ordered default and the plan-only boundary that never claims a gate pass; fixture plan response supported; parseable status document attributed by its own aggregate; refusal unavailable; env-override exclusivity; PATH alias resolution). Extended: 3 provider roster expectations five→six (`src/provider` unit + `provider_contract` matrix + human roster).
+- Real sibling round trips (release build against the installed `driftwatch 0.1.0`): this repository — `forge gate . --dry-run` exit 0 serving the real plan through the repo's own `.ai-gate/gate.yaml` (build/repository/security/tests required; `persisted: false`, `journaled: false`), and the real `forge gate .` honestly exiting 1 `gate-runtime-unavailable` quoting the runtime's own store hint (`.driftwatch/state.db` absent in this checkout), empty stdout, no repository writes; scratch project — passing run exit 0 persisted `.forge/gate/liveapp/evidence.json` bound to the real HEAD, journaled `done`, `gate status` served the identical record fresh with exit 0; failing the check produced a blocked run exit 1 with the per-check fail row and journal `blocked`, doctor moved pass→fail, `forge check` emitted the `doctor/gate-evidence` error alert with the attributed summary, a later commit rendered the same record stale with exit 1, and the dry-run previewed while journaling nothing. The stale `~/.cargo/bin/driftwatchdog` limitation from the prior cycle is checker-surface-specific: the gate surface answers on that installed binary.
+- Fixture set `tests/fixtures/gate/`: four verbatim sibling documents (pass, blocked, not-applicable, review-required) plus the human dry-run plan, all captured at `25811ed`; the design-vs-reality divergences (third top-level status, envelope-to-row mapping, absent contract field with shape discrimination, plan-only dry-run) are recorded in `NOTES.md`.
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 32 passed, 0 failed pre-archive and 32 passed, 0 failed post-archive with the promoted `gate-runtime-evidence` spec (+3 requirements); `git diff --check` and staged review: PASS.
+- Pointer state: `gate-runtime-evidence` was the last active change (`openspec list`: none remain); the `current_spec` line is removed.
+- No executed gate pass is claimed for this repository; the completion Gate boundary stays unconfigured (`forge gate` exists and `driftwatch init` is the sibling-owned prerequisite for this checkout).
+
 `workspace-governance-adapter-consumption` implemented, verified and
 archived on 2026-09-24 as
 `2026-09-24-workspace-governance-adapter-consumption`; its two
@@ -3938,5 +4006,3 @@ checker requires it). No active changes remain.
 8. Advance `current_spec` to the next active eligible change, or remove the line when no active changes remain; update this evidence, commit HANDOFF separately and stop without push.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
-
-current_spec: gate-runtime-evidence

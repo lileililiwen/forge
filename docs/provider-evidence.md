@@ -56,6 +56,38 @@ are removed afterwards; targeted runs attribute the real project id in
 the journal. The matrix and untargeted runs journal under the
 synthetic `__provider__` id and invent no registered project.
 
+## Workspace Governance adapter consumption
+
+`governance use workspace-governance` carries a packaged adapter preset
+(`workspace-governance-adapter-consumption`): the candidate
+`<workspace-root>/workspace-governance/scripts/forge_governance_adapter.py`
+resolved from `--workspace-root`/`FORGE_WORKSPACE_ROOT` only, verified as an
+existing executable regular file, with the resolved adapter path and the
+workspace root stored under `.forge/providers.yaml` and re-supplied to the
+adapter as `WORKSPACE_ROOT` on every run. This is the governance plane's own
+surface, not a `forge provider matrix` row.
+
+Live status (this host, 2026-09-24, sibling `workspace-governance` at
+`204d140`): the real candidate exists at the real portfolio root but the
+sibling committed the adapter as git mode `100644` while its other scripts
+are `100755`, so the direct-exec v0.1.0 boundary honestly refuses it —
+recorded verbatim in `tests/fixtures/governance-audit/NOTES.md`. **Exact next
+action:** the sibling sets the execute bit on
+`scripts/forge_governance_adapter.py` (e.g. `git update-index
+--chmod=+x scripts/forge_governance_adapter.py`) to match its own README
+invocation; until then the live row stays honestly not-run for the preset
+path, and the documented explicit-adapter remedy (`--adapter <path>
+--workspace-root <root>`) carries any non-executable checkout.
+
+The consumption loop itself was proven live end to end: a scratch portfolio
+holding a byte-identical copy of the sibling adapter (execute bit on the
+copy only; the real tree untouched) ran the full audit-shaped matrix —
+`pass`/`fail`/`blocked`/`unknown` for `forge`, `crossalheart`, an adoption-gap
+copy of `argoset` and an unregistered id — through `governance use` +
+`governance status`, and a later removed checkout surfaced `unavailable` while
+local commands continued unchanged. Fixture stubs mirror every captured
+document; tests use `sandbox: fixture` paths only.
+
 ## Providers not run (this host, 2026-09-21)
 
 No live sandbox is configured in the local environment, so every live
@@ -84,8 +116,3 @@ claim below is `not-run` by design:
   jenkins-local adoption step (see its checklist).
 - Real release registries (package, container, notes): no publisher
   binaries; evidence uses fixture scripts with `--dry-run`.
-
-To attempt live evidence, install the sandbox binaries, export
-`FORGE_PROVIDER_LIVE=1` (plus the per-adapter `FORGE_*_BIN` paths and
-any sandbox credentials through the runner's secret mechanism, never
-the repository), and run `forge provider run <id> <project> --live`.

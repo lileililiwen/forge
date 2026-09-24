@@ -48,9 +48,21 @@ repository, network service, account, or external binary is required.
 forge governance list .
 forge governance status .
 forge governance use local .
+forge governance use workspace-governance . --workspace-root /path/to/workspace
 forge governance use workspace-governance . --adapter /path/to/adapter
 forge --format json governance status .
 ```
+
+`workspace-governance` is a known provider with a packaged adapter preset:
+`--workspace-root` (or `FORGE_WORKSPACE_ROOT`) names the workspace/portfolio
+root whose `workspace-governance/scripts/forge_governance_adapter.py` is the
+packaged adapter. Selection verifies the candidate is an existing executable
+regular file, refuses otherwise while naming the exact candidate path, and
+never searches parent directories or the network. The resolved adapter path
+and the workspace root are stored under `.forge/providers.yaml`, so later
+checks do not depend on the environment; the root is re-supplied to the
+adapter as `WORKSPACE_ROOT` exactly as the sibling documents its own
+invocation. An explicit `--adapter` always wins over the preset.
 
 External providers use the versioned `0.1.0` JSON adapter contract and are
 optional. Provider failures are reported as `unavailable` or `incompatible`

@@ -51,8 +51,9 @@ use forge::generate::{generate, normalize_explicit, parse_interactive, verify_na
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
 use forge::governance::{
     check_project as check_governance_project, inspect as inspect_governance_project,
-    list_providers as list_governance_providers, save_provider_selection, GovernanceObservation,
-    ProviderStatus, GOVERNANCE_CONTRACT_VERSION, LOCAL_PROVIDER_ID,
+    list_providers as list_governance_providers, resolve_known_adapter,
+    save_provider_selection_with_root, GovernanceObservation, ProviderStatus,
+    GOVERNANCE_CONTRACT_VERSION, LOCAL_PROVIDER_ID, WORKSPACE_ROOT_ENV,
 };
 use forge::identity::{
     build_challenge, delete_challenge_file as delete_identity_challenge,
@@ -1037,6 +1038,10 @@ enum GovernanceCommands {
         /// Adapter executable for an external provider.
         #[arg(long)]
         adapter: Option<String>,
+        /// Workspace root holding a known provider's packaged adapter
+        /// (default: $FORGE_WORKSPACE_ROOT). Never searched implicitly.
+        #[arg(long, value_name = "PATH")]
+        workspace_root: Option<PathBuf>,
         /// Disable the selected external provider without removing its config.
         #[arg(long)]
         disable: bool,
@@ -4856,21 +4861,98 @@ fn cmd_governance(command: &GovernanceCommands, format: Format) -> Result<Output
             provider,
             path,
             adapter,
+            workspace_root,
             disable,
             timeout_ms,
         } => {
-            let adapter = if provider == LOCAL_PROVIDER_ID {
-                None
+            // An explicit operator path always wins; a preset never
+            // overrides the operator's choice. A `--workspace-root`
+            // supplied alongside it is still stored so the adapter keeps
+            // receiving the same WORKSPACE_ROOT context on later checks.
+            let env_root = std::env::var(WORKSPACE_ROOT_ENV).ok();
+            let (adapter, used_root, preset_resolved) = if provider == LOCAL_PROVIDER_ID {
+                (None, None, false)
+            } else if let Some(adapter) = adapter.as_deref() {
+                (
+                    Some(adapter.to_string()),
+                    workspace_root.as_deref().map(Path::to_path_buf),
+                    false,
+                )
             } else {
-                adapter.as_deref()
+                match resolve_known_adapter(
+                    provider,
+                    workspace_root.as_deref(),
+                    env_root.as_deref(),
+                )
+                .transpose()?
+                {
+                    Some(resolved) => {
+                        let adapter = resolved.to_str().map(str::to_string).ok_or_else(|| {
+                            ForgeError::GovernanceInvalid {
+                                reason: format!(
+                                    "resolved adapter path {} is not valid UTF-8 and cannot be stored",
+                                    resolved.display()
+                                ),
+                            }
+                        })?;
+                        let root = match workspace_root.as_deref() {
+                            Some(root) => root.to_path_buf(),
+                            None => PathBuf::from(env_root.as_deref().unwrap_or("").trim()),
+                        };
+                        (Some(adapter), Some(root), true)
+                    }
+                    None => {
+                        if workspace_root.is_some() {
+                            return Err(ForgeError::GovernanceInvalid {
+                                reason: format!(
+                                    "provider `{provider}` has no packaged adapter: pass --adapter explicitly",
+                                ),
+                            });
+                        }
+                        (None, None, false)
+                    }
+                }
             };
-            save_provider_selection(path, provider, adapter, !disable, *timeout_ms)?;
+            let stored_root = used_root
+                .as_deref()
+                .map(|root| {
+                    let canonical =
+                        root.canonicalize()
+                            .map_err(|err| ForgeError::GovernanceInvalid {
+                                reason: format!(
+                                "workspace root {} cannot be resolved to an absolute path ({err})",
+                                root.display()
+                            ),
+                            })?;
+                    canonical.to_str().map(str::to_string).ok_or_else(|| {
+                        ForgeError::GovernanceInvalid {
+                            reason: "resolved workspace root is not valid UTF-8".to_string(),
+                        }
+                    })
+                })
+                .transpose()?;
+            save_provider_selection_with_root(
+                path,
+                provider,
+                adapter.as_deref(),
+                stored_root.as_deref(),
+                !disable,
+                *timeout_ms,
+            )?;
+            let preset_note = if preset_resolved {
+                adapter
+                    .as_deref()
+                    .map(|resolved| format!(" (adapter={resolved})"))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             let detail = if provider == LOCAL_PROVIDER_ID {
                 "selected built-in local provider".to_string()
             } else if *disable {
-                format!("selected external provider `{provider}` (disabled)")
+                format!("selected external provider `{provider}` (disabled){preset_note}")
             } else {
-                format!("selected external provider `{provider}`")
+                format!("selected external provider `{provider}`{preset_note}")
             };
             Ok(as_output(
                 format,
@@ -4880,6 +4962,7 @@ fn cmd_governance(command: &GovernanceCommands, format: Format) -> Result<Output
                     "provider": provider,
                     "enabled": !disable,
                     "adapter": adapter,
+                    "workspace_root": stored_root,
                 }),
             ))
         }

@@ -10,7 +10,7 @@
 //!
 //! This module owns the opt-in evidence harness that closes that gap:
 //!
-//! - [`provider_ids`] lists the five evidence providers in stable order.
+//! - [`provider_ids`] lists the six evidence providers in stable order.
 //! - [`matrix`] reports every provider as `not-run` unless the caller
 //!   opts in with `--live`; a `not-run` row is never `supported`.
 //! - [`run_controlled`] drives one controlled round trip against an
@@ -70,6 +70,7 @@ pub const MAX_RECEIPT_CHARS: usize = 2000;
 /// Evidence provider ids in stable catalog order.
 pub const PROVIDER_IDS: &[&str] = &[
     "driftwatch-policy",
+    "gate-runtime",
     "oidc-identity",
     "analytics",
     "deploy",
@@ -81,6 +82,7 @@ pub const PROVIDER_IDS: &[&str] = &[
 /// fixture scripts without touching the source tree.
 pub const DEFAULT_PROBE_BINARIES: &[(&str, &str)] = &[
     ("driftwatch-policy", "driftwatchdog|driftwatch"),
+    ("gate-runtime", "driftwatchdog|driftwatch"),
     ("analytics", "forge-analytics-adapter"),
     ("deploy", "forge-deployer"),
     ("release", "forge-package-publisher"),
@@ -90,6 +92,7 @@ pub const DEFAULT_PROBE_BINARIES: &[(&str, &str)] = &[
 /// adapter's `FORGE_*_BIN` pattern.
 pub const PROBE_BIN_ENV: &[(&str, &str)] = &[
     ("driftwatch-policy", "FORGE_DRIFTWATCH_BIN"),
+    ("gate-runtime", "FORGE_GATE_BIN"),
     ("analytics", "FORGE_ANALYTICS_BIN"),
     ("deploy", "FORGE_DEPLOYER_BIN"),
     ("release", "FORGE_PACKAGE_BIN"),
@@ -165,7 +168,7 @@ pub struct ProviderRow {
     pub evidence: Vec<String>,
 }
 
-/// The provider matrix over all five evidence providers.
+/// The provider matrix over all six evidence providers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderMatrix {
     pub contract: String,
@@ -235,6 +238,7 @@ pub fn live_enabled() -> bool {
 fn display_for(provider: &str) -> &'static str {
     match provider {
         "driftwatch-policy" => "DriftWatch policy plane",
+        "gate-runtime" => "Shared gate runtime execution",
         "oidc-identity" => "OIDC admin identity",
         "analytics" => "Analytics / content plane",
         "deploy" => "Deployment targets",
@@ -340,6 +344,7 @@ pub fn inspect(provider: &str) -> Result<ProviderDescriptor, ForgeError> {
     let id = parse_provider(provider)?;
     let boundary = match id.as_str() {
         "driftwatch-policy" => "probe runs `<bin> check --dry-run --format json` (or `gate --format json` for gate-managed projects, whose only side effect is a `gate_runs` row in the project's own `.driftwatch/` store) with the project as the working directory and a bounded wait; a parseable document — including a blocked gate or failing checker — records `supported`, while a missing binary (probe order: `driftwatchdog`, `driftwatch`), timeout or unparseable output records `unavailable`, never a policy PASS",
+        "gate-runtime" => "probe runs `<bin> gate --dry-run --format json` against the resolved gate runtime (explicit `FORGE_GATE_BIN`, else the ordered PATH probe) with the project as the working directory and a bounded wait; the real sibling's dry-run surface is a side-effect-free plan preview, so a responding plan or a parseable gate document records `supported` while a missing binary, timeout or refused invocation records `unavailable`; the probe never executes the real gate and never claims a gate pass",
         "oidc-identity" => "probe runs the in-memory challenge/callback/claims/mint/validate/terminate lifecycle through the identity contract; cross-project, expired, revoked and non-admin outcomes stay refusals, never sessions",
         "analytics" => "probe runs `<bin> health --provider <p> --project <id> --project-ref <ref> --plane <plane>`; a mismatched project_ref records `ambiguous-mapping`, never another project's data",
         "deploy" => "probe runs `<bin> apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` under the frozen `forge-deploy-executor/0.1.0` envelope contract; only a contract-conformant delivered dry-run envelope records `supported`, a missing or unknown discriminator records `unavailable`, and teardown removes the probe state",
@@ -841,6 +846,191 @@ fn probe_policy(
         evidence,
         "policy probe observed a well-formed document; findings keep their own severities",
     )
+}
+
+/// Drive the `gate-runtime` probe: resolve the runtime the same ordered
+/// way the gate plane does (fixture, then `FORGE_GATE_BIN`, then the
+/// PATH probe of the sibling binary names) and exercise ONLY the
+/// side-effect-free dry-run plan surface. A gate pass is never claimed
+/// here; only that the runtime's gate surface responds.
+fn probe_gate_runtime(
+    options: &RunOptions,
+    project_id: &str,
+    workdir: &Path,
+    revision: Option<String>,
+) -> ProviderRow {
+    let sandbox = sandbox_of(options);
+    let target = gate_runtime_probe_target(options);
+    let source_name = target
+        .as_ref()
+        .map(|found| {
+            if options.fixture.is_some() {
+                found.display().to_string()
+            } else {
+                found
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("driftwatch")
+                    .to_string()
+            }
+        })
+        .unwrap_or_else(|| crate::policy::DRIFTWATCH_BINARY_CANDIDATES[0].to_string());
+    let source = sandbox_source(&source_name, sandbox);
+    let Some(target) = target else {
+        return unavailable_row(
+            "gate-runtime",
+            sandbox,
+            &source,
+            project_id,
+            revision,
+            &format!(
+                "no gate runtime resolvable: tried `{}` then PATH candidates '{}' (the gate \
+                 plane's own ordered resolution); nothing was contacted",
+                crate::gate::GATE_BIN_ENV,
+                crate::policy::DRIFTWATCH_BINARY_CANDIDATES.join("', '")
+            ),
+            Some(workdir),
+        );
+    };
+    let tool_version = probe_version(&target);
+    let out = run_bounded(
+        &target,
+        &[
+            "gate".to_string(),
+            "--dry-run".to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+        ],
+        None,
+        Some(workdir),
+    );
+    if out.timed_out {
+        return unavailable_row(
+            "gate-runtime",
+            sandbox,
+            &source,
+            project_id,
+            revision,
+            &format!("gate dry-run probe timed out after {:?}", EVIDENCE_TIMEOUT),
+            Some(workdir),
+        );
+    }
+    // Forward-compat first: should a runtime version answer the dry-run
+    // with a parseable status document, its aggregate stands as
+    // attributed evidence (and the probe still persists nothing).
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&out.stdout) {
+        if value.is_object() && value.get("blocked").is_some() && value.get("results").is_some() {
+            let aggregate = match (
+                value.get("status").and_then(|s| s.as_str()),
+                value.get("blocked").and_then(|b| b.as_bool()),
+            ) {
+                (Some("PASS"), Some(false)) => "passed",
+                (_, Some(true)) => "blocked",
+                (Some("FAIL"), Some(false)) => "failed",
+                _ => "unknown",
+            };
+            let mut evidence = vec![
+                format!(
+                    "tool_version={}",
+                    tool_version.as_deref().unwrap_or("unknown")
+                ),
+                format!("surface=gate-status aggregate={aggregate}"),
+            ];
+            if out.exit_code != Some(0) {
+                evidence.push(format!(
+                    "exit={:?}: parseable document; the document's own aggregate stands",
+                    out.exit_code
+                ));
+            }
+            return params(
+                "gate-runtime",
+                sandbox,
+                &source,
+                project_id,
+                revision,
+                Some(workdir),
+            )
+            .supported(
+                tool_version,
+                vec![truncate_receipt(&out.stdout)],
+                evidence,
+                "the gate runtime answered with a parseable status document; the probe claims nothing beyond the document",
+            );
+        }
+    }
+    // The real sibling surface (verified at 25811ed): a clean-exit human
+    // plan preview, or the honest "nothing to gate" answer for a project
+    // without a gate manifest. Both prove the gate surface exists without
+    // executing or persisting anything; neither is a gate pass.
+    if out.exit_code == Some(0) {
+        let first_line = out
+            .stdout
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .to_string();
+        let (label, note) = if first_line.contains("nothing to gate") {
+            (
+                "plan=none (target is not gate-managed)",
+                "the gate surface responded; this target carries no gate manifest, so no plan resolved and no gate pass is claimed",
+            )
+        } else {
+            (
+                "plan-preview observed (nothing was executed)",
+                "the gate runtime answered the side-effect-free dry-run plan surface; no gate pass is claimed",
+            )
+        };
+        let evidence = vec![
+            format!(
+                "tool_version={}",
+                tool_version.as_deref().unwrap_or("unknown")
+            ),
+            format!("surface=gate-dry-run {label}"),
+        ];
+        return params(
+            "gate-runtime",
+            sandbox,
+            &source,
+            project_id,
+            revision,
+            Some(workdir),
+        )
+        .supported(
+            tool_version,
+            vec![truncate_receipt(&out.stdout)],
+            evidence,
+            note,
+        );
+    }
+    unavailable_row(
+        "gate-runtime",
+        sandbox,
+        &source,
+        project_id,
+        revision,
+        &format!(
+            "gate dry-run probe failed (exit {:?}): {}",
+            out.exit_code,
+            out.stderr.trim()
+        ),
+        Some(workdir),
+    )
+}
+
+/// Ordered gate-runtime resolution for the probe: fixture script, then
+/// `FORGE_GATE_BIN`, then the PATH probe of the real sibling names —
+/// mirroring the gate plane's own fallback without executing anything.
+fn gate_runtime_probe_target(options: &RunOptions) -> Option<std::path::PathBuf> {
+    if let Some(fixture) = &options.fixture {
+        return Some(fixture.clone());
+    }
+    if let Ok(value) = std::env::var(crate::gate::GATE_BIN_ENV) {
+        if !value.trim().is_empty() {
+            return Some(std::path::PathBuf::from(value));
+        }
+    }
+    let path_env = std::env::var_os("PATH").unwrap_or_default();
+    crate::policy::first_binary_on_path(&path_env, crate::policy::DRIFTWATCH_BINARY_CANDIDATES)
 }
 
 /// Where the driftwatch-policy probe sends its invocation: the fixture
@@ -1443,6 +1633,7 @@ pub fn run_controlled(
     };
     let row = match id.as_str() {
         "driftwatch-policy" => probe_policy(options, project_id, workdir, revision),
+        "gate-runtime" => probe_gate_runtime(options, project_id, workdir, revision),
         "oidc-identity" => probe_identity(project_id, revision, sandbox, &source),
         "analytics" => probe_analytics(options, project_id, project_ref, revision),
         "deploy" => probe_deploy(options, project_id, revision),
@@ -1550,6 +1741,7 @@ mod tests {
             provider_ids(),
             vec![
                 "driftwatch-policy",
+                "gate-runtime",
                 "oidc-identity",
                 "analytics",
                 "deploy",
@@ -1573,8 +1765,8 @@ mod tests {
     fn matrix_defaults_to_not_run_without_live() {
         let report = matrix(false);
         assert_eq!(report.contract, PROVIDER_CONTRACT_VERSION);
-        assert_eq!(report.rows.len(), 5);
-        assert_eq!(report.not_run, 5);
+        assert_eq!(report.rows.len(), 6);
+        assert_eq!(report.not_run, 6);
         assert_eq!(report.supported, 0);
         for row in &report.rows {
             assert_eq!(row.status, "not-run");
@@ -2109,7 +2301,7 @@ mod tests {
         let report = matrix(false);
         let human = render_matrix_human(&report);
         assert!(human.contains("supported=0"));
-        assert!(human.contains("not-run=5"));
+        assert!(human.contains("not-run=6"));
         for id in PROVIDER_IDS {
             assert!(human.contains(id));
         }

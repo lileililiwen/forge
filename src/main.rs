@@ -47,6 +47,10 @@ use forge::fleet::{
     render_report_human as render_fleet_report_human, render_status_human, resolve_registry_path,
     DEFAULT_MAX_AGE_SECONDS, FLEET_CONTRACT_VERSION,
 };
+use forge::gate::{
+    self, evidence_freshness, evidence_summary, load_latest_evidence, render_evidence_human,
+    GateAggregate, GateConfig, GateFreshness, GateOutcome, GATE_CONTRACT_VERSION,
+};
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
 use forge::governance::{
@@ -392,6 +396,20 @@ enum Commands {
     Fleet {
         #[command(subcommand)]
         command: FleetCommands,
+    },
+    /// Execute the project's declared shared gate runtime and journal revision-bound evidence.
+    Gate {
+        /// `status` (read persisted evidence without re-running) or a
+        /// project id / filesystem path (default: current directory).
+        #[arg(value_name = "status | TARGET")]
+        args: Vec<String>,
+        /// Rehearse through the runtime's side-effect-free plan preview;
+        /// never executes checks, persists evidence or journals a row.
+        #[arg(long)]
+        dry_run: bool,
+        /// Bounded gate execution timeout in seconds (1..=86400; default 600).
+        #[arg(long, value_name = "SECS")]
+        timeout_secs: Option<u64>,
     },
 }
 
@@ -1180,6 +1198,18 @@ fn main() -> ExitCode {
         return cmd_upgrade_fleet(&db_path, feature.as_deref(), *dry_run, cli.format);
     }
 
+    // The gate run mirrors the sibling's blocking semantics in its exit
+    // code (0 only for a passed aggregate) while still printing the
+    // evidence document, so it owns its exit code like the fleet does.
+    if let Commands::Gate {
+        args,
+        dry_run,
+        timeout_secs,
+    } = &cli.command
+    {
+        return cmd_gate(&db_path, args, *dry_run, *timeout_secs, cli.format);
+    }
+
     let result = match &cli.command {
         Commands::List => cmd_list(&db_path, cli.format),
         Commands::Inspect { target } => cmd_inspect(&db_path, target, cli.format),
@@ -1290,6 +1320,12 @@ fn main() -> ExitCode {
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
+        Commands::Gate { .. } => {
+            // Handled by the early `if let` above (the gate run owns its
+            // exit code to mirror the sibling's blocking semantics); this
+            // arm exists only to keep the match exhaustive.
+            return ExitCode::from(2);
+        }
     };
 
     match result {
@@ -5467,4 +5503,338 @@ fn resolve_identity_target(db_path: &Path, target: &str) -> Result<(PathBuf, Str
     }
     let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
     Ok((dir, manifest.project.id))
+}
+
+/// Resolve a gate target to a project directory and identity. A
+/// registered project (by id or registered path) always wins so the
+/// journal row names the real registry identity; an unregistered
+/// directory falls back to the manifest id, the Workspace Governance
+/// declaration id, or the directory name — gate is always
+/// project-scoped, never a fleet operation.
+fn resolve_gate_target(db_path: &Path, target: &str) -> Result<(PathBuf, String), ForgeError> {
+    if let Ok(registry) = open_registry(db_path) {
+        if let Ok(record) = registry.inspect(target) {
+            let dir = PathBuf::from(&record.path);
+            if !dir.is_dir() {
+                return Err(ForgeError::PathUnavailable { path: record.path });
+            }
+            return Ok((dir, record.id));
+        }
+    }
+    let candidate = Path::new(target);
+    if candidate.is_dir() {
+        let dir = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        if let Ok((manifest, _)) = forge::core::manifest::Manifest::load_from_dir(&dir, None) {
+            return Ok((dir, manifest.project.id));
+        }
+        if let Some(id) = gate::declared_project_id(&dir) {
+            if forge::core::validate_project_id(&id).is_ok() {
+                return Ok((dir, id));
+            }
+        }
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string());
+        return Ok((dir, name));
+    }
+    let registry = open_registry(db_path)?;
+    let record = registry.inspect(target)?;
+    let dir = PathBuf::from(&record.path);
+    if !dir.is_dir() {
+        return Err(ForgeError::PathUnavailable { path: record.path });
+    }
+    Ok((dir, record.id))
+}
+
+fn render_output(output: Output) {
+    match output {
+        Output::Human(text) => println!("{text}"),
+        Output::Json(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+    }
+}
+
+fn gate_fail(err: &ForgeError, format: Format) -> ExitCode {
+    render_error(err, format);
+    ExitCode::from(1)
+}
+
+/// `forge gate [status] [TARGET] [--dry-run] [--timeout-secs N]`.
+///
+/// Exit codes mirror the sibling's blocking semantics: 0 only for a
+/// fresh passing aggregate, 1 for blocked, failed, unknown, stale or
+/// absent evidence, and an unavailable runtime. Evidence documents are
+/// printed to stdout even when the verdict is non-zero (the fleet
+/// precedent); only Forge-side failures use the typed stderr path.
+fn cmd_gate(
+    db_path: &Path,
+    args: &[String],
+    dry_run: bool,
+    timeout_secs: Option<u64>,
+    format: Format,
+) -> ExitCode {
+    // Parse the `status | TARGET` positional form before anything runs.
+    let (status_form, target) = match args.split_first() {
+        None => (false, ".".to_string()),
+        Some((first, rest)) if first == "status" => {
+            if rest.len() > 1 {
+                return gate_fail(
+                    &ForgeError::GateInvalid {
+                        reason: format!(
+                            "`forge gate status` takes at most one TARGET; got {} extra arguments",
+                            rest.len()
+                        ),
+                    },
+                    format,
+                );
+            }
+            (
+                true,
+                rest.first().cloned().unwrap_or_else(|| ".".to_string()),
+            )
+        }
+        Some((first, rest)) => {
+            if !rest.is_empty() {
+                return gate_fail(
+                    &ForgeError::GateInvalid {
+                        reason: format!(
+                            "unexpected arguments {:?}; usage: `forge gate [TARGET]` or `forge gate status [TARGET]`",
+                            rest
+                        ),
+                    },
+                    format,
+                );
+            }
+            (false, first.clone())
+        }
+    };
+    if status_form && dry_run {
+        return gate_fail(
+            &ForgeError::GateInvalid {
+                reason:
+                    "--dry-run does not apply to `forge gate status` (it never runs the runtime)"
+                        .to_string(),
+            },
+            format,
+        );
+    }
+    if status_form && timeout_secs.is_some() {
+        return gate_fail(
+            &ForgeError::GateInvalid {
+                reason: "--timeout-secs does not apply to `forge gate status` (it never runs the runtime)".to_string(),
+            },
+            format,
+        );
+    }
+    let config = match timeout_secs {
+        Some(raw) => {
+            let parsed = match gate::parse_timeout_secs(raw) {
+                Ok(timeout) => timeout,
+                Err(err) => return gate_fail(&err, format),
+            };
+            let mut config = GateConfig::from_env();
+            config.timeout = parsed;
+            config
+        }
+        None => GateConfig::from_env(),
+    };
+    let (dir, project_id) = match resolve_gate_target(db_path, &target) {
+        Ok(resolved) => resolved,
+        Err(err) => return gate_fail(&err, format),
+    };
+    if status_form {
+        return cmd_gate_status(&dir, &project_id, format);
+    }
+    cmd_gate_run(db_path, &dir, &project_id, &config, dry_run, format)
+}
+
+fn cmd_gate_status(dir: &Path, project_id: &str, format: Format) -> ExitCode {
+    let evidence = match load_latest_evidence(dir) {
+        Ok(Some(evidence)) => evidence,
+        Ok(None) => {
+            let json = serde_json::json!({
+                "contract": GATE_CONTRACT_VERSION,
+                "gate": {
+                    "project": project_id,
+                    "freshness": GateFreshness::Absent.label(),
+                    "aggregate": "unverified",
+                    "checks": [],
+                },
+            });
+            let human = format!(
+                "project: {project_id}\nfreshness: {}\naggregate: unverified\ndetail: the gate has never run; unverified is not a pass",
+                GateFreshness::Absent.label()
+            );
+            render_output(as_output(format, human, json));
+            return ExitCode::from(1);
+        }
+        Err(err) => return gate_fail(&err, format),
+    };
+    let current = gate::capture_revision(dir);
+    let freshness = evidence_freshness(&evidence, current.as_deref());
+    let passed =
+        matches!(evidence.aggregate, GateAggregate::Passed) && freshness == GateFreshness::Fresh;
+    // The present-evidence envelope flattens the record fields onto
+    // `gate` (plus freshness) so every read surface reports the same
+    // aggregate, revision, runtime name and timestamp bytes.
+    let mut value = match serde_json::to_value(&evidence) {
+        Ok(value) => value,
+        Err(err) => {
+            return gate_fail(
+                &ForgeError::GateInvalid {
+                    reason: format!("cannot encode gate evidence: {err}"),
+                },
+                format,
+            )
+        }
+    };
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "freshness".to_string(),
+            serde_json::json!(freshness.label()),
+        );
+    }
+    let json = serde_json::json!({
+        "contract": GATE_CONTRACT_VERSION,
+        "gate": value,
+    });
+    let human = render_evidence_human(&evidence, Some(freshness), None);
+    render_output(as_output(format, human, json));
+    if passed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+fn cmd_gate_run(
+    db_path: &Path,
+    dir: &Path,
+    project_id: &str,
+    config: &GateConfig,
+    dry_run: bool,
+    format: Format,
+) -> ExitCode {
+    // The registry is required for journaling every attempted real run;
+    // it is opened before the runtime is contacted so an unwritable
+    // registry never leaves an unrecorded gate execution.
+    let registry = match open_registry(db_path) {
+        Ok(registry) => registry,
+        Err(err) => return gate_fail(&err, format),
+    };
+    let outcome = gate::run_gate(dir, project_id, config, dry_run);
+    let (output, verdict) = match outcome {
+        GateOutcome::PlanPreview {
+            runtime,
+            runtime_version,
+            plan,
+        } => {
+            let json = serde_json::json!({
+                "contract": GATE_CONTRACT_VERSION,
+                "dry_run": true,
+                "gate": {
+                    "project": project_id,
+                    "runtime": runtime,
+                    "runtime_version": runtime_version,
+                    "plan": plan,
+                    "persisted": false,
+                    "journaled": false,
+                },
+            });
+            let mut human = format!(
+                "dry-run: gate plan preview for {project_id} (nothing was executed, persisted or journaled)\nruntime: {}",
+                runtime_version
+                    .as_deref()
+                    .map(|version| format!("{runtime} ({version})"))
+                    .unwrap_or_else(|| runtime.clone())
+            );
+            for line in &plan {
+                human.push_str(&format!("\n  {line}"));
+            }
+            (as_output(format, human, json), ExitCode::SUCCESS)
+        }
+        GateOutcome::Evidence(evidence) => {
+            let current = gate::capture_revision(dir);
+            let freshness = evidence_freshness(&evidence, current.as_deref());
+            let mut value = match serde_json::to_value(&evidence) {
+                Ok(value) => value,
+                Err(err) => {
+                    return gate_fail(
+                        &ForgeError::GateInvalid {
+                            reason: format!("cannot encode gate evidence: {err}"),
+                        },
+                        format,
+                    )
+                }
+            };
+            let persisted: Option<String> = if evidence.dry_run {
+                None
+            } else {
+                match gate::save_evidence(dir, &evidence) {
+                    Ok(relative) => Some(relative.display().to_string()),
+                    Err(err) => return gate_fail(&err, format),
+                }
+            };
+            let verdict = gate::journal_verdict(&GateOutcome::Evidence(evidence.clone()));
+            if !evidence.dry_run {
+                let _ = registry.record_operation(
+                    "gate",
+                    project_id,
+                    verdict,
+                    &format!("gate {verdict}: {}", evidence_summary(&evidence)),
+                );
+            }
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "freshness".to_string(),
+                    serde_json::json!(freshness.label()),
+                );
+            }
+            let json = serde_json::json!({
+                "contract": GATE_CONTRACT_VERSION,
+                "dry_run": evidence.dry_run,
+                "gate": value,
+                "persisted": persisted,
+                "journaled": !evidence.dry_run,
+            });
+            let human = if evidence.dry_run {
+                format!(
+                    "{}\ndry-run: the rehearsal document was not persisted and not journaled",
+                    render_evidence_human(&evidence, Some(freshness), None)
+                )
+            } else {
+                render_evidence_human(&evidence, Some(freshness), persisted.as_deref())
+            };
+            let code = if matches!(evidence.aggregate, GateAggregate::Passed) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            };
+            (as_output(format, human, json), code)
+        }
+        GateOutcome::Unavailable { reason } => {
+            let bound = gate::bound_note(&reason);
+            // A refused rehearsal leaves no shadow: dry-runs never
+            // journal (the deploy-rehearsal precedent). Real attempted
+            // runs journal `failed` so the history survives the gap.
+            if !dry_run {
+                let _ = registry.record_operation(
+                    "gate",
+                    project_id,
+                    "failed",
+                    &format!("gate failed: runtime unavailable; {bound}"),
+                );
+            }
+            return gate_fail(
+                &ForgeError::GateRuntimeUnavailable { reason: bound },
+                format,
+            );
+        }
+    };
+    render_output(output);
+    verdict
 }

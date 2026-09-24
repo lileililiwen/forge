@@ -56,10 +56,13 @@ Required top-level keys: `schema_version` (const `1`), `id`
 - `evidence_status` is always `planned` at generation; Forge never writes
   `passed`.
 - `gate_runtime` is emitted only when the profile descriptor declares one.
-  No Forge profile declares a gate runtime today (no shared Gate Runtime
-  is configured), so generated documents omit the key; the sibling
-  checker never reads it. A future gate-enabled profile adds the value to
-  its descriptor mapping, never to the generator.
+  No Forge profile declares a gate runtime today, so generated documents
+  omit the key; the sibling checker never reads it. Forge's own
+  `gate-runtime-evidence` plane does: `forge gate` resolves the declared
+  value through `verification.gate_runtime` (currently only
+  `driftwatchdog` has a resolution path; an unknown name refuses rather
+  than probing something else). A future gate-enabled profile adds the
+  value to its descriptor mapping, never to the generator.
 - `deployment.deployable: false` with `jenkins_job: null` and
   `compose_file: null` at creation; a real target flips these through the
   project's own edits, not Forge generation.

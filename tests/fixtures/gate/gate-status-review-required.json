@@ -1,0 +1,38 @@
+{
+  "blocked": true,
+  "failures": [],
+  "manifest_digest": "sha256:c2df6f19920b3589",
+  "not_applicable": [
+    "ux-review"
+  ],
+  "pending_reviews": [
+    "ux-review"
+  ],
+  "results": [
+    {
+      "diagnostic": "{\"version\":1,\"status\":\"PASS\",\"findings\":[],\"diagnostic\":\"docs evidence present\"}",
+      "evidence": [],
+      "findings": [],
+      "gate_id": "docs",
+      "missing_evidence": [],
+      "severity": "info",
+      "source": "adapter:project-runtime",
+      "status": "PASS"
+    },
+    {
+      "diagnostic": "no command declared for this concern; no execution was attempted",
+      "evidence": [],
+      "findings": [],
+      "gate_id": "ux-review",
+      "missing_evidence": [
+        "ux-review:command"
+      ],
+      "remediation": "Declare `command` for this check in gate.toml or accept review for this concern.",
+      "severity": "info",
+      "source": "manifest",
+      "status": "NOT_APPLICABLE"
+    }
+  ],
+  "rule_pack_version": "local",
+  "status": "REVIEW_REQUIRED"
+}

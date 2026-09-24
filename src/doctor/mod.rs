@@ -517,6 +517,91 @@ fn detect_ci(dir: &Path) -> (bool, Vec<String>) {
     }
 }
 
+/// Gate runtime evidence finding (`gate-runtime-evidence`). Doctor
+/// reads the persisted revision-bound record for the project: pass on a
+/// fresh passing aggregate, fail on a blocked or failing snapshot, warn
+/// on stale passing or unclassifiable evidence, and unavailable
+/// (`unverified`) when a declared/managed gate has never run or the
+/// record cannot be read. Absence is never rendered as a pass; a project
+/// with no declaration and no evidence is not-applicable, mirroring the
+/// policy plane's non-applicable convention without inventing a verdict.
+fn gate_evidence_finding(dir: &Path) -> Finding {
+    let current = crate::gate::capture_revision(dir);
+    match crate::gate::load_latest_evidence(dir) {
+        Ok(Some(evidence)) => {
+            let freshness = crate::gate::evidence_freshness(&evidence, current.as_deref());
+            let summary = crate::gate::evidence_summary(&evidence);
+            let (status, detail) = match (evidence.aggregate, freshness) {
+                (crate::gate::GateAggregate::Passed, crate::gate::GateFreshness::Fresh) => (
+                    FindingStatus::Pass,
+                    "gate evidence is fresh and passing",
+                ),
+                (crate::gate::GateAggregate::Passed, _) => (
+                    FindingStatus::Warn,
+                    "gate evidence passed but is stale: the working revision moved, never a current verification",
+                ),
+                (crate::gate::GateAggregate::Blocked, crate::gate::GateFreshness::Fresh) => (
+                    FindingStatus::Fail,
+                    "the gate runtime blocked this revision; unresolved REVIEW_REQUIRED or FAIL cannot pass",
+                ),
+                (crate::gate::GateAggregate::Blocked, _) => (
+                    FindingStatus::Fail,
+                    "the gate runtime blocked this revision and the snapshot is stale; never a pass",
+                ),
+                (crate::gate::GateAggregate::Failed, _) => (
+                    FindingStatus::Fail,
+                    "the gate runtime reported a non-blocking failure on this snapshot",
+                ),
+                (crate::gate::GateAggregate::Unknown, _) => (
+                    FindingStatus::Warn,
+                    "the gate document aggregate is unclassifiable and is never treated as passing",
+                ),
+            };
+            Finding::new(
+                "gate-evidence",
+                status,
+                vec![summary],
+                true,
+                Remediation::Manual,
+                detail,
+            )
+        }
+        Ok(None) => {
+            let opted_in = !matches!(
+                crate::gate::declared_gate_runtime(dir),
+                crate::gate::DeclaredRuntime::Undeclared
+            ) || crate::gate::is_gate_managed(dir);
+            if opted_in {
+                Finding::new(
+                    "gate-evidence",
+                    FindingStatus::Unavailable,
+                    vec![format!("{}/", crate::gate::GATE_EVIDENCE_DIR)],
+                    true,
+                    Remediation::Manual,
+                    "gate runtime is declared but the gate has never run: unverified, not a pass",
+                )
+            } else {
+                Finding::new(
+                    "gate-evidence",
+                    FindingStatus::Pass,
+                    vec![format!("{}/", crate::gate::GATE_EVIDENCE_DIR)],
+                    false,
+                    Remediation::Manual,
+                    "no gate runtime declared or gate manifest present: not applicable (never a claim that a gate passed)",
+                )
+            }
+        }
+        Err(err) => Finding::new(
+            "gate-evidence",
+            FindingStatus::Unavailable,
+            vec![err.to_string()],
+            true,
+            Remediation::Manual,
+            "persisted gate evidence cannot be read and is never assumed healthy",
+        ),
+    }
+}
+
 fn detect_driftwatch(dir: &Path) -> (bool, Vec<String>) {
     let mut evidence = Vec::new();
     for file in [
@@ -954,6 +1039,14 @@ pub fn run_doctor(
     // `fail`/`unavailable` finding while retaining the original rule ID,
     // category, severity, tool version and redacted evidence.
     findings.extend(policy_findings(dir, policy_outcome));
+
+    // Gate runtime evidence (`gate-runtime-evidence`). Read-only: the
+    // persisted revision-bound record renders its verdict through the
+    // shared vocabulary; a moved revision reads as stale and a declared
+    // but never-run gate reads as unverified — never as a pass. Projects
+    // with neither a declaration nor recorded evidence keep the finding
+    // not-applicable so no surface renders silence as health.
+    findings.push(gate_evidence_finding(dir));
 
     // Registry observation: registered + fresh / stale / not registered.
     let mtime = manifest_mtime(dir);

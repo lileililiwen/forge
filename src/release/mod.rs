@@ -356,10 +356,10 @@ impl ReleaseConfig {
                     reason: "release.checks entries must carry a non-empty kind".to_string(),
                 });
             }
-            if !matches!(kind.as_str(), "doctor" | "test" | "driftwatch") {
+            if !matches!(kind.as_str(), "doctor" | "test" | "driftwatch" | "gate") {
                 return Err(ForgeError::ReleaseInvalid {
                     reason: format!(
-                        "release.checks kind `{kind}` is not supported; expected one of doctor, test, driftwatch"
+                        "release.checks kind `{kind}` is not supported; expected one of doctor, test, driftwatch, gate"
                     ),
                 });
             }

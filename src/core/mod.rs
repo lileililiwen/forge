@@ -270,6 +270,12 @@ pub enum ForgeError {
 
     #[error("fleet registry invalid: {reason}")]
     FleetRegistryInvalid { reason: String },
+
+    #[error("gate invalid: {reason}")]
+    GateInvalid { reason: String },
+
+    #[error("gate runtime unavailable: {reason}")]
+    GateRuntimeUnavailable { reason: String },
 }
 
 impl ForgeError {
@@ -361,6 +367,8 @@ impl ForgeError {
             ForgeError::CheckInvalid { .. } => "check-invalid",
             ForgeError::GovernanceUnavailable { .. } => "governance-provider-unavailable",
             ForgeError::FleetRegistryInvalid { .. } => "fleet-registry-invalid",
+            ForgeError::GateInvalid { .. } => "gate-invalid",
+            ForgeError::GateRuntimeUnavailable { .. } => "gate-runtime-unavailable",
         }
     }
 

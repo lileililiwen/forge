@@ -16,6 +16,7 @@ Deterministic assets are preferred at every reuse level: Profile → Feature →
 | Generator / Upgrade | Deterministic application, ownership records, preconditions and recovery | New, feature lifecycle, upgrades |
 | Policies / Doctor | Maturity assessment, local inspection and normalized external policy evidence | CLI, release, later transports |
 | Agent / Integrations | Existing PTY manager, DriftWatch, content and analytics adapters | Spec execution, quality and observations |
+| Gate Runtime Consumption | Driftwatchdog owns plan resolution, execution, blocking policy, its own run history and exit semantics; Forge owns bounded invocation, revision-bound evidence, journaling and honest surface projection | CLI (`forge gate`), Doctor, Release |
 | Distribution / Release / Deployment | Explicit external operations and durable per-stage outcomes | CLI, later mature MCP/API |
 | CLI / MCP / API / Portal | Input/output transport only; no duplicated business rules | Humans, agents, portal views |
 

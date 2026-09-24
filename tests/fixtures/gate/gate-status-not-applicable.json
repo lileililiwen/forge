@@ -1,0 +1,36 @@
+{
+  "blocked": false,
+  "failures": [],
+  "manifest_digest": "sha256:c98be29e7ca9fbbd",
+  "not_applicable": [
+    "deploy"
+  ],
+  "pending_reviews": [],
+  "results": [
+    {
+      "diagnostic": "{\"version\":1,\"status\":\"PASS\",\"findings\":[],\"diagnostic\":\"build clean\"}",
+      "evidence": [],
+      "findings": [],
+      "gate_id": "build",
+      "missing_evidence": [],
+      "severity": "info",
+      "source": "adapter:project-runtime",
+      "status": "PASS"
+    },
+    {
+      "diagnostic": "no command declared for this concern; no execution was attempted",
+      "evidence": [],
+      "findings": [],
+      "gate_id": "deploy",
+      "missing_evidence": [
+        "deploy:command"
+      ],
+      "remediation": "Declare `command` for this check in gate.toml or accept review for this concern.",
+      "severity": "info",
+      "source": "manifest",
+      "status": "NOT_APPLICABLE"
+    }
+  ],
+  "rule_pack_version": "local",
+  "status": "PASS"
+}

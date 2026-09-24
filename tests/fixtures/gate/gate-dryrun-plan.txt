@@ -1,0 +1,19 @@
+gate plan (dry-run; nothing was executed)
+contract version: 1 | profile: minimal | rule-pack: local | manifest: sha256:c2df6f19920b3589
+blocking: review_required_blocks=true
+execution mode: dry-run
+checks:
+  - docs [required] via manifest
+  - ux-review [required] via manifest
+project commands:
+  (none)
+context providers:
+  (none)
+explicitly not scheduled:
+  - a11y
+  - browser
+  - capability-conformance
+  - placeholder-threshold
+  - product-code-boundary
+  - release-evidence
+  - responsive

@@ -225,7 +225,7 @@ fn collect_captured_checks(
     let mut out: Vec<CapturedCheck> = Vec::new();
     let _ = manifest.project.profile.as_str();
     let configured: Vec<String> = config.checks.iter().map(|c| c.kind.clone()).collect();
-    let known = ["doctor", "test", "driftwatch"];
+    let known = ["doctor", "test", "driftwatch", "gate"];
     for kind in known {
         let applicable = configured.iter().any(|c| c == kind);
         let check = if !applicable {
@@ -263,6 +263,7 @@ fn run_one_check(
             revision,
             policy,
         )),
+        "gate" => Ok(run_gate_check(project_dir, revision)),
         other => Err(ForgeError::ReleaseInvalid {
             reason: format!("release check kind `{other}` is not supported"),
         }),
@@ -437,6 +438,86 @@ fn run_driftwatch_check(
             applicable: true,
             evidence: vec![reason],
             detail: "driftwatch adapter is unavailable".to_string(),
+            source_revision: revision.to_string(),
+        },
+    }
+}
+
+/// Release `gate` check. This never executes the runtime — `forge gate`
+/// owns execution — it only cites the persisted, revision-bound evidence
+/// record: pass on a fresh passing aggregate, `stale` when the evidence
+/// is bound to another (or no) revision, fail on a blocked, failing or
+/// unclassifiable aggregate, and `unavailable` when the gate has never
+/// run or the record cannot be read. Absent evidence never passes.
+fn run_gate_check(project_dir: &Path, revision: &str) -> CapturedCheck {
+    let evidence = match crate::gate::load_latest_evidence(project_dir) {
+        Ok(Some(evidence)) => evidence,
+        Ok(None) => {
+            return CapturedCheck {
+                kind: "gate".to_string(),
+                status: CHECK_UNAVAILABLE.to_string(),
+                applicable: true,
+                evidence: vec![format!("{}/", crate::gate::GATE_EVIDENCE_DIR)],
+                detail: "the gate has never run for this project; unverified evidence cannot back a release".to_string(),
+                source_revision: revision.to_string(),
+            };
+        }
+        Err(err) => {
+            return CapturedCheck {
+                kind: "gate".to_string(),
+                status: CHECK_UNAVAILABLE.to_string(),
+                applicable: true,
+                evidence: vec![err.to_string()],
+                detail: "persisted gate evidence cannot be read; release execution blocks"
+                    .to_string(),
+                source_revision: revision.to_string(),
+            };
+        }
+    };
+    let summary = crate::gate::evidence_summary(&evidence);
+    let freshness = crate::gate::evidence_freshness(&evidence, Some(revision));
+    if freshness == crate::gate::GateFreshness::Stale {
+        return CapturedCheck {
+            kind: "gate".to_string(),
+            status: CHECK_STALE.to_string(),
+            applicable: true,
+            evidence: vec![summary],
+            detail: "gate evidence is bound to another (or no) revision; stale evidence cannot back a release claim".to_string(),
+            source_revision: revision.to_string(),
+        };
+    }
+    match evidence.aggregate {
+        crate::gate::GateAggregate::Passed => CapturedCheck {
+            kind: "gate".to_string(),
+            status: CHECK_PASS.to_string(),
+            applicable: true,
+            evidence: vec![summary],
+            detail: "the shared gate runtime passed at this revision".to_string(),
+            source_revision: revision.to_string(),
+        },
+        crate::gate::GateAggregate::Blocked => CapturedCheck {
+            kind: "gate".to_string(),
+            status: CHECK_FAIL.to_string(),
+            applicable: true,
+            evidence: vec![summary],
+            detail: "the gate runtime blocked this revision".to_string(),
+            source_revision: revision.to_string(),
+        },
+        crate::gate::GateAggregate::Failed => CapturedCheck {
+            kind: "gate".to_string(),
+            status: CHECK_FAIL.to_string(),
+            applicable: true,
+            evidence: vec![summary],
+            detail: "the gate runtime reported a failure on this revision".to_string(),
+            source_revision: revision.to_string(),
+        },
+        crate::gate::GateAggregate::Unknown => CapturedCheck {
+            kind: "gate".to_string(),
+            status: CHECK_FAIL.to_string(),
+            applicable: true,
+            evidence: vec![summary],
+            detail: "the gate aggregate is unclassifiable and cannot back a release claim"
+                .to_string(),
             source_revision: revision.to_string(),
         },
     }

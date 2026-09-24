@@ -112,16 +112,17 @@ fn matrix_defaults_to_not_run_for_every_provider() {
     let json = run_json(&db, &["provider", "matrix"]);
     assert_eq!(json["contract"], "0.1.0");
     let rows = json["matrix"]["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 5);
+    assert_eq!(rows.len(), 6);
     for row in rows {
         assert_eq!(row["status"], "not-run", "{row}");
         assert!(row["provenance"].is_null(), "{row}");
     }
     assert_eq!(json["matrix"]["supported"], 0);
-    assert_eq!(json["matrix"]["not_run"], 5);
+    assert_eq!(json["matrix"]["not_run"], 6);
     let human = lossy(&out.stdout);
     for id in [
         "driftwatch-policy",
+        "gate-runtime",
         "oidc-identity",
         "analytics",
         "deploy",

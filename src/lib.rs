@@ -16,6 +16,7 @@ pub mod docs;
 pub mod doctor;
 pub mod feature;
 pub mod fleet;
+pub mod gate;
 pub mod generate;
 pub mod gitops;
 pub mod governance;

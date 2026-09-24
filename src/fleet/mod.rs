@@ -1153,6 +1153,19 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = workspace(tmp.path());
         let registry = write_registry(&dir, &clean_body());
+        // Pin the document mtime to a fixed instant 10s before the
+        // observation clock below; a wall-clock mtime would make the age
+        // assertions depend on the run time (and fail once the real clock
+        // passes the fixed observations), so the filesystem — not the
+        // clock — carries the determinism.
+        let mtime = std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(
+                (now() - chrono::Duration::seconds(10)).timestamp().max(0) as u64,
+            );
+        let file = fs::OpenOptions::new().write(true).open(&registry).unwrap();
+        file.set_times(fs::FileTimes::new().set_modified(mtime))
+            .unwrap();
+        drop(file);
         let earlier = now();
         let later = earlier + chrono::Duration::seconds(60);
         let a = observe_at(Some(&registry), DEFAULT_MAX_AGE_SECONDS, &ids(&[]), earlier).unwrap();
@@ -1161,7 +1174,8 @@ mod tests {
         assert_eq!(a.malformed, b.malformed);
         assert_eq!(a.source, b.source);
         assert_ne!(a.observed_at, b.observed_at);
-        assert_ne!(a.age_seconds, b.age_seconds);
+        assert_eq!(a.age_seconds, Some(10));
+        assert_eq!(b.age_seconds, Some(70));
     }
 
     #[test]

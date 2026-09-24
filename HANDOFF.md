@@ -2,6 +2,63 @@
 
 ## Current state
 
+`driftwatch-cli-alignment` implemented, verified and
+archived on 2026-09-24 as
+`2026-09-24-driftwatch-cli-alignment`; its two
+`quality-policy-integration` requirements (canonical DriftWatch CLI
+invocation, policy binary resolution) were promoted into
+[openspec/specs/quality-policy-integration/spec.md](openspec/specs/quality-policy-integration/spec.md)
+and the DriftWatch workspace-marker requirement into
+[openspec/specs/doctor-maturity-assessment/spec.md](openspec/specs/doctor-maturity-assessment/spec.md).
+The adapter now speaks to the real sibling: `run_driftwatch` resolves
+the policy binary by ordered probe — `FORGE_DRIFTWATCH_BIN` runs
+exactly the named binary with no fall-through, otherwise the first
+executable hit of `driftwatchdog` → `driftwatch` wins, and neither
+being present is an honest `unavailable` naming both attempts — and
+invokes only grammar the installed binary supports with the project
+directory as the confinement scope: `check --dry-run --format json`
+for checker projects and the real `gate --format json` for projects
+carrying `gate.toml`/`.ai-gate/gate.yaml`. Live verification against
+the sibling at `25811ed` disproved the design's assumption that
+`gate --dry-run` has a JSON composition (it prints the human plan and
+exits before its JSON writer — captured verbatim in
+`tests/fixtures/driftwatch/gate-dryrun-plan.txt` and
+`NOTES.md`), so the gate surface runs for real and its only visible
+side effect is one `gate_runs` row in the project's own
+`.driftwatch/` store; the checker surface keeps the sibling's genuine
+no-persistence composition. The fabricated `--project` flag is gone
+from the adapter and the provider probe, which share the one
+surface helper. Classification: a parseable document is evidence
+whatever the exit code — checker-report rows map alerts to findings
+(`id` `<checker>/<symbol>`, declared `extra.category` verbatim,
+unknown or missing severity to warn, never pass) and
+failed/timeout/protocol-error rows to fail findings carrying the
+runtime's own bounded error note; gate results map FAIL→fail,
+REVIEW_REQUIRED→warn, NOT_APPLICABLE→not-applicable pass, and a
+blocked aggregate without detail to one fail rollup; an unknown
+document contract reports `unavailable` naming the version and can
+never contribute findings or a PASS; legacy adapter-report fixtures
+keep prior semantics including non-zero-exit unavailability. Host
+paths (the assessed directory and any document-reported root) are
+replaced with `<project>` in every finding string before the shared
+`policy::redact_credentials` pass, and observations record the
+resolved binary name and version. Doctor's marker detection gained
+`driftwatch.toml`, `gate.toml` and `.ai-gate/gate.yaml` alongside the
+legacy names, with absence staying a distinct state from a
+configured-but-failing run; the checker plane's default never
+contacts the policy binary (feedback-loop guard preserved).
+
+## Verification evidence (driftwatch-cli-alignment, 2026-09-24)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 57 result groups, 1088 tests, 0 failures.
+- Native toolchain test (excluded from the aggregate as the known long-running scaffold build): `cargo test --lib -- --exact generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain` — PASS (real cargo build+test of the generated tree, unaffected by this change's surfaces).
+- New/extended suites: 15 `src/policy` unit tests (ordered `first_binary_on_path` preference with non-executable skip, surface selection by gate manifests including `.ai-gate/gate.yaml`, checker-envelope mapping with alerting/failed/ok rows plus category preservation, severity-default-to-warn and `<project>` scrubbing, non-zero-exit-but-parseable evidence, blocked-gate FAIL/REVIEW_REQUIRED/PASS/NOT_APPLICABLE mapping with empty-findings rollup guard, unknown-contract refusal naming the version with same-major 0.x acceptance, unrecognized-document refusal, dead-override no-fall-through, verbatim sibling fixtures for passing/alerting/blocked-gate/passing-gate/unknown-contract); 10 `tests/driftwatch_cli_alignment_contract.rs` tests (PATH-controlled ordered probe with recorded-argv proof of `check --dry-run --format json` and absence of `--project`, alias-only host, no-binary availability naming both attempts, override-exclusivity, blocked-gate verdict lowering via the real gate surface, unknown-contract refusal, secret + host-path scrubbing through doctor findings, marker detection per new file, plain `forge check` never contacting the binary and `--include-policy` consuming envelope symbols, provider fixture probe with non-zero-exit parseable-supported and unparseable-unavailable classification, and the ordered live PATH probe); 8 `tests/driftwatch_cli_contract.rs` tests driving the verbatim sibling fixtures and stale-binary stderr capture through the CLI; the `quality_policy_contract` detector fixture now resolves its project from the working directory (no `--project`).
+- Real sibling round trips (task 3.4, live evidence at driftwatchdog `25811ed`, release build): `forge provider run driftwatch-policy probe --live` recorded `supported` (`sandbox: live`, `source: live:driftwatchdog`, tool_version `driftwatch 0.1.0`, evidence `contract=driftwatch-checker/0.1.0 checkers=2`, teardown true) through BOTH the `FORGE_DRIFTWATCH_BIN` override and a PATH-first `driftwatchdog` candidate with no override; `forge doctor` against the scratch project surfaced `driftwatch-docs-watch/DOCS-1` `warn` `[documentation:warn] docs evidence missing` with `driftwatchdog 0.1.0:`-attributed evidence and the `driftwatch-policy` rollup (0 pass, 1 warn, 0 fail), the `clean` checker contributing nothing and the `--dry-run` run persisting zero `drift_alerts`/`gate_runs` rows; the stale `~/.cargo/bin/driftwatchdog` (pre-`checker-machine-output`) is honestly classified `unavailable` from its verbatim `stale-binary-rejection.txt` stderr with empty stdout, never a PASS.
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 34 passed, 0 failed pre-archive and 33 passed, 0 failed post-archive with the promoted `quality-policy-integration` (+2) and `doctor-maturity-assessment` (+1) specs; `git diff --check`: PASS.
+- Next pointer: `workspace-governance-adapter-consumption` (order 32) — its companion evidence landed (workspace-governance shipped and archived `forge-governance-adapter` with the adapter shim on 2026-09-24).
+
 `workspace-metadata-emission` implemented, verified and
 archived on 2026-09-24 as
 `2026-09-24-workspace-metadata-emission`; its two
@@ -3820,3 +3877,5 @@ checker requires it). No active changes remain.
 8. Advance `current_spec` to the next active eligible change, or remove the line when no active changes remain; update this evidence, commit HANDOFF separately and stop without push.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
+
+current_spec: workspace-governance-adapter-consumption

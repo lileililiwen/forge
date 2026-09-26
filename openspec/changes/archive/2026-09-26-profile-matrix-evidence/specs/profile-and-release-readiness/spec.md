@@ -1,48 +1,14 @@
 # profile-and-release-readiness Specification
 
 ## Purpose
-Reproducible release-readiness evidence: native build/test matrix rows per supported profile with missing toolchains classified unverified (never passing), artifact checksums with version smoke, and a gate that passes only when every selected row passes.
-## Requirements
-### Requirement: Supported profile native evidence
 
-Forge SHALL maintain a reproducible native evidence row for every supported
-profile, including the five v0.1 profiles and `react-web`.
+Make every supported profile's declared native build and test commands execute
+successfully against the tree that profile actually generates, so a readiness
+matrix row can reach `passed` on evidence rather than being permanently recorded
+as a template or runner defect, and so the full-matrix gate claim becomes
+possible wherever a runner supplies the prerequisites.
 
-#### Scenario: Native evidence passes
-
-- **WHEN** a generated fixture runs its declared native build and test commands without Forge
-- **THEN** the row records toolchain versions, commands, source identity and a passed result
-
-#### Scenario: Native command fails
-
-- **WHEN** generation succeeds but a declared native build or test command fails
-- **THEN** the profile is not reported as verified and the failure identifies the profile and command
-
-#### Scenario: Toolchain is unavailable
-
-- **WHEN** the host or CI runner lacks a required toolchain
-- **THEN** the row is unverified with the missing prerequisite and cannot satisfy a release gate
-
-### Requirement: Reproducible release gate and artifact smoke evidence
-
-Forge SHALL provide CI/local-equivalent checks for source quality, strict
-OpenSpec validation and the native profile matrix, plus a verifiable native
-Forge artifact with version and checksum evidence.
-
-#### Scenario: Gate passes
-
-- **WHEN** all required checks and supported profile rows pass
-- **THEN** the artifact is eligible for the existing gated release workflow
-
-#### Scenario: Gate blocks
-
-- **WHEN** a required check fails or a required profile row is unverified
-- **THEN** release readiness is blocked with the exact failed or unavailable check
-
-#### Scenario: Artifact remains ordinary
-
-- **WHEN** a generated project is run after Forge is absent from PATH
-- **THEN** its native build/test behavior remains unchanged
+## ADDED Requirements
 
 ### Requirement: Declared commands match the generated tree
 
@@ -135,4 +101,3 @@ a pass or a skip.
 - **WHEN** CI qualifies a subset of profiles
 - **THEN** the CI job names the versions it installs and the evidence records the
   same versions rather than the ones a different host happened to qualify
-

@@ -110,7 +110,7 @@ const MATRIX: [(&str, &str, &str, &str); 6] = [
     (
         "python-service",
         "python-product",
-        "python3 -m pytest",
+        "python3 -m unittest discover -s tests -v",
         "py-app",
     ),
     ("react-web", "typescript-product", "npm test", "rs-app"),
@@ -127,7 +127,7 @@ const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     ),
     (
         "mbl-app",
-        "752517b4884eb588fdd91a3aa7c803e2993a3777badc4a8ef02a52f40dc9b5d1",
+        "37af951d047e22d01fe7ff8682233e99d8b3ec17ee7990e09dde9fd7656f4554",
     ),
     (
         "node-app",
@@ -135,11 +135,11 @@ const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     ),
     (
         "py-app",
-        "23cfc419e6c0c58f001985426ef93702b6d4384a8e367ee7701b2e723faf13f1",
+        "5f34cb82c4b7988931b31e672bdf99da86d5f218229e53ac2825b22590f69a64",
     ),
     (
         "rs-app",
-        "d7591d42b239eabbf8ec23699ccc7b64ce2dd97e3e10fb6256432b09645a8712",
+        "250f7f4a4a95c93bf6c5805246bfb6d5589b097342a5dbbd6c53daadd5088ba4",
     ),
     (
         "rs-web-app",
@@ -411,7 +411,7 @@ fn upgrade_refreshes_unedited_stale_declaration() {
     let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(parsed["profile"], "python-product", "{text}");
     assert_eq!(
-        parsed["verification"]["command"], "python3 -m pytest",
+        parsed["verification"]["command"], "python3 -m unittest discover -s tests -v",
         "{text}"
     );
     let receipt = fs::read_to_string(dest.join(RECEIPT_PATH)).unwrap();

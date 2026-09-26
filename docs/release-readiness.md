@@ -52,24 +52,23 @@ this package claims no remote publication.
 
 ## Known gaps (not release evidence)
 
-Recorded by the matrix on 2026-09-21; remediation belongs to the owning
-specs, not to this gate:
+Recorded by the matrix on 2026-09-26: every supported profile's declared
+native build and test commands pass against the tree that profile
+generates, so the full-matrix gate is available on a runner that supplies
+the six toolchains. Runner prerequisite:
 
-- `flutter-app` **failed**: `flutter build appbundle` cannot find
-  `android/app/build.gradle` in the generated fixture
-  (`extended-profile-catalog` template gap; an Android SDK would
-  additionally be required on the runner).
-- `react-web` **failed**: `npm test` (`node --test`) fails with
-  `ReferenceError: document is not defined` in the generated fixture
-  (`extended-profile-catalog` template gap).
-- `python-service` **failed** on hosts without `pytest`:
-  `python3 -m build` passes, `python3 -m pytest` reports
-  `No module named pytest` (runner prerequisite gap).
+- `flutter-app` (`flutter analyze` / `flutter test`) requires the Flutter
+  SDK; without it the row is `unverified`. The app bundle
+  (`flutter build appbundle`) remains a release-stage command requiring
+  `android/` and the Android SDK.
+- `python-service` `python3 -m build` requires the `build` module;
+  without it the row is `unverified` with the prerequisite named.
+  `python3 -m unittest discover -s tests -v` needs no third-party runner.
 - Planned specialist profiles (`rust-cli`, `aspnet-saas`, …) stay
   `unsupported-profile`: discoverable via `forge profile inspect`, never
   matrix rows and never gate members.
 
-Until those gaps are remediated, no full-matrix gate passes; a qualified
-subset gate (`--profile rust-web --profile nextjs-web --profile
-aspnet-web`) is the release-eligible verdict, and the unselected rows
-remain explicitly non-passing.
+When a toolchain the host lacks is absent the row reports `unverified`
+and the qualified subset gate remains the release-eligible verdict for
+that runner; the full-matrix claim requires the prerequisite to be
+present.

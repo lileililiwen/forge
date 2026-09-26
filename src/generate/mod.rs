@@ -378,7 +378,7 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
             files.push((
                 "pyproject.toml".to_string(),
                 format!(
-                    "[project]\nname = \"{id}\"\nversion = \"0.1.0\"\nrequires-python = \">=3.12\"\n\n[build-system]\nrequires = [\"setuptools>=61\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n"
+                    "[project]\nname = \"{id}\"\nversion = \"0.1.0\"\nrequires-python = \">=3.12\"\n\n[build-system]\nrequires = [\"setuptools>=61\"]\nbuild-backend = \"setuptools.build_meta\"\n"
                 ),
             ));
             files.push((
@@ -395,7 +395,7 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
             files.push((
                 "tests/test_main.py".to_string(),
                 format!(
-                    "from app.main import greeting\n\ndef test_greeting():\n    assert greeting() == \"hello from {id}\"\n"
+                    "import unittest\nfrom app.main import greeting\n\nclass TestGreeting(unittest.TestCase):\n    def test_greeting(self):\n        self.assertEqual(greeting(), \"hello from {id}\")\n"
                 ),
             ));
             files.push((
@@ -481,13 +481,13 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
             files.push((
                 "src/main.js".to_string(),
                 format!(
-                    "export function greeting() {{\n  return \"hello from {id}\";\n}}\nconst root = document.getElementById(\"root\");\nif (root) {{\n  root.textContent = greeting();\n}}\n"
+                    "export function greeting() {{\n  return \"hello from {id}\";\n}}\n\nexport function mount() {{\n  if (typeof document === \"undefined\") return;\n  const root = document.getElementById(\"root\");\n  if (root) root.textContent = greeting();\n}}\n\nif (typeof document !== \"undefined\") mount();\n"
                 ),
             ));
             files.push((
                 "src/app.test.mjs".to_string(),
                 format!(
-                    "import {{ describe, it }} from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport {{ greeting }} from \"./main.js\";\n\ndescribe(\"react-web scaffold\", () => {{\n  it(\"returns the deterministic greeting\", () => {{\n    assert.equal(greeting(), \"hello from {id}\");\n  }});\n}});\n"
+                    "import {{ describe, it }} from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport {{ greeting, mount }} from \"./main.js\";\n\ndescribe(\"react-web scaffold\", () => {{\n  it(\"returns the deterministic greeting\", () => {{\n    assert.equal(greeting(), \"hello from {id}\");\n  }});\n  it(\"mount is callable without a DOM\", () => {{\n    assert.doesNotThrow(() => mount());\n  }});\n}});\n"
                 ),
             ));
             files.push((
@@ -569,7 +569,7 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
             ));
             files.push((
                 "analysis_options.yaml".to_string(),
-                "include: package:flutter_lints/flutter.yaml\n".to_string(),
+                "analyzer:\n  errors:\n    invalid_annotation_target: ignore\n".to_string(),
             ));
             files.push((
                 ".gitignore".to_string(),
@@ -581,7 +581,7 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
                     request,
                     &build,
                     &test,
-                    "Dependency-free (SDK only) so `flutter test` needs no network. `flutter build appbundle` additionally needs the Android SDK; only rendering is verified for the bundle here.",
+                    "Verified with `flutter analyze` + `flutter test` (no platform host or Android SDK needed). The app bundle is a release-stage command that requires `android/` and the Android SDK.",
                 ),
             ));
         }

@@ -4006,3 +4006,17 @@ checker requires it). No active changes remain.
 8. Advance `current_spec` to the next active eligible change, or remove the line when no active changes remain; update this evidence, commit HANDOFF separately and stop without push.
 
 Planning-only documentation does not implement, archive or commit active changes. Future blockers must identify the exact failed command and next action; they must not be recorded as completion.
+
+`platform-contract-consumption` implemented, verified and archived on 2026-09-26 as `2026-09-26-platform-contract-consumption`; canonical spec promoted to [openspec/specs/platform-contract-consumption/spec.md](openspec/specs/platform-contract-consumption/spec.md). Forge vendors `platform-contracts@d31495d` under `contracts/` (envelope plus 9 family schemas, `registry.json`, `vocabulary/secret-field-substrings.json` behind `contracts/manifest.json` with revision and per-file sha256), and `src/contract` owns the envelope, family ids, refusing status maps and the `CONTRACTS` inventory (29 rows covering every `0.1.0` constant). CLI `forge contract list` renders the inventory, `inspect <family>` renders the vendored schema, `emit <family> [TARGET]` projects `gate-result`/`readiness`/`release-evidence`/`capability`/`audit-event` from existing Core records (read-only, journals nothing), and `validate <file|->` checks envelope pattern, family, major, required fields and secret-field refusal. Status maps refuse rather than default: `unverified` readiness, `pending`/`partial` journal states and unknown values are typed `contract-invalid`. `policy::redact_credentials` unions the consumed `secret_field_substrings` (credential, private_key, bearer, session_ke, etc.) into the kv-secret redactor. MCP/API/portal gain no contract surface; every existing document stays byte-identical.
+
+## Verification evidence (platform-contract-consumption, 2026-09-26)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --lib -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS; 590 lib tests, 0 failures (1 ignored: native scaffold). New suites: 11 `src/contract` unit tests (digest agreement, inventory completeness/agreement, each mapping row plus refusal, envelope pattern, secret-field refusal, validate accept/refuse for known/unknown/major/secret).
+- CLI: `forge contract list` renders 29-row inventory with source revision; `inspect platform.gate-result` renders schema required fields; `validate -` accepts a valid gate-result envelope and refuses an invalid enum, an unknown family, a major mismatch and a secret-field payload with typed `contract-invalid` and non-zero exit.
+- Cross-surface: `forge mcp serve` `tools/list` unchanged (18 tools, no contract tool); `forge portal view contract` refuses `portal-invalid`; `forge gate status`/`forge check` unchanged.
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 37 passed, 0 failed; `git diff --check`: PASS.
+- Parity: `scripts/contract-parity.sh` walks vendored families against `PLATFORM_CONTRACTS_DIR` or `../platform-contracts` and reports per-family fixture counts; ignored `parity_walk` test fails loudly when asked to run without a source.
+
+current_spec: artifact-and-ci-baseline

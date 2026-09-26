@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/permission-decision.schema.json",
+  "title": "Permission decision",
+  "description": "Result of an authorization check for a subject, action, and resource. Decision and reason_code are the load-bearing status fields and MUST NOT change meaning within a major version.",
+  "type": "object",
+  "required": ["decision_id", "subject_id", "action", "resource", "tenant_id", "decision", "reason_code", "evaluated_at"],
+  "additionalProperties": true,
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.:-]{0,127}$",
+      "description": "Operation being authorized, e.g. 'read:document'."
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Resource identifier the decision applies to, e.g. 'doc:12345'."
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["allow", "deny"],
+      "description": "Authorization outcome."
+    },
+    "reason_code": {
+      "type": "string",
+      "enum": ["role_match", "policy_match", "explicit_deny", "missing_role", "expired", "other"],
+      "description": "Machine-readable explanation that complements decision."
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_id": {
+      "type": ["string", "null"],
+      "maxLength": 128,
+      "description": "Identifier of the policy that produced the decision, if any."
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "source": "platform-contracts",
+  "revision": "d31495d424c8a2366a557a49f23c049e32f60291",
+  "synced_at": "2026-09-26T20:22:00Z",
+  "files": [
+    {
+      "path": "registry.json",
+      "sha256": "102f7ef37988e694c4c13269a85acead680125c6225bb8b22b8e75beb02f73f2"
+    },
+    {
+      "path": "schemas/audit-event.schema.json",
+      "sha256": "c16487861114a2f82b1b43c32b4a4adb47239b29276b0bb09e7b89c177f9eaa5"
+    },
+    {
+      "path": "schemas/capability.schema.json",
+      "sha256": "5ef3390f4099418cf8fbe7bb2d74da85a48a112763bbc26d994eb58d01260631"
+    },
+    {
+      "path": "schemas/envelope.schema.json",
+      "sha256": "9fc64a7631b8410e516b5463485bb7effeda521ed0e5453a99ac03ee635ee26d"
+    },
+    {
+      "path": "schemas/gate-result.schema.json",
+      "sha256": "55750b591f92b3ec183bd2477b92f55b39be7ae824f0af56c90f282c58503215"
+    },
+    {
+      "path": "schemas/identity-subject.schema.json",
+      "sha256": "1750fe0b4b5620c4bbf70ed23f5c6d7dcdcb6554270258b7d90ab6cc9938ac91"
+    },
+    {
+      "path": "schemas/job-outcome.schema.json",
+      "sha256": "4e4808b642da189abc4aa5b2df7a32274b51e55476d6b2a66aae2a4a1f4a7a81"
+    },
+    {
+      "path": "schemas/permission-decision.schema.json",
+      "sha256": "be200609ef3e92c2781ddbb340ce4779fa8249e3f33523609da938897b976994"
+    },
+    {
+      "path": "schemas/readiness.schema.json",
+      "sha256": "d267a1825fcf3c40af9e2f0e0d30cdd21ffe3b479a5f6c8549c4aaef99f7fdda"
+    },
+    {
+      "path": "schemas/registry.schema.json",
+      "sha256": "b55a7a57508dfae38cf2d40f30ad4df27230b2a6b7ebd55b9dcd7b0a200d0961"
+    },
+    {
+      "path": "schemas/release-evidence.schema.json",
+      "sha256": "66941485ba807939e74c1421591ac7e47515bf54546a9f70033d35d89ccedae5"
+    },
+    {
+      "path": "schemas/tenant-context.schema.json",
+      "sha256": "bebd521e67048b2c521f152991dc4cd22048a84572f4c9879faa4fd24a559334"
+    },
+    {
+      "path": "vocabulary/secret-field-substrings.json",
+      "sha256": "edd871391f8770533ff750db018a16bb9405a57c8d604cf420282f3ec7c6fa7d"
+    }
+  ]
+}

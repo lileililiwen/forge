@@ -1130,22 +1130,29 @@ fn contains_ci(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn span_kv_secret(input: &str) -> Option<(usize, usize)> {
     let lower = input.to_ascii_lowercase();
-    let keys = [
-        "password",
-        "passwd",
-        "pwd",
-        "secret",
-        "token",
-        "api_key",
-        "apikey",
-        "api-key",
-        "access_key",
-        "access-key",
+    let mut keys: Vec<String> = vec![
+        "password".to_string(),
+        "passwd".to_string(),
+        "pwd".to_string(),
+        "secret".to_string(),
+        "token".to_string(),
+        "api_key".to_string(),
+        "apikey".to_string(),
+        "api-key".to_string(),
+        "access_key".to_string(),
+        "access-key".to_string(),
     ];
+    for extra in crate::contract::secret_field_substrings() {
+        let e = extra.to_ascii_lowercase();
+        if !keys.iter().any(|k| k == &e) {
+            keys.push(e);
+        }
+    }
+    let keys = keys;
     let mut best: Option<(usize, usize)> = None;
-    for key in keys {
+    for key in &keys {
         let mut search_from = 0;
-        while let Some(rel) = lower[search_from..].find(key) {
+        while let Some(rel) = lower[search_from..].find(key.as_str()) {
             let key_start = search_from + rel;
             let key_end = key_start + key.len();
             // Require a non-letter boundary so `tokenized` does not match.

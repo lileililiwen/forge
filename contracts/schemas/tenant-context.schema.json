@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/tenant-context.schema.json",
+  "title": "Tenant context",
+  "description": "Tenant boundary under which an operation is executed. The environment and isolation_level values are status-like and must be reviewed for compatibility.",
+  "type": "object",
+  "required": ["tenant_id", "environment", "active_at"],
+  "additionalProperties": true,
+  "properties": {
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    },
+    "tenant_name": {
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["production", "staging", "development", "test"]
+    },
+    "region": {
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "isolation_level": {
+      "type": "string",
+      "enum": ["logical", "dedicated"]
+    },
+    "active_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

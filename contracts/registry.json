@@ -1,0 +1,98 @@
+{
+  "contracts": {
+    "platform.identity-subject": {
+      "schema": "schemas/identity-subject.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["subject_type", "authentication.method"],
+      "security_sensitive_fields": ["subject_id", "tenant_id", "authentication.expires_at"],
+      "owner_runtime": "identity-admin (C#) and identity-rs (Rust)",
+      "description": "Identifies the actor requesting an operation. The runtime owner resolves the subject before producing a permission decision."
+    },
+    "platform.permission-decision": {
+      "schema": "schemas/permission-decision.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["decision", "reason_code"],
+      "security_sensitive_fields": ["subject_id", "tenant_id", "policy_id"],
+      "owner_runtime": "identity-admin (C#) and identity-rs (Rust)",
+      "description": "Captures the result of an authorization check for a subject, action, and resource."
+    },
+    "platform.tenant-context": {
+      "schema": "schemas/tenant-context.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["environment", "isolation_level"],
+      "security_sensitive_fields": ["tenant_id"],
+      "owner_runtime": "identity-admin (C#) and identity-rs (Rust)",
+      "description": "Describes the tenant boundary under which an operation is executed."
+    },
+    "platform.audit-event": {
+      "schema": "schemas/audit-event.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["category", "outcome"],
+      "security_sensitive_fields": ["actor.subject_id", "tenant_id", "resource"],
+      "owner_runtime": "driftwatchdog (cross-runtime) and per-service emitters",
+      "description": "Records a security- or governance-relevant event for later review. Producers MUST redact secrets before emitting."
+    },
+    "platform.readiness": {
+      "schema": "schemas/readiness.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["status", "checks.status"],
+      "security_sensitive_fields": ["tenant_id"],
+      "owner_runtime": "per-service (C#/Rust/TypeScript) — emitted on /healthz and /readyz endpoints",
+      "description": "Service health and readiness report. Status values are bounded and forward-compatible."
+    },
+    "platform.gate-result": {
+      "schema": "schemas/gate-result.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["result", "checks.status"],
+      "security_sensitive_fields": ["subject_ref", "tenant_id"],
+      "owner_runtime": "driftwatchdog (gate runner)",
+      "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed."
+    },
+    "platform.job-outcome": {
+      "schema": "schemas/job-outcome.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["result"],
+      "security_sensitive_fields": ["tenant_id"],
+      "owner_runtime": "per-job runner (C#/Rust)",
+      "description": "Terminal outcome of a background job, including counts and timing."
+    },
+    "platform.release-evidence": {
+      "schema": "schemas/release-evidence.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["evidence_kind"],
+      "security_sensitive_fields": ["tenant_id", "artifact_refs"],
+      "owner_runtime": "driftwatchdog (release publisher)",
+      "description": "Evidence envelope that ties a release to its artifacts, gates, and metadata."
+    },
+    "platform.capability": {
+      "schema": "schemas/capability.schema.json",
+      "supported_major_versions": [0],
+      "current_version": "0.1.0",
+      "status_fields": ["stability"],
+      "security_sensitive_fields": ["capability_id", "service"],
+      "owner_runtime": "per-service manifest publisher (C#/Rust)",
+      "description": "Self-declared capability of a service: which contracts it can produce or consume, and at what stability level."
+    }
+  },
+  "secret_field_substrings": [
+    "password",
+    "passwd",
+    "token",
+    "secret",
+    "apikey",
+    "api_key",
+    "credential",
+    "private_key",
+    "privatekey",
+    "bearer",
+    "session_ke"
+  ]
+}

@@ -411,6 +411,11 @@ enum Commands {
         #[arg(long, value_name = "SECS")]
         timeout_secs: Option<u64>,
     },
+    /// Vendor, inspect and project platform contracts into envelopes.
+    Contract {
+        #[command(subcommand)]
+        command: ContractCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -1099,6 +1104,30 @@ enum FleetCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum ContractCommands {
+    /// List every versioned surface and its platform mapping.
+    List,
+    /// Inspect one platform family and its schema.
+    Inspect {
+        /// Platform family (e.g. `platform.gate-result`).
+        family: String,
+    },
+    /// Project a Core record into a platform envelope (read-only).
+    Emit {
+        /// Platform family (e.g. `platform.gate-result`).
+        family: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Validate a contract envelope against the vendored schemas.
+    Validate {
+        /// File to validate, or `-` for stdin.
+        file: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1320,6 +1349,7 @@ fn main() -> ExitCode {
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
+        Commands::Contract { command } => cmd_contract(&db_path, command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -5837,4 +5867,188 @@ fn cmd_gate_run(
     };
     render_output(output);
     verdict
+}
+
+fn cmd_contract(
+    db_path: &Path,
+    command: &ContractCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        ContractCommands::List => {
+            let manifest = forge::contract::load_manifest()?;
+            let mut human = format!(
+                "{:<18} {:<28} {:<10} {}",
+                "Module", "Constant", "Version", "Family"
+            );
+            for spec in forge::contract::CONTRACTS {
+                human.push_str(&format!(
+                    "\n{:<18} {:<28} {:<10} {}",
+                    spec.module,
+                    spec.constant,
+                    spec.version,
+                    spec.platform_family.unwrap_or("-")
+                ));
+            }
+            human.push_str(&format!(
+                "\nsource: {}@{}",
+                manifest.source,
+                &manifest.revision[..12.min(manifest.revision.len())]
+            ));
+            let json = serde_json::json!({
+                "contracts": forge::contract::CONTRACTS.iter().map(|c| serde_json::json!({
+                    "module": c.module, "constant": c.constant, "discriminator": c.discriminator,
+                    "version": c.version, "platform_family": c.platform_family, "doc": c.doc
+                })).collect::<Vec<_>>(),
+                "manifest": manifest,
+            });
+            Ok(as_output(format, human, json))
+        }
+        ContractCommands::Inspect { family } => {
+            let manifest = forge::contract::load_manifest()?;
+            let entry = manifest.files.iter().find(|f| {
+                let fam_file = family.strip_prefix("platform.").unwrap_or(family);
+                f.path.contains(fam_file)
+            });
+            let schema_path = forge::contract::family_schema_path(family).ok_or_else(|| {
+                ForgeError::ContractInvalid {
+                    reason: format!(
+                        "unknown family '{family}'; supported: {}",
+                        forge::contract::supported_families().join(", ")
+                    ),
+                }
+            })?;
+            let schema_text =
+                std::fs::read_to_string(forge::contract::contracts_dir().join(schema_path))
+                    .map_err(|e| ForgeError::ContractInvalid {
+                        reason: format!("cannot read schema {schema_path}: {e}"),
+                    })?;
+            let schema: serde_json::Value =
+                serde_json::from_str(&schema_text).map_err(|e| ForgeError::ContractInvalid {
+                    reason: format!("invalid schema: {e}"),
+                })?;
+            let required = schema
+                .get("required")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let human = format!(
+                "family: {family}\ncontract: {}/0.1.0\nschema: {schema_path}\nrequired: {}\n{}",
+                family,
+                required.join(", "),
+                schema_text.lines().take(20).collect::<Vec<_>>().join("\n")
+            );
+            let _ = entry;
+            let json =
+                serde_json::json!({"family": family, "schema": schema, "manifest": manifest});
+            Ok(as_output(format, human, json))
+        }
+        ContractCommands::Emit { family, target } => {
+            let doc = match family.as_str() {
+                "platform.gate-result" => {
+                    let (dir, pid) = resolve_gate_target(db_path, target)?;
+                    forge::contract::emit_gate_result(&dir, &pid)?
+                }
+                "platform.readiness" => {
+                    let docs = forge::contract::emit_readiness(Path::new(target), None)?;
+                    if docs.is_empty() {
+                        return Err(ForgeError::ContractInvalid {
+                            reason: "no readiness data".to_string(),
+                        });
+                    }
+                    docs.into_iter().next().unwrap()
+                }
+                "platform.release-evidence" => {
+                    let dir = Path::new(target);
+                    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(dir, None)
+                        .map_err(|e| ForgeError::ContractInvalid {
+                        reason: e.to_string(),
+                    })?;
+                    let pid = manifest.project.id.clone();
+                    let releases =
+                        forge::release::engine::list_releases(dir, &pid).map_err(|e| {
+                            ForgeError::ContractInvalid {
+                                reason: e.to_string(),
+                            }
+                        })?;
+                    let latest = releases
+                        .first()
+                        .ok_or_else(|| ForgeError::ContractInvalid {
+                            reason: "no release state for this project".to_string(),
+                        })?;
+                    forge::contract::emit_release_evidence(dir, &pid, &latest.release_id)?
+                }
+                "platform.capability" => {
+                    let dir = Path::new(target);
+                    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(dir, None)
+                        .map_err(|e| ForgeError::ContractInvalid {
+                        reason: e.to_string(),
+                    })?;
+                    let pid = manifest.project.id.clone();
+                    forge::contract::emit_capability(dir, &pid)?.ok_or_else(|| {
+                        ForgeError::ContractInvalid {
+                            reason: "no capabilities block in .project.json".to_string(),
+                        }
+                    })?
+                }
+                "platform.audit-event" => {
+                    let docs = forge::contract::emit_audit_events(db_path, 64)?;
+                    if docs.is_empty() {
+                        return Err(ForgeError::ContractInvalid {
+                            reason: "no audit events to emit".to_string(),
+                        });
+                    }
+                    docs.into_iter().next().unwrap()
+                }
+                "platform.job-outcome" => {
+                    return Err(ForgeError::ContractInvalid {
+                        reason: "platform.job-outcome has no source record in this release"
+                            .to_string(),
+                    });
+                }
+                _ => {
+                    return Err(ForgeError::ContractInvalid {
+                        reason: format!(
+                            "unknown family '{family}'; supported: {}",
+                            forge::contract::supported_families().join(", ")
+                        ),
+                    })
+                }
+            };
+            forge::contract::validate_envelope(&doc)
+                .map_err(|e| ForgeError::ContractInvalid { reason: e })?;
+            let human = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| doc.to_string());
+            Ok(as_output(format, human, doc))
+        }
+        ContractCommands::Validate { file } => {
+            let text = if file == "-" {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf).map_err(|e| {
+                    ForgeError::ContractInvalid {
+                        reason: e.to_string(),
+                    }
+                })?;
+                buf
+            } else {
+                std::fs::read_to_string(file).map_err(|e| ForgeError::ContractInvalid {
+                    reason: format!("cannot read {file}: {e}"),
+                })?
+            };
+            let doc: serde_json::Value =
+                serde_json::from_str(&text).map_err(|e| ForgeError::ContractInvalid {
+                    reason: format!("invalid JSON: {e}"),
+                })?;
+            forge::contract::validate_envelope(&doc)
+                .map_err(|e| ForgeError::ContractInvalid { reason: e })?;
+            let human = format!(
+                "valid: {}",
+                doc.get("contract")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+            );
+            let json = serde_json::json!({"valid": true, "contract": doc.get("contract")});
+            Ok(as_output(format, human, json))
+        }
+    }
 }

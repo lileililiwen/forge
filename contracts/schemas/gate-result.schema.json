@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/gate-result.schema.json",
+  "title": "Gate result",
+  "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed; new result values require a major version bump.",
+  "type": "object",
+  "required": ["gate_id", "pipeline", "evaluated_at", "result"],
+  "additionalProperties": true,
+  "properties": {
+    "gate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "pipeline": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.-]{0,127}$"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "result": {
+      "type": "string",
+      "enum": ["passed", "failed", "errored", "skipped"]
+    },
+    "subject_ref": {
+      "type": ["string", "null"],
+      "maxLength": 256,
+      "description": "Identifier of the run, build, or change set being gated."
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_id", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "errored", "skipped"]
+          },
+          "detail": {
+            "type": ["string", "null"],
+            "maxLength": 512
+          }
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    }
+  }
+}

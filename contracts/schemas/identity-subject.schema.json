@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/identity-subject.schema.json",
+  "title": "Identity subject",
+  "description": "Identifies the actor requesting an operation. Includes the subject type, tenant, display metadata, and authentication context. Sensitive credential material is NEVER embedded here — auth method only.",
+  "type": "object",
+  "required": ["subject_id", "subject_type", "tenant_id"],
+  "additionalProperties": true,
+  "properties": {
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "description": "Stable identifier of the subject within the owning tenant."
+    },
+    "subject_type": {
+      "type": "string",
+      "enum": ["user", "service", "api_key", "anonymous"],
+      "description": "Kind of subject the document describes."
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+      "description": "Tenant under which the subject is acting."
+    },
+    "display_name": {
+      "type": ["string", "null"],
+      "maxLength": 256,
+      "description": "Optional human-readable label. MUST NOT contain secrets."
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["method", "issued_at"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["password", "oauth2", "sso", "api_key", "certificate"],
+          "description": "How the subject was authenticated."
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

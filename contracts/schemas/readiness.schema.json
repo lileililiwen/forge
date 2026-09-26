@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/readiness.schema.json",
+  "title": "Readiness result",
+  "description": "Service health and readiness report. Status values are bounded and forward-compatible; the named checks surface dependency state.",
+  "type": "object",
+  "required": ["service", "status", "checked_at"],
+  "additionalProperties": true,
+  "properties": {
+    "service": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ready", "degraded", "not_ready"]
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ready", "degraded", "not_ready"]
+          },
+          "observed_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "detail": {
+            "type": ["string", "null"],
+            "maxLength": 512
+          }
+        }
+      }
+    },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    }
+  }
+}

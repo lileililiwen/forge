@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/envelope.schema.json",
+  "title": "Platform contract envelope",
+  "description": "Wraps every shared contract document. Identifies the contract family by namespaced identifier and semantic version, carries the producer timestamp, and holds the contract-specific payload. Additional top-level keys beyond contract, generated_at, and payload are forward-compatible non-security metadata.",
+  "type": "object",
+  "required": ["contract", "generated_at", "payload"],
+  "additionalProperties": true,
+  "properties": {
+    "contract": {
+      "type": "string",
+      "description": "Namespaced contract identifier and semantic version, e.g. 'platform.identity-subject/0.1.0'.",
+      "pattern": "^platform\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\/[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "RFC3339 UTC timestamp at which the producer emitted the document.",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Contract-specific data. Validated against the per-contract schema referenced by the contract identifier."
+    }
+  }
+}

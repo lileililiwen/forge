@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/audit-event.schema.json",
+  "title": "Audit event",
+  "description": "Security- or governance-relevant event. Producers MUST redact secrets before emitting. Category and outcome are the status-like fields that downstream tooling depends on.",
+  "type": "object",
+  "required": ["event_id", "occurred_at", "category", "action", "outcome", "actor", "tenant_id"],
+  "additionalProperties": true,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["permission", "data_access", "configuration", "authentication", "lifecycle", "other"]
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.:-]{0,127}$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["success", "failure", "denied", "unknown"]
+    },
+    "actor": {
+      "type": "object",
+      "required": ["subject_id", "subject_type"],
+      "additionalProperties": true,
+      "properties": {
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "subject_type": {
+          "type": "string",
+          "enum": ["user", "service", "api_key", "anonymous"]
+        }
+      }
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    },
+    "resource": {
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Free-form context. MUST NOT contain raw credentials."
+    }
+  }
+}

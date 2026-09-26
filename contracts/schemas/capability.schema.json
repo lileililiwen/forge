@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/capability.schema.json",
+  "title": "Capability declaration",
+  "description": "Self-declared capability of a service: which contracts it can produce or consume, and at what stability level. Stability transitions from stable to deprecated are governed by compatibility fixtures.",
+  "type": "object",
+  "required": ["capability_id", "service", "version", "declared_at", "stability"],
+  "additionalProperties": true,
+  "properties": {
+    "capability_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.-]{0,127}$"
+    },
+    "service": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]{1,32})?$"
+    },
+    "declared_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "stability": {
+      "type": "string",
+      "enum": ["stable", "experimental", "deprecated"]
+    },
+    "contract_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^platform\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\/[0-9]+\\.[0-9]+\\.[0-9]+$"
+      }
+    },
+    "description": {
+      "type": ["string", "null"],
+      "maxLength": 512
+    }
+  }
+}

@@ -9,6 +9,7 @@ pub mod analytics;
 pub mod api;
 pub mod checker;
 pub mod component;
+pub mod contract;
 pub mod core;
 pub mod deploy;
 pub mod distribution;

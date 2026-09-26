@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/release-evidence.schema.json",
+  "title": "Release evidence",
+  "description": "Evidence envelope that ties a release to its artifacts, gates, and metadata. The evidence_kind field controls downstream treatment and is treated as a status value.",
+  "type": "object",
+  "required": ["release_id", "service", "version", "released_at", "evidence_kind"],
+  "additionalProperties": true,
+  "properties": {
+    "release_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "service": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]{0,127}$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]{1,32})?$"
+    },
+    "released_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_kind": {
+      "type": "string",
+      "enum": ["deploy", "rollback", "dry_run"]
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "gate_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+    }
+  }
+}

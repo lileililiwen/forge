@@ -602,6 +602,151 @@ fn gate_evidence_finding(dir: &Path) -> Finding {
     }
 }
 
+/// Gate release-evidence finding (`gate-evidence-export-consumption`).
+/// Doctor reads the persisted consumed release-evidence record for the
+/// project and reports the state distribution: pass when at least one field
+/// is `verified` and the record is fresh; warn on stale, partially
+/// evidenced or refused entries; fail for the specific inconsistency a
+/// declaration asserting `verified` in `evidence_status` while carrying no
+/// `release_evidence` block at all (the pattern the structural audit cannot
+/// see today). Non-gating by construction: not-applicable when neither a
+/// declaration nor an export exists, so absence never lowers health,
+/// never changes a maturity verdict and never alters an exit code.
+fn release_evidence_finding(dir: &Path) -> Option<Finding> {
+    use crate::gate::evidence::EvidenceFreshness;
+
+    let _current = crate::gate::capture_revision(dir);
+    let metadata_path = dir.join(crate::generate::workspace::METADATA_PATH);
+    let has_declaration = metadata_path.is_file();
+
+    match crate::gate::evidence::load_latest_release_evidence(dir) {
+        Ok(Some(record)) => {
+            let freshness_label = record.freshness.label();
+            let state_summary = format!(
+                "freshness={} verified={} configured={} declared={} unverified={} refused={}",
+                freshness_label,
+                record.counts.verified,
+                record.counts.configured,
+                record.counts.declared,
+                record.counts.unverified,
+                record.counts.refused,
+            );
+            let mut evidence_lines = vec![state_summary];
+
+            // Check for the specific inconsistency: declaration says verified
+            // but no release_evidence block exists.
+            if has_declaration {
+                let raw = fs::read(&metadata_path).ok()?;
+                let value: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+                let declared_verified = value
+                    .get("verification")
+                    .and_then(|v| v.get("evidence_status"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_lowercase())
+                    .map(|s| s == "verified")
+                    .unwrap_or(false);
+                if declared_verified && record.counts.verified == 0 {
+                    // The declaration asserts verified but the consumed record
+                    // has zero verified fields.
+                    return Some(Finding::new(
+                        "release-evidence",
+                        FindingStatus::Fail,
+                        evidence_lines,
+                        true,
+                        Remediation::Manual,
+                        "declaration asserts evidence_status=verified but the consumed gate export has zero verified fields; this is the assertion-without-evidence pattern the structural audit cannot see",
+                    ));
+                }
+            }
+
+            let (status, detail) = match (record.counts.verified, record.freshness) {
+                (n, _) if n > 0 && record.freshness == EvidenceFreshness::Fresh => (
+                    FindingStatus::Pass,
+                    "release-evidence record is fresh with verified fields",
+                ),
+                (n, EvidenceFreshness::Stale) if n > 0 => (
+                    FindingStatus::Warn,
+                    "release-evidence record has verified fields but is stale: the working revision moved",
+                ),
+                (0, EvidenceFreshness::Fresh) if record.counts.configured > 0 => (
+                    FindingStatus::Warn,
+                    "release-evidence record is fresh but all fields are configured or below; no field is verified yet",
+                ),
+                (0, _) if record.counts.refused > 0 => (
+                    FindingStatus::Warn,
+                    "release-evidence record has refused entries that could not be consumed",
+                ),
+                (0, _) => (
+                    FindingStatus::Warn,
+                    "release-evidence record exists but no field is verified",
+                ),
+                _ => (
+                    FindingStatus::Warn,
+                    "release-evidence record has a mixed state distribution",
+                ),
+            };
+
+            if record.counts.refused > 0 {
+                evidence_lines.push(format!(
+                    "{} field(s) refused during consumption",
+                    record.counts.refused
+                ));
+            }
+
+            Some(Finding::new(
+                "release-evidence",
+                status,
+                evidence_lines,
+                true,
+                Remediation::Manual,
+                detail,
+            ))
+        }
+        Ok(None) => {
+            // No consumed export. If the project has a declaration asserting
+            // verified without a release_evidence block, that is the failure
+            // mode this finding exists to surface.
+            if has_declaration {
+                let raw = fs::read(&metadata_path).ok()?;
+                let value: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+                let declared_verified = value
+                    .get("verification")
+                    .and_then(|v| v.get("evidence_status"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_lowercase())
+                    .map(|s| s == "verified")
+                    .unwrap_or(false);
+                if declared_verified {
+                    return Some(Finding::new(
+                        "release-evidence",
+                        FindingStatus::Fail,
+                        vec![format!(
+                            "{}/",
+                            crate::gate::evidence::release_evidence_path("*")
+                                .parent()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|| format!("{}/release-evidence", crate::gate::GATE_EVIDENCE_DIR))
+                        )],
+                        true,
+                        Remediation::Manual,
+                        "declaration asserts evidence_status=verified but no release_evidence block exists and no gate evidence export has been consumed",
+                    ));
+                }
+            }
+            // No declaration or declaration does not assert verified.
+            None
+        }
+        Err(err) => Some(Finding::new(
+            "release-evidence",
+            FindingStatus::Unavailable,
+            vec![err.to_string()],
+            true,
+            Remediation::Manual,
+            "persisted release-evidence record cannot be read",
+        )),
+    }
+}
+
 /// Declaration-vocabulary divergence (`governance-vocabulary-consumption`).
 /// Doctor compares the project's `.project.json` declaration against the
 /// consumed governance vocabulary and reports divergence without ever
@@ -1237,6 +1382,15 @@ pub fn run_doctor(
     // with neither a declaration nor recorded evidence keep the finding
     // not-applicable so no surface renders silence as health.
     findings.push(gate_evidence_finding(dir));
+
+    // Release-evidence consumption: reads the consumed export record and
+    // reports the per-field state distribution. Fails the specific
+    // inconsistency (verified declaration with no release_evidence block)
+    // that the structural audit cannot see; warns on stale or partial
+    // records; not-applicable when neither declaration nor export exists.
+    if let Some(finding) = release_evidence_finding(dir) {
+        findings.push(finding);
+    }
 
     // Registry observation: registered + fresh / stale / not registered.
     let mtime = manifest_mtime(dir);

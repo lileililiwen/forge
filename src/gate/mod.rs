@@ -40,6 +40,8 @@ use std::time::{Duration, Instant};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 
+pub mod evidence;
+
 use crate::core::ForgeError;
 use crate::policy::{first_binary_on_path, redact_credentials, DRIFTWATCH_BINARY_CANDIDATES};
 

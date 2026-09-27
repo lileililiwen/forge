@@ -277,6 +277,9 @@ pub enum ForgeError {
     #[error("gate runtime unavailable: {reason}")]
     GateRuntimeUnavailable { reason: String },
 
+    #[error("gate evidence unavailable: {reason}")]
+    GateEvidenceUnavailable { reason: String },
+
     #[error("contract invalid: {reason}")]
     ContractInvalid { reason: String },
 }
@@ -372,6 +375,7 @@ impl ForgeError {
             ForgeError::FleetRegistryInvalid { .. } => "fleet-registry-invalid",
             ForgeError::GateInvalid { .. } => "gate-invalid",
             ForgeError::GateRuntimeUnavailable { .. } => "gate-runtime-unavailable",
+            ForgeError::GateEvidenceUnavailable { .. } => "gate-evidence-unavailable",
             ForgeError::ContractInvalid { .. } => "contract-invalid",
         }
     }

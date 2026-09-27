@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use forge::registry::Registry;
+use forge::gate::GATE_CONTRACT_VERSION;
 
 fn forge_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_forge"))
@@ -679,4 +680,467 @@ fn env_override_beats_the_declaration_and_runs_exactly_that_binary() {
     // stem are the attribution, not the declared probe.
     assert_eq!(value["gate"]["runtime"], "gate-pass");
     assert_eq!(value["gate"]["runtime_version"], "driftwatch 0.1.0");
+}
+
+// ─── gate evidence-export consumption tests ───────────────────────────────────
+
+/// Evidence export fixture path.
+fn evidence_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/gate-evidence")
+        .join(name)
+}
+
+/// Stub that emits the evidence-export JSON via `gate evidence-export --format json`.
+/// Copies the fixture to a temp file, replaces the hardcoded project_id with the
+/// test's project id, and cats it.
+fn evidence_export_stub_with_project(
+    dir: &Path,
+    name: &str,
+    fixture: &str,
+    project_id: &str,
+    exit: &str,
+) -> PathBuf {
+    let src = evidence_fixture(fixture);
+    let text = fs::read_to_string(&src).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let mut adjusted = json;
+    adjusted["project_id"] = serde_json::json!(project_id);
+    let json_path = dir.join(format!("{name}.json"));
+    fs::write(&json_path, serde_json::to_string_pretty(&adjusted).unwrap()).unwrap();
+    let json_str = json_path.display().to_string();
+    write_script(
+        dir,
+        name,
+        &format!(
+            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit {exit}; fi
+echo 'unrecognized'
+exit 1
+"
+        ),
+    )
+}
+
+/// Stub emitting an export with a specific project id.
+fn evidence_export_stub(
+    dir: &Path,
+    name: &str,
+    fixture: &str,
+    project_id: &str,
+    exit: &str,
+) -> PathBuf {
+    evidence_export_stub_with_project(dir, name, fixture, project_id, exit)
+}
+
+/// Stub that produces no export document (runtime unavailable).
+fn evidence_unavailable_stub(dir: &Path, name: &str) -> PathBuf {
+    write_script(
+        dir,
+        name,
+        "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+echo 'no gate run found'
+exit 1
+",
+    )
+}
+
+/// Stub that emits malformed JSON.
+fn evidence_malformed_stub(dir: &Path, name: &str) -> PathBuf {
+    write_script(
+        dir,
+        name,
+        "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+echo '{ not json'
+exit 0
+",
+    )
+}
+
+/// Stub emitting an export with an unknown field name.
+fn evidence_unknown_field_stub(dir: &Path, name: &str, project_id: &str) -> PathBuf {
+    // Write the JSON to a temp file and cat it.
+    let json_path = dir.join(format!("{name}.json"));
+    let json = format!(
+        r#"{{"schema_version": 1, "project_id": "{project_id}", "revision": "deadbeef12345678", "toolchain": "driftwatchdog@0.1.0", "fields": [{{"field": "unknown-field-x", "state": "unverified"}}, {{"field": "revision", "state": "verified", "evidence_ref": "revision-ref"}}], "gate_run_id": 99}}"#,
+        project_id = project_id
+    );
+    fs::write(&json_path, json).unwrap();
+    let json_str = json_path.display().to_string();
+    write_script(
+        dir,
+        name,
+        &format!(
+            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit 0; fi
+echo 'unrecognized'
+exit 1
+"
+        ),
+    )
+}
+
+/// Stub emitting a verified publication without digests (contradiction).
+fn evidence_publication_contradiction_stub(dir: &Path, name: &str, project_id: &str) -> PathBuf {
+    let json_path = dir.join(format!("{name}.json"));
+    let json = format!(
+        r#"{{"schema_version": 1, "project_id": "{project_id}", "revision": "deadbeef12345678", "toolchain": "driftwatchdog@0.1.0", "fields": [{{"field": "publication", "state": "verified", "evidence_ref": "pub-ref"}}, {{"field": "digests", "state": "unverified"}}], "gate_run_id": 99}}"#,
+        project_id = project_id
+    );
+    fs::write(&json_path, json).unwrap();
+    let json_str = json_path.display().to_string();
+    write_script(
+        dir,
+        name,
+        &format!(
+            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit 0; fi
+echo 'unrecognized'
+exit 1
+"
+        ),
+    )
+}
+
+fn gate_evidence_cmd(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> GateRun {
+    let mut cmd = Command::new(forge_bin());
+    cmd.env_remove("FORGE_REGISTRY")
+        .env_remove("FORGE_GATE_BIN")
+        .env_remove("FORGE_DRIFTWATCH_BIN")
+        .env_remove("FORGE_WORKSPACE_ROOT")
+        .env_remove("FORGE_WORKSPACE_REGISTRY")
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("ALL_PROXY");
+    if let Some(binary) = gate_bin {
+        cmd.env("FORGE_GATE_BIN", binary);
+    }
+    cmd.arg("--registry")
+        .arg(db)
+        .arg("--format")
+        .arg("json")
+        .arg("gate");
+    for arg in args {
+        cmd.arg(arg);
+    }
+    let out = cmd.output().expect("run forge gate evidence");
+    GateRun {
+        status: out.status.code().unwrap_or(-1),
+        stdout: lossy(&out.stdout).to_string(),
+        stderr: lossy(&out.stderr).to_string(),
+    }
+}
+
+fn evidence_json(run: &GateRun) -> serde_json::Value {
+    serde_json::from_str(&run.stdout).expect("evidence json")
+}
+
+fn evidence_status_file(proj: &Path, id: &str) -> PathBuf {
+    proj.join(".forge/gate")
+        .join(id)
+        .join("release-evidence.json")
+}
+
+#[test]
+fn evidence_command_runs_and_persists_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-persist");
+
+    let stub = evidence_export_stub(
+        tmp.path(),
+        "gate-evid.sh",
+        "forge-all-unverified.json",
+        "evid-persist",
+        "0",
+    );
+
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    assert_eq!(run.status, 0, "stderr: {}", run.stderr);
+
+    let value = evidence_json(&run);
+    assert_eq!(value["contract"], "release-evidence/0.1.0");
+    assert_eq!(value["release_evidence"]["project_id"], "evid-persist");
+    assert!(value["persisted"].is_string());
+
+    // Persisted file exists.
+    let evid_path = evidence_status_file(&proj, "evid-persist");
+    assert!(
+        evid_path.exists(),
+        "release-evidence.json should exist at {}",
+        evid_path.display()
+    );
+
+    // Journal has a gate row.
+    let journal = journal_for(&db, "evid-persist");
+    assert!(!journal.is_empty(), "journal should not be empty");
+}
+
+#[test]
+fn evidence_status_reads_persisted_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-status");
+
+    let stub = evidence_export_stub(
+        tmp.path(),
+        "gate-evid.sh",
+        "forge-all-unverified.json",
+        "evid-status",
+        "0",
+    );
+
+    // First run: persist.
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    assert_eq!(run.status, 0, "{}", run.stderr);
+
+    // Second run: read.
+    let run = gate_evidence_cmd(&db, &["evidence", "status", &proj.display().to_string()], Some(&stub));
+    assert_eq!(run.status, 0, "{}", run.stderr);
+    let value = evidence_json(&run);
+    assert_eq!(value["contract"], "release-evidence/0.1.0");
+    assert_eq!(value["release_evidence"]["project_id"], "evid-status");
+}
+
+#[test]
+fn evidence_status_absent_without_prior_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-absent");
+
+    let stub = evidence_unavailable_stub(tmp.path(), "gate-evid.sh");
+    let run = gate_evidence_cmd(&db, &["evidence", "status", &proj.display().to_string()], Some(&stub));
+    eprintln!("DEBUG status={} stdout={}", run.status, run.stdout);
+    assert_eq!(run.status, 1, "{}", run.stderr);
+    let value = evidence_json(&run);
+    assert!(value["release_evidence"].is_null());
+    assert_eq!(value["freshness"], "absent");
+}
+
+#[test]
+fn evidence_export_unavailable_when_runtime_absent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-unavail");
+
+    // No gate binary at all.
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], None);
+    assert_ne!(run.status, 0, "should fail when no runtime");
+    assert!(
+        run.stderr.contains("gate-evidence-unavailable"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn evidence_export_refused_on_unknown_field() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-refused");
+
+    let stub = evidence_unknown_field_stub(tmp.path(), "gate-evid.sh", "evid-refused");
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    // Refused → non-zero exit.
+    assert_ne!(run.status, 0, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("refused") || run.stderr.contains("unknown"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn evidence_export_refused_on_publication_contradiction() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-contradict");
+
+    let stub = evidence_publication_contradiction_stub(tmp.path(), "gate-evid.sh", "evid-contradict");
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    assert_ne!(run.status, 0, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("contradiction") || run.stderr.contains("publication"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn evidence_export_refused_on_blocked_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-blocked");
+
+    let doc = r#"{
+  "schema_version": 1,
+  "project_id": "evid-blocked",
+  "revision": "deadbeef12345678",
+  "toolchain": "driftwatchdog@0.1.0",
+  "fields": [{"field": "revision", "state": "blocked"}],
+  "gate_run_id": 99
+}
+"#;
+    let stub = {
+        let path = tmp.path().join("blocked-export.json");
+        fs::write(&path, doc).unwrap();
+        let path_str = path.display().to_string();
+        write_script(
+            tmp.path(),
+            "gate-evid.sh",
+            &format!(
+                "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{path_str}'; exit 0; fi
+echo 'unrecognized'
+exit 1
+"
+            ),
+        )
+    };
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    assert_ne!(run.status, 0, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("blocked"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn evidence_refused_count_in_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-counts");
+
+    // Export with mixed states: some verified, some configured, some refused.
+    let base: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(evidence_fixture("forge-all-unverified.json")).unwrap())
+            .unwrap();
+    let mut doc = base;
+    doc["project_id"] = serde_json::json!("evid-counts");
+    doc["fields"][0] = serde_json::json!({
+        "field": "revision",
+        "state": "verified",
+        "evidence_ref": "revision-ref"
+    });
+    doc["fields"][1] = serde_json::json!({
+        "field": "version",
+        "state": "configured"
+    });
+    doc["fields"][8] = serde_json::json!({
+        "field": "unknown-field-x",
+        "state": "unverified"
+    });
+
+    let path = tmp.path().join("mixed-export.json");
+    fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+    let path_str = path.display().to_string();
+    let stub = write_script(
+        tmp.path(),
+        "gate-evid.sh",
+        &format!(
+            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{path_str}'; exit 0; fi
+echo 'unrecognized'
+exit 1
+"
+        ),
+    );
+
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    // The unknown field should be refused.
+    assert_ne!(run.status, 0, "{}", run.stderr);
+}
+
+#[test]
+fn evidence_unavailable_on_malformed_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-malform");
+
+    let stub = evidence_malformed_stub(tmp.path(), "gate-evid.sh");
+    let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
+    assert_ne!(run.status, 0, "{}", run.stderr);
+    assert!(
+        run.stderr.contains("gate-evidence-unavailable"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn evidence_dry_run_and_timeout_flags_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-flags");
+
+    let stub = evidence_export_stub(
+        tmp.path(),
+        "gate-evid.sh",
+        "forge-all-unverified.json",
+        "evid-flags",
+        "0",
+    );
+
+    let run = gate_evidence_cmd(
+        &db,
+        &["evidence", "--dry-run", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert!(run.stderr.contains("--dry-run"), "{}", run.stderr);
+
+    let run = gate_evidence_cmd(
+        &db,
+        &["evidence", "--timeout-secs", "300", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert!(run.stderr.contains("--timeout-secs"), "{}", run.stderr);
+}
+
+#[test]
+fn evidence_status_rejects_extra_positionals() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-status-args");
+
+    let stub = evidence_export_stub(
+        tmp.path(),
+        "gate-evid.sh",
+        "forge-all-unverified.json",
+        "evid-status-args",
+        "0",
+    );
+
+    let run = gate_evidence_cmd(
+        &db,
+        &[
+            "evidence",
+            "status",
+            &proj.display().to_string(),
+            "extra-arg",
+        ],
+        Some(&stub),
+    );
+    assert_ne!(run.status, 0);
+    assert!(
+        run.stderr.contains("extra") || run.stderr.contains("at most"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn gate_verdict_surface_byte_identity_with_evidence_command() {
+    // Adding `forge gate evidence` must not change the gate verdict surface.
+    // Run `forge gate status` and verify the output shape.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "gate-unchanged");
+
+    let stub = passing_stub(tmp.path());
+    let run = gate(&db, &[&proj.display().to_string()], Some(&stub));
+    assert_eq!(run.status, 0, "{}", run.stderr);
+    let value = gate_json(&run);
+    assert_eq!(value["contract"], GATE_CONTRACT_VERSION);
+    assert_eq!(value["gate"]["aggregate"], "passed");
 }

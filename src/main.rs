@@ -5622,9 +5622,20 @@ fn cmd_gate(
     timeout_secs: Option<u64>,
     format: Format,
 ) -> ExitCode {
-    // Parse the `status | TARGET` positional form before anything runs.
-    let (status_form, target) = match args.split_first() {
-        None => (false, ".".to_string()),
+    // Parse the `status | evidence [status] | TARGET` positional forms.
+    // Three mutually-exclusive actions:
+    //   - `status [TARGET]` → read gate verdict evidence
+    //   - `evidence [TARGET]` → run export and persist release evidence
+    //   - `evidence status [TARGET]` → read persisted release evidence
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum GateCommand {
+        Run,
+        Status,
+        EvidenceRun,
+        EvidenceStatus,
+    }
+    let (command, target) = match args.split_first() {
+        None => (GateCommand::Run, ".".to_string()),
         Some((first, rest)) if first == "status" => {
             if rest.len() > 1 {
                 return gate_fail(
@@ -5638,26 +5649,68 @@ fn cmd_gate(
                 );
             }
             (
-                true,
+                GateCommand::Status,
                 rest.first().cloned().unwrap_or_else(|| ".".to_string()),
             )
+        }
+        Some((first, rest)) if first == "evidence" => {
+            // `evidence [TARGET]` → run export and persist.
+            // `evidence status [TARGET]` → read persisted release evidence.
+            match rest.split_first() {
+                Some((second, rest2)) if second == "status" => {
+                    // `evidence status [TARGET]` — read without running.
+                    if rest2.len() > 1 {
+                        return gate_fail(
+                            &ForgeError::GateInvalid {
+                                reason: format!(
+                                    "`forge gate evidence status` takes at most one TARGET; got {} extra arguments",
+                                    rest2.len()
+                                ),
+                            },
+                            format,
+                        );
+                    }
+                    (
+                        GateCommand::EvidenceStatus,
+                        rest2.first().cloned().unwrap_or_else(|| ".".to_string()),
+                    )
+                }
+                _ => {
+                    // `evidence [TARGET]` — run export and persist.
+                    if rest.len() > 1 {
+                        return gate_fail(
+                            &ForgeError::GateInvalid {
+                                reason: format!(
+                                    "`forge gate evidence [TARGET]` takes at most one TARGET; got {} extra arguments",
+                                    rest.len()
+                                ),
+                            },
+                            format,
+                        );
+                    }
+                    (
+                        GateCommand::EvidenceRun,
+                        rest.first().cloned().unwrap_or_else(|| ".".to_string()),
+                    )
+                }
+            }
         }
         Some((first, rest)) => {
             if !rest.is_empty() {
                 return gate_fail(
                     &ForgeError::GateInvalid {
                         reason: format!(
-                            "unexpected arguments {:?}; usage: `forge gate [TARGET]` or `forge gate status [TARGET]`",
+                            "unexpected arguments {:?}; usage: `forge gate [TARGET]`, `forge gate status [TARGET]`, `forge gate evidence [TARGET]`, or `forge gate evidence status [TARGET]`",
                             rest
                         ),
                     },
                     format,
                 );
             }
-            (false, first.clone())
+            (GateCommand::Run, first.clone())
         }
     };
-    if status_form && dry_run {
+    if matches!(command, GateCommand::Status) && dry_run {
         return gate_fail(
             &ForgeError::GateInvalid {
                 reason:
@@ -5667,10 +5720,19 @@ fn cmd_gate(
             format,
         );
     }
-    if status_form && timeout_secs.is_some() {
+    if matches!(command, GateCommand::Status) && timeout_secs.is_some() {
         return gate_fail(
             &ForgeError::GateInvalid {
                 reason: "--timeout-secs does not apply to `forge gate status` (it never runs the runtime)".to_string(),
+            },
+            format,
+        );
+    }
+    if matches!(command, GateCommand::EvidenceRun) && (dry_run || timeout_secs.is_some()) {
+        return gate_fail(
+            &ForgeError::GateInvalid {
+                reason: "--dry-run and --timeout-secs do not apply to `forge gate evidence` (it consumes the sibling's export verb)"
+                    .to_string(),
             },
             format,
         );
@@ -5691,10 +5753,12 @@ fn cmd_gate(
         Ok(resolved) => resolved,
         Err(err) => return gate_fail(&err, format),
     };
-    if status_form {
-        return cmd_gate_status(&dir, &project_id, format);
+    match command {
+        GateCommand::Status => cmd_gate_status(&dir, &project_id, format),
+        GateCommand::EvidenceRun => cmd_gate_evidence(db_path, &dir, &project_id, &config, format),
+        GateCommand::EvidenceStatus => cmd_gate_evidence_status(&dir, &project_id, format),
+        GateCommand::Run => cmd_gate_run(db_path, &dir, &project_id, &config, dry_run, format),
     }
-    cmd_gate_run(db_path, &dir, &project_id, &config, dry_run, format)
 }
 
 fn cmd_gate_status(dir: &Path, project_id: &str, format: Format) -> ExitCode {
@@ -5753,6 +5817,136 @@ fn cmd_gate_status(dir: &Path, project_id: &str, format: Format) -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
+    }
+}
+
+/// `forge gate evidence [TARGET]` — run the sibling's export verb, validate,
+/// and persist the attributed release-evidence record.
+fn cmd_gate_evidence(
+    db_path: &Path,
+    dir: &Path,
+    project_id: &str,
+    config: &GateConfig,
+    format: Format,
+) -> ExitCode {
+    let registry = match open_registry(db_path) {
+        Ok(registry) => registry,
+        Err(err) => return gate_fail(&err, format),
+    };
+    let outcome = gate::evidence::consume_export(dir, project_id, config);
+    match outcome {
+        gate::evidence::EvidenceOutcome::Record(record) => {
+            let relative = match gate::evidence::save_release_evidence(dir, &record) {
+                Ok(rel) => rel,
+                Err(err) => return gate_fail(&err, format),
+            };
+            // Journal the consumption attempt.
+            let verdict = if record.freshness == gate::evidence::EvidenceFreshness::Fresh {
+                "done"
+            } else {
+                "done"
+            };
+            let _ = registry.record_operation(
+                "gate",
+                project_id,
+                verdict,
+                &format!(
+                    "gate evidence consumed: freshness={} verified={} configured={} declared={} unverified={}",
+                    record.freshness.label(),
+                    record.counts.verified,
+                    record.counts.configured,
+                    record.counts.declared,
+                    record.counts.unverified
+                ),
+            );
+            let json = serde_json::json!({
+                "contract": "release-evidence/0.1.0",
+                "release_evidence": &record,
+                "persisted": relative.display().to_string(),
+            });
+            let human = gate::evidence::render_release_evidence_human(
+                &record,
+                Some(relative.display().to_string().as_str()),
+            );
+            render_output(as_output(format, human, json));
+            ExitCode::SUCCESS
+        }
+        gate::evidence::EvidenceOutcome::Absent { reason } => {
+            let bound = gate::bound_note(&reason);
+            let _ = registry.record_operation(
+                "gate",
+                project_id,
+                "failed",
+                &format!("gate evidence export unavailable: {bound}"),
+            );
+            gate_fail(
+                &ForgeError::GateEvidenceUnavailable { reason: bound },
+                format,
+            )
+        }
+        gate::evidence::EvidenceOutcome::Refused { reason, refusal_reasons } => {
+            let bound = gate::bound_note(&reason);
+            let _ = registry.record_operation(
+                "gate",
+                project_id,
+                "failed",
+                &format!("gate evidence export refused: {bound}"),
+            );
+            gate_fail(
+                &ForgeError::GateEvidenceUnavailable {
+                    reason: format!(
+                        "{} ({} refusal reason(s): {})",
+                        bound,
+                        refusal_reasons.len(),
+                        refusal_reasons.join("; ")
+                    ),
+                },
+                format,
+            )
+        }
+        gate::evidence::EvidenceOutcome::Unavailable { reason } => {
+            let bound = gate::bound_note(&reason);
+            let _ = registry.record_operation(
+                "gate",
+                project_id,
+                "failed",
+                &format!("gate evidence export unavailable: {bound}"),
+            );
+            gate_fail(
+                &ForgeError::GateEvidenceUnavailable { reason: bound },
+                format,
+            )
+        }
+    }
+}
+
+/// `forge gate evidence status [TARGET]` — read persisted release-evidence
+/// without running the export.
+fn cmd_gate_evidence_status(dir: &Path, project_id: &str, format: Format) -> ExitCode {
+    match gate::evidence::load_latest_release_evidence(dir) {
+        Ok(Some(record)) => {
+            let json = serde_json::json!({
+                "contract": "release-evidence/0.1.0",
+                "release_evidence": &record,
+            });
+            let human = gate::evidence::render_release_evidence_human(&record, None);
+            render_output(as_output(format, human, json));
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            let reason = "no release-evidence record persisted; run `forge gate evidence` first"
+                .to_string();
+            let json = serde_json::json!({
+                "contract": "release-evidence/0.1.0",
+                "release_evidence": null,
+                "freshness": "absent",
+                "detail": reason,
+            });
+            let human = gate::evidence::render_absent_human(project_id, &reason);
+            render_output(as_output(format, human, json));
+            ExitCode::from(1)
+        }
+        Err(err) => gate_fail(&err, format),
     }
 }
 

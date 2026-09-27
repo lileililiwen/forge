@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "project_id": "forge",
+  "revision": "c1cfaeb41267b7973de24ba5ba14fc602309b1c4",
+  "toolchain": "driftwatchdog@0.1.0",
+  "fields": [
+    {
+      "field": "revision",
+      "state": "unverified"
+    },
+    {
+      "field": "version",
+      "state": "unverified"
+    },
+    {
+      "field": "toolchain",
+      "state": "unverified"
+    },
+    {
+      "field": "artifacts",
+      "state": "unverified"
+    },
+    {
+      "field": "digests",
+      "state": "unverified"
+    },
+    {
+      "field": "sbom",
+      "state": "unverified"
+    },
+    {
+      "field": "provenance",
+      "state": "unverified"
+    },
+    {
+      "field": "checks",
+      "state": "unverified"
+    },
+    {
+      "field": "publication",
+      "state": "unverified"
+    }
+  ],
+  "manifest_digest": "sha256:9936b73d30990eae",
+  "rule_pack_version": "workspace-governance@1",
+  "gate_run_id": 1
+}

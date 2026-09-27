@@ -1,7 +1,8 @@
 # artifact-and-ci-baseline Specification
 
 ## Purpose
-TBD - created by archiving change artifact-and-ci-baseline. Update Purpose after archive.
+
+Forge's own CI executes every surface, the gate runtime and the contract parity walk in named jobs with explicit permissions and timeouts, produces a reproducible installable artifact with a published digest, and enforces a declared minimum supported Rust version derived from the binding dependency floor.
 ## Requirements
 ### Requirement: Truthful verification entry point
 

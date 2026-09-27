@@ -1,6 +1,17 @@
 # Forge handoff
 
+current_spec: gate-evidence-export-consumption
+
 ## Current state
+
+`gate-evidence-export-consumption` selected and being implemented; companion
+sibling `driftwatchdog gate-evidence-export` archived `2026-09-27` at
+`221faeca` and its export entry point (`gate evidence-export`) confirmed
+operational; this checkout's `.driftwatch` store initialized (sibling-owned
+next action from `gate-runtime-evidence` cycle now complete); real export
+captured at `tests/fixtures/gate-evidence/forge-all-unverified.json`.
+Companion driftwatchdog and workspace-governance next actions recorded in
+their respective HANDOFF sections below.
 
 `gate-runtime-evidence` implemented, verified and archived on 2026-09-24 as
 `2026-09-24-gate-runtime-evidence`; its three requirements (declared gate

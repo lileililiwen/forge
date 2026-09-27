@@ -1,7 +1,8 @@
 # platform-contract-consumption Specification
 
 ## Purpose
-TBD - created by archiving change platform-contract-consumption. Update Purpose after archive.
+
+Forge vendors the published contract schemas under `contracts/` behind a digest-manifest, maintains a versioned surface inventory, provides read-only `forge contract` projection commands, and maps status vocabularies to contract values only through a total mapping that refuses unmapped values instead of defaulting them to healthy.
 ## Requirements
 ### Requirement: Digest-pinned vendored contract set
 

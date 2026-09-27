@@ -124,3 +124,32 @@ without `--live`, which never claims support.
   jenkins-local adoption step (see its checklist).
 - Real release registries (package, container, notes): no publisher
   binaries; evidence uses fixture scripts with `--dry-run`.
+
+## Gate evidence export consumption
+
+`forge gate evidence [TARGET]` (`gate-evidence-export-consumption`)
+consumes Driftwatchdog's `gate evidence-export --format json` verb
+and persists a versioned `release-evidence/0.1.0` record under
+`.forge/gate/<project-id>/release-evidence.json`. The sibling owns
+the export entry point, its field semantics and its refusal rules;
+Forge validates against the consumed governance vocabulary (nine fields,
+four non-blocked states) and enforces standing boundary rules:
+revision mismatch → every field `unverified`; unknown field name
+or out-of-vocabulary state → refused; `verified` publication
+without digests → refused as contradictory; absent export →
+`unavailable`. `forge gate evidence status [TARGET]` reads the
+persisted record without side effects.
+
+Live status (this host, 2026-09-27, sibling `driftwatchdog` at
+`221faeca`): the sibling's export entry point exists and produces a
+parseable document; this checkout's `.driftwatch/` store was initialized
+(`driftwatchdog init --no-config`); the first export shows all nine
+fields as `unverified` because no check command was declared; the
+consumption was verified live (`forge gate evidence .` exit 0, persisted
+record at `.forge/gate/forge/release-evidence.json`).
+
+What stays `not-run`: the gate verdict surface (`forge gate status`)
+is unchanged; no MCP tool, API route or portal control was added;
+`forge fleet` gains no healthy state from consumed evidence;
+`deployable` is never set by consumption; and generated project
+templates carry no `release_evidence` block.

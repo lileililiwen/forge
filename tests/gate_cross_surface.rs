@@ -605,3 +605,136 @@ fn release_gate_check_cites_fresh_passing_evidence_only() {
     assert_eq!(gate["status"], "stale", "{gate}");
     assert_eq!(value["plan"]["ready"], false, "{value}");
 }
+
+// ─── gate evidence-export cross-surface tests ─────────────────────────────────
+
+/// Stub that emits evidence-export JSON for a specific project id.
+fn evidence_export_stub(
+    dir: &Path,
+    name: &str,
+    project_id: &str,
+    exit_code: &str,
+) -> PathBuf {
+    let doc = format!(
+        r#"{{"schema_version": 1, "project_id": "{project_id}", "revision": "deadbeef12345678", "toolchain": "driftwatchdog@0.1.0", "fields": [{{"field": "revision", "state": "unverified"}}, {{"field": "version", "state": "unverified"}}, {{"field": "toolchain", "state": "unverified"}}, {{"field": "artifacts", "state": "unverified"}}, {{"field": "digests", "state": "unverified"}}, {{"field": "sbom", "state": "unverified"}}, {{"field": "provenance", "state": "unverified"}}, {{"field": "checks", "state": "unverified"}}, {{"field": "publication", "state": "unverified"}}], "gate_run_id": 99}}
+"#
+    );
+    let json_path = dir.join(format!("{name}.json"));
+    fs::write(&json_path, doc).unwrap();
+    let json_str = json_path.display().to_string();
+    let path = dir.join(name);
+    fs::write(
+        &path,
+        format!(
+            "#!/bin/sh
+if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
+if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit {exit_code}; fi
+echo 'unrecognized'
+exit 1
+"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+fn run_json(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> serde_json::Value {
+    let out = run(db, args, gate_bin);
+    serde_json::from_str(&lossy(&out.stdout)).expect("json")
+}
+
+#[test]
+fn evidence_command_reads_nothing_without_prior_run() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "evid-cross-absent");
+
+    let stub = evidence_export_stub(tmp.path(), "gate-evid.sh", "evid-cross-absent", "0");
+    let out = run(&db, &["--format", "json", "gate", "evidence", "status", &proj.display().to_string()], Some(&stub));
+    assert_eq!(out.status.code(), Some(1));
+    let value = serde_json::from_str::<serde_json::Value>(&lossy(&out.stdout)).unwrap();
+    assert!(value["release_evidence"].is_null());
+    assert_eq!(value["freshness"], "absent");
+}
+
+#[test]
+fn evidence_command_produces_unchanged_gate_verdict_surface() {
+    // Adding `forge gate evidence` must not change the gate verdict output.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "gate-unchanged");
+
+    let stub = evidence_export_stub(tmp.path(), "gate-evid.sh", "gate-unchanged", "0");
+
+    // Run evidence export against the project by path.
+    let out = run(
+        &db,
+        &["--format", "json", "gate", "evidence", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let value = serde_json::from_str::<serde_json::Value>(&lossy(&out.stdout)).unwrap();
+    assert_eq!(value["release_evidence"]["project_id"], "gate-unchanged");
+
+    // Gate verdict surface is unchanged: read absent gate verdict.
+    let out2 = run(
+        &db,
+        &["--format", "json", "gate", "status", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert_eq!(out2.status.code(), Some(1), "{}", lossy(&out2.stderr)); // absent gate verdict
+
+    // Now run gate verdict (not evidence) with a passing stub.
+    let stub2 = passing_stub(&proj);
+    let out3 = run(&db, &["--format", "json", "gate", &proj.display().to_string()], Some(&stub2));
+    assert_eq!(out3.status.code(), Some(0), "{}", lossy(&out3.stderr));
+    let value3 = serde_json::from_str::<serde_json::Value>(&lossy(&out3.stdout)).unwrap();
+    // Gate verdict surface unchanged.
+    assert_eq!(value3["contract"], "0.1.0");
+    assert_eq!(value3["gate"]["aggregate"], "passed");
+}
+
+#[test]
+fn consumed_evidence_cannot_become_deployable() {
+    // Consuming release evidence cannot set deployable: true.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "deploy-evid");
+
+    // Run evidence export.
+    let stub = evidence_export_stub(tmp.path(), "gate-evid.sh", "deploy-evid", "0");
+    let out = run(
+        &db,
+        &["--format", "json", "gate", "evidence", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let value = serde_json::from_str::<serde_json::Value>(&lossy(&out.stdout)).unwrap();
+
+    // The release-evidence record should not contain a deployable field.
+    let evid = &value["release_evidence"];
+    assert!(!evid.as_object().unwrap().contains_key("deployable"));
+}
+
+#[test]
+fn doctor_release_evidence_finding_does_not_gate_health() {
+    // The release-evidence finding is non-gating.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "dr-evid");
+
+    let out = run(&db, &["--format", "json", "doctor", &proj.display().to_string()], None);
+    let value = serde_json::from_str::<serde_json::Value>(&lossy(&out.stdout)).unwrap();
+
+    // Doctor should run without error.
+    assert_eq!(out.status.code(), Some(0));
+
+    // If release-evidence finding exists, it should not be blocking.
+    let findings = value["doctor"]["findings"].as_array().unwrap();
+    for f in findings {
+        if f["id"] == "release-evidence" {
+            assert!(!f["blocking"].as_bool().unwrap_or(false));
+        }
+    }
+}

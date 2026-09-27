@@ -54,6 +54,7 @@ use crate::core::ForgeError;
 use crate::registry::Registry;
 
 pub mod fleet;
+pub mod github;
 pub mod jenkins;
 pub mod providers;
 

@@ -780,6 +780,12 @@ enum PublishProviderCommands {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Inspect one configured provider without invoking it.
+    Inspect {
+        id: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     /// Enable an already configured provider.
     Enable {
         id: String,
@@ -3588,6 +3594,7 @@ fn cmd_publish_provider_lifecycle(
 ) -> Result<Output, ForgeError> {
     let config_path = match command {
         PublishProviderCommands::List { config }
+        | PublishProviderCommands::Inspect { config, .. }
         | PublishProviderCommands::Enable { config, .. }
         | PublishProviderCommands::Disable { config, .. } => config
             .clone()
@@ -3610,6 +3617,25 @@ fn cmd_publish_provider_lifecycle(
                     .join("\n")
             };
             Ok(as_output(format, human, value))
+        }
+        PublishProviderCommands::Inspect { id, .. } => {
+            let entry = config.providers.iter().find(|entry| entry.id == *id).ok_or_else(|| {
+                ForgeError::PublishInvalid {
+                    reason: format!("publish provider `{id}` is not configured"),
+                }
+            })?;
+            let value = serde_json::to_value(entry).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("cannot encode provider inspection: {error}"),
+            })?;
+            Ok(as_output(
+                format,
+                format!(
+                    "publish provider `{id}`: {} ({})",
+                    if entry.enabled { "enabled" } else { "disabled" },
+                    entry.command.display()
+                ),
+                value,
+            ))
         }
         PublishProviderCommands::Enable { id, .. }
         | PublishProviderCommands::Disable { id, .. } => {

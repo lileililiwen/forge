@@ -1,19 +1,20 @@
 [package]
 name = "forge"
-version = "0.1.0"
+version = "0.1.0" # the one version source (agrees with CHANGELOG.md newest entry and `forge --version`; enforced by tests/artifact_baseline_contract.rs)
 edition = "2021"
+# MSRV derived from the binding requirement (OsStr::display in src/agent, stabilized 1.87.0); see docs/adr/0002-msrv-and-toolchain-floor.md.
+rust-version = "1.87"
 description = "Forge developer control plane: versioned project model, persistent registry and CLI foundation"
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/lileililiwen/forge"
+homepage = "https://github.com/lileililiwen/forge"
+keywords = ["control-plane", "registry", "scaffold", "governance", "cli"]
+categories = ["development-tools", "command-line-utilities"]
 
-[[bin]]
-name = "forge"
-path = "src/main.rs"
+[workspace]
 
-[lib]
-name = "forge"
-path = "src/lib.rs"
-
-[dependencies]
+[workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,7 +26,22 @@ tempfile = "3"
 sha2 = "0.10"
 rand = "0.8"
 
-[dev-dependencies]
-tempfile = "3"
-serde_json = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+[lib]
+name = "forge"
+path = "src/lib.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+rusqlite.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tempfile.workspace = true
+sha2.workspace = true
+rand.workspace = true

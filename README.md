@@ -32,11 +32,46 @@ Foundation toolchain (established by `core-manifest-registry`, see
 ```sh
 cargo fmt --check
 cargo build        # produces ./target/debug/forge
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo deny check   # dependency and licence policy (deny.toml)
+cargo audit        # security advisories
 ```
 
-There is no Forge installation packaging yet.
+Minimum supported Rust version is declared as `rust-version` in
+`Cargo.toml` (derivation in
+[ADR 0002](docs/adr/0002-msrv-and-toolchain-floor.md)) and enforced by
+CI's `msrv` job. The reproducible local entry point covering
+formatting, build, tests, policy, OpenSpec validation, the native
+profile matrix and the readiness gate is:
+
+```sh
+scripts/release-check.sh --gate-profile rust-web --gate-profile nextjs-web --gate-profile aspnet-web
+```
+
+## Installation packaging
+
+Forge ships a versioned, checksummed release archive built by
+`scripts/package.sh` (release build, target triple discovered from
+`rustc -vV`; archive contains the binary plus `LICENSE`, `README.md`
+and `CHANGELOG.md` with repository-relative paths only):
+
+```sh
+scripts/package.sh
+scripts/checksum.sh --verify dist/forge-<version>-<target>.tar.gz
+mkdir -p /tmp/opencode/forge-install
+scripts/install.sh --archive dist/forge-<version>-<target>.tar.gz --prefix /tmp/opencode/forge-install
+scripts/smoke.sh --bin /tmp/opencode/forge-install/bin/forge
+```
+
+`scripts/install.sh` refuses a missing archive, an unknown prefix or a
+digest mismatch before writing anything and never fetches from the
+network; `scripts/smoke.sh` exercises `--version`, `--help`, `list`,
+`doctor`, `readiness artifact` and the checker document. `scripts/bump.sh`
+suggests version/changelog/tag steps without pushing — tag creation and
+any publication stay explicit operator actions. CI's `artifact` job
+uploads the archive plus digest as CI artifacts only; nothing is
+published to crates.io, npm, a container registry or a Jenkins job.
 
 ## Optional governance providers
 

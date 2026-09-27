@@ -1,22 +1,31 @@
 #!/usr/bin/env sh
-# Local release check with CI parity (`profile-and-release-readiness`).
+# Local release check with CI parity (`artifact-and-ci-baseline`).
 #
-# Runs the same gates CI runs: Rust formatting/build/tests/clippy, strict
-# OpenSpec validation, the full native profile matrix (evidence for every
-# supported profile), and the release gate over the runner-qualified
-# profiles. Usage:
+# Runs the same gates CI runs: Rust formatting/build/tests/clippy, dependency
+# and licence policy (`cargo deny check`, `cargo audit`), strict OpenSpec
+# validation, the full native profile matrix (evidence for every supported
+# profile), the readiness gate over the runner-qualified profiles, and the
+# contract parity walk when the platform-contracts source is present. Usage:
 #
 #   scripts/release-check.sh [--gate-profile <id>]...
 #
-# With no `--gate-profile`, the gate covers every supported profile, so a
-# host missing a toolchain (or a template with a failing native command)
-# blocks with the exact failed or unavailable check named. CI qualifies a
-# subset (see `.github/workflows/ci.yml`); pass the same
+# "Gate" below always means the readiness gate (`forge readiness check`),
+# never the shared gate runtime (`forge gate .`); the latter runs only in
+# CI's `gate` job and via `forge gate` locally. With no `--gate-profile`,
+# the readiness gate covers every supported profile, so a host missing a
+# toolchain (or a template with a failing native command) blocks with the
+# exact failed or unavailable check named. CI qualifies a subset (see
+# `.github/workflows/ci.yml` `readiness` job); pass the same
 # `--gate-profile` flags locally to reproduce the CI verdict.
 #
+# The parity step runs when `PLATFORM_CONTRACTS_DIR` or the
+# `../platform-contracts` sibling checkout resolves; otherwise it prints a
+# note and continues (CI's `contract-parity` job blocks instead — the one
+# documented local/CI divergence).
+#
 # Exit status: 0 only when every required check and every selected matrix
-# row passes. Anything else (including an unavailable `openspec` CLI) is a
-# block, never a silent pass.
+# row passes. Anything else (including an unavailable `openspec`,
+# `cargo-deny` or `cargo-audit` CLI) is a block, never a silent pass.
 
 set -eu
 
@@ -52,8 +61,22 @@ step() {
 
 step cargo fmt --check
 step cargo build
-step cargo test
-step cargo clippy --all-targets -- -D warnings
+step cargo test --workspace --all-targets
+step cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+if command -v cargo-deny >/dev/null 2>&1; then
+  step cargo deny check
+else
+  echo "release-check blocked: cargo-deny is unavailable; install it to run dependency and licence policy" >&2
+  exit 1
+fi
+
+if command -v cargo-audit >/dev/null 2>&1; then
+  step cargo audit
+else
+  echo "release-check blocked: cargo-audit is unavailable; install it to run advisory checks" >&2
+  exit 1
+fi
 
 if command -v node >/dev/null 2>&1; then
   step node scripts/check-openspec-change-names.mjs
@@ -68,6 +91,18 @@ if command -v openspec >/dev/null 2>&1; then
 else
   echo "release-check blocked: openspec CLI is unavailable; install it to run strict validation" >&2
   exit 1
+fi
+
+# Contract parity: runs when the platform-contracts source resolves; a note
+# (not a pass) when it does not. CI's `contract-parity` job blocks instead.
+PARITY_SRC="${PLATFORM_CONTRACTS_DIR:-}"
+if [ -z "$PARITY_SRC" ] && [ -d "../platform-contracts" ]; then
+  PARITY_SRC="../platform-contracts"
+fi
+if [ -n "$PARITY_SRC" ] && [ -d "$PARITY_SRC" ]; then
+  step env PLATFORM_CONTRACTS_DIR="$PARITY_SRC" sh scripts/contract-parity.sh
+else
+  echo "release-check note: platform-contracts source absent, parity not run (CI contract-parity job blocks without it)" >&2
 fi
 
 # Full matrix: evidence for every supported profile. Informational on its

@@ -1,25 +1,228 @@
 name: ci
 
+# Forge's own verification (`artifact-and-ci-baseline`). Each job names only
+# the checks it runs. No job pushes, tags, publishes or deploys; the
+# `artifact` job uploads the packaged archive plus digests as CI artifacts
+# only. A required tool that is absent fails its job loudly — never a skip
+# to green. Local parity: `scripts/release-check.sh` runs the same contract.
+
 on:
   push:
   pull_request:
 
 jobs:
-  readiness:
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Formatting check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (workspace, all targets, deny warnings)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Fast test suite (native scaffold builds run in native-scaffold)
+        run: cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent
+
+  native-scaffold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Native scaffold evidence (generated tree builds without Forge)
+        run: >
+          cargo test --workspace --all-targets --
+          rust_scaffold_builds_and_tests_with_native_toolchain
+          rust_scaffold_builds_with_native_toolchain_without_forge
+          declaration_is_inert_for_native_builds_present_and_absent
+
+  msrv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Floor toolchain (ADR 0002, binding: OsStr::display)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.87
+      - uses: Swatinem/rust-cache@v2
+      - name: Check at the declared rust-version floor
+        run: cargo check --workspace --all-targets
+
+  deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deny and cargo-audit (fails loudly when unavailable)
+        run: |
+          cargo install cargo-deny --locked || { echo "deny blocked: cargo-deny is unavailable" >&2; exit 1; }
+          cargo install cargo-audit --locked || { echo "deny blocked: cargo-audit is unavailable" >&2; exit 1; }
+      - name: Dependency and licence policy
+        run: cargo deny check
+      - name: Security advisories
+        run: cargo audit
+
+  governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: OpenSpec name and governance checks
+        run: |
+          node scripts/check-openspec-change-names.mjs
+          node scripts/check-spec-governance.mjs
+      - name: Strict OpenSpec validation
+        run: |
+          command -v openspec >/dev/null 2>&1 || { echo "governance blocked: openspec CLI is unavailable" >&2; exit 1; }
+          openspec validate --all --strict --no-interactive
+      - name: Whitespace check
+        run: git diff --check
+
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
-      - name: Release check (Rust quality suite, OpenSpec validation, native matrix, gate)
-        run: >
-          scripts/release-check.sh
-          --gate-profile rust-web
-          --gate-profile nextjs-web
-          --gate-profile aspnet-web
+          dotnet-version: "10.0.x"
+      - name: Build Forge
+        run: cargo build
+      - name: Readiness matrix (every supported profile, informational)
+        run: ./target/debug/forge readiness matrix
+      - name: Readiness gate (runner-qualified rows only)
+        run: ./target/debug/forge readiness check --profile rust-web --profile nextjs-web --profile aspnet-web
+
+  surfaces:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Forge
+        run: cargo build
+      - name: Read-only surfaces (doctor, checker, fleet, providers)
+        run: |
+          ./target/debug/forge doctor .
+          ./target/debug/forge check . --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
+          ./target/debug/forge fleet list
+          ./target/debug/forge provider matrix
+
+  contract-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contract parity walk (needs the platform-contracts sibling source)
+        run: |
+          if [ -n "${PLATFORM_CONTRACTS_DIR:-}" ] && [ -d "$PLATFORM_CONTRACTS_DIR" ]; then
+            scripts/contract-parity.sh
+          elif [ -d "$GITHUB_WORKSPACE/../platform-contracts" ]; then
+            PLATFORM_CONTRACTS_DIR="$GITHUB_WORKSPACE/../platform-contracts" scripts/contract-parity.sh
+          else
+            echo "contract-parity blocked: platform-contracts source is unavailable; set PLATFORM_CONTRACTS_DIR or check out the sibling at ../platform-contracts" >&2
+            exit 1
+          fi
+
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Forge
+        run: cargo build
+      - name: Real gate verdict (mirrors the runtime, including blocked)
+        run: |
+          if command -v driftwatchdog >/dev/null 2>&1; then BIN=driftwatchdog;
+          elif command -v driftwatch >/dev/null 2>&1; then BIN=driftwatch;
+          else echo "gate blocked: no gate runtime on PATH (tried driftwatchdog, driftwatch)" >&2; exit 1; fi
+          echo "gate: runtime $BIN ($("$BIN" --version 2>&1 | head -n 1))"
+          "$BIN" init || { echo "gate blocked: gate-runtime-unavailable (store init failed)" >&2; exit 1; }
+          ./target/debug/forge gate .
+          ./target/debug/forge gate status .
+
+  artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Package, verify digest, install to scratch prefix, smoke-test
+        run: |
+          scripts/package.sh
+          ARCHIVE="$(ls -t dist/forge-*.tar.gz | head -n 1)"
+          scripts/checksum.sh --verify "$ARCHIVE"
+          mkdir -p /tmp/opencode/forge-install
+          scripts/install.sh --archive "$ARCHIVE" --prefix /tmp/opencode/forge-install
+          scripts/smoke.sh --bin /tmp/opencode/forge-install/bin/forge
+          tar -tzf "$ARCHIVE" | grep -v '^forge-[^/]*/[^/]*$' && { echo "artifact blocked: archive carries unexpected paths" >&2; exit 1; } || true
+          tar -tzf "$ARCHIVE" | grep '^/' && { echo "artifact blocked: archive carries absolute host paths" >&2; exit 1; } || echo "artifact: no absolute host paths"
+      - name: Upload archive and digest (CI artifacts only, never published)
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-package
+          path: |
+            dist/forge-*.tar.gz
+            dist/forge-*.tar.gz.sha256

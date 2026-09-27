@@ -92,7 +92,14 @@ document; tests use `sandbox: fixture` paths only.
 ## Providers not run (this host, 2026-09-21)
 
 No live sandbox is configured in the local environment, so every live
-claim below is `not-run` by design:
+claim below is `not-run` by design. CI (`artifact-and-ci-baseline`)
+changes this for exactly one surface: the `gate` job installs the
+declared gate runtime and initializes its store in the runner workspace,
+so `forge gate .` executes for real there and the job mirrors the
+runtime's verdict. Every other row stays `not-run` in CI — no OIDC
+issuer, analytics adapter, deploy target or release publisher is
+provisioned, and the `surfaces` job runs only `forge provider matrix`
+without `--live`, which never claims support.
 
 - Real `driftwatch` binary: the policy plane probes the cargo name
   `driftwatchdog` first and then the npm launcher alias `driftwatch`.

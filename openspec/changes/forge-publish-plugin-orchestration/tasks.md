@@ -16,7 +16,7 @@
 - [x] Implement provider configuration and disabled-provider refusal.
 - [x] Add Forge coverage for project and folder publish forms.
 - [x] Implement the unified manual publish request path.
-- [ ] Add signed GitHub push intake and idempotent delivery handling.
+- [x] Add signed GitHub push intake and idempotent delivery handling.
 - [x] Implement provider process invocation and response validation.
 - [x] Freeze external provider registration examples for standalone OpenPanel
   and jenkins-local executables.
@@ -25,7 +25,7 @@
 ## 3. BFS — Cross-surface regression and completeness
 
 - [x] Prove disabled providers are never invoked.
-- [ ] Prove duplicate push deliveries invoke a provider at most once.
+- [ ] Prove duplicate push deliveries invoke a provider at most once with an end-to-end provider fixture.
 - [ ] Prove provider secrets and source contents never enter Forge evidence.
 - [ ] Prove OpenPanel provider failure does not prevent Jenkins provider use.
 - [ ] Prove Jenkins provider remains optional and no Mac script bundle is

@@ -78,6 +78,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::agent::{
     apply_transition as apply_agent_transition, new_session, read_session, AgentProvider,
@@ -89,6 +90,11 @@ use crate::doctor::{parse_target_level, run_doctor, RegistryObservation};
 use crate::feature::add_feature;
 use crate::generate::{generate, normalize_explicit, GeneratedProject};
 use crate::policy::{run_driftwatch, DriftWatchConfig};
+use crate::publish::github::{verify_push, GitHubPushEvent};
+use crate::publish::providers::{
+    invoke_provider, load_config as load_publish_provider_config, select_provider,
+    ProviderOperation, PublishProviderRequest, PUBLISH_PROVIDER_CONTRACT,
+};
 use crate::registry::{Registry, ReservationOutcome};
 use crate::spec::{ensure_single_project, generate_spec, FindingSource, SpecRequest};
 use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
@@ -320,6 +326,7 @@ pub enum Route {
     GenerateSpec { id: String },
     AgentTransition { id: String },
     ApplyDeployment { id: String },
+    GitHubPush,
     GetOperation { op_id: i64 },
 }
 
@@ -356,6 +363,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["v1", "projects", id, "deployments"]) => Some(Route::ApplyDeployment {
             id: (*id).to_string(),
         }),
+        ("POST", ["v1", "publish", "github"]) => Some(Route::GitHubPush),
         ("GET", ["v1", "operations", op_id]) => op_id
             .parse::<i64>()
             .ok()
@@ -407,7 +415,7 @@ fn bad_request(reason: &str) -> ApiResponse {
 /// so, what permission is needed for the action.
 fn required_permission(route: &Route) -> Option<&'static str> {
     match route {
-        Route::Healthz | Route::GetOperation { .. } => None,
+        Route::Healthz | Route::GetOperation { .. } | Route::GitHubPush => None,
         Route::ListProjects
         | Route::InspectProject { .. }
         | Route::Doctor { .. }
@@ -494,6 +502,7 @@ pub fn handle(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiRe
         Route::GenerateSpec { id } => handle_generate_spec(db_path, &id, request, now),
         Route::AgentTransition { id } => handle_agent_transition(db_path, &id, request, now),
         Route::ApplyDeployment { id } => handle_apply_deployment(db_path, &id, request, now),
+        Route::GitHubPush => handle_github_push(db_path, request),
         Route::GetOperation { op_id } => handle_get_operation(db_path, op_id),
     }
 }
@@ -518,7 +527,7 @@ fn authorize(
     request: &ApiRequest,
     now: DateTime<Utc>,
 ) -> Result<(), ApiResponse> {
-    if matches!(route, Route::Healthz) {
+    if matches!(route, Route::Healthz | Route::GitHubPush) {
         return Ok(());
     }
     let token = request.bearer_token.as_deref().ok_or_else(|| {
@@ -550,6 +559,7 @@ fn authorize(
     // by the early return above.
     let result: Result<(), ApiResponse> = match route {
         Route::Healthz => Ok(()),
+        Route::GitHubPush => Ok(()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known
@@ -789,6 +799,150 @@ fn is_hex(s: &str) -> bool {
 }
 
 // ---- handlers ------------------------------------------------------
+
+fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiResponse {
+    let signature = match request.header("x-hub-signature-256") {
+        Some(value) => value.to_string(),
+        None => return bad_request("GitHub push requires X-Hub-Signature-256"),
+    };
+    let delivery_id = match request.header("x-github-delivery") {
+        Some(value) if !value.trim().is_empty() => value.to_string(),
+        _ => return bad_request("GitHub push requires X-GitHub-Delivery"),
+    };
+    let body: Value = match serde_json::from_slice(&request.body) {
+        Ok(value) => value,
+        Err(_) => return bad_request("GitHub push body must be valid JSON"),
+    };
+    let repository = body
+        .get("repository")
+        .and_then(|value| value.get("full_name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let git_ref = body.get("ref").and_then(Value::as_str).unwrap_or_default();
+    let after = body.get("after").and_then(Value::as_str).unwrap_or_default();
+    let secret = match std::env::var("FORGE_GITHUB_WEBHOOK_SECRET") {
+        Ok(value) if !value.is_empty() => value,
+        _ => return bad_request("FORGE_GITHUB_WEBHOOK_SECRET is not configured"),
+    };
+    let allowed_repository = std::env::var("FORGE_GITHUB_REPOSITORY").unwrap_or_default();
+    let allowed_ref =
+        std::env::var("FORGE_GITHUB_REF").unwrap_or_else(|_| "refs/heads/main".to_string());
+    let event = GitHubPushEvent {
+        delivery_id: delivery_id.clone(),
+        repository: repository.to_string(),
+        git_ref: git_ref.to_string(),
+        after: after.to_string(),
+        signature,
+        body: request.body.clone(),
+    };
+    if let Err(error) = verify_push(
+        &event,
+        secret.as_bytes(),
+        &allowed_repository,
+        &allowed_ref,
+    ) {
+        return bad_request(&error.to_string());
+    }
+    let project_id = match std::env::var("FORGE_GITHUB_PROJECT_ID") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return bad_request("FORGE_GITHUB_PROJECT_ID is not configured"),
+    };
+    let provider_id = match std::env::var("FORGE_PUBLISH_PROVIDER") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return bad_request("FORGE_PUBLISH_PROVIDER is not configured"),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(value) => value,
+        Err(error) => return ApiResponse::from_error(&error),
+    };
+    let mut hash = Sha256::new();
+    hash.update(&request.body);
+    let request_hash = format!("{:x}", hash.finalize());
+    let reservation = match registry.reserve_idempotent_operation(
+        "publish.github",
+        &project_id,
+        &delivery_id,
+        &request_hash,
+    ) {
+        Ok(value) => value,
+        Err(error) => return ApiResponse::from_error(&error),
+    };
+    let op_id = match reservation {
+        ReservationOutcome::Reused { op_id } => {
+            return ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "contract": API_CONTRACT_VERSION,
+                    "delivery_id": delivery_id,
+                    "operation_id": op_id,
+                    "status": "duplicate",
+                }),
+            )
+        }
+        ReservationOutcome::Reserved { op_id } => op_id,
+    };
+    let record = match registry.inspect(&project_id) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = registry.finalize_operation(op_id, "failed", &error.to_string());
+            return ApiResponse::from_error(&error);
+        }
+    };
+    let project_dir = PathBuf::from(record.path);
+    let config_path = std::env::var_os("FORGE_PUBLISH_PROVIDER_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_dir.join(".forge/providers.yaml"));
+    let config = match load_publish_provider_config(&config_path) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = registry.finalize_operation(op_id, "failed", &error.to_string());
+            return ApiResponse::from_error(&error);
+        }
+    };
+    let provider = match select_provider(&config, &provider_id) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = registry.finalize_operation(op_id, "failed", &error.to_string());
+            return ApiResponse::from_error(&error);
+        }
+    };
+    let provider_request = PublishProviderRequest {
+        contract: PUBLISH_PROVIDER_CONTRACT.to_string(),
+        operation: ProviderOperation::Publish,
+        provider: provider_id.clone(),
+        project_id: project_id.clone(),
+        revision: after.to_string(),
+        operation_id: format!("github-{delivery_id}"),
+        folder: Some(project_dir.display().to_string()),
+        dry_run: false,
+    };
+    let response = match invoke_provider(&provider, &provider_request, &project_dir) {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = registry.finalize_operation(op_id, "failed", &error.to_string());
+            return ApiResponse::from_error(&error);
+        }
+    };
+    let detail = format!(
+        "provider={} revision={} health={}",
+        response.provider, provider_request.revision, response.health
+    );
+    let _ = registry.finalize_operation(op_id, &response.status, &detail);
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "contract": API_CONTRACT_VERSION,
+            "delivery_id": delivery_id,
+            "operation_id": op_id,
+            "provider": response.provider,
+            "revision": provider_request.revision,
+            "status": response.status,
+            "health": response.health,
+            "evidence": response.evidence,
+            "recovery": response.recovery,
+        }),
+    )
+}
 
 fn handle_list_projects(db_path: &Path) -> ApiResponse {
     let registry = match Registry::open(db_path) {
@@ -1942,6 +2096,10 @@ mod tests {
             route_request("POST", "/v1/projects/rust-web/deployments"),
             Some(Route::ApplyDeployment { ref id }) if id == "rust-web"
         ));
+        assert_eq!(
+            route_request("POST", "/v1/publish/github"),
+            Some(Route::GitHubPush)
+        );
         assert!(matches!(
             route_request("GET", "/v1/operations/42"),
             Some(Route::GetOperation { op_id: 42 })

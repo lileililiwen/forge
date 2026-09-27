@@ -39,3 +39,21 @@ Providers must return redacted, bounded evidence. Forge records the response and
 
 OpenPanel and Jenkins remain standalone projects. They can each implement this contract as an optional Forge provider and can be enabled or disabled independently.
 
+## GitHub push intake
+
+Forge accepts verified push deliveries at `POST /v1/publish/github`. The API
+does not use a bearer session for this route; it requires the GitHub
+`X-Hub-Signature-256` and `X-GitHub-Delivery` headers and validates the raw
+request body before selecting a provider. Configure the boundary with:
+
+```text
+FORGE_GITHUB_WEBHOOK_SECRET=...
+FORGE_GITHUB_REPOSITORY=owner/repository
+FORGE_GITHUB_REF=refs/heads/main
+FORGE_GITHUB_PROJECT_ID=project-id
+FORGE_PUBLISH_PROVIDER=openpanel
+```
+
+The delivery id is the idempotency key. A duplicate delivery is acknowledged
+without invoking the provider a second time. The commit SHA from `after` is
+passed unchanged to the provider.

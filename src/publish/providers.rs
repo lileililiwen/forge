@@ -9,7 +9,15 @@ use std::time::Duration;
 use crate::core::ForgeError;
 
 pub const PUBLISH_PROVIDER_CONTRACT: &str = "forge-publish-provider/0.1.0";
-pub const PUBLISH_PROVIDER_TIMEOUT: Duration = Duration::from_secs(60);
+pub const PUBLISH_PROVIDER_TIMEOUT: Duration = Duration::from_secs(1800);
+
+pub fn provider_timeout() -> Duration {
+    std::env::var("FORGE_PUBLISH_PROVIDER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(|seconds| Duration::from_secs(seconds.clamp(60, 7200)))
+        .unwrap_or(PUBLISH_PROVIDER_TIMEOUT)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -172,7 +180,7 @@ pub fn invoke_provider(
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
-            Ok(None) if start.elapsed() > PUBLISH_PROVIDER_TIMEOUT => {
+            Ok(None) if start.elapsed() > provider_timeout() => {
                 let _ = child.kill();
                 return Err(ForgeError::PublishInvalid {
                     reason: format!("publish provider `{}` timed out", entry.id),

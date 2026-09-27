@@ -116,7 +116,7 @@ pub fn filter_eligible(
 ) -> Vec<EligibleProject> {
     let mut out: Vec<EligibleProject> = Vec::new();
     for entry in &registry.projects {
-        if entry.lifecycle.as_deref() != Some(lifecycle) {
+        if entry.lifecycle.as_deref().unwrap_or("active") != lifecycle {
             continue;
         }
         let Some(path) = entry.path.as_deref().or(Some(entry.id.as_str())) else {

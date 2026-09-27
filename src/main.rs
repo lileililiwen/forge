@@ -729,8 +729,8 @@ enum PublishCommands {
     /// Publish every active project from the workspace registry that has a docker-compose file.
     Fleet {
         /// Path to the workspace-governance projects.json registry.
-        #[arg(long)]
-        registry: Option<std::path::PathBuf>,
+        #[arg(long = "fleet-registry")]
+        fleet_registry: Option<std::path::PathBuf>,
         /// Workspace root (where project paths in the registry are resolved against).
         #[arg(long)]
         workspace_root: Option<std::path::PathBuf>,
@@ -3573,7 +3573,7 @@ fn cmd_publish(
             cmd_publish_provider_lifecycle(command, format)
         }
         PublishCommands::Fleet {
-            registry,
+            fleet_registry,
             workspace_root,
             dry_run,
             lifecycle,
@@ -3581,7 +3581,7 @@ fn cmd_publish(
             provider,
         } => cmd_publish_fleet(
             db_path,
-            registry.clone(),
+            fleet_registry.clone(),
             workspace_root.clone(),
             *dry_run,
             lifecycle.clone(),

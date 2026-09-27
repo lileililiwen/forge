@@ -80,9 +80,15 @@ pub const PROVIDER_IDS: &[&str] = &[
 /// Default binaries probed for `live` runs, mirroring each adapter's own
 /// default. Every default is overridable per run so tests substitute
 /// fixture scripts without touching the source tree.
+///
+/// The DriftWatch probe order is NOT listed here: `driftwatch-policy`
+/// and `gate-runtime` share [`crate::policy::DRIFTWATCH_BINARY_CANDIDATES`]
+/// as the one ordered definition (see [`default_binary_for`]), so the
+/// gate, policy and provider surfaces can never disagree on candidate
+/// order. The gate's *declared* runtime names stay a strict subset
+/// (`SUPPORTED_GATE_RUNTIMES` in `src/gate/mod.rs`): declaration
+/// vocabulary and probe order are different roles.
 pub const DEFAULT_PROBE_BINARIES: &[(&str, &str)] = &[
-    ("driftwatch-policy", "driftwatchdog|driftwatch"),
-    ("gate-runtime", "driftwatchdog|driftwatch"),
     ("analytics", "forge-analytics-adapter"),
     ("deploy", "forge-deployer"),
     ("release", "forge-package-publisher"),
@@ -247,11 +253,20 @@ fn display_for(provider: &str) -> &'static str {
     }
 }
 
-fn default_binary_for(provider: &str) -> Option<&'static str> {
-    DEFAULT_PROBE_BINARIES
-        .iter()
-        .find(|(id, _)| *id == provider)
-        .map(|(_, bin)| *bin)
+fn default_binary_for(provider: &str) -> Option<String> {
+    // One shared probe order for every DriftWatch runtime surface: the
+    // pipe-joined rendering stays byte-identical to the previous table
+    // literals (`driftwatchdog|driftwatch`), while the order itself has
+    // exactly one definition in `crate::policy`.
+    match provider {
+        "driftwatch-policy" | "gate-runtime" => {
+            Some(crate::policy::DRIFTWATCH_BINARY_CANDIDATES.join("|"))
+        }
+        _ => DEFAULT_PROBE_BINARIES
+            .iter()
+            .find(|(id, _)| *id == provider)
+            .map(|(_, bin)| bin.to_string()),
+    }
 }
 
 fn binary_env_for(provider: &str) -> Option<&'static str> {
@@ -357,7 +372,7 @@ pub fn inspect(provider: &str) -> Result<ProviderDescriptor, ForgeError> {
         display: display_for(&id).to_string(),
         boundary: boundary.to_string(),
         binary_env: binary_env_for(&id).map(str::to_string),
-        default_binary: default_binary_for(&id).map(str::to_string),
+        default_binary: default_binary_for(&id),
         secret_rule: "secrets reach Forge only through the runner environment; manifests and the repository never carry provider secrets; evidence is redacted through policy::redact_credentials".to_string(),
         teardown_rule: "probes run in disposable temp dirs and teardown removes what the probe created; targeted live runs never write outside the named project's state layout".to_string(),
     })
@@ -1754,6 +1769,23 @@ mod tests {
     fn parse_provider_refuses_unknown_with_typed_code() {
         let err = parse_provider("nosuch").unwrap_err();
         assert_eq!(err.code(), "provider-invalid");
+    }
+
+    #[test]
+    fn driftwatch_probe_defaults_share_the_policy_candidate_order() {
+        // One ordered definition (`policy::DRIFTWATCH_BINARY_CANDIDATES`);
+        // the rendered pipe form stays byte-compatible with the previous
+        // table literals.
+        let rendered = crate::policy::DRIFTWATCH_BINARY_CANDIDATES.join("|");
+        assert_eq!(rendered, "driftwatchdog|driftwatch");
+        assert_eq!(
+            default_binary_for("driftwatch-policy").as_deref(),
+            Some("driftwatchdog|driftwatch")
+        );
+        assert_eq!(
+            default_binary_for("gate-runtime").as_deref(),
+            Some("driftwatchdog|driftwatch")
+        );
     }
 
     #[test]

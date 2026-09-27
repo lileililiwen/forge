@@ -36,3 +36,4 @@ pub mod release;
 pub mod spec;
 pub mod ui_pattern;
 pub mod upgrade;
+pub mod vocabulary;

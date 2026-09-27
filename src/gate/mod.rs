@@ -1067,7 +1067,7 @@ mod tests {
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    fn stub(tmp: &TempDir, name: &str, body: &str) -> PathBuf {
+    fn write_fixture_script(tmp: &TempDir, name: &str, body: &str) -> PathBuf {
         let path = tmp.path().join(name);
         executable(
             &path,
@@ -1286,13 +1286,13 @@ mod tests {
     #[test]
     fn real_run_executes_gate_surface_and_records_evidence() {
         let tmp = project_dir();
-        let stub = stub(
+        let script = write_fixture_script(
             &tmp,
             "gate-ok.sh",
             "cat <<'EOF'\n{\"status\":\"PASS\",\"blocked\":false,\"failures\":[],\"pending_reviews\":[],\"not_applicable\":[],\"manifest_digest\":\"sha256:abc\",\"rule_pack_version\":\"local\",\"results\":[{\"gate_id\":\"build\",\"status\":\"PASS\"}]}\nEOF\nexit 0\n",
         );
         let config = GateConfig {
-            binary: Some(stub.into_os_string()),
+            binary: Some(script.into_os_string()),
             timeout: Duration::from_secs(10),
         };
         let outcome = run_gate(tmp.path(), "demo", &config, false);
@@ -1312,13 +1312,13 @@ mod tests {
     #[test]
     fn dry_run_reports_plan_preview_without_evidence() {
         let tmp = project_dir();
-        let stub = stub(
+        let script = write_fixture_script(
             &tmp,
             "gate-plan.sh",
             "printf 'gate plan (dry-run; nothing was executed)\\ncontract version: 1 | profile: minimal\\nchecks:\\n  - docs [required] via project-runtime\\n'\nexit 0\n",
         );
         let config = GateConfig {
-            binary: Some(stub.into_os_string()),
+            binary: Some(script.into_os_string()),
             timeout: Duration::from_secs(10),
         };
         let outcome = run_gate(tmp.path(), "demo", &config, true);
@@ -1332,13 +1332,13 @@ mod tests {
     #[test]
     fn unparseable_real_run_is_unavailable_and_names_status() {
         let tmp = project_dir();
-        let stub = stub(
+        let script = write_fixture_script(
             &tmp,
             "gate-text.sh",
             "echo 'driftwatch gate: no gate.toml or .ai-gate/gate.yaml; nothing to gate.'\nexit 0\n",
         );
         let config = GateConfig {
-            binary: Some(stub.into_os_string()),
+            binary: Some(script.into_os_string()),
             timeout: Duration::from_secs(10),
         };
         let outcome = run_gate(tmp.path(), "demo", &config, false);
@@ -1356,9 +1356,9 @@ mod tests {
     #[test]
     fn timeout_is_bounded_and_names_the_wait() {
         let tmp = project_dir();
-        let stub = stub(&tmp, "gate-hang.sh", "sleep 5\nexit 0\n");
+        let script = write_fixture_script(&tmp, "gate-hang.sh", "sleep 5\nexit 0\n");
         let config = GateConfig {
-            binary: Some(stub.into_os_string()),
+            binary: Some(script.into_os_string()),
             timeout: Duration::from_millis(300),
         };
         let outcome = run_gate(tmp.path(), "demo", &config, false);

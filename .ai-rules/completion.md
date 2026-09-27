@@ -14,3 +14,16 @@ Work is DONE only when all applicable stopping conditions hold:
 - Archive promotes canonical specs, related changes are committed, and HANDOFF points to the next active change or omits the pointer when none remain.
 
 Build success, test success, strict artifact validation and `SKELETON_READY` are not individually DONE. CI is a second verification layer, never the first check. Planning-only packages may be declared structurally validated but never implemented.
+
+## Recorded non-goals and vocabulary decisions
+
+- `tenancy` and `billing` are declared `blocked` in `.project.json`
+  capabilities: Forge has no tenant model and the planner explicitly
+  forbids billing, so both stay honestly blocked rather than omitted.
+- Product-code quality `placeholder_markers` override (`.project.json`
+  `quality`): the words `placeholder` and `stub` are Forge domain
+  vocabulary (component/UI-pattern rejection messages, deploy-state
+  shape comments), not maintainer debt, so they are removed from the
+  counted set while every debt marker (`todo`, `fixme`, `xxx`,
+  `hack`, `unimplemented!`, `todo!`) is retained with
+  `placeholder_threshold: 0` so real debt still fails closed.

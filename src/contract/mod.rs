@@ -15,6 +15,15 @@ pub const CONTRACT_PATTERN: &str =
 pub struct ManifestFile {
     pub path: String,
     pub sha256: String,
+    /// Owning source for this file (`platform-contracts` or
+    /// `workspace-governance`). Entries written before per-file
+    /// provenance carry `None` and mean the manifest's top-level source.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Source revision the file was vendored from (full commit SHA when
+    /// the sync could resolve one, else `"unknown"`).
+    #[serde(default)]
+    pub revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

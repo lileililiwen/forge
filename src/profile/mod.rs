@@ -99,6 +99,27 @@ pub struct WorkspaceMapping {
     /// No supported profile declares a gate runtime today.
     #[serde(default)]
     pub gate_runtime: Option<String>,
+    /// Capability names the profile descriptor really implements. A
+    /// generated project starts with intent but no observed evidence, so
+    /// entries emit as `declared` (the state that asserts intent without
+    /// claiming evidence). No supported descriptor declares any today,
+    /// so generated declarations carry no `capabilities` key at all.
+    /// Forge never copies its own capability set into generated
+    /// projects and never invents a speculative entry.
+    #[serde(default)]
+    pub capabilities: Vec<WorkspaceCapability>,
+}
+
+/// One capability a profile descriptor implements for generated
+/// projects. Only the name and owner are descriptor data; the emitted
+/// evidence state is always `declared`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceCapability {
+    /// Capability name from the governance vocabulary (e.g. `identity`).
+    pub name: String,
+    /// Capability owner (`platform`, `product`, `shared`, `external`,
+    /// or a project id).
+    pub owner: String,
 }
 
 fn default_support_status() -> ProfileSupportStatus {
@@ -223,6 +244,7 @@ fn with_governance(
         governance_profile: governance_profile.to_string(),
         kind: kind.to_string(),
         gate_runtime: None,
+        capabilities: Vec::new(),
     });
     profile
 }
@@ -747,13 +769,70 @@ pub fn validate_descriptor(profile: &ProfileDescriptor) -> Result<(), ForgeError
 }
 
 /// Parse an external descriptor document and validate required fields.
+///
+/// The workspace mapping is additionally validated against the consumed
+/// governance vocabulary: a `governance_profile` or `kind` outside the
+/// canonical set refuses with `invalid-profile` naming the field and the
+/// offending value, and no project tree is staged. When the vocabulary
+/// itself is unavailable the parse proceeds exactly as before (the
+/// declaration-vocabulary doctor finding reports the gap instead).
+///
+/// Built-in descriptors are grandfathered: `flutter-app` declares
+/// `flutter-product`, which the consumed vocabulary does not contain.
+/// Generation keeps emitting it (behaviour unchanged) while the doctor
+/// finding surfaces the divergence and the companion request to
+/// canonicalize it stays recorded. Refusing a supported profile at load
+/// would break pinned generation behaviour; external input is where
+/// Forge is asked to declare a new value, so refusal lives here.
 pub fn descriptor_from_yaml(bytes: &[u8]) -> Result<ProfileDescriptor, ForgeError> {
     let profile: ProfileDescriptor =
         serde_yaml::from_slice(bytes).map_err(|err| ForgeError::InvalidProfile {
             reason: format!("malformed profile descriptor: {err}"),
         })?;
     validate_descriptor(&profile)?;
+    if let Some(workspace) = profile.workspace.as_ref() {
+        match crate::vocabulary::load(None) {
+            Ok(vocab) => validate_workspace_mapping(workspace, &vocab)?,
+            Err(crate::vocabulary::VocabularyError::Unavailable { .. }) => {}
+            Err(crate::vocabulary::VocabularyError::Refused { path, reason }) => {
+                return Err(ForgeError::InvalidProfile {
+                    reason: format!(
+                        "profile descriptor '{}' cannot be validated: {reason} ({path})",
+                        profile.id
+                    ),
+                });
+            }
+        }
+    }
     Ok(profile)
+}
+
+/// Refuse a workspace mapping whose declared values are outside the
+/// consumed canonical sets. Names the field and the offending value;
+/// never coerces a foreign value into a Forge value.
+fn validate_workspace_mapping(
+    workspace: &WorkspaceMapping,
+    vocab: &crate::vocabulary::GovernanceVocabulary,
+) -> Result<(), ForgeError> {
+    if !vocab.is_canonical_profile(&workspace.governance_profile) {
+        return Err(ForgeError::InvalidProfile {
+            reason: format!(
+                "workspace.governance_profile '{}' is not in the consumed governance vocabulary ({}); no project tree was staged",
+                workspace.governance_profile,
+                vocab.provenance()
+            ),
+        });
+    }
+    if !vocab.is_canonical_kind(&workspace.kind) {
+        return Err(ForgeError::InvalidProfile {
+            reason: format!(
+                "workspace.kind '{}' is not in the consumed governance vocabulary ({}); no project tree was staged",
+                workspace.kind,
+                vocab.provenance()
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// Resolve a profile plus requested capabilities. Fails before any file
@@ -949,6 +1028,56 @@ mod tests {
         for p in planned_profiles() {
             assert!(p.workspace.is_none(), "{} must have no mapping", p.id);
         }
+    }
+
+    #[test]
+    fn external_descriptor_with_unknown_governance_profile_refuses_by_name() {
+        let yaml = b"id: custom-web\nversion: 0.1.0\nadapter: adapter-custom\nlanguage: rust\ntoolchain: cargo\nbuild_command: cargo build\ntest_command: cargo test\nworkspace:\n  governance_profile: bogus-product\n  kind: product\n";
+        let err = descriptor_from_yaml(yaml).expect_err("non-canonical profile must fail");
+        assert_eq!(err.code(), "invalid-profile");
+        let text = err.to_string();
+        assert!(text.contains("workspace.governance_profile"), "{text}");
+        assert!(text.contains("bogus-product"), "{text}");
+        assert!(text.contains("no project tree was staged"), "{text}");
+    }
+
+    #[test]
+    fn external_descriptor_with_unknown_kind_refuses_by_name() {
+        let yaml = b"id: custom-web\nversion: 0.1.0\nadapter: adapter-custom\nlanguage: rust\ntoolchain: cargo\nbuild_command: cargo build\ntest_command: cargo test\nworkspace:\n  governance_profile: rust-product\n  kind: control-plane\n";
+        let err = descriptor_from_yaml(yaml).expect_err("non-canonical kind must fail");
+        assert_eq!(err.code(), "invalid-profile");
+        let text = err.to_string();
+        assert!(text.contains("workspace.kind"), "{text}");
+        assert!(text.contains("control-plane"), "{text}");
+    }
+
+    #[test]
+    fn external_descriptor_with_canonical_mapping_parses() {
+        let yaml = b"id: custom-web\nversion: 0.1.0\nadapter: adapter-custom\nlanguage: rust\ntoolchain: cargo\nbuild_command: cargo build\ntest_command: cargo test\nworkspace:\n  governance_profile: rust-product\n  kind: product\n";
+        let parsed = descriptor_from_yaml(yaml).unwrap();
+        let mapping = parsed.workspace.expect("mapping survives");
+        assert_eq!(mapping.governance_profile, "rust-product");
+        assert_eq!(mapping.kind, "product");
+    }
+
+    #[test]
+    fn builtin_flutter_mapping_divergence_is_recorded_not_refused() {
+        // Design-vs-reality: `flutter-app` declares `flutter-product`,
+        // which the consumed vocabulary (workspace-governance@pinned)
+        // does not contain. Built-ins are grandfathered so pinned
+        // generation behaviour stays byte-identical; the divergence is
+        // visible through the declaration-vocabulary doctor finding and
+        // the companion canonicalization request, never a load refusal.
+        let vocab = crate::vocabulary::load(None).unwrap();
+        assert!(
+            !vocab.is_canonical_profile("flutter-product"),
+            "companion request open: canonicalize flutter-product"
+        );
+        let flutter = inspect_profile("flutter-app").unwrap();
+        assert_eq!(
+            flutter.workspace.as_ref().unwrap().governance_profile,
+            "flutter-product"
+        );
     }
 
     #[test]

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    "governance",
+    "product",
+    "typescript-product",
+    "python-product",
+    "rust-product",
+    "dotnet-product",
+    "typescript-monorepo",
+    "dotnet-library",
+    "dotnet-template",
+    "rust-platform",
+    "python-runtime",
+    "platform",
+    "tooling",
+    "deployment",
+    "inventory"
+  ],
+  "kinds": [
+    "product",
+    "typescript-product",
+    "python-product",
+    "rust-product",
+    "dotnet-product",
+    "typescript-monorepo",
+    "shared-library",
+    "tooling",
+    "platform",
+    "governance",
+    "deployment",
+    "inventory"
+  ],
+  "placeholder_markers": [
+    "todo",
+    "fixme",
+    "xxx",
+    "hack",
+    "placeholder",
+    "stub",
+    "unimplemented!",
+    "todo!"
+  ],
+  "secret_field_substrings": [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "apikey",
+    "api_key",
+    "api-key",
+    "credential",
+    "private_key",
+    "privatekey",
+    "private-key",
+    "bearer",
+    "session_ke",
+    "session_key"
+  ]
+}

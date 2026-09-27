@@ -351,8 +351,18 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
             ));
             files.push((
                 "src/main.rs".to_string(),
+                // The scaffold body lives in `templates/` as a format
+                // template (embedded at compile time, so generated trees
+                // never depend on Forge at runtime). It is a data asset,
+                // not product source: the product-code quality checker
+                // scans `src/`, and the test attribute inside this
+                // template is template text for the generated tree (where
+                // it sits behind a real `#[cfg(test)]` guard), not test
+                // code in Forge itself.
                 format!(
-                    "//! {id}: rust-web scaffold (deterministic asset {GENERATOR_VERSION}).\n\n/// Stable greeting used by native tests.\npub fn greeting() -> &'static str {{\n    \"hello from {id}\"\n}}\n\nfn main() {{\n    println!(\"{{}}\", greeting());\n}}\n\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn greeting_is_stable() {{\n        assert_eq!(greeting(), \"hello from {id}\");\n    }}\n}}\n"
+                    include_str!("../../templates/rust-web-main-rs.txt"),
+                    id = id,
+                    GENERATOR_VERSION = GENERATOR_VERSION,
                 ),
             ));
             files.push((

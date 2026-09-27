@@ -17,6 +17,17 @@ function resolveSource() {
   process.exit(1);
 }
 
+function resolveGovernanceSource() {
+  const envDir = process.env.GOVERNANCE_DIR;
+  if (envDir && existsSync(envDir)) return resolve(envDir);
+  const sibling = resolve(ROOT, "../workspace-governance");
+  if (existsSync(sibling)) return sibling;
+  console.error(
+    "sync-contracts: cannot resolve workspace-governance source. Set GOVERNANCE_DIR or place a sibling checkout at ../workspace-governance"
+  );
+  process.exit(1);
+}
+
 function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -81,13 +92,48 @@ try {
   revision = execSync("git rev-parse HEAD", { cwd: src }).toString().trim();
 } catch {}
 
+// Governance vocabulary: consumed verbatim through the same digest-pinned
+// mechanism, with its own source and revision. The file is data, never
+// executable input; Forge validates values against it and never edits it.
+const govSrc = resolveGovernanceSource();
+console.log(`sync-contracts: governance source ${govSrc}`);
+const govFile = join(govSrc, "vocabulary.json");
+if (!existsSync(govFile)) {
+  console.error("sync-contracts: missing source file vocabulary.json");
+  process.exit(1);
+}
+let govDoc;
+try { govDoc = JSON.parse(readFileSync(govFile, "utf8")); } catch (e) {
+  console.error(`sync-contracts: unparseable vocabulary.json: ${e.message}`);
+  process.exit(1);
+}
+if (govDoc.schema_version !== 1 || !Array.isArray(govDoc.profiles) || !Array.isArray(govDoc.kinds)) {
+  console.error("sync-contracts: vocabulary.json must carry schema_version 1 with profiles and kinds arrays");
+  process.exit(1);
+}
+cpSync(govFile, join(vocabDir, "governance-vocabulary.json"));
+console.log("  copied vocabulary/governance-vocabulary.json");
+let govRevision = "unknown";
+try {
+  const { execSync } = await import("node:child_process");
+  govRevision = execSync("git rev-parse HEAD", { cwd: govSrc }).toString().trim();
+} catch {}
+
 const entries = [];
 function collect(dir, prefix) {
   for (const name of readdirSync(dir).sort()) {
     const full = join(dir, name);
     const rel = prefix ? `${prefix}/${name}` : name;
     if (statSync(full).isDirectory()) collect(full, rel);
-    else if (name !== "manifest.json") entries.push({ path: rel, sha256: sha256(full) });
+    else if (name !== "manifest.json") {
+      const govOwned = rel === "vocabulary/governance-vocabulary.json";
+      entries.push({
+        path: rel,
+        sha256: sha256(full),
+        source: govOwned ? "workspace-governance" : "platform-contracts",
+        revision: govOwned ? govRevision : revision,
+      });
+    }
   }
 }
 collect(dest, "");

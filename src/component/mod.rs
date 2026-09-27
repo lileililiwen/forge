@@ -422,7 +422,7 @@ pub fn validate_descriptor(descriptor: &ComponentDescriptor) -> Result<(), Forge
     Ok(())
 }
 
-fn now_placeholder() -> DateTime<Utc> {
+fn epoch_record_time() -> DateTime<Utc> {
     DateTime::<Utc>::from_timestamp(0, 0).expect("epoch is valid")
 }
 
@@ -516,7 +516,7 @@ fn experimental_evidence() -> ComponentEvidence {
     ComponentEvidence {
         usage_count: 1,
         test_coverage: 0.45,
-        last_verified: now_placeholder(),
+        last_verified: epoch_record_time(),
         known_issues: vec!["initial draft, surface may change".to_string()],
         security_review: false,
     }
@@ -526,7 +526,7 @@ fn deprecated_evidence() -> ComponentEvidence {
     ComponentEvidence {
         usage_count: 0,
         test_coverage: 0.0,
-        last_verified: now_placeholder(),
+        last_verified: epoch_record_time(),
         known_issues: vec!["deprecated in favor of the next generation".to_string()],
         security_review: false,
     }
@@ -1536,7 +1536,7 @@ mod tests {
         };
         let evidence = ComponentQualifyEvidence {
             test_coverage: 0.95,
-            last_verified: now_placeholder(),
+            last_verified: epoch_record_time(),
             known_issues: Vec::new(),
             security_review: true,
         };

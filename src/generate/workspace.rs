@@ -50,6 +50,11 @@ struct Declaration<'a> {
     profile: &'a str,
     lifecycle: &'a str,
     verification: Verification<'a>,
+    /// Emitted only when the profile descriptor declares capabilities
+    /// it really implements; otherwise the key is absent entirely
+    /// (never an empty or speculative block).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capabilities: Option<std::collections::BTreeMap<&'a str, CapabilityEntry<'a>>>,
     deployment: Deployment,
 }
 
@@ -70,10 +75,38 @@ struct Deployment {
     compose_file: Option<String>,
 }
 
+/// One generated capability entry. A fresh project has intent but no
+/// observed evidence, so the state is always `declared`: no finding is
+/// claimed and no evidence reference is invented.
+#[derive(Serialize)]
+struct CapabilityEntry<'a> {
+    owner: &'a str,
+    evidence_state: &'static str,
+}
+
 /// Deterministic declaration text for one project, or `None` when the
 /// descriptor carries the no-mapping sentinel.
 pub fn declaration_text(id: &str, descriptor: &ProfileDescriptor) -> Option<String> {
     let mapping = descriptor.workspace.as_ref()?;
+    let capabilities = if mapping.capabilities.is_empty() {
+        None
+    } else {
+        Some(
+            mapping
+                .capabilities
+                .iter()
+                .map(|cap| {
+                    (
+                        cap.name.as_str(),
+                        CapabilityEntry {
+                            owner: cap.owner.as_str(),
+                            evidence_state: "declared",
+                        },
+                    )
+                })
+                .collect(),
+        )
+    };
     let document = Declaration {
         schema_version: SCHEMA_VERSION,
         id,
@@ -85,6 +118,7 @@ pub fn declaration_text(id: &str, descriptor: &ProfileDescriptor) -> Option<Stri
             gate_runtime: mapping.gate_runtime.as_deref(),
             evidence_status: EVIDENCE_STATUS,
         },
+        capabilities,
         // Non-deployable defaults: a real target is a project edit later.
         deployment: Deployment {
             deployable: false,
@@ -195,6 +229,18 @@ fn recorded_hash(receipt: &str) -> Option<String> {
     valid
 }
 
+/// True when the declaration bytes in `dir` are exactly what Forge
+/// generated: a Forge receipt exists and its recorded hash matches the
+/// current file. A missing receipt (foreign content) or a hash mismatch
+/// (user edits) means the claim is not Forge-authored, so a broken
+/// reference in it warns rather than fails.
+pub(crate) fn declaration_is_forge_authored(dir: &Path, current: &[u8]) -> bool {
+    let Ok(receipt) = fs::read_to_string(dir.join(RECEIPT_PATH)) else {
+        return false;
+    };
+    recorded_hash(&receipt).as_deref() == Some(sha256_hex(current).as_str())
+}
+
 /// Apply a [`MetadataAction::Refresh`]; other actions write nothing.
 /// Returns the staged paths that changed.
 pub fn apply_action(dir: &Path, action: &MetadataAction) -> Result<Vec<String>, std::io::Error> {
@@ -273,10 +319,56 @@ mod tests {
             governance_profile: "rust-product".to_string(),
             kind: "product".to_string(),
             gate_runtime: Some("driftwatchdog".to_string()),
+            capabilities: Vec::new(),
         });
         let text = declaration_text("demo", &descriptor).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(value["verification"]["gate_runtime"], "driftwatchdog");
+    }
+
+    #[test]
+    fn descriptor_declared_capabilities_emit_as_declared_only() {
+        use crate::profile::WorkspaceCapability;
+        let mut descriptor = request_descriptor("rust-web");
+        descriptor.workspace.as_mut().unwrap().capabilities = vec![
+            WorkspaceCapability {
+                name: "storage".to_string(),
+                owner: "product".to_string(),
+            },
+            WorkspaceCapability {
+                name: "jobs".to_string(),
+                owner: "product".to_string(),
+            },
+        ];
+        let text = declaration_text("demo", &descriptor).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let caps = value["capabilities"]
+            .as_object()
+            .expect("capabilities block");
+        assert_eq!(caps.len(), 2, "{text}");
+        assert_eq!(caps["storage"]["owner"], "product");
+        assert_eq!(caps["storage"]["evidence_state"], "declared");
+        assert!(caps["storage"].get("evidence_ref").is_none(), "{text}");
+        assert_eq!(caps["jobs"]["evidence_state"], "declared");
+    }
+
+    #[test]
+    fn descriptor_without_capabilities_emits_no_key() {
+        for id in [
+            "aspnet-web",
+            "flutter-app",
+            "nextjs-web",
+            "python-service",
+            "react-web",
+            "rust-web",
+        ] {
+            let text = declaration_text(id, &request_descriptor(id)).unwrap();
+            let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert!(
+                value.get("capabilities").is_none(),
+                "{id} must carry no speculative capabilities block: {text}"
+            );
+        }
     }
 
     #[test]

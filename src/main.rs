@@ -28,15 +28,6 @@ use forge::component::{
 };
 use forge::core::ForgeError;
 use forge::deploy::{DeployAdapterConfig, DeployRequest};
-use forge::publish::{
-    jenkins::JenkinsAdapter, request_from as build_publish_request,
-    render_report_human as render_publish_report_human, run_publish, PublishAction,
-    providers::{
-        invoke_provider, load_config as load_publish_provider_config, select_provider,
-        ProviderOperation, PublishProviderRequest,
-    },
-    SubprocessTransport, PUBLISH_CONTRACT_VERSION,
-};
 use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
@@ -103,6 +94,15 @@ use forge::provider::{
     render_matrix_human as render_provider_matrix_human,
     render_row_human as render_provider_row_human, run_controlled as run_provider_controlled,
     RunOptions as ProviderRunOptions, PROVIDER_CONTRACT_VERSION, PROVIDER_SYNTHETIC_PROJECT,
+};
+use forge::publish::{
+    jenkins::JenkinsAdapter,
+    providers::{
+        invoke_provider, load_config as load_publish_provider_config, select_provider,
+        ProviderOperation, PublishProviderRequest,
+    },
+    render_report_human as render_publish_report_human, request_from as build_publish_request,
+    run_publish, PublishAction, SubprocessTransport, PUBLISH_CONTRACT_VERSION,
 };
 use forge::readiness::{
     artifact_evidence, evaluate_gate, render_artifact_human, render_gate_human,
@@ -698,6 +698,15 @@ enum DeployCommands {
         /// Registered project id or filesystem path (default: current directory).
         #[arg(default_value = ".")]
         target: String,
+    },
+    /// Show the persisted Forge publish/deploy status without contacting a provider.
+    Status {
+        /// Limit the report to one project id.
+        #[arg(long)]
+        project: Option<String>,
+        /// Maximum number of journal entries to return.
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
     },
 }
 
@@ -3453,7 +3462,66 @@ fn cmd_deploy(
                 };
             deploy_state_output(&state, format)
         }
+        DeployCommands::Status { project, limit } => {
+            cmd_deploy_status(db_path, project.as_deref(), *limit, format)
+        }
     }
+}
+
+fn cmd_deploy_status(
+    db_path: &Path,
+    project: Option<&str>,
+    limit: usize,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = open_registry(db_path)?;
+    let limit = limit.clamp(1, 500);
+    let entries = match project {
+        Some(project_id) => registry.operations_for_project(project_id, limit)?,
+        None => registry.recent_operations(limit)?,
+    };
+    let entries: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| entry.kind == "publish" || entry.kind == "deploy")
+        .collect();
+    let latest = entries.first();
+    let state = latest.map(|entry| entry.state.as_str()).unwrap_or("empty");
+    let value = serde_json::json!({
+        "contract": "forge-deploy-status/0.1.0",
+        "project": project,
+        "state": state,
+        "entries": entries,
+        "read_only": true,
+    });
+    let human = if entries.is_empty() {
+        match project {
+            Some(project_id) => {
+                format!("deploy status: no publish/deploy history for {project_id}")
+            }
+            None => "deploy status: no publish/deploy history".to_string(),
+        }
+    } else {
+        let mut lines = vec![format!(
+            "deploy status: {}",
+            project.unwrap_or("all projects")
+        )];
+        for entry in &entries {
+            lines.push(format!(
+                "  #{} {} {} {}{}",
+                entry.op_id,
+                entry.project_id,
+                entry.kind,
+                entry.state,
+                entry
+                    .detail
+                    .as_deref()
+                    .map(|detail| format!(" — {detail}"))
+                    .unwrap_or_default()
+            ));
+        }
+        lines.join("\n")
+    };
+    Ok(as_output(format, human, value))
 }
 
 fn resolve_deploy_target_name(
@@ -3569,9 +3637,7 @@ fn cmd_publish(
         reason: "publish requires a legacy stage command or --project/--folder".to_string(),
     })?;
     match command {
-        PublishCommands::Provider { command } => {
-            cmd_publish_provider_lifecycle(command, format)
-        }
+        PublishCommands::Provider { command } => cmd_publish_provider_lifecycle(command, format),
         PublishCommands::Fleet {
             fleet_registry,
             workspace_root,
@@ -3608,30 +3674,36 @@ fn cmd_publish_provider_lifecycle(
     let mut config = load_publish_provider_config(&config_path)?;
     match command {
         PublishProviderCommands::List { .. } => {
-            let value = serde_json::to_value(&config).map_err(|error| ForgeError::PublishInvalid {
-                reason: format!("cannot encode provider list: {error}"),
-            })?;
+            let value =
+                serde_json::to_value(&config).map_err(|error| ForgeError::PublishInvalid {
+                    reason: format!("cannot encode provider list: {error}"),
+                })?;
             let human = if config.providers.is_empty() {
                 "No publish providers configured.".to_string()
             } else {
                 config
                     .providers
                     .iter()
-                    .map(|entry| format!("{}\t{}", entry.id, if entry.enabled { "on" } else { "off" }))
+                    .map(|entry| {
+                        format!("{}\t{}", entry.id, if entry.enabled { "on" } else { "off" })
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             };
             Ok(as_output(format, human, value))
         }
         PublishProviderCommands::Inspect { id, .. } => {
-            let entry = config.providers.iter().find(|entry| entry.id == *id).ok_or_else(|| {
-                ForgeError::PublishInvalid {
+            let entry = config
+                .providers
+                .iter()
+                .find(|entry| entry.id == *id)
+                .ok_or_else(|| ForgeError::PublishInvalid {
                     reason: format!("publish provider `{id}` is not configured"),
-                }
-            })?;
-            let value = serde_json::to_value(entry).map_err(|error| ForgeError::PublishInvalid {
-                reason: format!("cannot encode provider inspection: {error}"),
-            })?;
+                })?;
+            let value =
+                serde_json::to_value(entry).map_err(|error| ForgeError::PublishInvalid {
+                    reason: format!("cannot encode provider inspection: {error}"),
+                })?;
             Ok(as_output(
                 format,
                 format!(
@@ -3645,22 +3717,31 @@ fn cmd_publish_provider_lifecycle(
         PublishProviderCommands::Enable { id, .. }
         | PublishProviderCommands::Disable { id, .. } => {
             let enabled = matches!(command, PublishProviderCommands::Enable { .. });
-            let entry = config.providers.iter_mut().find(|entry| entry.id == *id).ok_or_else(|| {
-                ForgeError::PublishInvalid {
+            let entry = config
+                .providers
+                .iter_mut()
+                .find(|entry| entry.id == *id)
+                .ok_or_else(|| ForgeError::PublishInvalid {
                     reason: format!("publish provider `{id}` is not configured"),
-                }
-            })?;
+                })?;
             entry.enabled = enabled;
-            let bytes = serde_yaml::to_string(&config).map_err(|error| ForgeError::PublishInvalid {
-                reason: format!("cannot encode provider config: {error}"),
-            })?;
+            let bytes =
+                serde_yaml::to_string(&config).map_err(|error| ForgeError::PublishInvalid {
+                    reason: format!("cannot encode provider config: {error}"),
+                })?;
             std::fs::write(&config_path, bytes).map_err(|error| ForgeError::PublishInvalid {
-                reason: format!("cannot write provider config {}: {error}", config_path.display()),
+                reason: format!(
+                    "cannot write provider config {}: {error}",
+                    config_path.display()
+                ),
             })?;
             let value = serde_json::json!({"provider": id, "enabled": enabled});
             Ok(as_output(
                 format,
-                format!("publish provider `{id}` {}", if enabled { "enabled" } else { "disabled" }),
+                format!(
+                    "publish provider `{id}` {}",
+                    if enabled { "enabled" } else { "disabled" }
+                ),
                 value,
             ))
         }
@@ -3680,13 +3761,19 @@ fn cmd_publish_provider(
         resolve_publish_target(project)?
     } else if let Some(folder) = folder {
         let dir = std::fs::canonicalize(folder).map_err(|error| ForgeError::PublishInvalid {
-            reason: format!("cannot resolve publish folder {}: {error}", folder.display()),
+            reason: format!(
+                "cannot resolve publish folder {}: {error}",
+                folder.display()
+            ),
         })?;
         let id = dir
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| ForgeError::PublishInvalid {
-                reason: format!("publish folder `{}` has no usable project id", dir.display()),
+                reason: format!(
+                    "publish folder `{}` has no usable project id",
+                    dir.display()
+                ),
             })?
             .to_string();
         (dir, id)
@@ -3710,7 +3797,10 @@ fn cmd_publish_provider(
         .map(str::to_string)
         .or_else(|| git_revision(&project_dir))
         .unwrap_or_else(|| "unknown".to_string());
-    let operation_id = format!("publish-{project_id}-{}", &revision[..revision.len().min(12)]);
+    let operation_id = format!(
+        "publish-{project_id}-{}",
+        &revision[..revision.len().min(12)]
+    );
     let request = PublishProviderRequest {
         contract: forge::publish::providers::PUBLISH_PROVIDER_CONTRACT.to_string(),
         operation: ProviderOperation::Publish,
@@ -3841,7 +3931,8 @@ fn cmd_publish_fleet(
     };
 
     let workspace_root = workspace_root.unwrap_or_else(default_workspace_root);
-    let registry_path = registry_path.unwrap_or_else(|| default_registry_path(Some(&workspace_root)));
+    let registry_path =
+        registry_path.unwrap_or_else(|| default_registry_path(Some(&workspace_root)));
     let registry = load_registry(&registry_path)?;
     let eligible = filter_eligible(&registry, &workspace_root, &lifecycle);
 
@@ -3899,7 +3990,10 @@ fn cmd_publish_fleet(
                         failure_count += 1;
                         if fail_fast && first_failure.is_none() {
                             first_failure = Some(ForgeError::PublishDeployFailed {
-                                reason: format!("fleet provider publish failed at `{}`", project.id),
+                                reason: format!(
+                                    "fleet provider publish failed at `{}`",
+                                    project.id
+                                ),
                             });
                             break;
                         }
@@ -3934,11 +4028,10 @@ fn cmd_publish_fleet(
         match outcome {
             Ok(report) => {
                 let human = render_publish_report_human(&report);
-                let mut value = serde_json::to_value(&report).map_err(|err| {
-                    ForgeError::PublishInvalid {
+                let mut value =
+                    serde_json::to_value(&report).map_err(|err| ForgeError::PublishInvalid {
                         reason: format!("cannot encode report for {}: {err}", project.id),
-                    }
-                })?;
+                    })?;
                 if let Some(obj) = value.as_object_mut() {
                     obj.insert(
                         "contract".to_string(),
@@ -4017,9 +4110,11 @@ fn cmd_publish_fleet(
 fn resolve_publish_target(target: &str) -> Result<(std::path::PathBuf, String), ForgeError> {
     let candidate = std::path::Path::new(target);
     if candidate.is_dir() {
-        let canonical = candidate.canonicalize().map_err(|_| ForgeError::PathUnavailable {
-            path: target.to_string(),
-        })?;
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|_| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
         // Manifest is optional for publish: the Jenkins adapter only
         // needs the project id (derived from the directory name) and
         // the docker-compose file inside. Skip the manifest lookup so
@@ -4047,8 +4142,6 @@ fn resolve_publish_target(target: &str) -> Result<(std::path::PathBuf, String), 
         path: target.to_string(),
     })
 }
-
-
 
 fn deploy_plan_output(
     plan: &forge::deploy::DeployPlan,
@@ -6532,7 +6625,10 @@ fn cmd_gate_evidence(
                 format,
             )
         }
-        gate::evidence::EvidenceOutcome::Refused { reason, refusal_reasons } => {
+        gate::evidence::EvidenceOutcome::Refused {
+            reason,
+            refusal_reasons,
+        } => {
             let bound = gate::bound_note(&reason);
             let _ = registry.record_operation(
                 "gate",
@@ -6582,8 +6678,8 @@ fn cmd_gate_evidence_status(dir: &Path, project_id: &str, format: Format) -> Exi
             ExitCode::SUCCESS
         }
         Ok(None) => {
-            let reason = "no release-evidence record persisted; run `forge gate evidence` first"
-                .to_string();
+            let reason =
+                "no release-evidence record persisted; run `forge gate evidence` first".to_string();
             let json = serde_json::json!({
                 "contract": "release-evidence/0.1.0",
                 "release_evidence": null,

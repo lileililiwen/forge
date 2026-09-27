@@ -170,7 +170,7 @@ pub fn invoke_provider(
         .map_err(|error| ForgeError::PublishInvalid {
             reason: format!("cannot start publish provider `{}`: {error}", entry.id),
         })?;
-    if let Some(stdin) = child.stdin.as_mut() {
+    if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
         stdin.write_all(&input).map_err(|error| ForgeError::PublishInvalid {
             reason: format!("cannot send request to publish provider `{}`: {error}", entry.id),

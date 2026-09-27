@@ -4060,3 +4060,108 @@ Planning-only documentation does not implement, archive or commit active changes
 - Pointer state: `post-mvp-readiness` archived (22/22 tasks evidenced); `openspec list` shows two remaining proposals (`governance-vocabulary-consumption`, `gate-evidence-export-consumption`), both explicitly blocked awaiting sibling implementation evidence (`vocabulary.json` absent on this host; driftwatchdog `gate-evidence-export` authored but unselected) — no active eligible change remains, so the `current_spec` line is removed.
 
 current_spec: governance-vocabulary-consumption
+
+`governance-vocabulary-consumption` implemented, verified and
+archived on 2026-09-27 as
+`2026-09-27-governance-vocabulary-consumption`; its nine
+requirements were promoted into the consumed
+[openspec/specs/governance-provider-contract/spec.md](openspec/specs/governance-provider-contract/spec.md)
+(governance vocabulary consumption, not to be confused with the
+earlier workspace-governance adapter consumption).  Forge now consumes
+the canonical governance vocabulary through a thread-safe loader with
+documented resolution order and typed refusal boundaries: explicit path,
+then `FORGE_GOVERNANCE_VOCABULARY`, then the vendored digest-pinned
+copy — the same explicit-beats-env shape the gate plane already uses for
+`FORGE_GATE_BIN`.  An explicitly named file that is missing or does not
+parse refuses the request naming that file (never a silent fall-through);
+the vendored tier degrades to `vocabulary-unavailable` and every
+consulting surface behaves exactly as it did before the vocabulary
+existed, so absence never blocks generation, import, doctor, check,
+fleet or gate and nothing is fetched from the network or guessed
+locally.  The consumed document carries `schema_version: 1`,
+`profiles` (15 entries including `rust-product`, `typescript-product`),
+`kinds` (12 entries including `platform`, `product`), `placeholder_markers`
+(9 entries including `todo`, `fixme`, `xxx`, `hack`, `unimplemented!`,
+`todo!`), and `secret_field_substrings` (15 entries); the four sets
+are split by role — declaration values from governance, contract field
+names from platform-contracts, captured-output redaction staying in
+`policy::redact_credentials`, and repository-check words from governance.
+The vocabulary is vendored as
+`contracts/vocabulary/governance-vocabulary.json` with its own entry
+in `contracts/manifest.json` carrying `source: workspace-governance` and
+the pinned sibling revision.  `scripts/sync-contracts.mjs` copies the
+sibling's `vocabulary.json` through the same digest-pinned mechanism,
+and the offline manifest test verifies the vendored copy against its
+recorded sha256.  External profile descriptors are validated at load:
+a non-canonical `governance_profile` or `kind` refuses with
+`invalid-profile` naming the field and the offending value, and no
+project tree is staged; built-in descriptors are grandfathered (the
+`flutter-product` divergence is surfaced by the doctor finding rather
+than refused at load).  Runtime-name duplication is reduced to one shared
+`policy::DRIFTWATCH_BINARY_CANDIDATES` used by gate, policy and
+provider; the ordered defaults are rendered byte-compatible to the prior
+pipe-separated literals.  The declaration-vocabulary doctor finding
+compares the project's `.project.json` against the consumed vocabulary:
+`applicable: false` when no declaration exists (the checker plane
+stays byte-identical for such projects); `Pass` with `applicable: false`
+for canonical declarations (informational, never gating health or
+maturity); `Warn` for non-canonical kind or profile; and `Fail` only
+for a Forge-authored capability claim whose `evidence_ref` no longer
+resolves.  The finding is projected through the checker plane without
+changing the alert document schema.  Forge's own kind is normalized
+(`control-plane` → `platform` per the WG remap table) and
+`evidence_status` left at `planned` pending WG canonicalization.  The
+`quality` block declares the `placeholder_markers` override (Forge domain
+words `placeholder` and `stub` removed, all eight debt markers retained)
+with `placeholder_threshold: 0`; the decision is recorded in
+`.ai-rules/completion.md` alongside the `tenancy`/`billing` blocked
+declarations.  The `capabilities` block carries the five configured
+capabilities with real `evidence_ref` paths and the two blocked
+capabilities with the non-goal recorded.  Generated declarations emit
+capabilities only when the profile descriptor declares them; all six
+supported profiles currently declare none, so generated trees carry no
+`capabilities` key.  The vocabulary is also consumed by the gate plane
+(no surface change) and by the provider matrix.  Three residual
+companion asks remain open in Workspace Governance:
+`evidence_status` canonical normalization (field bounds and vocabulary
+set), `rust-product` profile spec authorship, and the
+`driftwatch init` action for this checkout's gate store initialization.
+The `gate-evidence-export-consumption` proposal remains blocked awaiting
+the sibling's real export document (live evidence disproved the last
+two design guesses about sibling behaviour).
+
+## Verification evidence (governance-vocabulary-consumption, 2026-09-27)
+
+- `cargo fmt --all -- --check`: PASS; `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test --lib vocabulary`: PASS (18 tests including resolution order,
+  explicit/env/vendored tiers, size bounds, traversal rejection, wrong
+  schema version, directory candidate, vendored copy with pinned revision).
+- `cargo test --lib doctor` (26 tests including 8 declaration-vocabulary
+  finding tests): PASS.
+- `cargo test --lib gate` (37 tests including 23 gate tests): PASS.
+- `cargo test --lib profile` (43 tests including external descriptor
+  validation with canonical/non-canonical mapping): PASS.
+- `cargo test --lib generate::workspace` (12 tests including capabilities
+  emission and determinism): PASS.
+- `cargo test --test gate_contract` (16 CLI tests): PASS.
+- `cargo test --test gate_provider_contract` (8 tests): PASS.
+- `cargo test --test governance_contract` (20 tests): PASS.
+- `cargo test --test governance_cross_surface` (filtered 0; no new surface): PASS.
+- `cargo test --test workspace_metadata_contract` (12 tests): PASS.
+- `cargo test --test workspace_metadata_cross_surface` (4 tests): PASS.
+- `cargo test --test gate_cross_surface` (filtered 0; no new surface): PASS.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate --all --strict --no-interactive`: 37 passed, 0 failed.
+- `git diff --check`: PASS.
+- `git diff --stat`: 16 modified files, 931 insertions, 41 deletions;
+  3 new tracked files (`src/vocabulary.rs`, `contracts/vocabulary/`).
+- Vocabulary fixture: `contracts/vocabulary/governance-vocabulary.json`
+  (schema_version 1, 15 profiles, 12 kinds, 9 placeholder_markers, 15
+  secret_field_substrings, consumed at revision
+  `0301ee88864d37957f5a6688005d5758b201cbe7`).
+- Pointer state: `governance-vocabulary-consumption` archived (this record);
+  `gate-evidence-export-consumption` remains blocked (sibling export not
+  yet confirmed); no other eligible change; `current_spec` line removed.
+- No gate pass claimed for this repository; no shared Gate Runtime
+  configured; `driftwatch init` remains sibling-owned next action.

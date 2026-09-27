@@ -2,6 +2,70 @@
 
 ## Current state
 
+`forge-publish-plugin-orchestration` implemented, verified and
+archived on 2026-09-27 as
+`2026-09-27-forge-publish-plugin-orchestration`; its five
+requirements (one publish engine, switchable providers, provider
+contract, idempotent push retries, provider isolation) were promoted
+into
+[openspec/specs/forge-publish-plugin-orchestration/spec.md](openspec/specs/forge-publish-plugin-orchestration/spec.md).
+The implementation closes every Section-3 BFS and Section-4
+verification task that remained after the Jenkins deploy adapter
+archived: `forge publish --project <id> --provider <name>` and
+`forge publish --folder <path>` converge through the same
+`PublishProviderRequest` constructor (`forge-publish-provider/0.1.0`
+contract, manual operation id `publish-<id>-<12hex-rev>` vs GitHub
+push `github-<delivery_id>`), provider enable/disable/list/inspect
+CLI persists state through `serde_yaml`, the contract validates
+`contract`, `provider`, `project_id`, `revision`, `operation_id`
+plus a marker-based secret redactor on `password=`/`token=`/`secret=`/
+`private_key`/`-----begin` across both `evidence` and `recovery`,
+disabled and unconfigured providers are refused with
+`error[publish-invalid]` before any subprocess starts, and one
+provider's failure does not block another — `publish_provider_failure_does_not_prevent_other_provider_use`
+configures OpenPanel and Jenkins back to back, observes the failing
+provider exit non-zero, then selects Jenkins and records a
+healthy `done`. The Jenkins provider is genuinely optional: with
+only `openpanel` configured, `--provider jenkins` is refused while
+`--provider openpanel` succeeds without any `project.sh`,
+`deploy-all.sh`, `install-mac.sh` or `jenkins-local` invocation in
+the workdir (`publish_jenkins_optional_and_no_mac_script_required`).
+GitHub push idempotency rides on the registry's existing
+`reserve_idempotent_operation` with the delivery id as the key:
+`duplicate_github_push_delivery_invokes_provider_at_most_once`
+drives the API server end to end with two identical signed
+deliveries, asserts the second returns `200` with `"status":
+"duplicate"`, and counts exactly one fixture-provider invocation in
+the recording log. The jenkins-local sibling's shipped adapter
+(`/home/paul/code/jenkins-local/adapters/forge-publish-provider.py`,
+`100755`) is exercised live as the `live_jenkins_local_provider_round_trip_through_real_sibling`
+round trip (skipped honestly when the sibling is absent). The
+OpenPanel sibling provider is still `0/9 tasks` in that repository,
+so the Forge-side fixtures (the published contract fixtures under
+`tests/fixtures/publish-provider/` plus the
+`publish_apply_invokes_provider_with_typed_contract` fixture
+provider) stand in for the conformance evidence on this host.
+`publish_redacts_secret_shaped_provider_evidence` proves the
+redactor rejects a leaky fixture before any stdout/stderr hits the
+operator, and `manual_and_github_push_produce_equivalent_provider_request`
+asserts the two entry points construct the same
+`PublishProviderRequest` envelope (the operation id is the only
+intentional divergence). The MCP `tools/list`, portal and
+`forge list` surfaces stay unchanged: no new tool, no new route,
+no new portal section, no new journal kind beyond the existing
+`publish` rows; the registry's `operations` table gains no columns.
+
+## Verification evidence (forge-publish-plugin-orchestration, 2026-09-27)
+
+- `cargo fmt --all -- --check` for the touched files: PASS (the pre-change baseline already carries formatting drift in unrelated files; out of scope).
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS against the pre-change baseline (the seven pre-existing `-D warnings` errors live in `src/gate/evidence.rs`, `src/main.rs`, `src/publish/mod.rs`, `src/publish/fleet.rs` and `tests/gate_cross_surface.rs` — none touched by this change; verified by stashing the patch and re-running).
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: PASS (pre-existing long-running scaffold excluded; the change adds no new long-running native test). New/extended suites: 22 `src/publish/providers` unit tests (clean response acceptance, password/token/PEM/private-key marker rejection across both `evidence` and `recovery`, wrong contract refusal, missing-field refusal for each of `provider`/`project_id`/`revision`/`operation_id`, blank-string refusal, non-object payload refusal, every operation id `capabilities`/`preflight`/`publish`/`verify`/`rollback` round-trip, unknown/disabled entry refusal, missing-file/invalid-yaml round trips, default-enabled serde round trip) and 11 `tests/publish_contract.rs` CLI/API tests (help surface; dry-run prints the request without invoking the provider; apply invokes the provider with the typed contract and records the envelope verbatim; disabled-provider refusal; multi-provider failure isolation; Jenkins optionality with no Mac script bundle invoked; secret-shaped evidence redacted at the contract boundary; enable/disable persistence through `forge publish provider enable|disable`; duplicate GitHub push delivery invokes the provider at most once through the API server end to end; manual and GitHub-push `PublishProviderRequest` envelopes agree on every shared field; live `forge-publish-provider.py` round trip through the jenkins-local sibling when present, skipped honestly otherwise).
+- Live sibling round trip: `live_jenkins_local_provider_round_trip_through_real_sibling` invokes the real jenkins-local adapter at `/home/paul/code/jenkins-local/adapters/forge-publish-provider.py` (`100755`, contract `forge-publish-provider/0.1.0`) with a `capabilities` request, parses the JSON envelope, and asserts `contract`, `provider`, `operation_id` and `status` (`available`) are reported by the real sibling — no Forge-side fixture or stub involved.
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 41 passed, 0 failed pre-archive and 41 passed, 0 failed post-archive with the promoted `forge-publish-plugin-orchestration` spec (+5 requirements); `git diff --check`: PASS.
+- Pointer state: `forge-publish-plugin-orchestration` archived (`23/23` tasks evidenced); `openspec list` shows three remaining proposals (`forge-independent-project-inventory-fleet`, `forge-publish-observability-revision-containers`, `forge-publish-queue-status`) and the `current_spec` line is removed (no active eligible change remains on this host; the OpenPanel sibling provider is `0/9 tasks` and the jenkins-local provider round trip is now in this repository's contract tests).
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 `gate-evidence-export-consumption` implemented, verified and archived as
 `2026-09-27-gate-evidence-export-consumption`. Companion sibling
 `driftwatchdog gate-evidence-export` archived `2026-09-27` at `221faeca`.

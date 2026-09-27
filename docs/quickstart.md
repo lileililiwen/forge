@@ -172,9 +172,14 @@ $ forge publish provider enable openpanel
 $ forge publish provider disable jenkins
 $ forge publish --project my-project --provider openpanel
 $ forge publish --folder /workspace/my-project --provider jenkins --dry-run
+$ forge publish fleet --provider jenkins --registry /home/paul/code/workspace-governance/deployment/projects.json --workspace-root /home/paul/code
 ```
 
 An enabled provider is selected per request. A disabled provider is refused
 before its executable is started. OpenPanel and Jenkins can therefore be
 switched independently without putting either project's scripts on the
 runtime host.
+
+The fleet form uses the same provider request for every eligible project. The
+provider performs the build and Compose run on the Mac and reuses the Mac's
+shared PostgreSQL runtime.

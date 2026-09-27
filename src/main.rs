@@ -743,6 +743,9 @@ enum PublishCommands {
         /// Stop at the first failure instead of continuing the rest of the fleet.
         #[arg(long)]
         fail_fast: bool,
+        /// Use one external provider for every eligible project.
+        #[arg(long)]
+        provider: Option<String>,
     },
     /// Allocate ports and prepare the project environment on the Mac (Stage 2).
     Prepare {
@@ -3575,6 +3578,7 @@ fn cmd_publish(
             dry_run,
             lifecycle,
             fail_fast,
+            provider,
         } => cmd_publish_fleet(
             db_path,
             registry.clone(),
@@ -3582,6 +3586,7 @@ fn cmd_publish(
             *dry_run,
             lifecycle.clone(),
             *fail_fast,
+            provider.clone(),
             format,
         ),
         _ => cmd_publish_single(db_path, command, format),
@@ -3828,6 +3833,7 @@ fn cmd_publish_fleet(
     dry_run: bool,
     lifecycle: String,
     fail_fast: bool,
+    provider: Option<String>,
     format: Format,
 ) -> Result<Output, ForgeError> {
     use forge::publish::fleet::{
@@ -3859,6 +3865,65 @@ fn cmd_publish_fleet(
     let mut failure_count = 0usize;
 
     for project in &eligible {
+        if let Some(provider_id) = provider.as_deref() {
+            let outcome = cmd_publish_provider(
+                db_path,
+                None,
+                Some(&project.path),
+                Some(provider_id),
+                None,
+                dry_run,
+                Format::Json,
+            );
+            match outcome {
+                Ok(Output::Json(value)) => {
+                    let healthy = value
+                        .get("health")
+                        .and_then(|value| value.as_str())
+                        .map(|value| value == "healthy")
+                        .unwrap_or(dry_run);
+                    render_output(as_output(
+                        format,
+                        format!("publish {}: provider={provider_id}", project.id),
+                        value.clone(),
+                    ));
+                    summaries.push(serde_json::json!({
+                        "project": project.id,
+                        "provider": provider_id,
+                        "healthy": healthy,
+                        "status": value.get("status"),
+                    }));
+                    if healthy {
+                        success_count += 1;
+                    } else {
+                        failure_count += 1;
+                        if fail_fast && first_failure.is_none() {
+                            first_failure = Some(ForgeError::PublishDeployFailed {
+                                reason: format!("fleet provider publish failed at `{}`", project.id),
+                            });
+                            break;
+                        }
+                    }
+                }
+                Ok(Output::Human(text)) => {
+                    println!("{text}");
+                    success_count += 1;
+                }
+                Err(error) => {
+                    failure_count += 1;
+                    render_output(as_output(
+                        format,
+                        format!("publish {} failed: {error}", project.id),
+                        serde_json::json!({"project": project.id, "error": error.to_string()}),
+                    ));
+                    if fail_fast {
+                        first_failure = Some(error);
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
         let request = build_publish_request(
             project.id.clone(),
             project.path.clone(),

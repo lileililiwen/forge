@@ -14,6 +14,57 @@ v0.2 adds features and upgrades; v0.3 integrates DriftWatch, specs and existing 
 
 See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](docs/requirements-coverage.md), [architecture](docs/architecture.md), and [current handoff](HANDOFF.md).
 
+## v0.1 command map
+
+Each managed project carries a versioned `forge.yaml` manifest (schema,
+id, profile, maturity and target maturity, runtime, features) that is the
+project-level source of truth for Forge-managed infrastructure. The local
+SQLite registry persists one row per project (id, path, profile,
+maturity, observed git/quality/agent/docs state). The five v0.1 commands
+below are task-oriented; every claim here is traceable to the built
+binary — see the real-run [quickstart transcript](docs/quickstart.md).
+
+- `forge import [PATH]` — adopt an existing repository. Without
+  `--accept` it only proposes: detected language, framework, package
+  manager, database, container, CI, auth, DriftWatch and Git-remote
+  evidence, plus the suggested profile and maturity. With `--accept` (and
+  `--id <kebab-case-id>` when the directory name yields no valid id) it
+  writes the minimal `forge.yaml` and registers the project, changing
+  nothing else. Ambiguous detection exits non-zero with a typed
+  `error[ambiguous-import]`; an unusable directory-derived id exits
+  `error[import-conflict]`; nothing is written on either failure.
+- `forge list` — render the registry as `Project / Stack / Level /
+  Health`. An empty registry reports `No projects registered` with exit
+  0; listing never mutates the registry.
+- `forge inspect <id-or-path>` — render one registered project's stored
+  observation (profile, schema, platform, maturity, stack, runtime,
+  deployment target, git remote, last commit, quality/agent/docs state,
+  mirrors, features). An unregistered target exits 1 with
+  `error[unknown-project]`.
+- `forge new <PATH> --profile <id>` — scaffold a project deterministically
+  from pinned profile assets (manifest, build definition, container
+  definition, workspace-governance `.project.json` declaration plus its
+  ownership receipt). Rendering is verified against the asset version;
+  native build/test still require the profile toolchain
+  (`forge profile preflight <id>` names what is missing). `--feature` may
+  be repeated to request capabilities; incompatible requests are refused
+  before anything is written.
+- `forge doctor [PATH]` — assess health and evidence-based maturity
+  without changing files. Each finding carries a verdict (`PASS`, `WARN`,
+  `FAIL`, `UNAVAILABLE`, not-applicable), the evidence behind it and how
+  it was obtained (`automatic`, `manual`, `ai`). A required inspector
+  that cannot run (no git repository, unreachable policy binary) reports
+  `UNAVAILABLE` — never healthy by silence — so a fresh scaffold without
+  git or CI reports `verdict: not healthy` while its applicable L1
+  maturity controls still read `met`.
+
+MVP profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`
+and `python-service`; `react-web` arrived as the v0.2
+extended-catalog addition. `forge profile list|inspect|resolve|preflight`
+describes descriptors, compatibility and toolchain presence; only
+profiles with native-tool evidence are claimed as verified (see
+[release readiness](docs/release-readiness.md)).
+
 ## Documentation quickstart
 
 With Node.js and the OpenSpec CLI available (validated here with OpenSpec 1.6.0):
@@ -71,7 +122,10 @@ network; `scripts/smoke.sh` exercises `--version`, `--help`, `list`,
 suggests version/changelog/tag steps without pushing — tag creation and
 any publication stay explicit operator actions. CI's `artifact` job
 uploads the archive plus digest as CI artifacts only; nothing is
-published to crates.io, npm, a container registry or a Jenkins job.
+published to crates.io, npm, a container registry or a Jenkins job. This
+packaging surface is delivered and owned by the archived
+`artifact-and-ci-baseline` change; this section describes what ships, not
+a plan.
 
 ## Optional governance providers
 
@@ -104,6 +158,16 @@ optional. Provider failures are reported as `unavailable` or `incompatible`
 observations and do not disable local Forge workflows. Provider selection is
 stored under `.forge/`, not in `forge.yaml`, and switching providers preserves
 the manifest and registry identity.
+
+Readiness boundary (sibling-owned): the sibling ships its packaged adapter
+without the execute bit (mode `100644` observed), so selecting the preset
+against a pristine sibling checkout is honestly refused as a non-executable
+candidate naming the exact path — the previous provider stays in force and
+local commands continue. Granting the bit is the sibling's action
+(`git update-index --chmod=+x scripts/forge_governance_adapter.py` in
+Workspace Governance); until then the explicit `--adapter` remedy carries
+any non-executable checkout. Forge never works around the refusal. See
+[provider evidence](docs/provider-evidence.md) for the live captures.
 
 ## External DriftWatch checker
 

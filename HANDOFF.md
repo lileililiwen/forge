@@ -4058,3 +4058,5 @@ Planning-only documentation does not implement, archive or commit active changes
 - Sibling-owned blockers re-observed, untouched: workspace-governance adapter mode `100644`; no `.driftwatch` store in this checkout, so no gate pass claimed.
 - `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 37 passed, 0 failed pre- and post-archive; `git diff --check`: PASS (one archiver-generated blank-line-at-EOF in the canonical spec repaired before commit).
 - Pointer state: `post-mvp-readiness` archived (22/22 tasks evidenced); `openspec list` shows two remaining proposals (`governance-vocabulary-consumption`, `gate-evidence-export-consumption`), both explicitly blocked awaiting sibling implementation evidence (`vocabulary.json` absent on this host; driftwatchdog `gate-evidence-export` authored but unselected) — no active eligible change remains, so the `current_spec` line is removed.
+
+current_spec: governance-vocabulary-consumption

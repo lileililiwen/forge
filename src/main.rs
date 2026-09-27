@@ -144,6 +144,11 @@ struct Cli {
     #[arg(long, global = true)]
     registry: Option<PathBuf>,
 
+    /// Explicit governance vocabulary file (overrides
+    /// `$FORGE_GOVERNANCE_VOCABULARY` and the vendored copy).
+    #[arg(long, global = true)]
+    vocabulary: Option<PathBuf>,
+
     /// Output format.
     #[arg(long, global = true, value_enum, default_value = "human")]
     format: Format,
@@ -1213,6 +1218,16 @@ enum AgentCommands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let db_path = cli.registry.clone().unwrap_or_else(default_registry_path);
+    // Forward the explicit vocabulary flag to every loader through the
+    // env so doctor, profile parsing and any surface that consults the
+    // vocabulary see exactly one source of truth for the test.
+    if let Some(ref vocab) = cli.vocabulary {
+        // SAFETY: this is single-threaded CLI startup; the env var is
+        // never mutated again during command dispatch.
+        unsafe {
+            std::env::set_var(forge::vocabulary::VOCABULARY_ENV, vocab.as_os_str());
+        }
+    }
 
     // Fleet runs print their per-project report to stdout even when the
     // fleet is not healthy, so they own their exit code instead of using

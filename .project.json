@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "forge",
-  "kind": "control-plane",
+  "kind": "platform",
   "profile": "rust-product",
   "lifecycle": "active",
   "verification": {
@@ -13,5 +13,57 @@
     "deployable": false,
     "jenkins_job": null,
     "compose_file": null
+  },
+  "capabilities": {
+    "identity": {
+      "owner": "platform",
+      "evidence_state": "configured",
+      "evidence_ref": "src/identity/mod.rs"
+    },
+    "admin": {
+      "owner": "platform",
+      "evidence_state": "configured",
+      "evidence_ref": "src/identity/mod.rs"
+    },
+    "jobs": {
+      "owner": "platform",
+      "evidence_state": "configured",
+      "evidence_ref": "src/agent/mod.rs"
+    },
+    "storage": {
+      "owner": "platform",
+      "evidence_state": "configured",
+      "evidence_ref": "src/registry/mod.rs"
+    },
+    "release": {
+      "owner": "platform",
+      "evidence_state": "configured",
+      "evidence_ref": "src/release/engine.rs"
+    },
+    "tenancy": {
+      "owner": "platform",
+      "evidence_state": "blocked"
+    },
+    "billing": {
+      "owner": "platform",
+      "evidence_state": "blocked"
+    }
+  },
+  "quality": {
+    "product_roots": [
+      "src"
+    ],
+    "languages": [
+      "rust"
+    ],
+    "placeholder_markers": [
+      "todo",
+      "fixme",
+      "xxx",
+      "hack",
+      "unimplemented!",
+      "todo!"
+    ],
+    "placeholder_threshold": 0
   }
 }

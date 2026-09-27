@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -117,13 +118,22 @@ pub fn parse_request(value: Value) -> Result<PublishProviderRequest, ProviderCon
 
 pub fn validate_response(response: &PublishProviderResponse) -> Result<(), ProviderContractError> {
     if response.contract != PUBLISH_PROVIDER_CONTRACT {
-        return Err(ProviderContractError::ContractMismatch(response.contract.clone()));
+        return Err(ProviderContractError::ContractMismatch(
+            response.contract.clone(),
+        ));
     }
-    let rendered = serde_json::to_string(response).map_err(|_| ProviderContractError::SecretLeak)?;
+    let rendered =
+        serde_json::to_string(response).map_err(|_| ProviderContractError::SecretLeak)?;
     let lower = rendered.to_lowercase();
-    if ["password=", "token=", "secret=", "private_key", "-----begin"]
-        .iter()
-        .any(|marker| lower.contains(marker))
+    if [
+        "password=",
+        "token=",
+        "secret=",
+        "private_key",
+        "-----begin",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
     {
         return Err(ProviderContractError::SecretLeak);
     }
@@ -132,19 +142,27 @@ pub fn validate_response(response: &PublishProviderResponse) -> Result<(), Provi
 
 pub fn load_config(path: &Path) -> Result<ProviderConfig, ForgeError> {
     let bytes = std::fs::read(path).map_err(|error| ForgeError::PublishInvalid {
-        reason: format!("cannot read publish provider config {}: {error}", path.display()),
+        reason: format!(
+            "cannot read publish provider config {}: {error}",
+            path.display()
+        ),
     })?;
     serde_yaml::from_slice(&bytes).map_err(|error| ForgeError::PublishInvalid {
-        reason: format!("invalid publish provider config {}: {error}", path.display()),
+        reason: format!(
+            "invalid publish provider config {}: {error}",
+            path.display()
+        ),
     })
 }
 
 pub fn select_provider(config: &ProviderConfig, id: &str) -> Result<ProviderEntry, ForgeError> {
-    let entry = config.providers.iter().find(|entry| entry.id == id).ok_or_else(|| {
-        ForgeError::PublishInvalid {
+    let entry = config
+        .providers
+        .iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| ForgeError::PublishInvalid {
             reason: format!("publish provider `{id}` is not configured"),
-        }
-    })?;
+        })?;
     if !entry.enabled {
         return Err(ForgeError::PublishInvalid {
             reason: format!("publish provider `{id}` is disabled"),
@@ -172,10 +190,36 @@ pub fn invoke_provider(
         })?;
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
-        stdin.write_all(&input).map_err(|error| ForgeError::PublishInvalid {
-            reason: format!("cannot send request to publish provider `{}`: {error}", entry.id),
-        })?;
+        stdin
+            .write_all(&input)
+            .map_err(|error| ForgeError::PublishInvalid {
+                reason: format!(
+                    "cannot send request to publish provider `{}`: {error}",
+                    entry.id
+                ),
+            })?;
     }
+    let progress_reader = child.stderr.take().map(|stderr| {
+        let provider_id = entry.id.clone();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                if let Ok(event) = serde_json::from_str::<Value>(line.trim()) {
+                    if event.get("event").and_then(Value::as_str) == Some("publish.progress") {
+                        let project = event.get("project_id").and_then(Value::as_str).unwrap_or("?");
+                        let phase = event.get("phase").and_then(Value::as_str).unwrap_or("?");
+                        let status = event.get("status").and_then(Value::as_str).unwrap_or("?");
+                        let detail = event.get("detail").and_then(Value::as_str).unwrap_or("");
+                        eprintln!(
+                            "forge publish provider={provider_id} project={project} phase={phase} status={status} {detail}"
+                        );
+                    }
+                }
+                line.clear();
+            }
+        })
+    });
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
@@ -187,25 +231,43 @@ pub fn invoke_provider(
                 });
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-            Err(error) => return Err(ForgeError::PublishInvalid {
-                reason: format!("publish provider `{}` wait failed: {error}", entry.id),
-            }),
+            Err(error) => {
+                return Err(ForgeError::PublishInvalid {
+                    reason: format!("publish provider `{}` wait failed: {error}", entry.id),
+                })
+            }
         }
     }
-    let output = child.wait_with_output().map_err(|error| ForgeError::PublishInvalid {
-        reason: format!("cannot collect publish provider `{}` output: {error}", entry.id),
-    })?;
-    let response: PublishProviderResponse = serde_json::from_slice(&output.stdout).map_err(|error| {
-        ForgeError::PublishInvalid {
-            reason: format!("publish provider `{}` returned invalid JSON: {error}", entry.id),
-        }
-    })?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| ForgeError::PublishInvalid {
+            reason: format!(
+                "cannot collect publish provider `{}` output: {error}",
+                entry.id
+            ),
+        })?;
+    if let Some(reader) = progress_reader {
+        let _ = reader.join();
+    }
+    let response: PublishProviderResponse =
+        serde_json::from_slice(&output.stdout).map_err(|error| ForgeError::PublishInvalid {
+            reason: format!(
+                "publish provider `{}` returned invalid JSON: {error}",
+                entry.id
+            ),
+        })?;
     validate_response(&response).map_err(|error| ForgeError::PublishInvalid {
-        reason: format!("publish provider `{}` returned invalid response: {error}", entry.id),
+        reason: format!(
+            "publish provider `{}` returned invalid response: {error}",
+            entry.id
+        ),
     })?;
     if !output.status.success() {
         return Err(ForgeError::PublishInvalid {
-            reason: format!("publish provider `{}` failed: status {}", entry.id, output.status),
+            reason: format!(
+                "publish provider `{}` failed: status {}",
+                entry.id, output.status
+            ),
         });
     }
     Ok(response)
@@ -227,7 +289,8 @@ mod tests {
             "operation_id": "delivery-1",
             "folder": "/home/paul/code/alethefy",
             "dry_run": true
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(request.operation, ProviderOperation::Publish);
         assert!(request.dry_run);
     }
@@ -241,7 +304,8 @@ mod tests {
             "project_id": "demo",
             "revision": "abc",
             "operation_id": "delivery-1"
-        })).unwrap_err();
+        }))
+        .unwrap_err();
         assert!(matches!(error, ProviderContractError::ContractMismatch(_)));
     }
 
@@ -256,7 +320,10 @@ mod tests {
             evidence: vec!["token=leaked".to_string()],
             recovery: vec![],
         };
-        assert_eq!(validate_response(&response), Err(ProviderContractError::SecretLeak));
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::SecretLeak)
+        );
     }
 
     #[test]

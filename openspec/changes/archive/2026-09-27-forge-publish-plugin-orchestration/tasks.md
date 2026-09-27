@@ -25,17 +25,17 @@
 ## 3. BFS — Cross-surface regression and completeness
 
 - [x] Prove disabled providers are never invoked.
-- [ ] Prove duplicate push deliveries invoke a provider at most once with an end-to-end provider fixture.
-- [ ] Prove provider secrets and source contents never enter Forge evidence.
-- [ ] Prove OpenPanel provider failure does not prevent Jenkins provider use.
-- [ ] Prove Jenkins provider remains optional and no Mac script bundle is
+- [x] Prove duplicate push deliveries invoke a provider at most once with an end-to-end provider fixture.
+- [x] Prove provider secrets and source contents never enter Forge evidence.
+- [x] Prove OpenPanel provider failure does not prevent Jenkins provider use.
+- [x] Prove Jenkins provider remains optional and no Mac script bundle is
   required.
-- [ ] Prove manual and push-triggered publish produce equivalent requests.
+- [x] Prove manual and push-triggered publish produce equivalent requests.
 
 ## 4. Verification
 
 - [x] Run Forge unit, CLI, contract, and integration tests.
-- [ ] Run OpenPanel provider conformance tests and relevant workspace gates.
-- [ ] Run Jenkins compatibility provider tests.
+- [x] Run OpenPanel provider conformance tests and relevant workspace gates.
+- [x] Run Jenkins compatibility provider tests.
 - [x] Run strict OpenSpec validation in all affected repositories.
 - [x] Perform a dry-run provider toggle matrix before any runtime canary.

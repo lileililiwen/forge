@@ -337,4 +337,243 @@ mod tests {
         };
         assert!(select_provider(&config, "jenkins").is_err());
     }
+
+    fn response_with(evidence: Vec<String>, recovery: Vec<String>) -> PublishProviderResponse {
+        PublishProviderResponse {
+            contract: PUBLISH_PROVIDER_CONTRACT.to_string(),
+            provider: "openpanel".to_string(),
+            operation_id: "delivery-1".to_string(),
+            status: "done".to_string(),
+            health: "healthy".to_string(),
+            evidence,
+            recovery,
+        }
+    }
+
+    #[test]
+    fn accepts_clean_response() {
+        let response = response_with(
+            vec!["runtime health check passed".to_string()],
+            vec!["restart the runtime pod".to_string()],
+        );
+        assert!(validate_response(&response).is_ok());
+    }
+
+    #[test]
+    fn rejects_password_marker_in_evidence() {
+        let response = response_with(vec!["password=hunter2hunter2".to_string()], vec![]);
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::SecretLeak)
+        );
+    }
+
+    #[test]
+    fn rejects_token_marker_in_recovery() {
+        let response = response_with(
+            vec![],
+            vec!["token=ghp_abcdefghijklmnopqrstuvwxyz0123456789".to_string()],
+        );
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::SecretLeak)
+        );
+    }
+
+    #[test]
+    fn rejects_pem_block_in_evidence() {
+        let response = response_with(vec!["-----BEGIN RSA PRIVATE KEY-----".to_string()], vec![]);
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::SecretLeak)
+        );
+    }
+
+    #[test]
+    fn rejects_private_key_marker_in_recovery() {
+        let response = response_with(vec![], vec!["private_key=...".to_string()]);
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::SecretLeak)
+        );
+    }
+
+    #[test]
+    fn rejects_response_with_wrong_contract() {
+        let mut response = response_with(vec![], vec![]);
+        response.contract = "forge-publish-provider/0.2.0".to_string();
+        assert!(matches!(
+            validate_response(&response),
+            Err(ProviderContractError::ContractMismatch(_))
+        ));
+    }
+
+    #[test]
+    fn parse_request_rejects_missing_provider_field() {
+        let err = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "project_id": "demo",
+            "revision": "0123456789abcdef0123456789abcdef01234567",
+            "operation_id": "delivery-1"
+        }))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProviderContractError::MissingField("provider")
+        ));
+    }
+
+    #[test]
+    fn parse_request_rejects_missing_project_id_field() {
+        let err = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "provider": "openpanel",
+            "revision": "0123456789abcdef0123456789abcdef01234567",
+            "operation_id": "delivery-1"
+        }))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProviderContractError::MissingField("project_id")
+        ));
+    }
+
+    #[test]
+    fn parse_request_rejects_missing_revision_field() {
+        let err = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "provider": "openpanel",
+            "project_id": "demo",
+            "operation_id": "delivery-1"
+        }))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProviderContractError::MissingField("revision")
+        ));
+    }
+
+    #[test]
+    fn parse_request_rejects_missing_operation_id_field() {
+        let err = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "provider": "openpanel",
+            "project_id": "demo",
+            "revision": "0123456789abcdef0123456789abcdef01234567"
+        }))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProviderContractError::MissingField("operation_id")
+        ));
+    }
+
+    #[test]
+    fn parse_request_rejects_blank_provider_string() {
+        let err = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "provider": "   ",
+            "project_id": "demo",
+            "revision": "0123456789abcdef0123456789abcdef01234567",
+            "operation_id": "delivery-1"
+        }))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProviderContractError::MissingField("provider")
+        ));
+    }
+
+    #[test]
+    fn parse_request_rejects_non_object_payload() {
+        let err = parse_request(json!("not an object")).unwrap_err();
+        assert!(matches!(err, ProviderContractError::NotObject));
+    }
+
+    #[test]
+    fn parse_request_supports_all_operations() {
+        for op in ["capabilities", "preflight", "publish", "verify", "rollback"] {
+            let request = parse_request(json!({
+                "contract": PUBLISH_PROVIDER_CONTRACT,
+                "operation": op,
+                "provider": "openpanel",
+                "project_id": "demo",
+                "revision": "0123456789abcdef0123456789abcdef01234567",
+                "operation_id": "delivery-1"
+            }))
+            .unwrap();
+            assert_eq!(request.operation.as_str(), op);
+        }
+    }
+
+    impl ProviderOperation {
+        fn as_str(&self) -> &'static str {
+            match self {
+                ProviderOperation::Capabilities => "capabilities",
+                ProviderOperation::Preflight => "preflight",
+                ProviderOperation::Publish => "publish",
+                ProviderOperation::Verify => "verify",
+                ProviderOperation::Rollback => "rollback",
+            }
+        }
+    }
+
+    #[test]
+    fn select_provider_returns_the_enabled_entry() {
+        let config = ProviderConfig {
+            providers: vec![
+                ProviderEntry {
+                    id: "openpanel".to_string(),
+                    command: PathBuf::from("op"),
+                    enabled: true,
+                },
+                ProviderEntry {
+                    id: "jenkins".to_string(),
+                    command: PathBuf::from("jk"),
+                    enabled: false,
+                },
+            ],
+        };
+        let entry = select_provider(&config, "openpanel").unwrap();
+        assert_eq!(entry.id, "openpanel");
+        assert!(entry.enabled);
+    }
+
+    #[test]
+    fn select_provider_refuses_unknown_id() {
+        let config = ProviderConfig::default();
+        let err = select_provider(&config, "missing").unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+    }
+
+    #[test]
+    fn load_config_refuses_missing_file() {
+        let err = load_config(Path::new("/no/such/file.yaml")).unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+    }
+
+    #[test]
+    fn load_config_refuses_invalid_yaml() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("providers.yaml");
+        std::fs::write(&path, "providers: [\nunterminated").unwrap();
+        let err = load_config(&path).unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+    }
+
+    #[test]
+    fn load_config_round_trips_enabled_default() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("providers.yaml");
+        // `enabled` is omitted to exercise the default-true serde path.
+        std::fs::write(&path, "providers:\n  - id: openpanel\n    command: op\n").unwrap();
+        let config = load_config(&path).unwrap();
+        assert_eq!(config.providers.len(), 1);
+        assert!(config.providers[0].enabled);
+    }
 }

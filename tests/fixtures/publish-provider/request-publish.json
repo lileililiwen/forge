@@ -1,0 +1,10 @@
+{
+  "contract": "forge-publish-provider/0.1.0",
+  "operation": "publish",
+  "provider": "openpanel",
+  "project_id": "example",
+  "revision": "0123456789abcdef0123456789abcdef01234567",
+  "operation_id": "publish-example-1",
+  "folder": "/workspace/example",
+  "dry_run": true
+}

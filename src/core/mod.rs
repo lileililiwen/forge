@@ -154,6 +154,21 @@ pub enum ForgeError {
     #[error("deploy health failed: {reason}; deployment state recorded as failed")]
     DeployHealthFailed { reason: String },
 
+    #[error("publish invalid: {reason}")]
+    PublishInvalid { reason: String },
+
+    #[error("publish sync failed: {reason}")]
+    PublishSyncFailed { reason: String },
+
+    #[error("publish prepare failed: {reason}")]
+    PublishPrepareFailed { reason: String },
+
+    #[error("publish deploy failed: {reason}")]
+    PublishDeployFailed { reason: String },
+
+    #[error("publish unauthorized: {reason}")]
+    PublishUnauthorized { reason: String },
+
     #[error("component invalid: {reason}")]
     ComponentInvalid { reason: String },
 
@@ -336,6 +351,11 @@ impl ForgeError {
             ForgeError::DeployTargetUnavailable { .. } => "deploy-target-unavailable",
             ForgeError::DeployTargetStale { .. } => "deploy-target-stale",
             ForgeError::DeployHealthFailed { .. } => "deploy-health-failed",
+            ForgeError::PublishInvalid { .. } => "publish-invalid",
+            ForgeError::PublishSyncFailed { .. } => "publish-sync-failed",
+            ForgeError::PublishPrepareFailed { .. } => "publish-prepare-failed",
+            ForgeError::PublishDeployFailed { .. } => "publish-deploy-failed",
+            ForgeError::PublishUnauthorized { .. } => "publish-unauthorized",
             ForgeError::ComponentInvalid { .. } => "component-invalid",
             ForgeError::ComponentQualityConflict { .. } => "component-quality-conflict",
             ForgeError::UiPatternInvalid { .. } => "ui-pattern-invalid",

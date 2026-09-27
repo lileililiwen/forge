@@ -27,8 +27,8 @@ use super::{
     DeployPlan, DeployReport, DeployRequest, DeployStageOutcome, DeployState, DeployTargetSpec,
     HealthObservation, DEPLOY_ADAPTER_TIMEOUT, DEPLOY_CONTRACT_VERSION, DEPLOY_EXECUTOR_CONTRACT,
     HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS, STATUS_DELIVERED, STATUS_DISABLED, STATUS_FAILED,
-    STATUS_RUNNING, STATUS_SKIPPED, STATUS_UNKNOWN, TARGET_DOCKER_COMPOSE, TARGET_LOCAL,
-    TARGET_SSH,
+    STATUS_RUNNING, STATUS_SKIPPED, STATUS_UNKNOWN, TARGET_DOCKER_COMPOSE, TARGET_JENKINS,
+    TARGET_LOCAL, TARGET_MAC_RUNTIME, TARGET_SSH,
 };
 
 /// Read-only plan report. The transport renders this
@@ -48,7 +48,7 @@ pub fn prepare_deploy(
         // an unsupported adapter.
         return Err(ForgeError::DeployTargetUnavailable {
             reason: format!(
-                "target `{}` uses kind `{TARGET_SSH}` which is planned for a later release; v0.1.0 supports only `{TARGET_LOCAL}` and `{TARGET_DOCKER_COMPOSE}`",
+                "target `{}` uses kind `{TARGET_SSH}` which is planned for a later release; v0.1.0 supports `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_JENKINS}`, and `{TARGET_MAC_RUNTIME}`",
                 target.name
             ),
         });
@@ -257,7 +257,13 @@ pub fn apply_deploy(
     let plan = prepare_deploy(project_dir, manifest, config, request)?;
     let state_path = state_path_for(project_dir, &plan.project_id, &plan.identity)?;
     let prior_state = load_deploy_state(&state_path)?;
-    let response = invoke_adapter(adapters, &plan, AdapterOp::Apply, request.dry_run)?;
+    let response = invoke_adapter(
+        project_dir,
+        adapters,
+        &plan,
+        AdapterOp::Apply,
+        request.dry_run,
+    )?;
     let now = Utc::now().to_rfc3339();
     let observation = build_observation(&response, &plan, &now);
     let attribution = redact_deploy_evidence(&response.attribution(&adapters.deployer_bin));
@@ -395,6 +401,7 @@ fn build_observation(
 ///   `deploy-target-unavailable`; the prior DeployState
 ///   stands and the refusal names what was observed.
 fn invoke_adapter(
+    project_dir: &Path,
     adapters: &DeployAdapterConfig,
     plan: &DeployPlan,
     op: AdapterOp,
@@ -466,6 +473,10 @@ fn invoke_adapter(
             }
         }
     }
+    // Executors consume project-relative release manifests. Running them from
+    // the project root keeps the Linux controller boundary explicit and
+    // prevents adapters from depending on the caller's ambient directory.
+    cmd.current_dir(project_dir);
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -630,7 +641,13 @@ pub fn observe_deploy(
             plan.artifact = Some(load_artifact(project_dir, relative)?);
         }
     }
-    let response = invoke_adapter(adapters, &plan, AdapterOp::Observe, request.dry_run)?;
+    let response = invoke_adapter(
+        project_dir,
+        adapters,
+        &plan,
+        AdapterOp::Observe,
+        request.dry_run,
+    )?;
     let now = Utc::now().to_rfc3339();
     let observation = build_observation(&response, &plan, &now);
     let attribution = redact_deploy_evidence(&response.attribution(&adapters.deployer_bin));
@@ -1267,6 +1284,36 @@ mod tests {
             "observe must never carry an apply artifact: {}",
             lines[1]
         );
+    }
+
+    #[test]
+    fn deploy_executor_runs_from_project_root() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        let marker = tmp.path().join("executor-cwd");
+        let script = write_script(
+            tmp.path(),
+            "cwd.sh",
+            &format!(
+                "#!/bin/sh\npwd > '{}'\ncat >/dev/null\nprintf '%s' '{}'\n",
+                marker.display(),
+                ENVELOPE_OK
+            ),
+        );
+        apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: script.display().to_string(),
+            },
+        )
+        .unwrap();
+        let actual = fs::read_to_string(marker).unwrap();
+        assert_eq!(actual.trim(), tmp.path().to_string_lossy());
     }
 
     #[test]

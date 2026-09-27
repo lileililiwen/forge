@@ -159,3 +159,22 @@ changes nothing; `inspect` of an unregistered id exits 1 with
 `error[unknown-project]`; `doctor` reports `UNAVAILABLE` (not healthy)
 rather than guessing when a required inspector cannot run (no git
 repository) or the policy binary is unreachable.
+
+## External publish providers
+
+Forge owns the publish request and invokes standalone providers through the
+`forge-publish-provider/0.1.0` contract. Configure provider executables in
+`.forge/providers.yaml`; provider code remains in its own GitHub repository.
+
+```console
+$ forge publish provider list
+$ forge publish provider enable openpanel
+$ forge publish provider disable jenkins
+$ forge publish --project my-project --provider openpanel
+$ forge publish --folder /workspace/my-project --provider jenkins --dry-run
+```
+
+An enabled provider is selected per request. A disabled provider is refused
+before its executable is started. OpenPanel and Jenkins can therefore be
+switched independently without putting either project's scripts on the
+runtime host.

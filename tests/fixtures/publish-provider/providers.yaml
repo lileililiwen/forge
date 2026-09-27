@@ -1,0 +1,7 @@
+providers:
+  - id: openpanel
+    command: openpanel-forge-provider
+    enabled: true
+  - id: jenkins
+    command: jenkins-forge-provider
+    enabled: false

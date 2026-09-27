@@ -28,6 +28,15 @@ use forge::component::{
 };
 use forge::core::ForgeError;
 use forge::deploy::{DeployAdapterConfig, DeployRequest};
+use forge::publish::{
+    jenkins::JenkinsAdapter, request_from as build_publish_request,
+    render_report_human as render_publish_report_human, run_publish, PublishAction,
+    providers::{
+        invoke_provider, load_config as load_publish_provider_config, select_provider,
+        ProviderOperation, PublishProviderRequest,
+    },
+    SubprocessTransport, PUBLISH_CONTRACT_VERSION,
+};
 use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
@@ -341,6 +350,26 @@ enum Commands {
     Deploy {
         #[command(subcommand)]
         command: DeployCommands,
+    },
+    /// Publish a registered project to the Jenkins/Mac infrastructure with subdomain routing.
+    Publish {
+        #[command(subcommand)]
+        command: Option<PublishCommands>,
+        /// Publish one project through an enabled external provider.
+        #[arg(long, conflicts_with = "folder")]
+        project: Option<String>,
+        /// Publish the project represented by this source folder.
+        #[arg(long, conflicts_with = "project")]
+        folder: Option<PathBuf>,
+        /// External provider id, for example `openpanel` or `jenkins`.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Source revision sent to the provider. Defaults to HEAD when available.
+        #[arg(long)]
+        revision: Option<String>,
+        /// Validate and print the request without invoking the provider.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Discover, resolve and promote semantic components.
     Component {
@@ -669,6 +698,99 @@ enum DeployCommands {
         /// Registered project id or filesystem path (default: current directory).
         #[arg(default_value = ".")]
         target: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PublishCommands {
+    /// Inspect or switch standalone publish providers.
+    Provider {
+        #[command(subcommand)]
+        command: PublishProviderCommands,
+    },
+    /// Sync a project source tree to the Mac via SSH/rsync (Stage 1).
+    Sync {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+        /// Read-only plan: report the would-sync command without contacting the Mac.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Provision shared PostgreSQL database on the Mac (Stage 2).
+    Db {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+        /// Read-only plan: report the would-db command without contacting the Mac.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Publish every active project from the workspace registry that has a docker-compose file.
+    Fleet {
+        /// Path to the workspace-governance projects.json registry.
+        #[arg(long)]
+        registry: Option<std::path::PathBuf>,
+        /// Workspace root (where project paths in the registry are resolved against).
+        #[arg(long)]
+        workspace_root: Option<std::path::PathBuf>,
+        /// Read-only plan: report what would happen without contacting the Mac.
+        #[arg(long)]
+        dry_run: bool,
+        /// Only publish projects whose lifecycle matches (default: `active`).
+        #[arg(long, default_value = "active")]
+        lifecycle: String,
+        /// Stop at the first failure instead of continuing the rest of the fleet.
+        #[arg(long)]
+        fail_fast: bool,
+    },
+    /// Allocate ports and prepare the project environment on the Mac (Stage 2).
+    Prepare {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+        /// Read-only plan: report the would-prepare command without contacting the Mac.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Trigger the Jenkins deploy job on the Mac (Stage 3).
+    Deploy {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+        /// Read-only plan: report the would-deploy command without contacting Jenkins.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Run sync, prepare and deploy in order. Stops at the first failure.
+    All {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+        /// Read-only plan: report every stage without contacting the Mac or Jenkins.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PublishProviderCommands {
+    /// List configured providers and their enabled state.
+    List {
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// Enable an already configured provider.
+    Enable {
+        id: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    /// Disable an already configured provider.
+    Disable {
+        id: String,
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
 }
 
@@ -1352,6 +1474,23 @@ fn main() -> ExitCode {
         Commands::Docs { command } => cmd_docs(&db_path, command, cli.format),
         Commands::Release { command } => cmd_release(&db_path, command, cli.format),
         Commands::Deploy { command } => cmd_deploy(&db_path, command, cli.format),
+        Commands::Publish {
+            command,
+            project,
+            folder,
+            provider,
+            revision,
+            dry_run,
+        } => cmd_publish(
+            &db_path,
+            command.as_ref(),
+            project.as_deref(),
+            folder.as_deref(),
+            provider.as_deref(),
+            revision.as_deref(),
+            *dry_run,
+            cli.format,
+        ),
         Commands::Component { command } => cmd_component(&db_path, command, cli.format),
         Commands::UiPattern { command } => cmd_ui_pattern(&db_path, command, cli.format),
         Commands::Intent { command } => cmd_intent(&db_path, command, cli.format),
@@ -3401,6 +3540,424 @@ fn cmd_deploy_observe(
         })
     }
 }
+
+fn cmd_publish(
+    db_path: &Path,
+    command: Option<&PublishCommands>,
+    project: Option<&str>,
+    folder: Option<&Path>,
+    provider: Option<&str>,
+    revision: Option<&str>,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    if project.is_some() || folder.is_some() {
+        return cmd_publish_provider(
+            db_path, project, folder, provider, revision, dry_run, format,
+        );
+    }
+    let command = command.ok_or_else(|| ForgeError::PublishInvalid {
+        reason: "publish requires a legacy stage command or --project/--folder".to_string(),
+    })?;
+    match command {
+        PublishCommands::Provider { command } => {
+            cmd_publish_provider_lifecycle(command, format)
+        }
+        PublishCommands::Fleet {
+            registry,
+            workspace_root,
+            dry_run,
+            lifecycle,
+            fail_fast,
+        } => cmd_publish_fleet(
+            db_path,
+            registry.clone(),
+            workspace_root.clone(),
+            *dry_run,
+            lifecycle.clone(),
+            *fail_fast,
+            format,
+        ),
+        _ => cmd_publish_single(db_path, command, format),
+    }
+}
+
+fn cmd_publish_provider_lifecycle(
+    command: &PublishProviderCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let config_path = match command {
+        PublishProviderCommands::List { config }
+        | PublishProviderCommands::Enable { config, .. }
+        | PublishProviderCommands::Disable { config, .. } => config
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(".forge/providers.yaml")),
+    };
+    let mut config = load_publish_provider_config(&config_path)?;
+    match command {
+        PublishProviderCommands::List { .. } => {
+            let value = serde_json::to_value(&config).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("cannot encode provider list: {error}"),
+            })?;
+            let human = if config.providers.is_empty() {
+                "No publish providers configured.".to_string()
+            } else {
+                config
+                    .providers
+                    .iter()
+                    .map(|entry| format!("{}\t{}", entry.id, if entry.enabled { "on" } else { "off" }))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            Ok(as_output(format, human, value))
+        }
+        PublishProviderCommands::Enable { id, .. }
+        | PublishProviderCommands::Disable { id, .. } => {
+            let enabled = matches!(command, PublishProviderCommands::Enable { .. });
+            let entry = config.providers.iter_mut().find(|entry| entry.id == *id).ok_or_else(|| {
+                ForgeError::PublishInvalid {
+                    reason: format!("publish provider `{id}` is not configured"),
+                }
+            })?;
+            entry.enabled = enabled;
+            let bytes = serde_yaml::to_string(&config).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("cannot encode provider config: {error}"),
+            })?;
+            std::fs::write(&config_path, bytes).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("cannot write provider config {}: {error}", config_path.display()),
+            })?;
+            let value = serde_json::json!({"provider": id, "enabled": enabled});
+            Ok(as_output(
+                format,
+                format!("publish provider `{id}` {}", if enabled { "enabled" } else { "disabled" }),
+                value,
+            ))
+        }
+    }
+}
+
+fn cmd_publish_provider(
+    db_path: &Path,
+    project: Option<&str>,
+    folder: Option<&Path>,
+    provider: Option<&str>,
+    revision: Option<&str>,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (project_dir, project_id) = if let Some(project) = project {
+        resolve_publish_target(project)?
+    } else if let Some(folder) = folder {
+        let dir = std::fs::canonicalize(folder).map_err(|error| ForgeError::PublishInvalid {
+            reason: format!("cannot resolve publish folder {}: {error}", folder.display()),
+        })?;
+        let id = dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| ForgeError::PublishInvalid {
+                reason: format!("publish folder `{}` has no usable project id", dir.display()),
+            })?
+            .to_string();
+        (dir, id)
+    } else {
+        return Err(ForgeError::PublishInvalid {
+            reason: "publish requires --project or --folder".to_string(),
+        });
+    };
+    let provider_id = provider
+        .map(str::to_string)
+        .or_else(|| std::env::var("FORGE_PUBLISH_PROVIDER").ok())
+        .ok_or_else(|| ForgeError::PublishInvalid {
+            reason: "publish requires --provider or FORGE_PUBLISH_PROVIDER".to_string(),
+        })?;
+    let config_path = std::env::var_os("FORGE_PUBLISH_PROVIDER_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_dir.join(".forge/providers.yaml"));
+    let config = load_publish_provider_config(&config_path)?;
+    let entry = select_provider(&config, &provider_id)?;
+    let revision = revision
+        .map(str::to_string)
+        .or_else(|| git_revision(&project_dir))
+        .unwrap_or_else(|| "unknown".to_string());
+    let operation_id = format!("publish-{project_id}-{}", &revision[..revision.len().min(12)]);
+    let request = PublishProviderRequest {
+        contract: forge::publish::providers::PUBLISH_PROVIDER_CONTRACT.to_string(),
+        operation: ProviderOperation::Publish,
+        provider: provider_id.clone(),
+        project_id: project_id.clone(),
+        revision,
+        operation_id,
+        folder: Some(project_dir.display().to_string()),
+        dry_run,
+    };
+    let response = if dry_run {
+        serde_json::Value::from(serde_json::to_value(&request).map_err(|error| {
+            ForgeError::PublishInvalid {
+                reason: format!("cannot encode publish request: {error}"),
+            }
+        })?)
+    } else {
+        let response = invoke_provider(&entry, &request, &project_dir)?;
+        let registry = open_registry(db_path)?;
+        registry.record_operation(
+            "publish",
+            &project_id,
+            &response.status,
+            &format!("provider={} health={}", response.provider, response.health),
+        )?;
+        serde_json::to_value(response).map_err(|error| ForgeError::PublishInvalid {
+            reason: format!("cannot encode publish response: {error}"),
+        })?
+    };
+    let human = if dry_run {
+        format!("publish dry-run: provider={provider_id} project={project_id}")
+    } else {
+        format!("publish: provider={provider_id} project={project_id}")
+    };
+    Ok(as_output(format, human, response))
+}
+
+fn git_revision(project_dir: &Path) -> Option<String> {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(project_dir)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|revision| !revision.is_empty())
+}
+
+fn cmd_publish_single(
+    db_path: &Path,
+    command: &PublishCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (project_dir, project_id, action, dry_run) = match command {
+        PublishCommands::Provider { .. } => unreachable!("Provider handled by cmd_publish"),
+        PublishCommands::Sync { project, dry_run } => {
+            let (dir, id) = resolve_publish_target(project)?;
+            (dir, id, PublishAction::Sync, *dry_run)
+        }
+        PublishCommands::Db { project, dry_run } => {
+            let (dir, id) = resolve_publish_target(project)?;
+            (dir, id, PublishAction::Db, *dry_run)
+        }
+        PublishCommands::Prepare { project, dry_run } => {
+            let (dir, id) = resolve_publish_target(project)?;
+            (dir, id, PublishAction::Prepare, *dry_run)
+        }
+        PublishCommands::Deploy { project, dry_run } => {
+            let (dir, id) = resolve_publish_target(project)?;
+            (dir, id, PublishAction::Deploy, *dry_run)
+        }
+        PublishCommands::All { project, dry_run } => {
+            let (dir, id) = resolve_publish_target(project)?;
+            (dir, id, PublishAction::All, *dry_run)
+        }
+        PublishCommands::Fleet { .. } => unreachable!("Fleet handled by cmd_publish_fleet"),
+    };
+
+    let request = build_publish_request(project_id.clone(), project_dir, action, dry_run);
+    let adapter = JenkinsAdapter::from_env();
+    let registry = open_registry(db_path)?;
+    let transport = SubprocessTransport::default();
+    let report = run_publish(&request, &adapter, &transport, Some(&registry))?;
+
+    let human = render_publish_report_human(&report);
+    let mut value = match serde_json::to_value(&report) {
+        Ok(v) => v,
+        Err(err) => {
+            return Err(ForgeError::PublishInvalid {
+                reason: format!("cannot encode publish report: {err}"),
+            })
+        }
+    };
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "contract".to_string(),
+            serde_json::json!(PUBLISH_CONTRACT_VERSION),
+        );
+    }
+    if !report.healthy {
+        // Surface the report so the operator sees which stage failed
+        // even when the aggregate is unhealthy.
+        render_output(as_output(format, human, value));
+        return Err(ForgeError::PublishDeployFailed {
+            reason: report.note.clone(),
+        });
+    }
+    Ok(as_output(format, human, value))
+}
+
+/// Publish every active business project in the workspace-governance
+/// registry. Reads `projects.json`, filters by lifecycle and
+/// docker-compose presence, and runs the full 4-stage publish for
+/// each one in order. The Caddyfile is regenerated once at the end
+/// so every successful deploy lands in the subdomain router.
+fn cmd_publish_fleet(
+    db_path: &Path,
+    registry_path: Option<std::path::PathBuf>,
+    workspace_root: Option<std::path::PathBuf>,
+    dry_run: bool,
+    lifecycle: String,
+    fail_fast: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::publish::fleet::{
+        default_registry_path, default_workspace_root, filter_eligible, load_registry,
+    };
+
+    let workspace_root = workspace_root.unwrap_or_else(default_workspace_root);
+    let registry_path = registry_path.unwrap_or_else(|| default_registry_path(Some(&workspace_root)));
+    let registry = load_registry(&registry_path)?;
+    let eligible = filter_eligible(&registry, &workspace_root, &lifecycle);
+
+    if eligible.is_empty() {
+        return Err(ForgeError::PublishInvalid {
+            reason: format!(
+                "no projects with lifecycle `{}` and a docker-compose file in registry {}",
+                lifecycle,
+                registry_path.display()
+            ),
+        });
+    }
+
+    let adapter = JenkinsAdapter::from_env();
+    let core_registry = open_registry(db_path)?;
+    let transport = SubprocessTransport::default();
+
+    let mut summaries: Vec<serde_json::Value> = Vec::new();
+    let mut first_failure: Option<ForgeError> = None;
+    let mut success_count = 0usize;
+    let mut failure_count = 0usize;
+
+    for project in &eligible {
+        let request = build_publish_request(
+            project.id.clone(),
+            project.path.clone(),
+            PublishAction::All,
+            dry_run,
+        );
+        let outcome = run_publish(&request, &adapter, &transport, Some(&core_registry));
+        match outcome {
+            Ok(report) => {
+                let human = render_publish_report_human(&report);
+                let mut value = serde_json::to_value(&report).map_err(|err| {
+                    ForgeError::PublishInvalid {
+                        reason: format!("cannot encode report for {}: {err}", project.id),
+                    }
+                })?;
+                if let Some(obj) = value.as_object_mut() {
+                    obj.insert(
+                        "contract".to_string(),
+                        serde_json::json!(PUBLISH_CONTRACT_VERSION),
+                    );
+                }
+                render_output(as_output(format, human.clone(), value.clone()));
+                let healthy = report.healthy;
+                summaries.push(serde_json::json!({
+                    "project": project.id,
+                    "healthy": healthy,
+                    "subdomain": report.subdomain,
+                    "stages": report.stages.len(),
+                }));
+                if healthy {
+                    success_count += 1;
+                } else {
+                    failure_count += 1;
+                    if fail_fast && first_failure.is_none() {
+                        first_failure = Some(ForgeError::PublishDeployFailed {
+                            reason: format!("fleet publish failed at `{}`", project.id),
+                        });
+                        break;
+                    }
+                }
+            }
+            Err(err) => {
+                failure_count += 1;
+                let summary = serde_json::json!({
+                    "project": project.id,
+                    "healthy": false,
+                    "error": err.to_string(),
+                });
+                summaries.push(summary);
+                if fail_fast && first_failure.is_none() {
+                    first_failure = Some(err);
+                    break;
+                }
+            }
+        }
+    }
+
+    let summary = serde_json::json!({
+        "contract": PUBLISH_CONTRACT_VERSION,
+        "fleet": {
+            "registry": registry_path.display().to_string(),
+            "lifecycle": lifecycle,
+            "eligible": eligible.len(),
+            "success": success_count,
+            "failed": failure_count,
+            "projects": summaries,
+        },
+    });
+    let human = format!(
+        "fleet publish: {}/{} succeeded (lifecycle={}, registry={})",
+        success_count,
+        eligible.len(),
+        lifecycle,
+        registry_path.display()
+    );
+
+    render_output(as_output(format, human, summary.clone()));
+    if let Some(err) = first_failure {
+        Err(err)
+    } else if failure_count > 0 {
+        Err(ForgeError::PublishDeployFailed {
+            reason: format!(
+                "fleet publish finished with {failure_count} failure(s); see per-project reports"
+            ),
+        })
+    } else {
+        Ok(Output::Human(String::new()))
+    }
+}
+
+fn resolve_publish_target(target: &str) -> Result<(std::path::PathBuf, String), ForgeError> {
+    let candidate = std::path::Path::new(target);
+    if candidate.is_dir() {
+        let canonical = candidate.canonicalize().map_err(|_| ForgeError::PathUnavailable {
+            path: target.to_string(),
+        })?;
+        // Manifest is optional for publish: the Jenkins adapter only
+        // needs the project id (derived from the directory name) and
+        // the docker-compose file inside. Skip the manifest lookup so
+        // legacy projects without forge.yaml can still be published.
+        let id = canonical
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| ForgeError::PathUnavailable {
+                path: target.to_string(),
+            })?;
+        return Ok((canonical, id));
+    }
+    // Fall back to the registry so callers can pass a project id.
+    let db_path = default_registry_path();
+    if let Ok(registry) = Registry::open(&db_path) {
+        if let Ok(record) = registry.inspect(target) {
+            let path = std::path::PathBuf::from(&record.path);
+            if path.is_dir() {
+                return Ok((path, record.id));
+            }
+        }
+    }
+    Err(ForgeError::PathUnavailable {
+        path: target.to_string(),
+    })
+}
+
+
 
 fn deploy_plan_output(
     plan: &forge::deploy::DeployPlan,

@@ -4,8 +4,8 @@
 //!
 //! - [`DeployConfig`] parses the manifest's `deployment` block,
 //!   refuses empty or duplicate targets, accepts only the
-//!   supported adapter kinds (`local`, `docker-compose`;
-//!   `ssh` is planned) and confines artifact paths to the
+//!   supported adapter kinds (`local`, `docker-compose`, `jenkins`,
+//!   `mac-runtime`; `ssh` is planned) and confines artifact paths to the
 //!   project directory.
 //! - [`prepare_deploy`] captures the named target, the
 //!   artifact identity (path, content hash), the working-tree
@@ -112,13 +112,15 @@ pub const DEPLOYER_BIN_ENV: &str = "FORGE_DEPLOYER_BIN";
 /// unresponsive target cannot hang the registry.
 pub const DEPLOY_ADAPTER_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Stable target kinds. Only `local` and `docker-compose`
-/// are supported in v0.1.0; `ssh` is planned (refused with
-/// a typed `unavailable` boundary so a manifest cannot
-/// silently introduce an unsupportable target).
+/// Stable target kinds. `mac-runtime` is executed by a Linux-side adapter;
+/// the target host receives runtime operations only. `ssh` remains planned.
 pub const TARGET_LOCAL: &str = "local";
 pub const TARGET_DOCKER_COMPOSE: &str = "docker-compose";
 pub const TARGET_SSH: &str = "ssh";
+pub const TARGET_JENKINS: &str = "jenkins";
+/// Linux-controlled runtime target. The adapter runs on the controller and
+/// sends only runtime operations to the target host.
+pub const TARGET_MAC_RUNTIME: &str = "mac-runtime";
 
 /// Stable health check kinds. `docker` checks a Compose
 /// service is running, `http` probes a URL, `process`
@@ -205,7 +207,7 @@ impl DeployConfig {
                 .unwrap_or_else(|| format!("target-{idx}"));
             let kind = entry.kind.clone().ok_or_else(|| ForgeError::DeployInvalid {
                 reason: format!(
-                    "deployment.targets[{idx}] (`{name}`) is missing a `kind`; expected one of `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_SSH}`"
+                    "deployment.targets[{idx}] (`{name}`) is missing a `kind`; expected one of `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_JENKINS}`, `{TARGET_MAC_RUNTIME}`"
                 ),
             })?;
             validate_target_kind(&kind)?;
@@ -396,10 +398,14 @@ impl DeployHealthSpec {
 
 fn validate_target_kind(kind: &str) -> Result<(), ForgeError> {
     match kind {
-        TARGET_LOCAL | TARGET_DOCKER_COMPOSE | TARGET_SSH => Ok(()),
+        TARGET_LOCAL
+        | TARGET_DOCKER_COMPOSE
+        | TARGET_SSH
+        | TARGET_JENKINS
+        | TARGET_MAC_RUNTIME => Ok(()),
         other => Err(ForgeError::DeployInvalid {
-            reason: format!(
-                "deployment target kind `{other}` is not supported; expected one of `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_SSH}`"
+                reason: format!(
+                "deployment target kind `{other}` is not supported; expected one of `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_JENKINS}`, `{TARGET_MAC_RUNTIME}`"
             ),
         }),
     }
@@ -997,6 +1003,13 @@ mod tests {
         let err =
             DeployConfig::from_manifest_meta(manifest.deployment.as_ref().unwrap()).unwrap_err();
         assert_eq!(err.code(), "deploy-invalid");
+    }
+
+    #[test]
+    fn deploy_config_accepts_linux_controlled_mac_runtime_target() {
+        let meta = meta_with("  targets:\n    - name: mac-production\n      kind: mac-runtime\n");
+        let config = DeployConfig::from_manifest_meta(&meta).expect("mac runtime target");
+        assert_eq!(config.targets[0].kind, "mac-runtime");
     }
 
     #[test]

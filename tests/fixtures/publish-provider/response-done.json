@@ -1,0 +1,9 @@
+{
+  "contract": "forge-publish-provider/0.1.0",
+  "provider": "openpanel",
+  "operation_id": "publish-example-1",
+  "status": "done",
+  "health": "healthy",
+  "evidence": ["runtime health check passed"],
+  "recovery": []
+}

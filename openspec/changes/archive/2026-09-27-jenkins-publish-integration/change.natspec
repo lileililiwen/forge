@@ -1,0 +1,75 @@
+# natspec — jenkins-publish-integration
+
+## Change identity
+
+| Field | Value |
+|---|---|
+| Change name | `jenkins-publish-integration` |
+| Status | `active` |
+| Created | 2026-09-27 |
+| Schema | `natspec@1` |
+
+## Package map
+
+| Package | Single outcome | Owner/project and language | Boundary/contract | Depends on | Independent oracle |
+|---|---|---|---|---|---|
+| `mac-runtime-only-deployment` | Linux-side adapter applies and observes an immutable release on Mac without Mac scripts | `jenkins-local` / Python | `forge-deploy-executor/0.1.0` | `adapter-deployment` | adapter unit tests and dry-run |
+| `jenkins-publish-integration` | Forge consumes the generic runtime adapter while builds remain Linux-local | `forge` / Rust | existing deploy executor contract | `mac-runtime-only-deployment` | Forge deploy contract tests |
+
+## Sibling and shared architecture reconnaissance
+
+| Candidate | Evidence path/symbol | Reusable capability | Compatibility gap | Owner/release boundary | Decision |
+|---|---|---|---|---|---|
+| Forge deploy executor | `docs/adapter-contracts/deploy-executor.md` | typed apply/observe, evidence and dry-run contract | needs runtime adapter | Forge | **adapt through a generic adapter** |
+| `jenkins-local` scripts | `project-action.sh`, `project-up.sh`, `sync-to-mac.sh` | legacy Mac orchestration | scripts violate runtime-only boundary | jenkins-local | **keep local** as deprecated recovery |
+| Workspace Governance | `deployment/projects.json` | eligibility and promotion evidence | must not execute deployment | workspace-governance | **adopt** as policy input |
+
+## Proposal
+
+### Why
+
+Forge must build on Linux and deploy immutable runtime artifacts to a target.
+The Mac is a runtime host, not the source of deployment code. The previous
+script-sync/Jenkins path made `/Users/allen/jenkins` a second code authority.
+
+### What Changes
+
+- Replace the active Forge publish design's source sync and Mac-script calls
+  with the existing generic deploy executor contract.
+- Accept `mac-runtime` as a target kind.
+- Consume a versioned runtime release manifest referencing an immutable image
+  and a Mac-local env-file path.
+- Keep Forge release/container builds on Linux; GitHub Actions is not required.
+- Preserve old `forge publish` and Mac scripts only as deprecated recovery
+  surfaces until a real canary is verified.
+
+### Package Boundary and Split Assessment
+
+The Forge consumer and the jenkins-local adapter have separate owners and
+independent tests, so the package map explicitly splits them. The cross-project
+contract is already frozen and is not redefined here.
+
+### BFS Impact Map
+
+| Surface | Impact |
+|---|---|
+| Forge deploy | target validation and executor working-directory handoff |
+| jenkins-local | Linux-side Mac runtime adapter |
+| Mac | Docker runtime, secrets, volumes, logs, generated state only |
+| Release | Existing Forge container stage performs local build/publish |
+| Security | secrets stay on Mac; no source/script sync |
+| Unaffected | governance policy, product source, non-Mac adapters |
+
+### Capabilities
+
+1. Forge performs the local build through its existing release container stage.
+2. Forge applies and observes a Mac runtime release through a typed adapter.
+3. Dry-run is side-effect free.
+4. Deployment evidence identifies source revision, artifact, adapter and target.
+
+### Non-goals
+
+- GitHub Actions builds.
+- Mac-side source checkouts or deployment scripts.
+- Removing legacy Mac scripts before a verified canary.
+- Cloud/Kubernetes adapter implementation.

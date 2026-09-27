@@ -48,7 +48,7 @@ never masquerade as conformant.
 deployment:
 
 ```text
-apply --target <name> --kind <local|docker-compose|ssh> \
+apply --target <name> --kind <local|docker-compose|mac-runtime> \
       --project <id> --revision <sha> \
       [--artifact <project-relative-path>] \
       [--health-kind <docker|http|process> \
@@ -67,7 +67,9 @@ observe --target <name> --project <id> --deploy-id <id> \
 `--deploy-id` is Forge's derived identity
 (`<project>-<target>-<12hex>` over project, target and source
 revision). `ssh` targets are refused Forge-side before any
-invocation, so a conformant executor never sees them.
+invocation; `mac-runtime` is the Linux-controlled runtime
+adapter and receives a relative release manifest from the
+Forge project root.
 
 ## Stdin payload
 

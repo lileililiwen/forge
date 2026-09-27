@@ -30,6 +30,7 @@ pub mod portal;
 pub mod procedure;
 pub mod profile;
 pub mod provider;
+pub mod publish;
 pub mod readiness;
 pub mod registry;
 pub mod release;

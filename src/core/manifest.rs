@@ -149,8 +149,8 @@ pub struct DeploymentTargetEntry {
     /// the targets list.
     #[serde(default)]
     pub name: Option<String>,
-    /// Adapter kind. Supported in v0.1.0: `local`,
-    /// `docker-compose`. `ssh` is planned.
+    /// Adapter kind. Supported in v0.1.0: `local`, `docker-compose`,
+    /// `jenkins`, and `mac-runtime`. `ssh` is planned.
     #[serde(default)]
     pub kind: Option<String>,
     /// Adapter-specific free-form fields, recorded verbatim

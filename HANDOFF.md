@@ -1,15 +1,15 @@
 # Forge handoff
 
-current_spec: gate-evidence-export-consumption
-
 ## Current state
 
-`gate-evidence-export-consumption` selected and being implemented; companion
-sibling `driftwatchdog gate-evidence-export` archived `2026-09-27` at
-`221faeca` and its export entry point (`gate evidence-export`) confirmed
-operational; this checkout's `.driftwatch` store initialized (sibling-owned
-next action from `gate-runtime-evidence` cycle now complete); real export
-captured at `tests/fixtures/gate-evidence/forge-all-unverified.json`.
+`gate-evidence-export-consumption` implemented, verified and archived as
+`2026-09-27-gate-evidence-export-consumption`. Companion sibling
+`driftwatchdog gate-evidence-export` archived `2026-09-27` at `221faeca`.
+Real export captured at
+`tests/fixtures/gate-evidence/forge-all-unverified.json`. No executed gate
+pass claimed for this repository (`.driftwatch` store uninitialized);
+honest state: all nine fields `unverified`. No active changes remain.
+
 Companion driftwatchdog and workspace-governance next actions recorded in
 their respective HANDOFF sections below.
 
@@ -4175,3 +4175,27 @@ two design guesses about sibling behaviour).
   yet confirmed); no other eligible change; `current_spec` line removed.
 - No gate pass claimed for this repository; no shared Gate Runtime
   configured; `driftwatch init` remains sibling-owned next action.
+
+## Verification evidence (gate-evidence-export-consumption, 2026-09-27)
+
+- `cargo build`: PASS.
+- `cargo test --lib gate` (49 tests including 12 evidence module tests): PASS.
+- `cargo test --test gate_contract` (28 CLI contract tests): PASS.
+- `cargo test --test gate_cross_surface` (12 tests including 4 new): PASS.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `node scripts/check-spec-governance.mjs`: PASS.
+- `openspec validate --all --strict --no-interactive`: 36 passed, 0 failed.
+- `git diff --check`: PASS.
+- `git diff --stat`: 15 files, 2122 insertions, 16 deletions; 3 new files
+  (`src/gate/evidence.rs`, `tests/fixtures/gate-evidence/NOTES.md`,
+  `tests/fixtures/gate-evidence/forge-all-unverified.json`).
+- Evidence fixture: `tests/fixtures/gate-evidence/forge-all-unverified.json`
+  (schema_version 1, project `forge`, all 9 fields `unverified`, consumed
+  at sibling revision `221faeca`).
+- No gate pass claimed for this repository (`.driftwatch` uninitialized);
+  honest state: all 9 fields `unverified`, no `verified` claim.
+- Companion sibling next actions: none open (sibling's `driftwatch init`
+  for this checkout remains open in that sibling's HANDOFF).
+- Archive: `2026-09-27-gate-evidence-export-consumption`; spec promoted to
+  `openspec/specs/gate-evidence-export-consumption/spec.md`; no active
+  changes remain; `current_spec` line removed.

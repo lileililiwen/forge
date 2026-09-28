@@ -59,6 +59,10 @@ use serde_json::Value;
 use crate::core::{validate_project_id, ForgeError};
 use crate::policy::redact_credentials;
 
+/// Read-only per-project liveness verdicts for a managed fleet
+/// (`fleet-liveness-status`).
+pub mod online;
+
 /// Versioned contract for the fleet observation surface.
 pub const FLEET_CONTRACT_VERSION: &str = "0.1.0";
 

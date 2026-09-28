@@ -1,6 +1,116 @@
+current_spec: forge-publish-observability-revision-containers
+
 # Forge handoff
 
 ## Current state
+
+`forge-publish-queue-status` implemented, verified and archived on
+2026-09-28 as `2026-09-28-forge-publish-queue-status`; its four
+requirements (sequential fleet execution, provider progress events,
+durable deploy status, bounded status watch) were promoted into
+[openspec/specs/forge-publish-queue-status/spec.md](openspec/specs/forge-publish-queue-status/spec.md).
+The implementation extends the existing provider transport
+(`fe13db1`/`89886c8` skeletons) without breaking them: every
+provider request/response now carries an optional `queue_id`
+field validated at `1..=128` ASCII alphanumeric plus `-`/`_`;
+every `publish.progress` event on the stderr stream is matched
+against the active request envelope — same `operation_id`,
+`project_id`, and `queue_id` — and a mismatch is reported as a
+provider protocol violation rather than silently accepted;
+progress `detail` is bounded by `PROGRESS_DETAIL_MAX = 512`
+characters with a `…` truncation, and the bounded value is
+passed through `policy::redact_credentials` so a leaky provider
+never reaches the operator. A new `src/publish/queue.rs` module
+defines the per-project state machine (`queued`/`running`/
+`succeeded`/`failed`/`timed_out`/`cancelled`) and enforces the
+one-running-project invariant across the queue, with duplicate
+terminal events for the same operation_id ignored so a noisy
+provider cannot flip a `succeeded` project back to `failed`.
+The existing operations journal gains an additive `queue_id`
+column and matching partial index
+(`operations_queue_project_state_idx`) so a `forge deploy
+status --queue <id>` query answers from a single index lookup;
+the schema migration is in `apply_migrations` and is idempotent
+against pre-change registries. `cmd_publish_fleet` now
+generates one stable `fleet-<UTC>-<8hex>` queue id per
+invocation, persists one `publish` journal row per project
+through the existing registry with the `queue_id` field set
+on every completion path (success, failure, fail-fast early
+exit), and exposes the `queue_id` in the fleet aggregate
+JSON. `forge deploy status` accepts `--queue <id>` (validated
+against `validate_queue_id`), `--watch` (refused without
+`--queue`), and bounded `--interval-secs 1..=60` /
+`--deadline-secs 1..=86400`; `--watch` polls the queue until
+every project reaches a terminal state or the deadline
+expires and refuses to claim success on a mixed-terminal
+result. Status reads never append journal rows (no mutation
+on the read path), and the existing `forge deploy status`
+flags stay valid — the prior `forge-deploy-status/0.1.0`
+document is now `forge-deploy-status/0.2.0` carrying the
+`queue` and `scope` fields, but the kind filters, JSON/human
+output structure and read-only guarantee are unchanged. The
+GitHub push path (`src/api/mod.rs`) and the manual publish
+path (`cmd_publish_provider`) both carry the new optional
+field with `queue_id: None`, so single-project publishes are
+byte-compatible. No Mac script, source checkout or deployment
+script is introduced on Mac; Forge owns queue identity,
+ordering, journal state and status projection, while Jenkins
+owns Mac execution and would only emit the generic
+provider-neutral events. The MCP `tools/list`, portal and
+`forge list` surfaces stay unchanged: no new tool, no new
+route, no new portal section, no new journal kind beyond the
+existing `publish` rows; the registry's `operations` table
+gains no columns beyond the additive `queue_id`.
+
+## Verification evidence (forge-publish-queue-status, 2026-09-28)
+
+- `cargo fmt --all -- --check`: PASS for the touched files
+  (`src/publish/queue.rs`, `src/publish/providers.rs`,
+  `src/registry/mod.rs`, `src/main.rs`, `tests/publish_queue_status_contract.rs`,
+  `tests/publish_contract.rs`); the pre-change baseline already
+  carries formatting drift in unrelated files, which is out of
+  scope.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS against the
+  pre-change baseline (the four pre-existing `-D warnings`
+  errors live in `src/gate/evidence.rs` and `src/publish/mod.rs`
+  — none touched by this change; verified by stashing the patch
+  and re-running).
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`:
+  PASS — 64 result groups, 0 failures; the change adds no new
+  long-running native test.
+- New supervised suites: 6 `src/publish/queue` unit tests
+  (start-then-finalize succeeds; second running project refused;
+  terminal state blocks rerun; duplicate terminal event ignored;
+  non-terminal finalize refused; aggregate counts every state); 19
+  `src/publish/providers` unit tests (queue_id validation
+  alphanumeric/dash/underscore accepted; empty / oversized /
+  unsafe refused; parse_request carries queue_id through;
+  parse_request rejects malformed queue_id; classify_progress_event
+  accepts matching event; ignores non-progress event; rejects
+  wrong contract; rejects operation/project/queue id mismatches;
+  redacts and bounds detail; requires queue_id when active;
+  rejects event with queue_id for standalone request; rejects
+  missing phase/status); 7 `tests/publish_queue_status_contract.rs`
+  CLI tests (help advertises `--queue`/`--watch`/`--interval-secs`/
+  `--deadline-secs`; `--watch` without `--queue` refused;
+  malformed queue id refused; `--interval-secs` 0/61 refused;
+  `--deadline-secs` 0 refused; unknown queue returns empty
+  read-only history; `--project` and `--queue` together refused).
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 41 passed,
+  0 failed pre-archive and 42 passed, 0 failed post-archive with
+  the promoted `forge-publish-queue-status` spec (+4
+  requirements); `git diff --check`: PASS.
+- Pointer state: `forge-publish-queue-status` archived
+  (`19/19` tasks evidenced). `openspec list` shows two
+  remaining proposals: `forge-independent-project-inventory-fleet`
+  and `forge-publish-observability-revision-containers`. With
+  `forge-publish-queue-status` now archived as a prerequisite,
+  `forge-publish-observability-revision-containers` is the next
+  eligible change and the pointer advances to it.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 
 `forge-publish-plugin-orchestration` implemented, verified and
 archived on 2026-09-27 as

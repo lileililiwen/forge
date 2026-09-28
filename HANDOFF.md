@@ -1,6 +1,195 @@
-current_spec: portfolio-share-publish
+current_spec: portfolio-interest-snapshots
 
 # Forge handoff
+
+## Current state
+
+`portfolio-share-publish` implemented, verified and archived on 2026-09-29
+as `2026-09-28-portfolio-share-publish`; its four requirements (admin-defined
+explicit share record, exact-approval publication, deterministic and
+idempotent publication, public output excluding private data) were promoted
+into
+[openspec/specs/portfolio-share/spec.md](openspec/specs/portfolio-share/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS, Section-3 BFS
+and Section-4 verification task in the proposal.
+
+**Domain** (`src/portfolio/share/`). The package is split by concern so each
+file answers one question, matching the `src/api/ui/*` and `src/publish/*`
+convention: `mod.rs` owns the vocabularies and record shapes,
+`validation.rs` owns secret detection and the public URL/text/evidence rules,
+`manifest.rs` owns the contracted document and its SHA-256, `publish.rs` owns
+the local and adapter publishers, `audit_types.rs` owns the approval and
+attempt rows. `src/portfolio/publication.rs` is the single orchestration path
+both transports enter. Lifecycle (`validated|approved|published|superseded|rejected`),
+visibility (`public|unlisted`), showcase status
+(`planned|demo|beta|stable|archived|unknown` — deliberately *not* an
+availability claim) and publication outcome (`published|failed|unknown`) are
+closed enums. Public URLs must be `https://`, free of embedded credentials and
+non-default ports, on a fully qualified public host, and free of a path
+segment from the closed private list (`admin`, `account`, `settings`,
+`internal`, …), of `.`/`..`, of percent-encoding, and of credential-bearing
+query keys. Secret detection reuses `policy::redact_credentials` as its first
+line and adds a well-known token-prefix scan; a rejected value is **refused,
+not redacted**, and the finding never echoes it.
+
+**Manifest.** The hashed part is `ManifestBody` (`schema_family`,
+`schema_version`, `manifest_revision`, `projects[]`) sorted by stable project
+id with surfaces sorted by `(label, url)`; the published document adds
+`generated_at` and `manifest_sha256`. That split is what makes "same records →
+same bytes and hash" and "document carries an emission time" both true. An
+empty catalog is valid and publishable. `status_evidence` is a closed
+string-valued object (five allowed keys) — there is no arbitrary metadata map.
+
+**Persistence** (`src/registry/share/`). Five additive tables
+(`portfolio_share_records`, `portfolio_share_surfaces`,
+`portfolio_share_findings`, `portfolio_share_approvals`,
+`portfolio_share_publications`) applied by `apply_portfolio_share_migration`
+inside its own explicit `BEGIN IMMEDIATE` … `COMMIT` batch with `ROLLBACK` on
+any failure — deliberately *separate* from the portfolio batch so a rollback in
+either domain leaves the other intact. `projects`, `operations` and every
+portfolio table are untouched, and the share domain writes **no** `operations`
+journal row.
+
+**CLI.** `forge portfolio share set|remove|show|list|preview|approve|publish|reconcile|audit`.
+Every mutation is project-scoped, validated before the write, and idempotent
+where an identity is provided. `preview` is read-only.
+
+**JSON API.** `GET|POST /v1/projects/{id}/share`,
+`POST /v1/projects/{id}/share/remove`, `GET /v1/share/manifest`,
+`POST /v1/share/{approve,publish,reconcile}`, `GET /v1/share/audit` — all
+behind the existing `authorize()`, and **all** requiring `admin:access`,
+preview included: previewing the candidate manifest reveals which projects an
+operator considers publishable, which is itself private. Two new typed errors:
+`portfolio-share-invalid` → 400, `portfolio-share-conflict` → 409.
+`authorize()` now returns the authenticated session subject, which is what the
+audit trail records instead of a claimed actor.
+
+**Publication.** `forge portfolio share publish --target <path>` writes the
+approved document locally (write-then-rename; identical bytes reconcile rather
+than republish). `--adapter <path>` selects the optional credential-injected
+executable, which receives exactly `{contract, operation_key,
+manifest_revision, manifest_sha256, target, document}` on stdin — never a
+registry query, a session or a credential — answers
+`forge-portfolio-share-adapter/0.1.0`, and is killed at a bounded timeout
+(`FORGE_PORTFOLIO_SHARE_TIMEOUT_SECS`, 1..=3600).
+
+The pointer advances to `portfolio-interest-snapshots` — the next sibling
+whose two declared prerequisites (share-publish, and the analytics adapter) are
+now both archived.
+
+## Verification evidence (portfolio-share-publish, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/portfolio/mod.rs`, `src/portfolio/publication.rs`,
+  `src/portfolio/share/{mod,validation,manifest,publish,audit_types}.rs`,
+  `src/registry/mod.rs`, `src/registry/portfolio.rs`, `src/registry/share/{mod,audit}.rs`,
+  `src/api/mod.rs`, `src/core/mod.rs`, `src/main.rs`,
+  `tests/support/share.rs`,
+  `tests/portfolio_share_{cli,api,cross}_contract.rs`). The pre-change
+  baseline carries formatting drift in `src/gate/evidence.rs`,
+  `src/publish/{fleet,jenkins}.rs`, `tests/gate_contract.rs`,
+  `tests/gate_cross_surface.rs` and `tests/publish_queue_status_contract.rs`;
+  `cargo fmt` touched them incidentally and those edits were reverted with
+  `git checkout --`, so the drift is preserved exactly as the prior cycles
+  left it.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: identical to the stashed
+  baseline — the same 10 pre-existing locations
+  (`src/gate/evidence.rs`, `src/publish/fleet.rs`, `src/publish/mod.rs`).
+  **Zero new clippy errors.** (An earlier `cargo fmt` pass also reformatted the
+  six drifted files listed above; they were reverted before the final run.)
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: **75 result groups,
+  1699 tests, 0 failed**; the change adds no new long-running native test.
+  New supervised suites: 4 `src/portfolio::share` modules (24 tests —
+  closed vocabularies; public URL scheme/host/port/path/query rules; secret
+  shapes refused without echo; bounded control-free text; surface splitting
+  and duplicate refusal; sorted normalization; the closed evidence block;
+  deterministic ordering and hash across record order; a title change moving
+  the hash; empty catalog valid; rejected/private/duplicate records omitted
+  with findings; the document embedding hash and emission time; the manifest
+  carrying no private key; bounded operation keys and actors; a local
+  publisher that reconciles identical bytes and refuses an oversized
+  manifest; a wedged adapter killed at its budget; a missing adapter command
+  refused), 11 `src/registry::share` (additive idempotent migration; a
+  hand-built pre-change registry migrates forward with its project *and*
+  journal rows intact; an interrupted share batch rolls back and leaves
+  neither a partial table nor a broken prior registry, with the next open
+  retrying cleanly; unknown project changes no share state; a refused write
+  persists a finding without the value; a refused edit stops serving the
+  previous record; revisions bump; surfaces are replaced not accumulated;
+  withdrawal; a project without a record is never listed; approval needs the
+  exact current hash; an edit after approval needs a new one; an empty catalog
+  is approvable; a second approval supersedes; one operation key reserves
+  once and refuses a different manifest; a published attempt moves the
+  approval and the records; a later publication supersedes the prior set; an
+  unreconciled attempt blocks; only `unknown` reconciles; the audit answers
+  what was public and by whom), 19 `tests/portfolio_share_cli_contract.rs`,
+  8 `tests/portfolio_share_api_contract.rs` and 2
+  `tests/portfolio_share_cross_surface.rs`.
+- Live binary smoke (CLI), against a two-project local registry: `preview` on
+  an untouched fleet renders `project count: 0`; a `--surface
+  "Admin=https://alethefy.example.com/admin/settings"` write returns
+  `error[portfolio-share-invalid] … surface url path segment \`admin\` is a
+  private or administrative surface and cannot be published; no share state
+  was changed` (exit 1) and `share show` then prints the persisted
+  `share-write-refused` finding while still reporting the project as absent
+  from the catalog; the accepted write reports `validated at revision 1 with 2
+  public surface(s)`; approving a wrong hash is refused naming both hashes;
+  publishing before approval is refused; editing after approval makes publish
+  fail with `the share records changed after revision 1 was approved` and
+  writes no file; re-approving and publishing succeeds; a retry under the same
+  operation key reports `already present; no second publication`. The
+  published artifact is exactly the contracted document —
+  `schema_family public-portfolio-manifest`, `schema_version 1`,
+  `manifest_sha256` matching the approved hash, one project with only
+  `id/title/summary/category/source_url/visibility/showcase_status/featured/
+  demo_url/surfaces`. `share audit` renders revision 2 `published` and
+  revision 1 `superseded`, each with its hash, actor and project count, one
+  publication row, and `unreconciled: none`.
+- Live binary smoke (HTTP), `forge api serve --bind 127.0.0.1 --port 18933`
+  with a minted admin session: every share route without a bearer is 401
+  (including `GET /v1/share/audit?limit=0`, which is 401 rather than a
+  400 disclosure); `/healthz` stays byte-identical; `/v1/projects` still
+  demands a real session (401); `/ui` without a bearer is 401 and with one is
+  200; `GET /v1/projects/alethefy/share` on an unshared project is
+  `{"shared":false}` rather than a blank entry; an admin surface over HTTP is
+  a 400 `portfolio-share-invalid` naming the rule; an accepted write returns
+  `validated beta True 1`; preview → approve → publish records
+  `actor release-bot` on both the approval and the publication; `GET
+  /v1/share/audit` renders `unreconciled: null`; the private
+  `/v1/projects/alethefy/portfolio` projection contains **zero** occurrences of
+  the share source URL.
+- Adapter evidence: `an_adapter_never_receives_a_credential_or_a_registry_query`
+  captures the adapter's stdin and asserts the exact key set and that the
+  handed-over document equals the approved canonical manifest;
+  `an_adapter_answering_the_wrong_contract_is_refused` and
+  `a_failing_adapter_does_not_create_a_false_success_and_retry_reconciles`
+  (a wedged stub killed at its 1 s budget) prove an adapter failure records a
+  `failed` attempt, keeps the approval and retries under the same key without a
+  second row. All adapters are **local executable stubs**.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 50 passed, 0 failed
+  (50 items) pre-archive and 50 passed, 0 failed post-archive with the
+  promoted `portfolio-share` spec (+4 requirements); `git diff --check`: PASS.
+- **Blocked, honestly recorded:** `platform-contracts` still carries
+  `public-portfolio-manifest` as an unimplemented proposal — there is no
+  `schemas/public-portfolio-manifest.schema.json` on disk — so the
+  cross-repo schema-fixture validation is **blocked, not passed**. Forge pins
+  the family name and major version from that proposal's design and enforces
+  the field set itself. No credential-injected GitHub Pages adapter was run,
+  so **no external publication is claimed**; no GitHub, Cloudflare or other
+  external host was contacted.
+- Pointer state: `portfolio-share-publish` archived (`16/16` tasks evidenced,
+  `4/4` artifacts complete). `openspec list` shows the three remaining
+  proposals (`portfolio-interest-snapshots`,
+  `standard-pack-registry-and-snapshots`, `fleet-live-rollout`); the pointer
+  advances to `portfolio-interest-snapshots`, whose declared prerequisites
+  (share-publish, analytics adapter) are now both archived.
+- No shared Gate Runtime is configured; no Gate pass is claimed. No
+  PostgreSQL, multi-user, SSO or remote-synchronization readiness is claimed;
+  every publication target in the evidence above is a local file or a local
+  executable stub.
 
 ## Current state
 

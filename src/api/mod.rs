@@ -294,7 +294,8 @@ fn err_status(err: &ForgeError) -> u16 {
         "idempotency-key-conflict"
         | "push-confirm-required"
         | "release-check-failed"
-        | "deploy-health-failed" => 409,
+        | "deploy-health-failed"
+        | "portfolio-share-conflict" => 409,
         "api-invalid"
         | "manifest-invalid"
         | "manifest-not-found"
@@ -306,6 +307,7 @@ fn err_status(err: &ForgeError) -> u16 {
         | "feature-ownership-conflict"
         | "spec-invalid"
         | "portfolio-invalid"
+        | "portfolio-share-invalid"
         | "deploy-invalid"
         | "release-invalid" => 400,
         _ => 500,
@@ -389,6 +391,29 @@ pub enum Route {
     PortfolioEvidence {
         id: String,
     },
+    /// `GET /v1/projects/{id}/share` — read the public share record.
+    GetShare {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/share` — create or replace the public
+    /// share record and its allowlisted surfaces.
+    SetShare {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/share/remove` — withdraw the record.
+    RemoveShare {
+        id: String,
+    },
+    /// `GET /v1/share/manifest` — preview the candidate manifest.
+    SharePreview,
+    /// `POST /v1/share/approve` — approve one exact manifest hash.
+    ShareApprove,
+    /// `POST /v1/share/publish` — publish the approved manifest.
+    SharePublish,
+    /// `POST /v1/share/reconcile` — resolve a partial publication.
+    ShareReconcile,
+    /// `GET /v1/share/audit` — approval and publication trail.
+    ShareAudit,
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -458,6 +483,20 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        ("GET", ["v1", "projects", id, "share"]) => Some(Route::GetShare {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "share"]) => Some(Route::SetShare {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "share", "remove"]) => Some(Route::RemoveShare {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "share", "manifest"]) => Some(Route::SharePreview),
+        ("POST", ["v1", "share", "approve"]) => Some(Route::ShareApprove),
+        ("POST", ["v1", "share", "publish"]) => Some(Route::SharePublish),
+        ("POST", ["v1", "share", "reconcile"]) => Some(Route::ShareReconcile),
+        ("GET", ["v1", "share", "audit"]) => Some(Route::ShareAudit),
         _ => None,
     }
 }
@@ -524,7 +563,18 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::PortfolioEvidence { .. }
         | Route::ApplyDeployment { .. }
         | Route::UiProjectPublish { .. }
-        | Route::UiProjectPortfolio { .. } => Some("admin:access"),
+        // Every share route, preview included, demands admin:access:
+        // previewing the candidate manifest reveals which projects an
+        // operator considers publishable, which is itself private.
+        | Route::UiProjectPortfolio { .. }
+        | Route::GetShare { .. }
+        | Route::SetShare { .. }
+        | Route::RemoveShare { .. }
+        | Route::SharePreview
+        | Route::ShareApprove
+        | Route::SharePublish
+        | Route::ShareReconcile
+        | Route::ShareAudit => Some("admin:access"),
     }
 }
 
@@ -588,17 +638,20 @@ pub fn handle(
     // UI accepts it through `?token=<id>` as well, so we
     // short-circuit before `authorize()` and let the UI
     // handlers do the bearer/origin checks themselves.
-    if !matches!(
+    let actor = if !matches!(
         route,
         Route::UiFleet
             | Route::UiProjectDetail { .. }
             | Route::UiProjectPublish { .. }
             | Route::UiProjectPortfolio { .. }
     ) {
-        if let Err(response) = authorize(db_path, &route, request, now) {
-            return response;
+        match authorize(db_path, &route, request, now) {
+            Ok(actor) => actor,
+            Err(response) => return response,
         }
-    }
+    } else {
+        String::new()
+    };
 
     // 2. Dispatch.
     match route.clone() {
@@ -640,6 +693,14 @@ pub fn handle(
         Route::PortfolioRelation { id } => handle_portfolio_relation(db_path, request, &id),
         Route::PortfolioReview { id } => handle_portfolio_review(db_path, request, &id),
         Route::PortfolioEvidence { id } => handle_portfolio_evidence(db_path, request, &id),
+        Route::GetShare { id } => handle_get_share(db_path, &id),
+        Route::SetShare { id } => handle_set_share(db_path, request, &id),
+        Route::RemoveShare { id } => handle_remove_share(db_path, &id),
+        Route::SharePreview => handle_share_preview(db_path, now),
+        Route::ShareApprove => handle_share_approve(db_path, request, &actor),
+        Route::SharePublish => handle_share_publish(db_path, request, &actor, now),
+        Route::ShareReconcile => handle_share_reconcile(db_path, request, &actor),
+        Route::ShareAudit => handle_share_audit(db_path, request),
     }
 }
 
@@ -651,20 +712,21 @@ fn alt_method(method: &str) -> &'static str {
     }
 }
 
-/// Authorization step. Returns `Ok(())` when the caller
-/// is permitted to issue the request; returns
-/// `Err(response)` with the rendered error response
-/// otherwise. The session is loaded through the identity
-/// surface so a token minted for project A cannot
+/// Authorization step. Returns `Ok(actor)` when the caller
+/// is permitted to issue the request, where `actor` is the
+/// authenticated session subject recorded in the audit
+/// trail; returns `Err(response)` with the rendered error
+/// response otherwise. The session is loaded through the
+/// identity surface so a token minted for project A cannot
 /// authorize project B.
 fn authorize(
     db_path: &Path,
     route: &Route,
     request: &ApiRequest,
     now: DateTime<Utc>,
-) -> Result<(), ApiResponse> {
+) -> Result<String, ApiResponse> {
     if matches!(route, Route::Healthz | Route::GitHubPush) {
-        return Ok(());
+        return Ok(String::new());
     }
     let token = request.bearer_token.as_deref().ok_or_else(|| {
         ApiResponse::json(
@@ -693,16 +755,16 @@ fn authorize(
     // The match is exhaustive over every route that
     // requires authorization. Healthz is already handled
     // by the early return above.
-    let result: Result<(), ApiResponse> = match route {
-        Route::Healthz => Ok(()),
-        Route::GitHubPush => Ok(()),
+    let result: Result<String, ApiResponse> = match route {
+        Route::Healthz => Ok(String::new()),
+        Route::GitHubPush => Ok(String::new()),
         // UI routes do their own auth flow; the dispatch
         // short-circuits before reaching this match, but
         // Rust requires the arms anyway.
         Route::UiFleet
         | Route::UiProjectDetail { .. }
         | Route::UiProjectPublish { .. }
-        | Route::UiProjectPortfolio { .. } => Ok(()),
+        | Route::UiProjectPortfolio { .. } => Ok(String::new()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known
@@ -722,7 +784,7 @@ fn authorize(
                 })
                 .unwrap_or_default();
             match crate::identity::lookup_session_across_projects(token, projects) {
-                Ok(Some(_)) => Ok(()),
+                Ok(Some((session, _, _))) => Ok(session.subject),
                 Ok(None) => Err(ApiResponse::json(
                     401,
                     serde_json::json!({
@@ -736,7 +798,13 @@ fn authorize(
                 Err(err) => Err(ApiResponse::from_error(&err)),
             }
         }
-        Route::ListProjects | Route::CreateProject => {
+        Route::ListProjects
+        | Route::CreateProject
+        | Route::SharePreview
+        | Route::ShareApprove
+        | Route::SharePublish
+        | Route::ShareReconcile
+        | Route::ShareAudit => {
             // Fleet routes: walk the registry to find
             // which project minted the session, then
             // validate the permission for the action.
@@ -789,7 +857,7 @@ fn authorize(
             // per-project identity config: the registry
             // enforces id/path uniqueness at write time.
             let _ = owner_dir;
-            Ok(())
+            Ok(session.subject)
         }
         Route::InspectProject { id }
         | Route::Doctor { id }
@@ -803,6 +871,9 @@ fn authorize(
         | Route::PortfolioRelation { id }
         | Route::PortfolioReview { id }
         | Route::PortfolioEvidence { id }
+        | Route::GetShare { id }
+        | Route::SetShare { id }
+        | Route::RemoveShare { id }
         | Route::ApplyDeployment { id } => {
             // Project-scoped route: load the project,
             // locate the session in the project directory
@@ -886,7 +957,7 @@ fn authorize(
                     return Err(ApiResponse::from_error(&err));
                 }
             }
-            Ok(())
+            Ok(session.subject)
         }
     };
     result
@@ -1876,6 +1947,332 @@ fn handle_portfolio_evidence(db_path: &Path, request: &ApiRequest, id: &str) -> 
         ),
         Err(err) => ApiResponse::from_error(&err),
     }
+}
+
+// --- portfolio share ---------------------------------------------------
+//
+// Every handler below dispatches into
+// [`crate::portfolio::publication`], the same orchestration the CLI
+// uses, so the JSON transport adds no business rule of its own. The
+// authorization boundary has already demanded `admin:access` for
+// every one of these routes, so an unauthorized request never reaches
+// a write and persists no share state. Preview is included on
+// purpose: the candidate manifest reveals which projects an operator
+// considers publishable, which is itself private.
+
+/// `GET /v1/projects/{id}/share`
+fn handle_get_share(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    if let Err(err) = registry.inspect(id) {
+        return ApiResponse::from_error(&err);
+    }
+    match registry.share_record(id) {
+        // A project without a share record is private, not empty: the
+        // projection says so rather than inventing a blank entry.
+        Ok(None) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": { "project_id": id, "shared": false },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Ok(Some(record)) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": { "project_id": id, "shared": true, "record": record },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/projects/{id}/share`
+fn handle_set_share(db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    use crate::portfolio::share::{ShareSurface, ShareWrite, ShowcaseStatus, Visibility};
+    let body = request.json_body();
+    let title = match required_field(&body, "title") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let summary = match required_field(&body, "summary") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let category = match required_field(&body, "category") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let source_url = match required_field(&body, "source_url") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let visibility = match optional_field(&body, "visibility") {
+        Some(raw) => match Visibility::parse(raw) {
+            Ok(value) => value,
+            Err(reason) => return bad_request(&reason),
+        },
+        None => Visibility::Public,
+    };
+    let showcase_status = match optional_field(&body, "showcase_status") {
+        Some(raw) => match ShowcaseStatus::parse(raw) {
+            Ok(value) => value,
+            Err(reason) => return bad_request(&reason),
+        },
+        None => ShowcaseStatus::Unknown,
+    };
+    let mut surfaces = Vec::new();
+    if let Some(entries) = body.get("surfaces").and_then(|v| v.as_array()) {
+        for entry in entries {
+            let label = entry
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let url = entry
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            // Unvalidated on purpose: the registry's `validate_share`
+            // is the single gate, so the refusal and its persisted
+            // finding look the same whether they came from the CLI or
+            // from this route.
+            surfaces.push(ShareSurface::new(label, url));
+        }
+    }
+    let write = ShareWrite {
+        title,
+        summary,
+        category,
+        source_url,
+        demo_url: optional_field(&body, "demo_url").map(|value| value.to_string()),
+        visibility,
+        featured: body
+            .get("featured")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        showcase_status,
+        status_evidence: optional_field(&body, "status_evidence").map(|value| value.to_string()),
+        surfaces,
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.share_upsert_record(id, &write) {
+        Ok(record) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": { "project_id": id, "record": record },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/projects/{id}/share/remove`
+fn handle_remove_share(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.share_remove_record(id) {
+        Ok(removed) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": {
+                    "project_id": id,
+                    "shared": false,
+                    "removed": removed,
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/share/manifest`
+fn handle_share_preview(db_path: &Path, now: DateTime<Utc>) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::portfolio::publication::preview_manifest(&registry) {
+        Ok(draft) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": {
+                    "manifest_revision": draft.body.manifest_revision,
+                    "manifest_sha256": draft.manifest_sha256(),
+                    "project_count": draft.project_count(),
+                    "approvable": draft.approvable(),
+                    "canonical_body": draft.body.canonical_json(),
+                    "findings": draft.findings,
+                    "generated_at": now.to_rfc3339(),
+                },
+                "contract": crate::portfolio::share::SHARE_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/share/approve`
+fn handle_share_approve(db_path: &Path, request: &ApiRequest, actor: &str) -> ApiResponse {
+    let body = request.json_body();
+    let manifest_sha256 = match required_field(&body, "manifest_sha256") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.share_approve(&manifest_sha256, actor) {
+        Ok(approval) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": { "approval": approval },
+                "contract": crate::portfolio::share::SHARE_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/share/publish`
+fn handle_share_publish(
+    db_path: &Path,
+    request: &ApiRequest,
+    actor: &str,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let target = match required_field(&body, "target") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let operation_key = match required_field(&body, "operation_key") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let adapter = optional_field(&body, "adapter").map(PathBuf::from);
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let plan = crate::portfolio::publication::PublishPlan {
+        operation_key,
+        target,
+        actor: actor.to_string(),
+        adapter,
+    };
+    match crate::portfolio::publication::publish_approved_manifest(&registry, &plan, now) {
+        Ok(report) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": { "publication": report },
+                "contract": crate::portfolio::share::SHARE_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/share/reconcile`
+fn handle_share_reconcile(db_path: &Path, request: &ApiRequest, actor: &str) -> ApiResponse {
+    use crate::portfolio::share::PublicationStatus;
+    let body = request.json_body();
+    let raw_id = match required_field(&body, "publication_id") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let publication_id = match raw_id.parse::<i64>() {
+        Ok(value) => value,
+        Err(_) => return bad_request("publication_id must be an integer"),
+    };
+    let status = match required_field(&body, "status") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let status = match PublicationStatus::parse(&status) {
+        Ok(value) => value,
+        Err(reason) => return bad_request(&reason),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.share_reconcile_publication(publication_id, status, actor) {
+        Ok(attempt) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "share": { "publication": attempt },
+                "contract": crate::portfolio::share::SHARE_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/share/audit`
+fn handle_share_audit(db_path: &Path, request: &ApiRequest) -> ApiResponse {
+    let limit = match parse_share_limit(request.query.as_deref().unwrap_or_default()) {
+        Ok(value) => value,
+        Err(reason) => return bad_request(&reason),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let approvals = match registry.share_approvals(limit) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let publications = match registry.share_publications(limit) {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let unreconciled = match registry.share_unreconciled_publication() {
+        Ok(value) => value,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    ApiResponse::json(
+        200,
+        serde_json::json!({
+            "share": {
+                "approvals": approvals,
+                "publications": publications,
+                "unreconciled": unreconciled,
+            },
+            "contract": crate::portfolio::share::SHARE_CONTRACT_VERSION,
+        }),
+    )
+}
+
+/// Parse the `limit` query parameter of the share audit route. An
+/// absent parameter is the house default; a present but unusable one
+/// is a typed refusal rather than a silently widened list.
+fn parse_share_limit(query: &str) -> Result<usize, String> {
+    let Some(pair) = query.split('&').find(|part| !part.is_empty()) else {
+        return Ok(50);
+    };
+    let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+    if key.trim() != "limit" {
+        return Err(format!("unknown share audit query parameter `{key}`"));
+    }
+    let parsed = value
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| "limit must be an integer".to_string())?;
+    if !(1..=500).contains(&parsed) {
+        return Err("limit must be between 1 and 500".to_string());
+    }
+    Ok(parsed)
 }
 
 /// Reservation helper. Reserves a pending operation,

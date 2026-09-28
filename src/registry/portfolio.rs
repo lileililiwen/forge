@@ -184,7 +184,7 @@ impl crate::registry::Registry {
     /// identity, refusing anything that is not an imported
     /// project. Every portfolio write goes through this check
     /// first, so an unknown project changes no portfolio state.
-    fn require_project(&self, project_id: &str) -> Result<(), ForgeError> {
+    pub(crate) fn require_project(&self, project_id: &str) -> Result<(), ForgeError> {
         self.inspect(project_id).map(|_| ())
     }
 

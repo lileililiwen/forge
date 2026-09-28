@@ -268,6 +268,12 @@ pub enum ForgeError {
     #[error("portfolio invalid: {reason}; no portfolio state was changed")]
     PortfolioInvalid { reason: String },
 
+    #[error("portfolio share invalid: {reason}; no share state was changed")]
+    PortfolioShareInvalid { reason: String },
+
+    #[error("portfolio share conflict: {reason}; nothing was published")]
+    PortfolioShareConflict { reason: String },
+
     #[error("readiness invalid: {reason}")]
     ReadinessInvalid { reason: String },
 
@@ -390,6 +396,8 @@ impl ForgeError {
             ForgeError::IdempotencyKeyConflict { .. } => "idempotency-key-conflict",
             ForgeError::PortalInvalid { .. } => "portal-invalid",
             ForgeError::PortfolioInvalid { .. } => "portfolio-invalid",
+            ForgeError::PortfolioShareInvalid { .. } => "portfolio-share-invalid",
+            ForgeError::PortfolioShareConflict { .. } => "portfolio-share-conflict",
             ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
             ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
             ForgeError::ProviderInvalid { .. } => "provider-invalid",

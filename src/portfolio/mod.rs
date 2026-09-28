@@ -27,6 +27,9 @@ use serde::Serialize;
 
 use crate::policy::redact_credentials;
 
+pub mod publication;
+pub mod share;
+
 /// Contract version for every portfolio document Forge emits.
 pub const PORTFOLIO_CONTRACT_VERSION: &str = "forge-portfolio/0.1.0";
 

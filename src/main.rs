@@ -1206,6 +1206,11 @@ enum PortfolioCommands {
         /// Registered project id.
         project: String,
     },
+    /// Manage the explicit allowlist of projects that may be published.
+    Share {
+        #[command(subcommand)]
+        command: PortfolioShareCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -1358,6 +1363,112 @@ enum PortfolioEvidenceCommands {
     List {
         /// Registered project id.
         project: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PortfolioShareCommands {
+    /// Define or replace one project's public share record. Nothing is
+    /// public until the manifest is approved and published.
+    Set {
+        /// Registered project id.
+        project: String,
+        /// Public title.
+        #[arg(long)]
+        title: String,
+        /// Public one-paragraph summary.
+        #[arg(long)]
+        summary: String,
+        /// Public category label.
+        #[arg(long)]
+        category: String,
+        /// Public HTTPS source URL.
+        #[arg(long)]
+        source_url: String,
+        /// Optional public HTTPS demo URL.
+        #[arg(long)]
+        demo_url: Option<String>,
+        /// Visibility: public or unlisted.
+        #[arg(long, default_value = "public")]
+        visibility: String,
+        /// Mark the record as featured.
+        #[arg(long)]
+        featured: bool,
+        /// Showcase status: planned, demo, beta, stable, archived or unknown.
+        #[arg(long, default_value = "unknown")]
+        status: String,
+        /// Optional status-evidence JSON object, or `@path` to read it from a file.
+        #[arg(long)]
+        evidence: Option<String>,
+        /// Allowlisted public surface as `label=https://…`; repeat for more.
+        #[arg(long = "surface", value_name = "LABEL=URL")]
+        surfaces: Vec<String>,
+    },
+    /// Withdraw a project's share record; it leaves the public catalog.
+    Remove {
+        /// Registered project id.
+        project: String,
+    },
+    /// Show one project's share record and its allowlisted surfaces.
+    Show {
+        /// Registered project id.
+        project: String,
+    },
+    /// List every share record, newest state first.
+    List {
+        /// Registered project id (omit for every record).
+        #[arg(default_value = "")]
+        project: String,
+    },
+    /// Preview the candidate manifest: exact canonical bytes, hash and findings.
+    Preview {
+        /// Also print the rendered public document.
+        #[arg(long)]
+        document: bool,
+    },
+    /// Approve one exact manifest hash.
+    Approve {
+        /// The `manifest_sha256` a preview reported.
+        #[arg(long)]
+        hash: String,
+        /// Who is approving; recorded in the publication audit trail.
+        #[arg(long, default_value = "local-admin")]
+        actor: String,
+    },
+    /// Publish the approved manifest through the default-safe local export
+    /// or an optional credential-injected adapter.
+    Publish {
+        /// Publication target: an artifact path for the local publisher, or a
+        /// deployment target name for an adapter.
+        #[arg(long)]
+        target: String,
+        /// Operation key; a retry under the same key never publishes twice.
+        #[arg(long, default_value = "share-publish-1")]
+        operation_key: String,
+        /// Who is publishing; recorded in the publication audit trail.
+        #[arg(long, default_value = "local-admin")]
+        actor: String,
+        /// Optional publication adapter executable receiving the manifest on stdin.
+        #[arg(long, value_name = "PATH")]
+        adapter: Option<PathBuf>,
+    },
+    /// Resolve a partial publication reported as `unknown`.
+    Reconcile {
+        /// Publication attempt id from the audit trail.
+        #[arg(long)]
+        publication: i64,
+        /// The observed outcome: published or failed.
+        #[arg(long)]
+        result: String,
+        /// Who reconciled it; recorded in the publication audit trail.
+        #[arg(long, default_value = "local-admin")]
+        actor: String,
+    },
+    /// Show the approval and publication audit trail.
+    Audit {
+        /// Maximum rows per section (1-500).
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
     },
 }
 
@@ -6656,6 +6767,7 @@ fn cmd_portfolio(
         PortfolioCommands::Evidence { command } => {
             cmd_portfolio_evidence(&registry, command, format)
         }
+        PortfolioCommands::Share { command } => cmd_portfolio_share(&registry, command, format),
     }
 }
 
@@ -7226,6 +7338,377 @@ fn cmd_portfolio_evidence(
                     "project_id": project,
                     "generated_at": now.to_rfc3339(),
                     "snapshots": snapshots,
+                }),
+            ))
+        }
+    }
+}
+
+fn share_invalid(reason: String) -> ForgeError {
+    ForgeError::PortfolioShareInvalid { reason }
+}
+
+/// The one CLI entry point for the public share allowlist. Every
+/// subcommand dispatches into the same
+/// [`forge::portfolio::publication`] orchestration the JSON API uses,
+/// so the terminal adds no publication rule of its own.
+fn cmd_portfolio_share(
+    registry: &Registry,
+    command: &PortfolioShareCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::portfolio::share::{
+        self as share, ShowcaseStatus, Visibility, SHARE_CONTRACT_VERSION,
+    };
+    let now = chrono::Utc::now();
+    let contract = SHARE_CONTRACT_VERSION;
+    match command {
+        PortfolioShareCommands::Set {
+            project,
+            title,
+            summary,
+            category,
+            source_url,
+            demo_url,
+            visibility,
+            featured,
+            status,
+            evidence,
+            surfaces,
+        } => {
+            let visibility = Visibility::parse(visibility).map_err(share_invalid)?;
+            let showcase_status = ShowcaseStatus::parse(status).map_err(share_invalid)?;
+            let mut parsed = Vec::with_capacity(surfaces.len());
+            for surface in surfaces {
+                parsed.push(share::ShareSurface::split(surface).map_err(share_invalid)?);
+            }
+            let write = forge::portfolio::share::ShareWrite {
+                title: title.clone(),
+                summary: summary.clone(),
+                category: category.clone(),
+                source_url: source_url.clone(),
+                demo_url: demo_url.clone(),
+                visibility,
+                featured: *featured,
+                showcase_status,
+                status_evidence: match evidence {
+                    Some(raw) => Some(read_evidence_payload(raw)?),
+                    None => None,
+                },
+                surfaces: parsed,
+            };
+            let record = registry.share_upsert_record(project, &write)?;
+            let human = format!(
+                "share record for {} is {} at revision {} with {} public surface(s)\n",
+                record.project_id,
+                record.state.label(),
+                record.revision,
+                record.surfaces.len()
+            );
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "project_id": project,
+                    "share": record,
+                }),
+            ))
+        }
+        PortfolioShareCommands::Remove { project } => {
+            let removed = registry.share_remove_record(project)?;
+            let human = if removed {
+                format!("withdrew the share record for {project}\n")
+            } else {
+                format!("{project} had no share record to withdraw\n")
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "project_id": project,
+                    "shared": false,
+                    "removed": removed,
+                }),
+            ))
+        }
+        PortfolioShareCommands::Show { project } => {
+            let record = registry.share_record(project)?;
+            let findings = registry.share_findings(20)?;
+            let findings: Vec<_> = findings
+                .into_iter()
+                .filter(|finding| finding.project_id == *project)
+                .collect();
+            let human = match &record {
+                None => {
+                    format!("{project} has no share record; it is absent from the public catalog\n")
+                }
+                Some(record) => {
+                    let mut out = String::new();
+                    out.push_str(&format!("project: {}\n", record.project_id));
+                    out.push_str(&format!("state: {}\n", record.state.label()));
+                    out.push_str(&format!("revision: {}\n", record.revision));
+                    out.push_str(&format!("title: {}\n", record.title));
+                    out.push_str(&format!("category: {}\n", record.category));
+                    out.push_str(&format!("source url: {}\n", record.source_url));
+                    out.push_str(&format!(
+                        "demo url: {}\n",
+                        record.demo_url.clone().unwrap_or_else(|| "—".to_string())
+                    ));
+                    out.push_str(&format!("visibility: {}\n", record.visibility));
+                    out.push_str(&format!("showcase status: {}\n", record.showcase_status));
+                    out.push_str(&format!("featured: {}\n", record.featured));
+                    out.push_str(&format!(
+                        "status evidence: {}\n",
+                        record
+                            .status_evidence
+                            .clone()
+                            .unwrap_or_else(|| "—".to_string())
+                    ));
+                    if record.surfaces.is_empty() {
+                        out.push_str("surfaces: none\n");
+                    } else {
+                        out.push_str("surfaces:\n");
+                        for surface in &record.surfaces {
+                            out.push_str(&format!("  {} {}\n", surface.label, surface.url));
+                        }
+                    }
+                    out
+                }
+            };
+            // The persisted refusals are the reason a record is not
+            // public; an operator reading `show` needs them, not just
+            // the machine projection.
+            let human = if findings.is_empty() {
+                human
+            } else {
+                let mut out = human;
+                out.push_str("findings:\n");
+                for finding in &findings {
+                    out.push_str(&format!(
+                        "  {} {} [{}] {}\n",
+                        finding.project_id, finding.field, finding.code, finding.detail
+                    ));
+                }
+                out
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "project_id": project,
+                    "shared": record.is_some(),
+                    "share": record,
+                    "findings": findings,
+                }),
+            ))
+        }
+        PortfolioShareCommands::List { project } => {
+            let records = if project.is_empty() {
+                registry.share_records()?
+            } else {
+                registry.share_record(project)?.into_iter().collect()
+            };
+            let human = if records.is_empty() {
+                "No share records.\n".to_string()
+            } else {
+                let mut out = String::new();
+                for record in &records {
+                    out.push_str(&format!(
+                        "{} {} {} {} {}\n",
+                        record.project_id,
+                        record.state.label(),
+                        record.visibility,
+                        record.showcase_status,
+                        record.title
+                    ));
+                }
+                out
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "records": records,
+                }),
+            ))
+        }
+        PortfolioShareCommands::Preview { document } => {
+            let draft = forge::portfolio::publication::preview_manifest(registry)?;
+            let mut human = format!(
+                "manifest revision {}\nproject count: {}\nmanifest sha256: {}\napprovable: {}\n",
+                draft.body.manifest_revision,
+                draft.project_count(),
+                draft.manifest_sha256(),
+                draft.approvable()
+            );
+            if draft.findings.is_empty() {
+                human.push_str("findings: none\n");
+            } else {
+                human.push_str("findings:\n");
+                for finding in &draft.findings {
+                    human.push_str(&format!(
+                        "  {} {} [{}] {}\n",
+                        finding.project_id, finding.field, finding.code, finding.detail
+                    ));
+                }
+            }
+            if *document {
+                human.push_str(&draft.document(&now.to_rfc3339()));
+            }
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "preview": {
+                        "manifest_revision": draft.body.manifest_revision,
+                        "manifest_sha256": draft.manifest_sha256(),
+                        "project_count": draft.project_count(),
+                        "approvable": draft.approvable(),
+                        "canonical_body": draft.body.canonical_json(),
+                        "document": draft.document(&now.to_rfc3339()),
+                        "findings": draft.findings,
+                    },
+                }),
+            ))
+        }
+        PortfolioShareCommands::Approve { hash, actor } => {
+            let approval = registry.share_approve(hash, actor)?;
+            let human = format!(
+                "approved manifest revision {} ({}) with {} project(s) as {}\n",
+                approval.revision, approval.manifest_sha256, approval.project_count, approval.actor
+            );
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "approval": approval,
+                }),
+            ))
+        }
+        PortfolioShareCommands::Publish {
+            target,
+            operation_key,
+            actor,
+            adapter,
+        } => {
+            let plan = forge::portfolio::publication::PublishPlan {
+                operation_key: operation_key.clone(),
+                target: target.clone(),
+                actor: actor.clone(),
+                adapter: adapter.clone(),
+            };
+            let report =
+                forge::portfolio::publication::publish_approved_manifest(registry, &plan, now)?;
+            let human = format!(
+                "publication {} of manifest revision {} ({} project(s)) via {} is {}{}\n",
+                report.publication_id,
+                report.manifest_revision,
+                report.project_count,
+                report.publisher,
+                report.status_label(),
+                if report.already_present {
+                    " (already present; no second publication)"
+                } else {
+                    ""
+                }
+            );
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "publication": report,
+                }),
+            ))
+        }
+        PortfolioShareCommands::Reconcile {
+            publication,
+            result,
+            actor,
+        } => {
+            let status = share::PublicationStatus::parse(result).map_err(share_invalid)?;
+            let attempt = registry.share_reconcile_publication(*publication, status, actor)?;
+            let human = format!(
+                "publication {} is now {} after reconciliation by {}\n",
+                attempt.publication_id, attempt.status, attempt.actor
+            );
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "publication": attempt,
+                }),
+            ))
+        }
+        PortfolioShareCommands::Audit { limit } => {
+            if *limit == 0 || *limit > 500 {
+                return Err(share_invalid("limit must be between 1 and 500".to_string()));
+            }
+            let approvals = registry.share_approvals(*limit)?;
+            let publications = registry.share_publications(*limit)?;
+            let unreconciled = registry.share_unreconciled_publication()?;
+            let human = {
+                let mut out = String::new();
+                out.push_str("approvals:\n");
+                if approvals.is_empty() {
+                    out.push_str("  none\n");
+                }
+                for approval in &approvals {
+                    out.push_str(&format!(
+                        "  revision {} {} {} {} by {}\n",
+                        approval.revision,
+                        approval.state,
+                        approval.manifest_sha256,
+                        format!("{} project(s)", approval.project_count),
+                        approval.actor
+                    ));
+                }
+                out.push_str("publications:\n");
+                if publications.is_empty() {
+                    out.push_str("  none\n");
+                }
+                for attempt in &publications {
+                    out.push_str(&format!(
+                        "  #{} {} revision {} {} target {}{}\n",
+                        attempt.publication_id,
+                        attempt.status,
+                        attempt.manifest_revision,
+                        attempt.manifest_sha256,
+                        attempt.target,
+                        attempt
+                            .error_code
+                            .clone()
+                            .map(|code| format!(" [{code}]"))
+                            .unwrap_or_default()
+                    ));
+                }
+                out.push_str(&format!(
+                    "unreconciled: {}\n",
+                    match &unreconciled {
+                        Some(attempt) => format!("#{}", attempt.publication_id),
+                        None => "none".to_string(),
+                    }
+                ));
+                out
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "approvals": approvals,
+                    "publications": publications,
+                    "unreconciled": unreconciled,
                 }),
             ))
         }

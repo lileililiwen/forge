@@ -10,8 +10,10 @@
 //!
 //! The portfolio domain shares this file but never a row: its tables
 //! live in [`portfolio`] and are created additively by
-//! [`PORTFOLIO_SCHEMA_SQL`], so a registry written before the portfolio
-//! package keeps every one of its own rows untouched.
+//! [`PORTFOLIO_SCHEMA_SQL`], and the portfolio share allowlist lives
+//! in [`share`] behind [`PORTFOLIO_SHARE_SCHEMA_SQL`], so a registry
+//! written before either package keeps every one of its own rows
+//! untouched.
 
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -25,8 +27,11 @@ use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
 
 mod portfolio;
+mod share;
 
 pub use portfolio::{PortfolioWrite, SnapshotWrite, PORTFOLIO_SCHEMA_SQL};
+pub use share::audit::PublicationReservation;
+pub use share::PORTFOLIO_SHARE_SCHEMA_SQL;
 
 /// Platform (Forge) version recorded with every registered project.
 pub const PLATFORM_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -138,7 +143,8 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
             });
         }
     }
-    apply_portfolio_migration(conn)
+    apply_portfolio_migration(conn)?;
+    apply_portfolio_share_migration(conn)
 }
 
 /// Apply the additive portfolio schema inside one explicit
@@ -170,6 +176,42 @@ fn apply_portfolio_migration(conn: &Connection) -> Result<(), ForgeError> {
         let _ = conn.execute_batch("ROLLBACK");
         return Err(ForgeError::Registry {
             reason: format!("portfolio migration commit failed: {err}; registry left unchanged"),
+        });
+    }
+    Ok(())
+}
+
+/// Apply the additive portfolio share schema inside one explicit
+/// transaction.
+///
+/// The batch is deliberately separate from the portfolio batch so a
+/// rollback in either domain leaves the other intact, and it follows
+/// the same rule: `BEGIN IMMEDIATE` is issued explicitly, every
+/// statement is `CREATE ... IF NOT EXISTS`, and any failure rolls the
+/// whole batch back so no partial share table survives. The next open
+/// retries it from scratch.
+fn apply_portfolio_share_migration(conn: &Connection) -> Result<(), ForgeError> {
+    if let Err(err) = conn.execute_batch("BEGIN IMMEDIATE") {
+        return Err(ForgeError::Registry {
+            reason: format!(
+                "portfolio share migration could not begin: {err}; registry left unchanged"
+            ),
+        });
+    }
+    if let Err(err) = conn.execute_batch(PORTFOLIO_SHARE_SCHEMA_SQL) {
+        // Best effort: surface the original failure, not a
+        // rollback failure that would hide it.
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(ForgeError::Registry {
+            reason: format!("portfolio share migration failed: {err}; registry left unchanged"),
+        });
+    }
+    if let Err(err) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(ForgeError::Registry {
+            reason: format!(
+                "portfolio share migration commit failed: {err}; registry left unchanged"
+            ),
         });
     }
     Ok(())
@@ -343,6 +385,13 @@ fn row_to_operation_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Operation
 }
 
 impl Registry {
+    /// Borrow the shared connection. Domain modules that need to open
+    /// their own transaction use this so an `&self` method never has
+    /// to escalate to `&mut self`.
+    pub(crate) fn registry_conn(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Open (creating) the registry database and reconcile stale journal
     /// entries left by interrupted runs.
     pub fn open(path: &Path) -> Result<Self, ForgeError> {

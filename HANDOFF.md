@@ -1,6 +1,172 @@
-current_spec: portfolio-metadata-and-review
+current_spec: portfolio-share-publish
 
 # Forge handoff
+
+## Current state
+
+`portfolio-metadata-and-review` implemented, verified and archived on
+2026-09-29 as `2026-09-28-portfolio-metadata-and-review`; its four
+requirements (store horizontal portfolio metadata, enforce relation
+integrity, import source-owned evidence as snapshots, project portfolio
+data through the portal) were promoted into
+[openspec/specs/portfolio-metadata-and-review/spec.md](openspec/specs/portfolio-metadata-and-review/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS,
+Section-3 BFS and Section-4 verification task in the proposal.
+
+**Persistence.** Eight additive tables (`portfolio_projects`,
+`portfolio_tags`, `portfolio_project_tags`, `portfolio_relations`,
+`portfolio_goals`, `portfolio_goal_projects`, `portfolio_reviews`,
+`portfolio_evidence_snapshots`) live in `src/registry/portfolio.rs` and
+are applied by `apply_portfolio_migration` inside one explicit
+`BEGIN IMMEDIATE` … `COMMIT` batch with `ROLLBACK` on any failure.
+`projects` and `operations` are untouched: the registry gains **no
+column** and no row type is shared, so a registry written before this
+package migrates forward with its project and journal rows intact and a
+failed create leaves no partial portfolio table.
+
+**Domain** (`src/portfolio/mod.rs`). Lifecycle
+(`incubating|building|validating|operational|paused|archived`),
+confidence (`unknown|low|medium|high`), relation types
+(`depends-on|duplicate-of|shares-domain-with|replaces|consumes|optional-provider`)
+and evidence states (`observed|stale|unavailable|invalid|not-run`) are
+closed enums. Tag names are bounded lowercase kebab; notes, goals and
+source labels are bounded and control-free; evidence payloads must be a
+JSON **object**, are bounded to 64 KiB, and pass through
+`policy::redact_credentials` before they are stored. Expiry can only
+*downgrade* `observed` to `stale`: an `unavailable`, `invalid` or
+`not-run` source stays exactly as reported and never reads as a pass.
+An absent user-owned field stays `None` — an unclassified project is
+never reported as `incubating`.
+
+**CLI.** `forge portfolio tag add|remove|list`,
+`relation add|remove|list`, `review set|list`, `goal add|link|list`,
+`evidence import|list`, `show <project>`. Every mutation is
+project-scoped, validated before the write, and idempotent where an
+identity is provided.
+
+**JSON API.** `GET /v1/projects/{id}/portfolio` (read) plus
+admin-gated `POST …/portfolio/{tags,relations,reviews,evidence}` behind
+the existing `authorize()`; a new typed `portfolio-invalid` maps to
+400. A session minted for project A presented to project B is refused
+with `api-project-mismatch` before any write.
+
+**Portal.** `GET /ui` gains a tag/lifecycle/confidence filter form and
+three portfolio columns; an out-of-vocabulary filter is a typed 400
+rather than a silently widened list. `GET /ui/projects/{id}` gains the
+portfolio projection (classification, blocker, next action, tags,
+goals, relations in both directions, source-attributed evidence table,
+review history) and a write form behind
+`POST /ui/projects/{id}/portfolio`, which repeats the bearer /
+`Origin` / form-token checks the republish POST already established.
+Imported evidence has **no** browser write path — source-owned
+snapshots are append-only — and no UI surface edits a repository file
+or a provider record.
+
+The pointer advances to `portfolio-share-publish` — the next sibling
+whose proposal declares a dependency on portfolio metadata (its other
+prerequisites, the manifest contract and the analytics adapter, are
+separate packages) — so the operator's next cycle has the right
+`current_spec`.
+
+## Verification evidence (portfolio-metadata-and-review, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/portfolio/mod.rs`, `src/registry/portfolio.rs`,
+  `src/registry/mod.rs`, `src/core/mod.rs`, `src/lib.rs`,
+  `src/main.rs`, `src/api/mod.rs`, `src/api/ui/{data,render,routes}.rs`,
+  `tests/portfolio_contract.rs`, `tests/portfolio_ui_contract.rs`).
+  The pre-change baseline carries formatting drift in
+  `src/gate/evidence.rs`, `src/publish/{fleet,jenkins}.rs`,
+  `tests/gate_contract.rs`, `tests/gate_cross_surface.rs` and
+  `tests/publish_queue_status_contract.rs`; `cargo fmt` touched them
+  incidentally and those edits were reverted, so the drift is
+  preserved exactly as the prior cycles left it.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: identical to the
+  stashed baseline — the same 10 pre-existing locations
+  (`src/api/ui/auth.rs:166-167`, `src/gate/evidence.rs`,
+  `src/publish/fleet.rs`, `src/publish/mod.rs`), verified by
+  `git stash push -u -- src tests` and re-running. **Zero new clippy
+  errors.**
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: 72 result
+  groups, 1625 tests, 0 failed (three consecutive clean runs; the
+  change adds no new long-running native test). New supervised suites:
+  17 `src/portfolio` unit tests (closed lifecycle/confidence/relation/
+  evidence vocabularies; no relation type permits a self link; bounded
+  tag/note/colour/source validation; evidence object-bound +
+  redaction + size cap; expiry downgrades `observed` and never
+  upgrades an absence; filter matching requires a declared value;
+  `parse_filter` refuses unknown keys and out-of-vocabulary values),
+  20 `src/registry::portfolio` unit tests (additive idempotent
+  migration; a hand-built pre-change registry migrates forward with
+  its rows intact; `an_interrupted_migration_rolls_back_and_keeps_the_prior_registry_usable`
+  fails the batch mid-way through a decoy table and proves no partial
+  table survives and the next open retries cleanly; unknown project
+  changes no portfolio state; duplicate tag leaves one link;
+  dependency relation idempotent and visible in both directions; self
+  relation and unknown-target relation refused; append-only snapshots
+  with redaction; malformed/non-object payload, bad timestamp and an
+  inverted freshness bound refused; expired bound reads `stale` while
+  the stored status is preserved; unavailable never reads healthy;
+  goals unique and linkable; fleet filter combines user and tag
+  fields), 23 `tests/portfolio_contract.rs` CLI/API tests and 20
+  `tests/portfolio_ui_contract.rs` browser tests.
+- Known flake, honestly recorded: on one of four full-suite runs
+  `tests/governance_contract.rs::workspace_governance_evidence_is_redacted_and_bounded`
+  failed under parallel load (it shells out to a fixture adapter with a
+  10 s budget). It passes in isolation and in the three subsequent full
+  runs; the governance path is untouched by this change.
+- `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok.
+  **No new dependency** was added — `maud` arrived with the prior
+  `portal-web-ui` cycle; the dependency closure is unchanged.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 50 passed,
+  0 failed (50 items) pre-archive and 50 passed, 0 failed post-archive
+  with the promoted `portfolio-metadata-and-review` spec (+4
+  requirements); `git diff --check`: PASS.
+- Live binary smoke (CLI): `forge portfolio tag add`,
+  `review set --confidence/--lifecycle/--next-action/--blocker`,
+  `relation add --to --type --note`, `goal link`, three
+  `evidence import` calls (observed / expired-observed / unavailable),
+  then `portfolio show alethefy` renders lifecycle `building`,
+  confidence `high`, blocker, next action, the `outgoing depends-on`
+  relation, three goals/relations rows, and `governance stale` /
+  `runtime unavailable` beside `driftwatchdog observed` — every row
+  carrying its own source system and source revision. Refusals:
+  `error[unknown-project]` (unknown target, exit 1),
+  `error[portfolio-invalid]` (self relation, malformed payload, exit 1)
+  each ending "no portfolio state was changed".
+- Live binary smoke (HTTP): `forge api serve --bind 127.0.0.1 --port
+  18911` then `curl`. `/ui` without a bearer is 401 HTML;
+  `/ui?tag=platform&lifecycle=building` renders only
+  `/ui/projects/alethefy` and echoes `Filtered by
+  tag=platform&amp;lifecycle=building.`;
+  `/ui?lifecycle=shipped` is a 400 `portfolio-invalid` page naming the
+  vocabulary; `/ui/projects/alethefy` renders `driftwatchdog`, `a1b2c3`,
+  `governance`, `stale`, `unavailable`, `platform`, `building`,
+  `depends-on`, `Edit portfolio metadata` and the "Forge stores what
+  the source reported; it does not run the check" attribution note.
+  Browser writes: cross-origin POST is 403 `ui-origin-mismatch`, no
+  bearer is 401 `api-unauthorized`, an authorized same-origin POST is
+  200 `Saved portfolio metadata` / `tagged with tooling` /
+  `confidence medium` and the tag, confidence and lifecycle are
+  confirmed through the CLI afterwards. `/healthz` stays byte-identical
+  JSON; `/v1/projects` still demands a real session (401);
+  `Accept: application/json` on `/ui` still returns the unchanged
+  `api-routing` envelope.
+- Pointer state: `portfolio-metadata-and-review` archived
+  (`11/11` tasks evidenced, `4/4` artifacts complete). `openspec list`
+  shows the four remaining proposals (`portfolio-share-publish`,
+  `portfolio-interest-snapshots`, `standard-pack-registry-and-snapshots`,
+  `fleet-live-rollout`); the pointer advances to
+  `portfolio-share-publish`, whose declared prerequisite (portfolio
+  metadata) is now archived. `portfolio-interest-snapshots` stays
+  blocked behind `portfolio-share-publish`.
+- No shared Gate Runtime is configured; no Gate pass is claimed. No
+  PostgreSQL, multi-user, SSO or remote-synchronization readiness is
+  claimed; provider evidence here is fixture-only and no external
+  provider was contacted.
 
 ## Current state
 

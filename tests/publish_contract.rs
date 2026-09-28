@@ -817,6 +817,7 @@ fn manual_and_github_push_produce_equivalent_provider_request() {
         operation_id: format!("publish-{project_id}-{}", &revision[..12]),
         folder: Some(folder.to_string()),
         dry_run: false,
+        queue_id: None,
     };
 
     let push_body = serde_json::json!({

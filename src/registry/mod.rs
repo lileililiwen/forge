@@ -53,11 +53,15 @@ CREATE TABLE IF NOT EXISTS operations (
     finished_at     TEXT,
     detail          TEXT,
     idempotency_key TEXT,
-    request_hash    TEXT
+    request_hash    TEXT,
+    queue_id        TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS operations_idempotency_uniq
     ON operations (kind, idempotency_key)
     WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS operations_queue_project_state_idx
+    ON operations (queue_id, project_id, state)
+    WHERE queue_id IS NOT NULL;
 ";
 
 /// Apply in-place schema migrations for registries
@@ -73,6 +77,7 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
     let migrations: &[&str] = &[
         "ALTER TABLE operations ADD COLUMN idempotency_key TEXT",
         "ALTER TABLE operations ADD COLUMN request_hash TEXT",
+        "ALTER TABLE operations ADD COLUMN queue_id TEXT",
     ];
     for stmt in migrations {
         if let Err(err) = conn.execute(stmt, []) {
@@ -100,6 +105,19 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
         if !message.contains("already exists") {
             return Err(ForgeError::Registry {
                 reason: format!("idempotency index creation failed: {message}"),
+            });
+        }
+    }
+    if let Err(err) = conn.execute(
+        "CREATE INDEX IF NOT EXISTS operations_queue_project_state_idx
+            ON operations (queue_id, project_id, state)
+            WHERE queue_id IS NOT NULL",
+        [],
+    ) {
+        let message = err.to_string();
+        if !message.contains("already exists") {
+            return Err(ForgeError::Registry {
+                reason: format!("queue index creation failed: {message}"),
             });
         }
     }
@@ -160,6 +178,11 @@ pub struct OperationEntry {
     pub idempotency_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_hash: Option<String>,
+    /// Optional fleet run identifier that groups per-project publish
+    /// rows under a single invocation. Always `None` for non-fleet
+    /// operations (registration, upgrade, gate, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_id: Option<String>,
 }
 
 /// Outcome of [`Registry::reserve_idempotent_operation`]. `Reserved`
@@ -218,7 +241,7 @@ impl Registry {
     pub fn journal_entries(&self) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash
+                    idempotency_key, request_hash, queue_id
              FROM operations ORDER BY op_id",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -232,6 +255,7 @@ impl Registry {
                 detail: row.get(6)?,
                 idempotency_key: row.get(7)?,
                 request_hash: row.get(8)?,
+                queue_id: row.get(9)?,
             })
         })?;
         let mut out = Vec::new();
@@ -247,7 +271,7 @@ impl Registry {
     pub fn recent_operations(&self, limit: usize) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash
+                    idempotency_key, request_hash, queue_id
              FROM operations ORDER BY op_id DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit as i64], |row| {
@@ -261,6 +285,7 @@ impl Registry {
                 detail: row.get(6)?,
                 idempotency_key: row.get(7)?,
                 request_hash: row.get(8)?,
+                queue_id: row.get(9)?,
             })
         })?;
         let mut out = Vec::new();
@@ -281,7 +306,7 @@ impl Registry {
     ) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash
+                    idempotency_key, request_hash, queue_id
              FROM operations WHERE project_id = ?1 ORDER BY op_id DESC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![project_id, limit as i64], |row| {
@@ -295,6 +320,7 @@ impl Registry {
                 detail: row.get(6)?,
                 idempotency_key: row.get(7)?,
                 request_hash: row.get(8)?,
+                queue_id: row.get(9)?,
             })
         })?;
         let mut out = Vec::new();
@@ -308,7 +334,7 @@ impl Registry {
     pub fn operation(&self, op_id: i64) -> Result<Option<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash
+                    idempotency_key, request_hash, queue_id
              FROM operations WHERE op_id = ?1",
         )?;
         let entry = stmt
@@ -323,10 +349,47 @@ impl Registry {
                     detail: row.get(6)?,
                     idempotency_key: row.get(7)?,
                     request_hash: row.get(8)?,
+                    queue_id: row.get(9)?,
                 })
             })
             .optional()?;
         Ok(entry)
+    }
+
+    /// Most recent journal entries for one queue, ordered by `op_id`
+    /// descending and capped at `limit`. Returns an empty `Vec` when
+    /// the queue has never been recorded. The `forge deploy status
+    /// --queue <id>` projection uses this so a queue report is
+    /// entirely self-contained.
+    pub fn operations_for_queue(
+        &self,
+        queue_id: &str,
+        limit: usize,
+    ) -> Result<Vec<OperationEntry>, ForgeError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
+                    idempotency_key, request_hash, queue_id
+             FROM operations WHERE queue_id = ?1 ORDER BY op_id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![queue_id, limit as i64], |row| {
+            Ok(OperationEntry {
+                op_id: row.get(0)?,
+                kind: row.get(1)?,
+                project_id: row.get(2)?,
+                state: row.get(3)?,
+                started_at: row.get(4)?,
+                finished_at: row.get(5)?,
+                detail: row.get(6)?,
+                idempotency_key: row.get(7)?,
+                request_hash: row.get(8)?,
+                queue_id: row.get(9)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// Append one journal entry for a non-registration operation (e.g.
@@ -425,7 +488,7 @@ impl Registry {
     ) -> Result<Option<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash
+                    idempotency_key, request_hash, queue_id
              FROM operations
              WHERE kind = ?1 AND idempotency_key = ?2
              ORDER BY op_id DESC
@@ -443,10 +506,71 @@ impl Registry {
                     detail: row.get(6)?,
                     idempotency_key: row.get(7)?,
                     request_hash: row.get(8)?,
+                    queue_id: row.get(9)?,
                 })
             })
             .optional()?;
         Ok(entry)
+    }
+
+    /// Append one journal entry for a fleet publish slot. Distinct
+    /// from `record_operation` because the row is tagged with a
+    /// `queue_id` so a `forge deploy status --queue <id>` query can
+    /// reconstruct the full state from a single index lookup. The
+    /// state transitions are queued → running → terminal; a non-
+    /// pending initial write is allowed only for the
+    /// `record_terminal_queue_row` helper that the queue loop calls
+    /// after the active phase settles.
+    pub fn record_queue_operation(
+        &self,
+        kind: &str,
+        project_id: &str,
+        queue_id: &str,
+        state: &str,
+        detail: Option<&str>,
+    ) -> Result<i64, ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO operations (kind, project_id, queue_id, state, started_at, finished_at, detail)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![kind, project_id, queue_id, state, now, now, detail],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Update the state of one queued operation. Used by the fleet
+    /// loop to move a queued project into `running` (state=
+    /// `running`, no `finished_at`) and later into a terminal state.
+    /// The transition is single-row; only the `pending`/`running`
+    /// initial rows from `record_queue_operation` are eligible so a
+    /// stale terminal row is never overwritten.
+    pub fn update_queue_operation_state(
+        &self,
+        op_id: i64,
+        new_state: &str,
+        detail: Option<&str>,
+    ) -> Result<(), ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        let rows = match new_state {
+            "queued" | "running" | "pending" => self.conn.execute(
+                "UPDATE operations SET state = ?1, detail = ?2
+                 WHERE op_id = ?3 AND state IN ('queued', 'running', 'pending')",
+                params![new_state, detail, op_id],
+            )?,
+            _ => self.conn.execute(
+                "UPDATE operations SET state = ?1, finished_at = ?2, detail = ?3
+                 WHERE op_id = ?4",
+                params![new_state, now, detail, op_id],
+            )?,
+        };
+        if rows == 0 {
+            return Err(ForgeError::Registry {
+                reason: format!(
+                    "queue operation {op_id} not found or already in a different state"
+                ),
+            });
+        }
+        Ok(())
     }
 
     /// Validate the manifest in `dir` (read-only) and persist the project.

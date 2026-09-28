@@ -915,6 +915,7 @@ fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiResponse {
         operation_id: format!("github-{delivery_id}"),
         folder: Some(project_dir.display().to_string()),
         dry_run: false,
+        queue_id: None,
     };
     let response = match invoke_provider(&provider, &provider_request, &project_dir) {
         Ok(value) => value,

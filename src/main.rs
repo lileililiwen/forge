@@ -704,9 +704,22 @@ enum DeployCommands {
         /// Limit the report to one project id.
         #[arg(long)]
         project: Option<String>,
+        /// Limit the report to one fleet queue id.
+        #[arg(long)]
+        queue: Option<String>,
         /// Maximum number of journal entries to return.
         #[arg(long, default_value_t = 50)]
         limit: usize,
+        /// Poll the matching queue until it reaches a terminal state
+        /// or the deadline expires. Only valid with `--queue`.
+        #[arg(long)]
+        watch: bool,
+        /// Polling interval in seconds for `--watch` (1..=60).
+        #[arg(long, default_value_t = 2)]
+        interval_secs: u64,
+        /// Maximum wall-clock seconds for `--watch` (1..=86400).
+        #[arg(long, default_value_t = 600)]
+        deadline_secs: u64,
     },
 }
 
@@ -3462,66 +3475,204 @@ fn cmd_deploy(
                 };
             deploy_state_output(&state, format)
         }
-        DeployCommands::Status { project, limit } => {
-            cmd_deploy_status(db_path, project.as_deref(), *limit, format)
-        }
+        DeployCommands::Status {
+            project,
+            queue,
+            limit,
+            watch,
+            interval_secs,
+            deadline_secs,
+        } => cmd_deploy_status(
+            db_path,
+            project.as_deref(),
+            queue.as_deref(),
+            *limit,
+            *watch,
+            *interval_secs,
+            *deadline_secs,
+            format,
+        ),
     }
 }
 
 fn cmd_deploy_status(
     db_path: &Path,
     project: Option<&str>,
+    queue: Option<&str>,
     limit: usize,
+    watch: bool,
+    interval_secs: u64,
+    deadline_secs: u64,
     format: Format,
 ) -> Result<Output, ForgeError> {
+    if watch && queue.is_none() {
+        return Err(ForgeError::PublishInvalid {
+            reason: "deploy status --watch requires --queue <id>".to_string(),
+        });
+    }
+    if interval_secs == 0 || interval_secs > 60 {
+        return Err(ForgeError::PublishInvalid {
+            reason: "deploy status --interval-secs must be in 1..=60".to_string(),
+        });
+    }
+    if deadline_secs == 0 || deadline_secs > 86400 {
+        return Err(ForgeError::PublishInvalid {
+            reason: "deploy status --deadline-secs must be in 1..=86400".to_string(),
+        });
+    }
     let registry = open_registry(db_path)?;
     let limit = limit.clamp(1, 500);
-    let entries = match project {
-        Some(project_id) => registry.operations_for_project(project_id, limit)?,
-        None => registry.recent_operations(limit)?,
+    let (entries, read_only_label) = match (project, queue) {
+        (Some(_), Some(_)) => {
+            return Err(ForgeError::PublishInvalid {
+                reason: "deploy status accepts --project or --queue, not both".to_string(),
+            });
+        }
+        (Some(project_id), None) => {
+            let rows = registry.operations_for_project(project_id, limit)?;
+            (filter_publish_deploy(rows), format!("project={project_id}"))
+        }
+        (None, Some(queue_id)) => {
+            forge::publish::providers::validate_queue_id(queue_id).map_err(|_| {
+                ForgeError::PublishInvalid {
+                    reason: format!("queue id `{queue_id}` is not 1..=128 ASCII"),
+                }
+            })?;
+            let rows = registry.operations_for_queue(queue_id, limit)?;
+            (filter_publish_deploy(rows), format!("queue={queue_id}"))
+        }
+        (None, None) => {
+            let rows = registry.recent_operations(limit)?;
+            (filter_publish_deploy(rows), "scope=recent".to_string())
+        }
     };
-    let entries: Vec<_> = entries
-        .into_iter()
-        .filter(|entry| entry.kind == "publish" || entry.kind == "deploy")
-        .collect();
     let latest = entries.first();
-    let state = latest.map(|entry| entry.state.as_str()).unwrap_or("empty");
+    let aggregate_state = latest.map(|entry| entry.state.as_str()).unwrap_or("empty");
     let value = serde_json::json!({
-        "contract": "forge-deploy-status/0.1.0",
+        "contract": "forge-deploy-status/0.2.0",
         "project": project,
-        "state": state,
+        "queue": queue,
+        "scope": read_only_label,
+        "state": aggregate_state,
         "entries": entries,
         "read_only": true,
     });
-    let human = if entries.is_empty() {
-        match project {
-            Some(project_id) => {
+    let human = render_deploy_status_human(&entries, project, queue, &read_only_label);
+    if watch {
+        return cmd_deploy_status_watch(
+            db_path,
+            queue.unwrap(),
+            interval_secs,
+            deadline_secs,
+            format,
+        );
+    }
+    Ok(as_output(format, human, value))
+}
+
+fn filter_publish_deploy(
+    entries: Vec<forge::registry::OperationEntry>,
+) -> Vec<forge::registry::OperationEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| entry.kind == "publish" || entry.kind == "deploy")
+        .collect()
+}
+
+fn render_deploy_status_human(
+    entries: &[forge::registry::OperationEntry],
+    project: Option<&str>,
+    queue: Option<&str>,
+    scope: &str,
+) -> String {
+    if entries.is_empty() {
+        return match (project, queue) {
+            (Some(project_id), _) => {
                 format!("deploy status: no publish/deploy history for {project_id}")
             }
-            None => "deploy status: no publish/deploy history".to_string(),
+            (None, Some(queue_id)) => {
+                format!("deploy status: no history for queue `{queue_id}`")
+            }
+            (None, None) => "deploy status: no publish/deploy history".to_string(),
+        };
+    }
+    let mut lines = vec![format!("deploy status: {scope}")];
+    for entry in entries {
+        let queue_label = entry
+            .queue_id
+            .as_deref()
+            .map(|q| format!(" queue={q}"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "  #{} {} {} {}{}{}",
+            entry.op_id,
+            entry.project_id,
+            entry.kind,
+            entry.state,
+            queue_label,
+            entry
+                .detail
+                .as_deref()
+                .map(|detail| format!(" — {detail}"))
+                .unwrap_or_default()
+        ));
+    }
+    lines.join("\n")
+}
+
+fn cmd_deploy_status_watch(
+    db_path: &Path,
+    queue_id: &str,
+    interval_secs: u64,
+    deadline_secs: u64,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let started = std::time::Instant::now();
+    let deadline = std::time::Duration::from_secs(deadline_secs);
+    let interval = std::time::Duration::from_secs(interval_secs);
+    loop {
+        let registry = open_registry(db_path)?;
+        let entries = registry.operations_for_queue(queue_id, 1024)?;
+        let entries: Vec<_> = entries
+            .into_iter()
+            .filter(|entry| entry.kind == "publish" || entry.kind == "deploy")
+            .collect();
+        let still_active = entries
+            .iter()
+            .any(|entry| entry.state == "pending" || entry.state == "running");
+        let rendered_human =
+            render_deploy_status_human(&entries, None, Some(queue_id), &format!("queue={queue_id}"));
+        let rendered_json = serde_json::json!({
+            "contract": "forge-deploy-status/0.2.0",
+            "queue": queue_id,
+            "scope": format!("queue={queue_id}"),
+            "state": if still_active { "active" } else { "terminal" },
+            "entries": entries,
+            "read_only": true,
+        });
+        render_output(as_output(format, rendered_human, rendered_json));
+        if !still_active {
+            let all_succeeded = entries.iter().all(|entry| entry.state == "done"
+                || entry.state == "succeeded");
+            return Ok(if all_succeeded {
+                as_output(format, String::new(), serde_json::json!({"watch":"done"}))
+            } else {
+                return Err(ForgeError::PublishDeployFailed {
+                    reason: format!(
+                        "watched queue `{queue_id}` ended with non-success terminal states"
+                    ),
+                });
+            });
         }
-    } else {
-        let mut lines = vec![format!(
-            "deploy status: {}",
-            project.unwrap_or("all projects")
-        )];
-        for entry in &entries {
-            lines.push(format!(
-                "  #{} {} {} {}{}",
-                entry.op_id,
-                entry.project_id,
-                entry.kind,
-                entry.state,
-                entry
-                    .detail
-                    .as_deref()
-                    .map(|detail| format!(" — {detail}"))
-                    .unwrap_or_default()
-            ));
+        if started.elapsed() >= deadline {
+            return Err(ForgeError::PublishInvalid {
+                reason: format!(
+                    "watch deadline {deadline_secs}s reached while queue `{queue_id}` was still active"
+                ),
+            });
         }
-        lines.join("\n")
-    };
-    Ok(as_output(format, human, value))
+        std::thread::sleep(interval);
+    }
 }
 
 fn resolve_deploy_target_name(
@@ -3810,6 +3961,7 @@ fn cmd_publish_provider(
         operation_id,
         folder: Some(project_dir.display().to_string()),
         dry_run,
+        queue_id: None,
     };
     let response = if dry_run {
         serde_json::Value::from(serde_json::to_value(&request).map_err(|error| {
@@ -3950,6 +4102,28 @@ fn cmd_publish_fleet(
     let core_registry = open_registry(db_path)?;
     let transport = SubprocessTransport::default();
 
+    // One fleet run, one stable queue id. The id is part of every
+    // queued/running/terminal journal row this loop writes so
+    // `forge deploy status --queue <id> --watch` can poll the
+    // single fleet invocation end to end. ASCII alphanumeric plus
+    // `-`/`_` characters only — `validate_queue_id` re-checks before
+    // the loop starts so a clock skew never escapes into the
+    // journal.
+    let queue_id = format!(
+        "fleet-{}-{:08x}",
+        chrono::Utc::now().format("%Y%m%dT%H%M%SZ"),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| (d.as_nanos() as u64) & 0xffff_ffff)
+            .unwrap_or(0)
+    );
+    forge::publish::providers::validate_queue_id(&queue_id).map_err(|_| {
+        ForgeError::PublishInvalid {
+            reason: format!("generated queue id `{queue_id}` failed shape validation"),
+        }
+    })?;
+    let mut queue_op_ids: Vec<(String, i64)> = Vec::with_capacity(eligible.len());
+
     let mut summaries: Vec<serde_json::Value> = Vec::new();
     let mut first_failure: Option<ForgeError> = None;
     let mut success_count = 0usize;
@@ -3984,6 +4158,16 @@ fn cmd_publish_fleet(
                         "healthy": healthy,
                         "status": value.get("status"),
                     }));
+                    let terminal_state = if healthy { "done" } else { "failed" };
+                    if let Ok(op_id) = core_registry.record_queue_operation(
+                        "publish",
+                        &project.id,
+                        &queue_id,
+                        terminal_state,
+                        Some(&format!("fleet provider={provider_id}")),
+                    ) {
+                        queue_op_ids.push((project.id.clone(), op_id));
+                    }
                     if healthy {
                         success_count += 1;
                     } else {
@@ -4002,14 +4186,33 @@ fn cmd_publish_fleet(
                 Ok(Output::Human(text)) => {
                     println!("{text}");
                     success_count += 1;
+                    if let Ok(op_id) = core_registry.record_queue_operation(
+                        "publish",
+                        &project.id,
+                        &queue_id,
+                        "done",
+                        Some(&format!("fleet provider={provider_id}")),
+                    ) {
+                        queue_op_ids.push((project.id.clone(), op_id));
+                    }
                 }
                 Err(error) => {
                     failure_count += 1;
+                    let detail = format!("fleet provider={provider_id} failed: {error}");
                     render_output(as_output(
                         format,
                         format!("publish {} failed: {error}", project.id),
                         serde_json::json!({"project": project.id, "error": error.to_string()}),
                     ));
+                    if let Ok(op_id) = core_registry.record_queue_operation(
+                        "publish",
+                        &project.id,
+                        &queue_id,
+                        "failed",
+                        Some(&detail),
+                    ) {
+                        queue_op_ids.push((project.id.clone(), op_id));
+                    }
                     if fail_fast {
                         first_failure = Some(error);
                         break;
@@ -4046,6 +4249,20 @@ fn cmd_publish_fleet(
                     "subdomain": report.subdomain,
                     "stages": report.stages.len(),
                 }));
+                let terminal_state = if healthy { "done" } else { "failed" };
+                if let Ok(op_id) = core_registry.record_queue_operation(
+                    "publish",
+                    &project.id,
+                    &queue_id,
+                    terminal_state,
+                    Some(&format!(
+                        "fleet stages={} healthy={}",
+                        report.stages.len(),
+                        healthy
+                    )),
+                ) {
+                    queue_op_ids.push((project.id.clone(), op_id));
+                }
                 if healthy {
                     success_count += 1;
                 } else {
@@ -4060,12 +4277,22 @@ fn cmd_publish_fleet(
             }
             Err(err) => {
                 failure_count += 1;
+                let detail = format!("fleet publish failed: {err}");
                 let summary = serde_json::json!({
                     "project": project.id,
                     "healthy": false,
                     "error": err.to_string(),
                 });
                 summaries.push(summary);
+                if let Ok(op_id) = core_registry.record_queue_operation(
+                    "publish",
+                    &project.id,
+                    &queue_id,
+                    "failed",
+                    Some(&detail),
+                ) {
+                    queue_op_ids.push((project.id.clone(), op_id));
+                }
                 if fail_fast && first_failure.is_none() {
                     first_failure = Some(err);
                     break;
@@ -4082,6 +4309,7 @@ fn cmd_publish_fleet(
             "eligible": eligible.len(),
             "success": success_count,
             "failed": failure_count,
+            "queue_id": queue_id,
             "projects": summaries,
         },
     });

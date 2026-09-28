@@ -219,12 +219,29 @@ so it cannot be completed or honestly evidenced from this checkout.
   (`forge-portfolio-interest/0.1.0`), and no cross-repo fixture
   validation is claimed.
 - Pointer state: `portfolio-interest-snapshots` archived (`14/14` tasks
-  evidenced, `4/4` artifacts complete). `openspec list` shows the two
-  remaining proposals (`standard-pack-registry-and-snapshots`,
-  `fleet-live-rollout`); the pointer advances to
-  `standard-pack-registry-and-snapshots`, whose prerequisites are
-  archived and whose oracle is local, while `fleet-live-rollout` stays
-  active but unselected because it requires live target access.
+  evidenced, `4/4` artifacts complete). `openspec list` shows three
+  active changes (`standard-pack-registry-and-snapshots`,
+  `fleet-live-rollout`, `portfolio-activation-readiness`); the pointer
+  advances to `standard-pack-registry-and-snapshots`, whose
+  prerequisites are archived and whose oracle is local, while
+  `fleet-live-rollout` stays active but unselected because it requires
+  live target access. `portfolio-activation-readiness` is a
+  **planning-only** change authored in this cycle to track the deferred
+  product-owned activation follow-up: it has no implementation, its 15
+  tasks are unchecked, and it claims nothing.
+- Two deferred items this package could not close are now registered
+  where an operator will look rather than only in an archived task list.
+  The external one is recorded in
+  [docs/provider-evidence.md](docs/provider-evidence.md) under
+  "Portfolio interest import consumption" with its dated `not-run`
+  status and a concrete exact next action: the analytics adapter
+  boundary exposes only `health`, so a **producer**, not a consumer, is
+  what is missing, and it is the provider that must add the verb. The
+  product-owned one is recorded in the [ROADMAP](ROADMAP.md) deferred
+  choices and in the planning-only change above. Neither is Forge
+  implementation work, which is why neither became an implementation
+  change: putting analytics collection or billing into Forge would
+  violate the package boundary this change just established.
 - No shared Gate Runtime is configured; no Gate pass is claimed. No
   PostgreSQL, multi-user, SSO or remote-synchronization readiness is
   claimed; no product database, visitor identity, payment record or

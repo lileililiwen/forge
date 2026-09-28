@@ -70,6 +70,10 @@ Follow the order below by default; every dependency was implemented and verified
 
 The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versions and persistence approach are recorded in the foundation ADR; product contracts are not bound to Rust. HTTP authentication and remote exposure were decided in their own changes. The portal ships as a read-only Core/CLI data surface (`forge portal dashboard|view`); a graphical portal framework (ASP.NET Core / Next.js) remains a deferred downstream choice. PostgreSQL registry migration, specialist profiles, Blazor UI adapters and additional Git providers remain conditional future candidates. No unsupported runtime command is represented as implemented.
 
+Product-native monetization for one selected product remains a deferred, product-owned candidate: `portfolio-interest-snapshots` stores `paid_interest_events` as an aggregate signal rather than a payment record, `.project.json` declares `billing: blocked`, and the Forge-side gate that decides when the handoff is justified is tracked by the planning-only `portfolio-activation-readiness` change. No portfolio-wide billing is proposed, and Forge gains no price, plan, subscription, entitlement, checkout or revenue-attribution surface.
+
+Live analytics aggregate evidence for the interest store is likewise a provider-owned prerequisite, not missing Forge work: the import verb and its store are complete, and what is absent is a producer that emits `forge-portfolio-interest/0.1.0` documents. It is registered with its exact next action in [docs/provider-evidence.md](docs/provider-evidence.md).
+
 ## Operating rule
 
 All 29 baseline and audit changes plus the sibling-integration packages

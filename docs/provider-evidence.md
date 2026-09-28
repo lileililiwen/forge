@@ -153,3 +153,39 @@ is unchanged; no MCP tool, API route or portal control was added;
 `forge fleet` gains no healthy state from consumed evidence;
 `deployable` is never set by consumption; and generated project
 templates carry no `release_evidence` block.
+
+## Portfolio interest import consumption
+
+`forge portfolio interest import` (`portfolio-interest-snapshots`,
+contract `forge-portfolio-interest/0.1.0`) consumes *already-aggregated*
+records from an approved analytics source. It is the consuming half of
+an analytics pipeline: Forge owns the privacy boundary (closed key set,
+allowlisted counts, rejection rather than redaction), the append-only
+store, the overlap rule and the read model, while the provider owns
+collection, identity policy and credentials. No verb under `forge
+provider matrix` produces aggregate snapshots — the `analytics` row is
+the `health` probe only.
+
+Live status (this host, 2026-09-28): **no analytics provider was
+contacted and no provider credential exists.** Every verification
+fixture in that package is a local JSON document or an in-process call;
+there is no adapter subprocess, no `FORGE_*_BIN` override and no network
+request on the interest code path. Forge therefore claims nothing about
+how a figure was produced beyond the `privacy_mode` (`exact-count` /
+`lower-bound` / `undeclared`) and `coverage` (`complete` / `partial`)
+the source declared, and a `partial` source reporting all zeros is
+refused rather than stored as "nobody was interested". The public share
+manifest, the private portfolio projection and the fleet list carry no
+interest data.
+
+**Exact next action:** the analytics adapter boundary exposes only
+`health --provider <p> --project <id> --project-ref <ref> --plane <p>`;
+it has no verb that emits aggregate snapshots. A producer must add one —
+the provider owns its shape, its credentials and its collection policy —
+and it must emit a document Forge accepts at
+`contract: forge-portfolio-interest/0.1.0`. Until that exists, live
+interest evidence stays `not-run`, `interest-snapshots` makes no
+live-aggregate claim, and no reviewed aggregate exists to satisfy the
+`portfolio-activation-readiness` gate. What is missing is a producer,
+not a consumer: the import verb and its store are complete and verified
+locally.

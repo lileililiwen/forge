@@ -1,6 +1,124 @@
-current_spec: fleet-live-rollout
+current_spec: portal-web-ui
 
 # Forge handoff
+
+## Current state
+
+`portal-web-ui` implemented on 2026-09-29 against the refined
+spec (maud renderer, v0 scope reduction, bearer-token +
+Origin auth). The dependency closure opens with exactly three
+crates (`maud` 0.27, `maud_macros` 0.27, `itoa` 1), all
+MIT/Apache-2.0 and allow-listed. No new persistence, no new
+ports, no new auth surface. The three new HTTP routes
+(`GET /ui`, `GET /ui/projects/{id}`, `POST
+/ui/projects/{id}/publish`) are wired into the existing
+`forge api serve` listener through `Route::UiFleet`,
+`Route::UiProjectDetail { id }`, and `Route::UiProjectPublish
+{ id }`. The dispatch short-circuits the existing
+`authorize()` so the UI handlers own their auth flow.
+
+## Verification evidence (portal-web-ui, 2026-09-29)
+
+- `cargo fmt --check` (touched files): PASS for
+  `src/api/ui/{mod,render,auth,data,routes}.rs`,
+  `src/api/mod.rs`, `tests/portal_ui_contract.rs`.
+  Pre-existing formatting drift in `src/gate/evidence.rs`,
+  `src/publish/{fleet,jenkins}.rs`, `tests/gate_*`,
+  `tests/publish_queue_status_contract.rs` was preserved
+  per AGENTS.md (those files were not touched by this
+  change).
+- `cargo build`: PASS.
+- `cargo clippy --lib -- -D warnings`: 4 pre-existing
+  errors in `src/gate/evidence.rs`, `src/publish/fleet.rs`,
+  `src/publish/mod.rs` — none touched by this change.
+  Zero new clippy errors introduced.
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`:
+  full suite runs to completion; the new suites pass:
+  18 `api::ui::{auth,routes}::tests` unit tests + 12
+  `tests/portal_ui_contract.rs` HTTP contract tests
+  (auth refused, empty registry, 200 with bearer, 404
+  unknown id, plan preview without confirm, confirmed
+  republish journals `publish.ui` row, cross-origin POST
+  refused, form token mismatch refused, escape matrix on
+  adversarial ids, JSON content-type falls through).
+- `cargo deny check`: advisories ok, bans ok, licenses ok,
+  sources ok. The three new crates (`maud`, `maud_macros`,
+  `itoa`) are all MIT/Apache-2.0; allow-list covered by the
+  pre-existing entries plus the rationale comment in
+  `deny.toml`.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 50
+  passed, 0 failed (50 items). `git diff --check`: PASS.
+- Live binary smoke: `forge api serve --bind 127.0.0.1
+  --port 18765` followed by `curl` against `/healthz`
+  (200 JSON, unchanged), `/ui` without bearer (401 HTML),
+  `/ui` with `Authorization: Bearer …` (200 HTML, 1437
+  bytes), `/ui/projects/no-such-app` (404 HTML),
+  `/ui/projects/<script>` (400 — id rejected before render),
+  `/ui/projects/alethefy/publish` without `confirm=yes`
+  (200 plan page). `/v1/operations/{id}` and
+  `/v1/projects` JSON envelopes unchanged (still demand
+  bearer tokens; content-type still `application/json`).
+- Pointer state: `portal-web-ui` is the only active change
+  for which implementation evidence is recorded; the
+  `current_spec` line is set to `portal-web-ui` and points
+  at the work in progress. The change is **not yet
+  archived**; archive + commit + HANDOFF advance are the
+  next step.
+- No shared Gate Runtime is configured; no Gate pass is
+  claimed.
+
+## Refinement history (2026-09-28 → 2026-09-29)
+
+The proposal's "no new dependency, framework-free HTML" line
+was refined after the operator pushed for a real web
+framework (hand-rolled typed `Element` trees were tried
+first and rejected). The refined decision: maud (compile-
+time JSX-shaped HTML, MIT/Apache-2.0, zero runtime
+reflection, inline templates). The refinement is documented
+in `openspec/changes/portal-web-ui/{proposal,design,tasks,
+specs/portal-web-ui/spec}.md` and reflected in this HANDOFF
+section.
+
+## Current cycle: portal-web-ui (2026-09-28 spec refinement)
+
+The `portal-web-ui` proposal/design/tasks/spec were refined
+in place before implementation to reflect three
+operator-confirmed decisions:
+
+1. **Renderer choice: `maud` (compile-time HTML, JSX-shaped).
+   Replaces the typed hand-rolled `Element` tree that an
+   earlier draft attempted.** The closure adds exactly three
+   crates (`maud` + `maud_macros` + `itoa`), all
+   MIT/Apache-2.0 (already allow-listed), each registered in
+   `deny.toml` with its reason. Askama was considered and
+   rejected (separate template files, heavier dep tree, less
+   JSX-shaped); a hand-rolled typed renderer was attempted
+   first and rejected for lack of layout/component reuse.
+2. **v0 scope reduction: per-row live liveness probing in the
+   list page is out of scope.** The original proposal asked
+   the UI to SSH-probe the Mac per render; that requires
+   target access the loopback UI process does not have and
+   duplicates the `fleet-liveness-status` package's surface.
+   The list page consumes the journal `publish` row state
+   instead (registry-only, no SSH). Live liveness stays
+   reachable through `forge fleet online` and the API JSON.
+   `portfolio-metadata-and-review` and other later UI
+   packages can extend the list view against the same
+   template if the target-access story changes.
+3. **Auth/CSRF: bearer-token re-check + `Origin` header
+   check, no cookie session.** The existing API auth is
+   bearer-token based, so cookie-CSRF is not in scope. The
+   POST re-checks the token against the form's hidden token
+   and refuses cross-origin POSTs whose `Origin` does not
+   match the loopback bind address. Equivalent protection to
+   the original proposal's same-session form token, with
+   zero new auth surface.
+
+`node scripts/check-openspec-change-names.mjs`: PASS.
+`openspec validate --all --strict --no-interactive`: 50
+passed, 0 failed after the refinement.
 
 ## Current state
 

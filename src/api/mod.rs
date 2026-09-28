@@ -99,6 +99,12 @@ use crate::registry::{Registry, ReservationOutcome};
 use crate::spec::{ensure_single_project, generate_spec, FindingSource, SpecRequest};
 use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
 
+/// Sub-module that serves the in-process portal UI on the
+/// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
+/// `POST /ui/projects/{id}/publish`). Rendered with
+/// [`maud`](https://docs.rs/maud).
+pub mod ui;
+
 /// Contract data version for the API surface. The version
 /// is the source of truth for `/healthz` and the response
 /// envelope; an older client can refuse the version
@@ -318,16 +324,44 @@ pub enum Route {
     Healthz,
     ListProjects,
     CreateProject,
-    InspectProject { id: String },
-    Doctor { id: String },
-    Governance { id: String },
-    AddFeature { id: String },
-    UpgradeProject { id: String },
-    GenerateSpec { id: String },
-    AgentTransition { id: String },
-    ApplyDeployment { id: String },
+    InspectProject {
+        id: String,
+    },
+    Doctor {
+        id: String,
+    },
+    Governance {
+        id: String,
+    },
+    AddFeature {
+        id: String,
+    },
+    UpgradeProject {
+        id: String,
+    },
+    GenerateSpec {
+        id: String,
+    },
+    AgentTransition {
+        id: String,
+    },
+    ApplyDeployment {
+        id: String,
+    },
     GitHubPush,
-    GetOperation { op_id: i64 },
+    GetOperation {
+        op_id: i64,
+    },
+    /// `GET /ui` — in-process portal UI fleet list.
+    UiFleet,
+    /// `GET /ui/projects/{id}` — project detail.
+    UiProjectDetail {
+        id: String,
+    },
+    /// `POST /ui/projects/{id}/publish` — confirm-gated republish.
+    UiProjectPublish {
+        id: String,
+    },
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -368,6 +402,13 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             .parse::<i64>()
             .ok()
             .map(|id| Route::GetOperation { op_id: id }),
+        ("GET", ["ui"]) => Some(Route::UiFleet),
+        ("GET", ["ui", "projects", id]) => Some(Route::UiProjectDetail {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["ui", "projects", id, "publish"]) => Some(Route::UiProjectPublish {
+            id: (*id).to_string(),
+        }),
         _ => None,
     }
 }
@@ -419,13 +460,16 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         Route::ListProjects
         | Route::InspectProject { .. }
         | Route::Doctor { .. }
-        | Route::Governance { .. } => None,
+        | Route::Governance { .. }
+        | Route::UiFleet
+        | Route::UiProjectDetail { .. } => None,
         Route::CreateProject
         | Route::AddFeature { .. }
         | Route::UpgradeProject { .. }
         | Route::GenerateSpec { .. }
         | Route::AgentTransition { .. }
-        | Route::ApplyDeployment { .. } => Some("admin:access"),
+        | Route::ApplyDeployment { .. }
+        | Route::UiProjectPublish { .. } => Some("admin:access"),
     }
 }
 
@@ -453,7 +497,12 @@ fn is_mutating(route: &Route) -> bool {
 /// [`ApiRequest`] and for rendering the returned
 /// [`ApiResponse`] back on the socket; this function
 /// holds the entire business contract.
-pub fn handle(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiResponse {
+pub fn handle(
+    config: &ApiConfig,
+    db_path: &Path,
+    request: &ApiRequest,
+    now: DateTime<Utc>,
+) -> ApiResponse {
     let route = match route_request(&request.method, &request.path) {
         Some(route) => route,
         None => {
@@ -475,8 +524,22 @@ pub fn handle(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiRe
     // routes demand any valid session; mutating routes
     // demand admin:access. A token for project A cannot
     // authorize project B.
-    if let Err(response) = authorize(db_path, &route, request, now) {
-        return response;
+    //
+    // The in-process portal UI routes (`Route::UiFleet`,
+    // `Route::UiProjectDetail`, `Route::UiProjectPublish`)
+    // carry their own auth flow: the existing
+    // `authorize()` helper looks for the bearer in
+    // `request.bearer_token` (the JSON transport) but the
+    // UI accepts it through `?token=<id>` as well, so we
+    // short-circuit before `authorize()` and let the UI
+    // handlers do the bearer/origin checks themselves.
+    if !matches!(
+        route,
+        Route::UiFleet | Route::UiProjectDetail { .. } | Route::UiProjectPublish { .. }
+    ) {
+        if let Err(response) = authorize(db_path, &route, request, now) {
+            return response;
+        }
     }
 
     // 2. Dispatch.
@@ -504,6 +567,13 @@ pub fn handle(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiRe
         Route::ApplyDeployment { id } => handle_apply_deployment(db_path, &id, request, now),
         Route::GitHubPush => handle_github_push(db_path, request),
         Route::GetOperation { op_id } => handle_get_operation(db_path, op_id),
+        Route::UiFleet => ui::routes::handle_fleet(db_path, config, request),
+        Route::UiProjectDetail { id } => {
+            ui::routes::handle_project_detail(db_path, config, request, &id)
+        }
+        Route::UiProjectPublish { id } => {
+            ui::routes::handle_project_publish(db_path, config, request, &id)
+        }
     }
 }
 
@@ -560,6 +630,10 @@ fn authorize(
     let result: Result<(), ApiResponse> = match route {
         Route::Healthz => Ok(()),
         Route::GitHubPush => Ok(()),
+        // UI routes do their own auth flow; the dispatch
+        // short-circuits before reaching this match, but
+        // Rust requires the arms anyway.
+        Route::UiFleet | Route::UiProjectDetail { .. } | Route::UiProjectPublish { .. } => Ok(()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known
@@ -1947,13 +2021,14 @@ pub fn serve(
         // revision can move the per-connection logic
         // into a thread pool without changing the wire
         // contract.
-        let response = handle_one(&mut stream, &db_path, max_body, shutdown);
+        let response = handle_one(config, &mut stream, &db_path, max_body, shutdown);
         let _ = write_response(&mut stream, &response);
     }
     Ok(accepted)
 }
 
 fn handle_one(
+    config: &ApiConfig,
     stream: &mut TcpStream,
     db_path: &Path,
     max_body: usize,
@@ -2014,7 +2089,7 @@ fn handle_one(
         Ok(value) => value,
         Err(err) => return err.to_response(),
     };
-    handle(db_path, &request, Utc::now())
+    handle(config, db_path, &request, Utc::now())
 }
 
 fn header_content_length(header_text: &[u8]) -> Option<usize> {
@@ -2035,6 +2110,7 @@ fn header_content_length(header_text: &[u8]) -> Option<usize> {
 /// return the response. Exposed for tests so the
 /// in-process server can be driven without a socket.
 pub fn handle_buffered<R: BufRead, W: Write>(
+    config: &ApiConfig,
     db_path: &Path,
     reader: &mut R,
     writer: &mut W,
@@ -2054,7 +2130,7 @@ pub fn handle_buffered<R: BufRead, W: Write>(
             return Ok(response);
         }
     };
-    let response = handle(db_path, &request, Utc::now());
+    let response = handle(config, db_path, &request, Utc::now());
     writeln!(
         writer,
         "{}",

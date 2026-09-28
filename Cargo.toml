@@ -25,6 +25,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
 sha2 = "0.10"
 rand = "0.8"
+maud = "0.27"
 
 [[bin]]
 name = "forge"
@@ -45,3 +46,4 @@ chrono.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
 rand.workspace = true
+maud.workspace = true

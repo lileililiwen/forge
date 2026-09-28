@@ -27,6 +27,11 @@ allow = [
   # target-specific UEFI shim never linked into the Linux binary; allowed
   # explicitly here rather than by a blanket copyleft wildcard.
   "LGPL-2.1-or-later",
+  # maud (portal-web-ui D1) and maud_macros share the dual MIT OR
+  # Apache-2.0 declaration with the allow-list above; the reason is
+  # recorded here as a single entry per crate so the closure change is
+  # explicit. itoa (transitive of maud) is MIT OR Apache-2.0 too.
+  # No new entries needed: MIT and Apache-2.0 are already allow-listed.
 ]
 confidence-threshold = 0.8
 exceptions = []

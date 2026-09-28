@@ -225,10 +225,18 @@ so it cannot be completed or honestly evidenced from this checkout.
   advances to `standard-pack-registry-and-snapshots`, whose
   prerequisites are archived and whose oracle is local, while
   `fleet-live-rollout` stays active but unselected because it requires
-  live target access. `portfolio-activation-readiness` is a
-  **planning-only** change authored in this cycle to track the deferred
-  product-owned activation follow-up: it has no implementation, its 15
-  tasks are unchecked, and it claims nothing.
+  live target access. `portfolio-activation-readiness` is an
+  **implementation-ready, planning-only** change authored in this cycle
+  to track the deferred product-owned activation follow-up. It has no
+  implementation and its 23 tasks are unchecked, but nothing is left for
+  an implementer to decide: `design.md` pins the exact domain types and
+  field names, the eight-reason vocabulary and its fixed order, the
+  candidate-selection and no-fallback rule, the evaluation control flow,
+  the CLI grammar with defaults and bounds, the exact human layout, the
+  exact JSON and API shapes, the `fleet online` print-then-error gate
+  exit pattern, the one additive error code, the file-by-file boundary,
+  a ten-row calibration table, and a named unit/CLI/API/cross-surface
+  test list. It claims nothing.
 - Two deferred items this package could not close are now registered
   where an operator will look rather than only in an archived task list.
   The external one is recorded in

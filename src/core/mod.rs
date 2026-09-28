@@ -274,6 +274,12 @@ pub enum ForgeError {
     #[error("portfolio share conflict: {reason}; nothing was published")]
     PortfolioShareConflict { reason: String },
 
+    #[error("portfolio interest invalid: {reason}; no interest state was changed")]
+    PortfolioInterestInvalid { reason: String },
+
+    #[error("portfolio interest conflict: {reason}; no snapshot was stored")]
+    PortfolioInterestConflict { reason: String },
+
     #[error("readiness invalid: {reason}")]
     ReadinessInvalid { reason: String },
 
@@ -398,6 +404,8 @@ impl ForgeError {
             ForgeError::PortfolioInvalid { .. } => "portfolio-invalid",
             ForgeError::PortfolioShareInvalid { .. } => "portfolio-share-invalid",
             ForgeError::PortfolioShareConflict { .. } => "portfolio-share-conflict",
+            ForgeError::PortfolioInterestInvalid { .. } => "portfolio-interest-invalid",
+            ForgeError::PortfolioInterestConflict { .. } => "portfolio-interest-conflict",
             ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
             ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
             ForgeError::ProviderInvalid { .. } => "provider-invalid",

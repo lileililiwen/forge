@@ -295,7 +295,8 @@ fn err_status(err: &ForgeError) -> u16 {
         | "push-confirm-required"
         | "release-check-failed"
         | "deploy-health-failed"
-        | "portfolio-share-conflict" => 409,
+        | "portfolio-share-conflict"
+        | "portfolio-interest-conflict" => 409,
         "api-invalid"
         | "manifest-invalid"
         | "manifest-not-found"
@@ -308,6 +309,7 @@ fn err_status(err: &ForgeError) -> u16 {
         | "spec-invalid"
         | "portfolio-invalid"
         | "portfolio-share-invalid"
+        | "portfolio-interest-invalid"
         | "deploy-invalid"
         | "release-invalid" => 400,
         _ => 500,
@@ -414,6 +416,23 @@ pub enum Route {
     ShareReconcile,
     /// `GET /v1/share/audit` — approval and publication trail.
     ShareAudit,
+    /// `GET /v1/projects/{id}/interest` — the project's aggregate
+    /// interest evidence with its freshness labels.
+    GetInterest {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/interest` — import aggregate snapshots
+    /// for one project.
+    ImportInterest {
+        id: String,
+    },
+    /// `GET /v1/interest/compare` — compare projects on allowlisted
+    /// metrics without totalling across windows.
+    InterestCompare,
+    /// `GET /v1/interest/trend` — one metric's windowed history.
+    InterestTrend,
+    /// `GET /v1/interest/audit` — the refusals this store recorded.
+    InterestAudit,
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -497,6 +516,15 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["v1", "share", "publish"]) => Some(Route::SharePublish),
         ("POST", ["v1", "share", "reconcile"]) => Some(Route::ShareReconcile),
         ("GET", ["v1", "share", "audit"]) => Some(Route::ShareAudit),
+        ("GET", ["v1", "projects", id, "interest"]) => Some(Route::GetInterest {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "interest"]) => Some(Route::ImportInterest {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "interest", "compare"]) => Some(Route::InterestCompare),
+        ("GET", ["v1", "interest", "trend"]) => Some(Route::InterestTrend),
+        ("GET", ["v1", "interest", "audit"]) => Some(Route::InterestAudit),
         _ => None,
     }
 }
@@ -575,6 +603,15 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::SharePublish
         | Route::ShareReconcile
         | Route::ShareAudit => Some("admin:access"),
+        // Every interest route, the reads included, demands
+        // admin:access: what an operator learns about which projects
+        // draw interest, and which of them are drawing none, is the
+        // private half of a portfolio decision.
+        | Route::GetInterest { .. }
+        | Route::ImportInterest { .. }
+        | Route::InterestCompare
+        | Route::InterestTrend
+        | Route::InterestAudit => Some("admin:access"),
     }
 }
 
@@ -701,6 +738,11 @@ pub fn handle(
         Route::SharePublish => handle_share_publish(db_path, request, &actor, now),
         Route::ShareReconcile => handle_share_reconcile(db_path, request, &actor),
         Route::ShareAudit => handle_share_audit(db_path, request),
+        Route::GetInterest { id } => handle_get_interest(db_path, request, &id, now),
+        Route::ImportInterest { id } => handle_import_interest(db_path, request, &id, &actor, now),
+        Route::InterestCompare => handle_interest_compare(db_path, request, now),
+        Route::InterestTrend => handle_interest_trend(db_path, request, now),
+        Route::InterestAudit => handle_interest_audit(db_path, request),
     }
 }
 
@@ -804,7 +846,10 @@ fn authorize(
         | Route::ShareApprove
         | Route::SharePublish
         | Route::ShareReconcile
-        | Route::ShareAudit => {
+        | Route::ShareAudit
+        | Route::InterestCompare
+        | Route::InterestTrend
+        | Route::InterestAudit => {
             // Fleet routes: walk the registry to find
             // which project minted the session, then
             // validate the permission for the action.
@@ -874,6 +919,8 @@ fn authorize(
         | Route::GetShare { id }
         | Route::SetShare { id }
         | Route::RemoveShare { id }
+        | Route::GetInterest { id }
+        | Route::ImportInterest { id }
         | Route::ApplyDeployment { id } => {
             // Project-scoped route: load the project,
             // locate the session in the project directory
@@ -2275,9 +2322,354 @@ fn parse_share_limit(query: &str) -> Result<usize, String> {
     Ok(parsed)
 }
 
+// --- portfolio interest --------------------------------------------------
+//
+// Every handler below dispatches into
+// [`crate::portfolio::interest_report`], the same orchestration the
+// CLI uses, so the JSON transport adds no business rule of its own.
+// The authorization boundary has already demanded `admin:access` for
+// every one of these routes — the reads included, because which
+// projects draw interest is itself private — so an unauthorized
+// request never reaches a read and never persists an import.
+
+/// `GET /v1/projects/{id}/interest`
+fn handle_get_interest(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let query = request.query.as_deref().unwrap_or_default();
+    let stale_after_days = match parse_interest_stale_after_days(query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::portfolio::interest_report::project_interest(&registry, id, stale_after_days, now)
+    {
+        Ok(projection) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "interest": {
+                    "project_id": id,
+                    "measured": !projection.snapshots.is_empty(),
+                    "projection": projection,
+                },
+                "contract": crate::portfolio::interest::INTEREST_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/projects/{id}/interest`
+fn handle_import_interest(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    actor: &str,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    use crate::portfolio::interest::{RawSnapshot, INTEREST_CONTRACT_VERSION};
+    let body = request.json_body();
+    // The body carries the same array an importer hands the CLI, with
+    // the path supplying the project: a body that names a different
+    // project is refused rather than silently re-scoped.
+    let Some(entries) = body.get("snapshots").and_then(|v| v.as_array()) else {
+        return bad_request("interest import requires a `snapshots` array");
+    };
+    if request.body.len() > crate::portfolio::interest::MAX_IMPORT_BYTES {
+        return bad_request(&format!(
+            "import document is larger than {} bytes",
+            crate::portfolio::interest::MAX_IMPORT_BYTES
+        ));
+    }
+    let mut records: Vec<RawSnapshot> = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let Value::Object(record) = entry else {
+            return bad_request(&format!(
+                "snapshot {index} must be a JSON object; an aggregate record carries no free-form value"
+            ));
+        };
+        match record.get("project_id").and_then(|v| v.as_str()) {
+            Some(declared) if declared.trim() != id => {
+                return bad_request(&format!(
+                    "snapshot {index} declares project_id `{declared}` but the route targets `{id}`"
+                ))
+            }
+            _ => {}
+        }
+        // Unvalidated on purpose: the registry's `validate_snapshot`
+        // is the single gate, so a refusal looks the same whether the
+        // record arrived over HTTP or from a file. The route supplies
+        // the project so a caller cannot import one project's evidence
+        // under another's name by accident.
+        let mut record = record.clone();
+        record.insert("project_id".to_string(), Value::String(id.to_string()));
+        records.push(RawSnapshot { index, record });
+    }
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    // The importer is the authenticated session subject, never a
+    // client-claimed string: provenance is the point of the store.
+    match crate::portfolio::interest_report::import_snapshots(
+        &registry,
+        &crate::portfolio::interest::InterestImport { records },
+        actor,
+        now,
+    ) {
+        Ok(imported) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "interest": {
+                    "project_id": id,
+                    "import": imported,
+                },
+                "contract": INTEREST_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/interest/compare`
+fn handle_interest_compare(
+    db_path: &Path,
+    request: &ApiRequest,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    use crate::portfolio::interest::{InterestMetric, INTEREST_CONTRACT_VERSION};
+    let query = request.query.as_deref().unwrap_or_default().to_string();
+    let mut projects: Vec<String> = Vec::new();
+    let mut metrics: Vec<String> = Vec::new();
+    let mut source: Option<String> = None;
+    let mut stale_after_days = crate::portfolio::interest::DEFAULT_STALE_AFTER_DAYS;
+    for pair in query.split('&').filter(|part| !part.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value);
+        match key.trim() {
+            "projects" => projects.extend(
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_string),
+            ),
+            "metric" => metrics.extend(
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_string),
+            ),
+            "source" => source = Some(value),
+            "stale_after_days" => match value.trim().parse::<i64>() {
+                Ok(parsed) => stale_after_days = parsed,
+                Err(_) => return bad_request("stale_after_days must be an integer"),
+            },
+            other => {
+                return bad_request(&format!(
+                    "unknown interest compare query parameter `{other}`"
+                ))
+            }
+        }
+    }
+    if projects.is_empty() {
+        return bad_request("interest compare requires a `projects` parameter");
+    }
+    let selected: Vec<InterestMetric> = if metrics.is_empty() {
+        InterestMetric::ALL.to_vec()
+    } else {
+        let mut chosen = Vec::with_capacity(metrics.len());
+        for raw in &metrics {
+            match InterestMetric::parse(raw) {
+                Ok(metric) if !chosen.contains(&metric) => chosen.push(metric),
+                Ok(_) => {}
+                Err(reason) => return bad_request(&reason),
+            }
+        }
+        chosen
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::portfolio::interest_report::compare_projects(
+        &registry,
+        &projects,
+        &selected,
+        source.as_deref(),
+        stale_after_days,
+        now,
+    ) {
+        Ok(comparison) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "interest": { "comparison": comparison },
+                "contract": INTEREST_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/interest/trend`
+fn handle_interest_trend(db_path: &Path, request: &ApiRequest, now: DateTime<Utc>) -> ApiResponse {
+    use crate::portfolio::interest::{InterestMetric, INTEREST_CONTRACT_VERSION};
+    let query = request.query.as_deref().unwrap_or_default().to_string();
+    let mut project: Option<String> = None;
+    let mut metric: Option<String> = None;
+    let mut limit = 12usize;
+    let mut stale_after_days = crate::portfolio::interest::DEFAULT_STALE_AFTER_DAYS;
+    for pair in query.split('&').filter(|part| !part.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value);
+        match key.trim() {
+            "project" => project = Some(value),
+            "metric" => metric = Some(value),
+            "limit" => match value.trim().parse::<usize>() {
+                Ok(parsed) => limit = parsed,
+                Err(_) => return bad_request("limit must be an integer"),
+            },
+            "stale_after_days" => match value.trim().parse::<i64>() {
+                Ok(parsed) => stale_after_days = parsed,
+                Err(_) => return bad_request("stale_after_days must be an integer"),
+            },
+            other => {
+                return bad_request(&format!("unknown interest trend query parameter `{other}`"))
+            }
+        }
+    }
+    let (Some(project), Some(raw_metric)) = (project, metric) else {
+        return bad_request("interest trend requires `project` and `metric` parameters");
+    };
+    let metric = match InterestMetric::parse(raw_metric.trim()) {
+        Ok(metric) => metric,
+        Err(reason) => return bad_request(&reason),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::portfolio::interest_report::interest_trend(
+        &registry,
+        project.trim(),
+        metric,
+        limit,
+        stale_after_days,
+        now,
+    ) {
+        Ok(trend) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "interest": { "trend": trend },
+                "contract": INTEREST_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/interest/audit`
+fn handle_interest_audit(db_path: &Path, request: &ApiRequest) -> ApiResponse {
+    let limit = match parse_interest_limit(request.query.as_deref().unwrap_or_default()) {
+        Ok(value) => value,
+        Err(reason) => return bad_request(&reason),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.interest_findings(limit) {
+        Ok(findings) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "interest": { "refusals": findings },
+                "contract": crate::portfolio::interest::INTEREST_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// Parse the `stale_after_days` query parameter. An absent parameter
+/// is the house default; a present but unusable one is a typed refusal
+/// rather than a silently clamped bound.
+fn parse_interest_stale_after_days(query: &str) -> Result<i64, ApiResponse> {
+    let Some(pair) = query.split('&').find(|part| !part.is_empty()) else {
+        return Ok(crate::portfolio::interest::DEFAULT_STALE_AFTER_DAYS);
+    };
+    let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+    if key.trim() != "stale_after_days" {
+        return Err(bad_request(&format!(
+            "unknown interest query parameter `{key}`"
+        )));
+    }
+    let parsed = value
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| bad_request("stale_after_days must be an integer"))?;
+    crate::portfolio::interest::bound_stale_after_days(parsed)
+        .map_err(|reason| bad_request(&reason))
+}
+
+/// Parse the `limit` query parameter of the interest audit route.
+fn parse_interest_limit(query: &str) -> Result<usize, String> {
+    let Some(pair) = query.split('&').find(|part| !part.is_empty()) else {
+        return Ok(50);
+    };
+    let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+    if key.trim() != "limit" {
+        return Err(format!("unknown interest audit query parameter `{key}`"));
+    }
+    let parsed = value
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| "limit must be an integer".to_string())?;
+    if !(1..=500).contains(&parsed) {
+        return Err("limit must be between 1 and 500".to_string());
+    }
+    Ok(parsed)
+}
+
+/// Decode the `%XX` escapes a query string may carry.
+///
+/// The interest routes take a comma-separated project list, so a
+/// caller whose ids ever need escaping could not otherwise express
+/// them. Only the three characters that actually change a query's
+/// meaning are decoded; anything else is left verbatim rather than
+/// guessed at.
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
+            if let Some(byte) = hex.and_then(|value| u8::from_str_radix(value, 16).ok()) {
+                out.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        if bytes[index] == b'+' {
+            out.push(b' ');
+            index += 1;
+            continue;
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
 /// Reservation helper. Reserves a pending operation,
-/// invokes the closure, then finalizes the operation with
-/// `done` or `failed`. Returns the closure's value plus
+/// invokes the closure, then finalizes the operation with/// `done` or `failed`. Returns the closure's value plus
 /// the operation id.
 ///
 /// The closure receives the reserved `op_id` and a

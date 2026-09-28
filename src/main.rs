@@ -1211,6 +1211,82 @@ enum PortfolioCommands {
         #[command(subcommand)]
         command: PortfolioShareCommands,
     },
+    /// Import and compare aggregate, privacy-safe interest evidence.
+    Interest {
+        #[command(subcommand)]
+        command: PortfolioInterestCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PortfolioInterestCommands {
+    /// Import a versioned batch of aggregate snapshots from a JSON
+    /// file, or from stdin when the path is `-`. Every record is
+    /// reported separately; a refused record never blocks the others.
+    Import {
+        /// Path to the import document, or `-` for stdin.
+        file: String,
+        /// Who is importing. Recorded verbatim as provenance.
+        #[arg(long, default_value = "local-admin")]
+        actor: String,
+    },
+    /// List one project's stored snapshots, or every project's.
+    List {
+        /// Registered project id (omit for every project).
+        #[arg(default_value = "")]
+        project: String,
+        /// Maximum rows to read.
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        /// Days after which a window reads as `stale`.
+        #[arg(long, default_value_t = forge::portfolio::interest::DEFAULT_STALE_AFTER_DAYS)]
+        stale_after_days: i64,
+    },
+    /// Show one project's whole interest projection with its refusals.
+    Show {
+        /// Registered project id.
+        project: String,
+        /// Days after which a window reads as `stale`.
+        #[arg(long, default_value_t = forge::portfolio::interest::DEFAULT_STALE_AFTER_DAYS)]
+        stale_after_days: i64,
+    },
+    /// Compare projects on the allowlisted metrics. Forge never totals
+    /// or ranks across windows and labels every row with its source and
+    /// freshness.
+    Compare {
+        /// Registered project ids to compare.
+        #[arg(required = true)]
+        projects: Vec<String>,
+        /// Metric to compare; repeat for several (default: all).
+        #[arg(long = "metric")]
+        metrics: Vec<String>,
+        /// Narrow the comparison to one analytics source.
+        #[arg(long)]
+        source: Option<String>,
+        /// Days after which a window reads as `stale`.
+        #[arg(long, default_value_t = forge::portfolio::interest::DEFAULT_STALE_AFTER_DAYS)]
+        stale_after_days: i64,
+    },
+    /// One metric's windowed history for one project.
+    Trend {
+        /// Registered project id.
+        project: String,
+        /// Metric to plot.
+        #[arg(long)]
+        metric: String,
+        /// Maximum windows to return.
+        #[arg(long, default_value_t = 12)]
+        limit: usize,
+        /// Days after which a window reads as `stale`.
+        #[arg(long, default_value_t = forge::portfolio::interest::DEFAULT_STALE_AFTER_DAYS)]
+        stale_after_days: i64,
+    },
+    /// The refusals this store recorded, newest first.
+    Audit {
+        /// Maximum rows to read.
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -6768,6 +6844,9 @@ fn cmd_portfolio(
             cmd_portfolio_evidence(&registry, command, format)
         }
         PortfolioCommands::Share { command } => cmd_portfolio_share(&registry, command, format),
+        PortfolioCommands::Interest { command } => {
+            cmd_portfolio_interest(&registry, command, format)
+        }
     }
 }
 
@@ -7713,6 +7792,399 @@ fn cmd_portfolio_share(
             ))
         }
     }
+}
+
+fn interest_invalid(reason: String) -> ForgeError {
+    ForgeError::PortfolioInterestInvalid { reason }
+}
+
+/// The one CLI entry point for aggregate interest evidence. Every
+/// subcommand dispatches into the same
+/// [`forge::portfolio::interest_report`] orchestration the JSON API
+/// uses, so the terminal adds no import or comparison rule of its own.
+fn cmd_portfolio_interest(
+    registry: &Registry,
+    command: &PortfolioInterestCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::portfolio::interest::{
+        self as interest, InterestMetric, RawSnapshot, INTEREST_CONTRACT_VERSION,
+    };
+    use forge::portfolio::interest_report as report;
+    let now = chrono::Utc::now();
+    let contract = INTEREST_CONTRACT_VERSION;
+    match command {
+        PortfolioInterestCommands::Import { file, actor } => {
+            let raw = read_import_document(file)?;
+            let decoded = interest::parse_import_document(&raw).map_err(interest_invalid)?;
+            let records: Vec<RawSnapshot> = decoded
+                .into_iter()
+                .map(|(index, record)| RawSnapshot { index, record })
+                .collect();
+            let imported = report::import_snapshots(
+                registry,
+                &interest::InterestImport { records },
+                actor,
+                now,
+            )?;
+            // A batch where every record was refused is a failed
+            // import, and saying so through the exit code is what lets
+            // a script notice without parsing the report.
+            let human = format!(
+                "imported {} snapshot(s): {} accepted, {} already present, {} superseded, {} refused\n",
+                imported.received,
+                imported.accepted.len(),
+                imported.already_present.len(),
+                imported.supersessions.len(),
+                imported.refused()
+            );
+            let json = serde_json::json!({
+                "contract": contract,
+                "generated_at": now.to_rfc3339(),
+                "import": imported,
+            });
+            let rendered = as_output(format, human, json);
+            if imported.is_complete_failure() {
+                // A batch where every record was refused is a failed
+                // import, and the reason is the diagnosis: naming each
+                // refused record and its code is what lets an importer
+                // fix the batch without re-running the CLI to find out
+                // which of fifty records was wrong.
+                return Err(interest_invalid(format!(
+                    "every snapshot in the batch was refused: {}",
+                    summarize_refusals(&imported.rejected)
+                )));
+            }
+            Ok(rendered)
+        }
+        PortfolioInterestCommands::List {
+            project,
+            limit,
+            stale_after_days,
+        } => {
+            if *limit == 0 || *limit > 500 {
+                return Err(interest_invalid(
+                    "limit must be between 1 and 500".to_string(),
+                ));
+            }
+            let snapshots: Vec<forge::portfolio::interest::InterestSnapshot> = if project.is_empty()
+            {
+                let mut all = Vec::new();
+                for record in registry.list()? {
+                    all.extend(registry.interest_snapshots(&record.id, *limit)?);
+                }
+                all
+            } else {
+                registry.interest_snapshots(project, *limit)?
+            };
+            let human = if snapshots.is_empty() {
+                "No interest snapshots.\n".to_string()
+            } else {
+                let mut out = String::new();
+                for snapshot in &snapshots {
+                    out.push_str(&format!(
+                        "{} {} {} {}..{} {} {} {}\n",
+                        snapshot.project_id,
+                        snapshot.source,
+                        snapshot.source_revision,
+                        snapshot.window_start,
+                        snapshot.window_end,
+                        snapshot.state.label(),
+                        snapshot.privacy_mode,
+                        snapshot.freshness(now, *stale_after_days).label(),
+                    ));
+                }
+                out
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "stale_after_days": stale_after_days,
+                    "snapshots": snapshots,
+                }),
+            ))
+        }
+        PortfolioInterestCommands::Show {
+            project,
+            stale_after_days,
+        } => {
+            let projection = report::project_interest(registry, project, *stale_after_days, now)?;
+            let human = format!(
+                "project: {}\nstale after: {} day(s)\nstale windows: {}\nsuperseded revisions: {}\n",
+                projection.project_id,
+                projection.stale_after_days,
+                projection.stale_snapshots,
+                projection.superseded_snapshots
+            );
+            let mut human = human;
+            if projection.snapshots.is_empty() {
+                human.push_str("snapshots: none\n");
+            } else {
+                human.push_str("snapshots:\n");
+                for snapshot in &projection.snapshots {
+                    human.push_str(&format!(
+                        "  {} {}..{} {} {} {}\n",
+                        snapshot.source,
+                        snapshot.window_start,
+                        snapshot.window_end,
+                        snapshot.source_revision,
+                        snapshot.state.label(),
+                        snapshot.freshness(now, projection.stale_after_days).label(),
+                    ));
+                    for value in &snapshot.metrics {
+                        human.push_str(&format!("    {} = {}\n", value.metric, value.value));
+                    }
+                }
+            }
+            if !projection.findings.is_empty() {
+                human.push_str("refusals:\n");
+                for finding in &projection.findings {
+                    human.push_str(&format!(
+                        "  {} [{}] {}\n",
+                        finding.field, finding.code, finding.detail
+                    ));
+                }
+            }
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "interest": projection,
+                }),
+            ))
+        }
+        PortfolioInterestCommands::Compare {
+            projects,
+            metrics,
+            source,
+            stale_after_days,
+        } => {
+            let selected = parse_interest_metrics(metrics)?;
+            let comparison = report::compare_projects(
+                registry,
+                projects,
+                &selected,
+                source.as_deref(),
+                *stale_after_days,
+                now,
+            )?;
+            let human = render_comparison(&comparison);
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "comparison": comparison,
+                }),
+            ))
+        }
+        PortfolioInterestCommands::Trend {
+            project,
+            metric,
+            limit,
+            stale_after_days,
+        } => {
+            let metric = InterestMetric::parse(metric.trim()).map_err(interest_invalid)?;
+            let trend =
+                report::interest_trend(registry, project, metric, *limit, *stale_after_days, now)?;
+            let human = format!(
+                "{} {}\n{} window(s) plotted, {} window(s) reported no such metric\nnote: {}\n",
+                trend.project_id,
+                trend.metric,
+                trend.points.len(),
+                trend.unreported_windows,
+                trend.note
+            );
+            let mut human = human;
+            for point in &trend.points {
+                human.push_str(&format!(
+                    "  {}..{} {} {} {}\n",
+                    point.window_start,
+                    point.window_end,
+                    point.value,
+                    point.privacy_mode,
+                    point.freshness
+                ));
+            }
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "trend": trend,
+                }),
+            ))
+        }
+        PortfolioInterestCommands::Audit { limit } => {
+            if *limit == 0 || *limit > 500 {
+                return Err(interest_invalid(
+                    "limit must be between 1 and 500".to_string(),
+                ));
+            }
+            let findings = registry.interest_findings(*limit)?;
+            let human = if findings.is_empty() {
+                "No refused interest snapshots.\n".to_string()
+            } else {
+                let mut out = String::new();
+                for finding in &findings {
+                    out.push_str(&format!(
+                        "  {} {} [{}] {}\n",
+                        finding.project_id, finding.field, finding.code, finding.detail
+                    ));
+                }
+                out
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": contract,
+                    "generated_at": now.to_rfc3339(),
+                    "refusals": findings,
+                }),
+            ))
+        }
+    }
+}
+
+/// Summarize a fully refused batch into one refusal message.
+///
+/// The message names each refused record's index, its stable code and
+/// its reason — so a one-record batch is diagnosable without a second
+/// command, and a five-hundred record batch cannot produce a
+/// five-hundred line error. Each detail has already been scrubbed by
+/// the domain, so no offending value can reach the message.
+fn summarize_refusals(rejected: &[forge::portfolio::interest::InterestRejection]) -> String {
+    const MAX_LISTED: usize = 5;
+    const MAX_DETAIL_CHARS: usize = 200;
+    let listed: Vec<String> = rejected
+        .iter()
+        .take(MAX_LISTED)
+        .map(|rejection| {
+            let detail: String = rejection.detail.chars().take(MAX_DETAIL_CHARS).collect();
+            let ellipsis = if rejection.detail.chars().count() > MAX_DETAIL_CHARS {
+                "…"
+            } else {
+                ""
+            };
+            format!(
+                "record {} [{}]: {detail}{ellipsis}",
+                rejection.index, rejection.code
+            )
+        })
+        .collect();
+    let mut summary = listed.join("; ");
+    if rejected.len() > MAX_LISTED {
+        summary.push_str(&format!(
+            "; and {} more, see `forge portfolio interest audit`",
+            rejected.len() - MAX_LISTED
+        ));
+    }
+    summary
+}
+
+/// Read an import document from a path or from stdin, refusing
+/// anything past the size bound before it is parsed.
+fn read_import_document(file: &str) -> Result<String, ForgeError> {
+    const MAX: usize = forge::portfolio::interest::MAX_IMPORT_BYTES;
+    let trimmed = file.trim();
+    if trimmed == "-" {
+        // Read one byte past the bound so an oversized document is
+        // detected rather than silently truncated into a parse error
+        // that would read like malformed JSON.
+        let mut reader = std::io::Read::take(std::io::stdin().lock(), MAX as u64 + 1);
+        let mut raw = String::new();
+        std::io::Read::read_to_string(&mut reader, &mut raw)
+            .map_err(|err| interest_invalid(format!("import document could not be read: {err}")))?;
+        if raw.len() > MAX {
+            return Err(interest_invalid(format!(
+                "import document is larger than {MAX} bytes"
+            )));
+        }
+        return Ok(raw);
+    }
+    let metadata = std::fs::metadata(trimmed).map_err(|err| {
+        interest_invalid(format!("import document `{trimmed}` is unreadable: {err}"))
+    })?;
+    if metadata.len() > MAX as u64 {
+        return Err(interest_invalid(format!(
+            "import document is larger than {MAX} bytes"
+        )));
+    }
+    std::fs::read_to_string(trimmed).map_err(|err| {
+        interest_invalid(format!("import document `{trimmed}` is unreadable: {err}"))
+    })
+}
+
+/// Resolve the requested metrics, defaulting to the whole allowlist.
+///
+/// An unknown metric is a typed refusal rather than a silent skip: an
+/// importer that asked for a metric Forge does not carry should learn
+/// that, not see a comparison quietly missing a column.
+fn parse_interest_metrics(
+    raw: &[String],
+) -> Result<Vec<forge::portfolio::interest::InterestMetric>, ForgeError> {
+    use forge::portfolio::interest::InterestMetric;
+    if raw.is_empty() {
+        return Ok(InterestMetric::ALL.to_vec());
+    }
+    let mut selected = Vec::with_capacity(raw.len());
+    for value in raw {
+        let metric = InterestMetric::parse(value.trim()).map_err(interest_invalid)?;
+        if !selected.contains(&metric) {
+            selected.push(metric);
+        }
+    }
+    Ok(selected)
+}
+
+/// Render a comparison as a window-labelled table.
+///
+/// There is deliberately no total row and no ordering column: the
+/// honest answer to "which project is more interesting" is a set of
+/// labelled figures, and Forge will not manufacture a ranking the
+/// windows do not support.
+fn render_comparison(comparison: &forge::portfolio::interest::Comparison) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "comparable across windows: {}\nrows: {}\n",
+        comparison.comparable,
+        comparison.rows.len()
+    ));
+    for window in &comparison.windows {
+        out.push_str(&format!("window: {window}\n"));
+    }
+    if comparison.rows.is_empty() {
+        out.push_str("figures: none\n");
+    } else {
+        out.push_str("figures:\n");
+        for row in &comparison.rows {
+            out.push_str(&format!(
+                "  {} {} = {} [{} / {} / {} / {}]\n",
+                row.project_id,
+                row.metric,
+                row.value,
+                row.source,
+                row.source_revision,
+                row.privacy_mode,
+                row.freshness
+            ));
+        }
+    }
+    if !comparison.notes.is_empty() {
+        out.push_str("notes:\n");
+        for note in &comparison.notes {
+            out.push_str(&format!("  {note}\n"));
+        }
+    }
+    out
 }
 
 fn cmd_readiness_matrix(profiles: &[String], format: Format) -> Result<Output, ForgeError> {

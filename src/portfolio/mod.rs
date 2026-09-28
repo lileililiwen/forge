@@ -22,11 +22,19 @@
 //! unavailable and stale states verbatim: an absent provider is
 //! `unavailable`, an expired freshness bound is `stale`, and
 //! neither is ever reported as healthy or passing.
+//!
+//! Three sub-packages split the domain by direction rather than by
+//! data: [`share`] and [`publication`] decide what may *leave* Forge,
+//! while [`interest`] and [`interest_report`] decide what may *enter*
+//! it. Neither direction shares a row, a table or a rule with the
+//! other.
 
 use serde::Serialize;
 
 use crate::policy::redact_credentials;
 
+pub mod interest;
+pub mod interest_report;
 pub mod publication;
 pub mod share;
 

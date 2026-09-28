@@ -26,9 +26,11 @@ use std::time::Duration;
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
 
+mod interest;
 mod portfolio;
 mod share;
 
+pub use interest::{SnapshotOutcome, PORTFOLIO_INTEREST_SCHEMA_SQL};
 pub use portfolio::{PortfolioWrite, SnapshotWrite, PORTFOLIO_SCHEMA_SQL};
 pub use share::audit::PublicationReservation;
 pub use share::PORTFOLIO_SHARE_SCHEMA_SQL;
@@ -144,7 +146,8 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
         }
     }
     apply_portfolio_migration(conn)?;
-    apply_portfolio_share_migration(conn)
+    apply_portfolio_share_migration(conn)?;
+    apply_portfolio_interest_migration(conn)
 }
 
 /// Apply the additive portfolio schema inside one explicit
@@ -211,6 +214,42 @@ fn apply_portfolio_share_migration(conn: &Connection) -> Result<(), ForgeError> 
         return Err(ForgeError::Registry {
             reason: format!(
                 "portfolio share migration commit failed: {err}; registry left unchanged"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Apply the additive portfolio interest schema inside one explicit
+/// transaction.
+///
+/// The batch is deliberately separate from the portfolio and share
+/// batches so a rollback in any domain leaves the others intact, and it
+/// follows the same rule: `BEGIN IMMEDIATE` is issued explicitly, every
+/// statement is `CREATE ... IF NOT EXISTS`, and any failure rolls the
+/// whole batch back so no partial interest table survives. The next
+/// open retries it from scratch.
+fn apply_portfolio_interest_migration(conn: &Connection) -> Result<(), ForgeError> {
+    if let Err(err) = conn.execute_batch("BEGIN IMMEDIATE") {
+        return Err(ForgeError::Registry {
+            reason: format!(
+                "portfolio interest migration could not begin: {err}; registry left unchanged"
+            ),
+        });
+    }
+    if let Err(err) = conn.execute_batch(PORTFOLIO_INTEREST_SCHEMA_SQL) {
+        // Best effort: surface the original failure, not a
+        // rollback failure that would hide it.
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(ForgeError::Registry {
+            reason: format!("portfolio interest migration failed: {err}; registry left unchanged"),
+        });
+    }
+    if let Err(err) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(ForgeError::Registry {
+            reason: format!(
+                "portfolio interest migration commit failed: {err}; registry left unchanged"
             ),
         });
     }

@@ -352,6 +352,10 @@ enum Commands {
         command: DeployCommands,
     },
     /// Publish a registered project to the Jenkins/Mac infrastructure with subdomain routing.
+    ///
+    /// With no flags `forge publish` discovers the project from the current
+    /// directory (`.project.json:id` > `forge.yaml:project.id` > directory
+    /// name) and publishes it through the selected provider.
     Publish {
         #[command(subcommand)]
         command: Option<PublishCommands>,
@@ -361,6 +365,9 @@ enum Commands {
         /// Publish the project represented by this source folder.
         #[arg(long, conflicts_with = "project")]
         folder: Option<PathBuf>,
+        /// Directory to discover the project from for bare `forge publish` (default: current directory).
+        #[arg(long, value_name = "PATH")]
+        cwd: Option<PathBuf>,
         /// External provider id, for example `openpanel` or `jenkins`.
         #[arg(long)]
         provider: Option<String>,
@@ -1548,6 +1555,7 @@ fn main() -> ExitCode {
             command,
             project,
             folder,
+            cwd,
             provider,
             revision,
             dry_run,
@@ -1556,6 +1564,7 @@ fn main() -> ExitCode {
             command.as_ref(),
             project.as_deref(),
             folder.as_deref(),
+            cwd.as_deref(),
             provider.as_deref(),
             revision.as_deref(),
             *dry_run,
@@ -3842,11 +3851,105 @@ fn cmd_deploy_observe(
     }
 }
 
+fn discover_cwd_publish_target(cwd: Option<&Path>) -> Result<(PathBuf, String), ForgeError> {
+    let raw = if let Some(path) = cwd {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().map_err(|error| ForgeError::PublishInvalid {
+            reason: format!("cannot determine current directory: {error}"),
+        })?
+    };
+    let dir = std::fs::canonicalize(&raw).map_err(|error| ForgeError::PublishInvalid {
+        reason: format!("cannot resolve publish cwd {}: {error}", raw.display()),
+    })?;
+    let project_json = dir.join(".project.json");
+    if project_json.is_file() {
+        let content =
+            std::fs::read_to_string(&project_json).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("cannot read {}: {error}", project_json.display()),
+            })?;
+        let value: serde_json::Value =
+            serde_json::from_str(&content).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("malformed {}: {error}", project_json.display()),
+            })?;
+        let id = value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if id.is_empty() {
+            return Err(ForgeError::PublishInvalid {
+                reason: format!("{} has no usable `id`", project_json.display()),
+            });
+        }
+        validate_cwd_project_id(id)?;
+        return Ok((dir, id.to_string()));
+    }
+    let forge_yaml = dir.join("forge.yaml");
+    if forge_yaml.is_file() {
+        let content =
+            std::fs::read_to_string(&forge_yaml).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("cannot read {}: {error}", forge_yaml.display()),
+            })?;
+        let value: serde_yaml::Value =
+            serde_yaml::from_str(&content).map_err(|error| ForgeError::PublishInvalid {
+                reason: format!("malformed {}: {error}", forge_yaml.display()),
+            })?;
+        if let Some(id) = value
+            .get("project")
+            .and_then(|p| p.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            validate_cwd_project_id(id)?;
+            return Ok((dir, id.to_string()));
+        }
+    }
+    let basename = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| ForgeError::PublishInvalid {
+            reason: format!(
+                "publish cwd `{}` has no usable project id; use --folder or add .project.json",
+                dir.display()
+            ),
+        })?
+        .to_string();
+    validate_cwd_project_id(&basename).map_err(|_| ForgeError::PublishInvalid {
+        reason: format!(
+            "publish cwd `{}` has no usable project id `{basename}`; use --folder or add .project.json with a valid id",
+            dir.display()
+        ),
+    })?;
+    Ok((dir, basename))
+}
+
+fn validate_cwd_project_id(id: &str) -> Result<(), ForgeError> {
+    if id.is_empty() {
+        return Err(ForgeError::PublishInvalid {
+            reason: "project id must not be empty".to_string(),
+        });
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(ForgeError::PublishInvalid {
+            reason: format!(
+                "project id `{id}` must be kebab/snake-case (letters, digits, dash, underscore)"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn cmd_publish(
     db_path: &Path,
     command: Option<&PublishCommands>,
     project: Option<&str>,
     folder: Option<&Path>,
+    cwd: Option<&Path>,
     provider: Option<&str>,
     revision: Option<&str>,
     dry_run: bool,
@@ -3857,32 +3960,132 @@ fn cmd_publish(
             db_path, project, folder, provider, revision, dry_run, format,
         );
     }
-    let command = command.ok_or_else(|| ForgeError::PublishInvalid {
-        reason: "publish requires a legacy stage command or --project/--folder".to_string(),
-    })?;
-    match command {
-        PublishCommands::Provider { command } => cmd_publish_provider_lifecycle(command, format),
-        PublishCommands::Fleet {
-            fleet_registry,
-            workspace_root,
-            inventory,
-            dry_run,
-            lifecycle,
-            fail_fast,
-            provider,
-        } => cmd_publish_fleet(
-            db_path,
-            inventory.clone(),
-            fleet_registry.clone(),
-            workspace_root.clone(),
-            *dry_run,
-            lifecycle.clone(),
-            *fail_fast,
-            provider.clone(),
-            format,
-        ),
-        _ => cmd_publish_single(db_path, command, format),
+    if let Some(cmd) = command {
+        match cmd {
+            PublishCommands::Provider { command } => {
+                return cmd_publish_provider_lifecycle(command, format)
+            }
+            PublishCommands::Fleet {
+                fleet_registry,
+                workspace_root,
+                inventory,
+                dry_run,
+                lifecycle,
+                fail_fast,
+                provider,
+            } => {
+                return cmd_publish_fleet(
+                    db_path,
+                    inventory.clone(),
+                    fleet_registry.clone(),
+                    workspace_root.clone(),
+                    *dry_run,
+                    lifecycle.clone(),
+                    *fail_fast,
+                    provider.clone(),
+                    format,
+                )
+            }
+            _ => return cmd_publish_single(db_path, cmd, format),
+        }
     }
+    let (project_dir, project_id) = discover_cwd_publish_target(cwd)?;
+    return publish_via_provider_dir(
+        db_path,
+        &project_dir,
+        &project_id,
+        provider,
+        revision,
+        dry_run,
+        format,
+    );
+}
+
+fn publish_via_provider_dir(
+    db_path: &Path,
+    project_dir: &Path,
+    project_id: &str,
+    provider: Option<&str>,
+    revision: Option<&str>,
+    dry_run: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let provider_id = provider
+        .map(str::to_string)
+        .or_else(|| std::env::var("FORGE_PUBLISH_PROVIDER").ok())
+        .ok_or_else(|| ForgeError::PublishInvalid {
+            reason: "publish requires --provider or FORGE_PUBLISH_PROVIDER".to_string(),
+        })?;
+    let config_path = std::env::var_os("FORGE_PUBLISH_PROVIDER_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_dir.join(".forge/providers.yaml"));
+    let config = load_publish_provider_config(&config_path)?;
+    let entry = select_provider(&config, &provider_id)?;
+    let revision = revision
+        .map(str::to_string)
+        .or_else(|| git_revision(project_dir))
+        .unwrap_or_else(|| "unknown".to_string());
+    forge::publish::providers::validate_revision(&revision).map_err(|error| {
+        ForgeError::PublishInvalid {
+            reason: format!(
+                "publish requires a 40-character hex revision; got `{revision}` ({error})"
+            ),
+        }
+    })?;
+    let operation_id = format!(
+        "publish-{project_id}-{}",
+        &revision[..revision.len().min(12)]
+    );
+    let request = PublishProviderRequest {
+        contract: forge::publish::providers::PUBLISH_PROVIDER_CONTRACT.to_string(),
+        operation: ProviderOperation::Publish,
+        provider: provider_id.clone(),
+        project_id: project_id.to_string(),
+        revision: revision.clone(),
+        operation_id,
+        folder: Some(project_dir.display().to_string()),
+        dry_run,
+        queue_id: None,
+    };
+    let response = if dry_run {
+        serde_json::Value::from(serde_json::to_value(&request).map_err(|error| {
+            ForgeError::PublishInvalid {
+                reason: format!("cannot encode publish request: {error}"),
+            }
+        })?)
+    } else {
+        let response = invoke_provider(&entry, &request, project_dir)?;
+        let registry = open_registry(db_path)?;
+        let phase_revision = response
+            .revision
+            .clone()
+            .unwrap_or_else(|| revision.clone());
+        let container_identity = response.container_identity.clone().unwrap_or_else(|| {
+            forge::publish::providers::compose_project_name(project_id, &phase_revision)
+        });
+        registry.record_publish_phase(
+            project_id,
+            &response.status,
+            PublishPhaseEvidence::new()
+                .revision(&phase_revision)
+                .container_identity(&container_identity)
+                .build_status_opt(response.build_status.as_deref())
+                .run_status_opt(response.run_status.as_deref()),
+            Some(&format!(
+                "provider={} health={}",
+                response.provider, response.health
+            )),
+        )?;
+        serde_json::to_value(response).map_err(|error| ForgeError::PublishInvalid {
+            reason: format!("cannot encode publish response: {error}"),
+        })?
+    };
+    let human = if dry_run {
+        format!("publish dry-run: provider={provider_id} project={project_id}")
+    } else {
+        format!("publish: provider={provider_id} project={project_id}")
+    };
+    Ok(as_output(format, human, response))
 }
 
 fn cmd_publish_provider_lifecycle(

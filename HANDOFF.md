@@ -1,8 +1,118 @@
-current_spec: fleet-liveness-status
+current_spec: fleet-live-rollout
 
 # Forge handoff
 
 ## Current state
+
+`fleet-liveness-status` implemented, verified and archived on 2026-09-28 as
+`2026-09-28-fleet-liveness-status`; its three requirements (read-only
+fleet online verdicts, served router rules as route ground truth,
+application answers count as online) were promoted into
+[openspec/specs/fleet-liveness-status/spec.md](openspec/specs/fleet-liveness-status/spec.md).
+The implementation closes every Section-3 BFS and Section-4 verification
+task in the proposal: `forge fleet online` joins per `compose_ready`
+roster entry the target container state (read through the existing SSH
+transport with a `FORGE_PUBLISH_SSH_TARGET` override that also lets a
+test stub take the probe directly), the served `platform/Caddyfile`
+hosts parsed on the controller (nav host and `:80` fallback excluded),
+and one bounded HTTPS probe (bounded `curl -s -m N --max-filesize 65536`
+— no new dependency, `cargo deny` closure unchanged) into a typed
+verdict of `ONLINE` / `DOWN` / `NO-ROUTE` / `NOT-DEPLOYED` /
+`UNAVAILABLE` / `SKIPPED` and a typed `forge-fleet-liveness/0.1.0`
+JSON document plus a human table. Every captured string passes
+`policy::redact_credentials`; the router's unknown-hostname fallback
+body and 502/503/504 never read `ONLINE`; non-ready entries are
+reported with their own classification and never probed; the command
+exits non-zero unless every probed host is `ONLINE` and writes no
+journal row, no registry row, no target file. Roster flags mirror
+`forge publish fleet` exactly (`--inventory` beats `--fleet-registry`,
+legacy compatibility adapter is preserved, every declared entry
+classified once and reported — `compose_ready` is the only probed
+class). `--timeout-secs` is bounded `1..=120`; `--dry-run` renders the
+plan and never contacts the target or any origin. The MCP `tools/list`,
+portal, and `forge list` surfaces stay unchanged: no new tool, no new
+route, no new portal section, no new journal kind beyond the existing
+`publish` rows; the registry's `operations` table gains no columns.
+
+`openspec list` shows four remaining proposals
+(`fleet-live-rollout`, `portal-web-ui`, plus the `portfolio-*` and
+`standard-pack-registry-and-snapshots` candidates). The pointer
+advances to `fleet-live-rollout` — the next sibling package whose
+proposal declares a dependency on the just-archived liveness report —
+so the operator's next cycle has the right `current_spec`.
+
+## Verification evidence (fleet-liveness-status, 2026-09-28)
+
+- `cargo fmt --all -- --check`: PASS for the touched files
+  (`src/main.rs`, `src/fleet/mod.rs`, `src/fleet/online.rs`,
+  `tests/fleet_online_contract.rs`); the pre-change baseline
+  carries formatting drift in `src/gate/evidence.rs`,
+  `src/publish/fleet.rs`, `src/publish/jenkins.rs`,
+  `tests/gate_contract.rs`, `tests/gate_cross_surface.rs`,
+  `tests/publish_queue_status_contract.rs` — none touched by this
+  change (verified by `git checkout --` on those files and re-running
+  `cargo fmt --check`).
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS for the touched
+  files. The seven pre-existing `-D warnings` errors live in
+  `src/gate/evidence.rs`, `src/publish/mod.rs`, `src/publish/fleet.rs`,
+  and the gate/publish test suites — none touched by this change.
+- `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`:
+  PASS — 69 result groups, 0 failed; the change adds no new
+  long-running native test. New supervised suites: 22
+  `src/fleet/online` unit tests (verdict matrix:
+  `NO-ROUTE`/`NOT-DEPLOYED`/`DOWN` on gateway errors, `DOWN` on
+  connection failure, `DOWN` on router fallback body,
+  `ONLINE` on application 404, `UNAVAILABLE` on probe error,
+  redaction of secret-shaped probe error detail;
+  Caddyfile host parser: nav/fallback exclusion, empty-file
+  handling, exact host match; `match_container` prefix match,
+  bounded length, secret redaction; SSH argv shape matches the
+  publish adapter for both the real `ssh <target>` and the
+  local-path stub override; `summary` counts every state plus
+  the `SKIPPED` non-probed bucket; non-`compose_ready` entries
+  bypass the classifier so their classification surfaces
+  verbatim) plus 14 `tests/fleet_online_contract.rs` CLI tests
+  (help advertises every roster flag including `--inventory`,
+  `--fleet-registry`, `--workspace-root`, `--domain`,
+  `--timeout-secs`, `--dry-run`; `--dry-run` renders the plan
+  without contacting the target; `--timeout-secs 0` refused
+  with a typed out-of-bounds; empty roster refuses with
+  `publish-invalid`; `NO-ROUTE` when the served Caddyfile has
+  no rule; `NOT-DEPLOYED` when the served Caddyfile has a rule
+  but `docker ps` is empty; `SKIPPED` for `compose_missing`
+  and `source_unavailable` entries; `SKIPPED` for
+  `source_unavailable` keeps the entry in the report and exits
+  non-zero; secret-shaped bytes in `docker ps` are redacted in
+  stdout and stderr; the served Caddyfile without a rule for a
+  compose-ready entry yields `NO-ROUTE` and the HTTP probe is
+  skipped; an entry with a routed Caddyfile and a running
+  container probes `ONLINE`; the read-only guarantee — journal
+  row count and registry bytes are identical before and after
+  the run, and the fake ssh stub is not mutated).
+- Live binary smoke: `forge fleet online --help` advertises
+  `--inventory`/`--fleet-registry`/`--workspace-root`/`--domain`/
+  `--timeout-secs`/`--dry-run`; `--dry-run` against an empty
+  inventory prints the plan and exits 0; a real probe against
+  `ssh mac` on the operator's Mac returns
+  `error[publish-invalid]: probe \`ssh mac cat
+  /srv/platform/Caddyfile\` failed: cat: ...: No such file or
+  directory` and exits 1 (the Mac has no fleet yet — the typed
+  refusal names the missing path verbatim and the operator's
+  follow-up is the real rollout, not this change). The
+  `inventory show` / `publish fleet` paths and every
+  `forge fleet list|status|inspect` path stay byte-identical
+  (the existing `tests/inventory_contract.rs` and
+  `tests/fleet_contract.rs` continue to pass without edits).
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 50 passed,
+  0 failed pre-archive and 50 passed, 0 failed post-archive with
+  the promoted `fleet-liveness-status` spec (+3 requirements);
+  `git diff --check`: PASS.
+- Pointer state: `fleet-liveness-status` archived (`15/15` tasks
+  evidenced). `openspec list` shows the four remaining proposals
+  above; the pointer advances to `fleet-live-rollout`.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
 
 `sibling-cwd-publish` implemented, verified and archived on 2026-09-28 as
 `2026-09-28-sibling-cwd-publish`; its six requirements (cwd-discovered

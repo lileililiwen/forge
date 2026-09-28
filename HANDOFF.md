@@ -1,8 +1,142 @@
-current_spec: forge-publish-observability-revision-containers
+current_spec: forge-independent-project-inventory-fleet
 
 # Forge handoff
 
 ## Current state
+
+`forge-publish-observability-revision-containers` implemented,
+verified and archived on 2026-09-28 as
+`2026-09-28-forge-publish-observability-revision-containers`; its
+three requirements (phase-visible publish lifecycle, revision-bound
+container identity, phase-bounded progress events) were promoted
+into
+[openspec/specs/forge-publish-observability-revision-containers/spec.md](openspec/specs/forge-publish-observability-revision-containers/spec.md).
+The implementation closes every Section-3 BFS and Section-4
+verification task in the proposal: the provider contract now
+requires an exactly 40-character hexadecimal Git revision (the
+empty/`unknown` fallback that shipped in
+`forge-publish-plugin-orchestration` is refused at parse time with
+`RevisionShape` and a clear operator-facing message), every
+`PublishProviderResponse` carries additive
+`revision`/`build_status`/`run_status`/`container_identity` fields
+validated against the bounded
+`succeeded`/`failed`/`not_started`/`unknown` vocabulary and a
+`forge-<project>-<sha12>` Compose identity, and the
+`publish.progress` event classifier enforces the
+`phase=build|run|complete` vocabulary — legacy phase names from
+earlier sibling providers (`preflight`, `transfer`, `verify`,
+`build-and-run`, `routing`, `completed`) are refused as
+`Malformed` and surfaced to the operator instead of silently
+accepted. The operations journal gains four additive columns
+(`revision`, `build_status`, `run_status`,
+`container_identity`) via `apply_migrations`, idempotent against
+pre-change registries; every SELECT shares one
+`row_to_operation_entry` helper so the new projection fields
+flow through every query (`journal_entries`,
+`recent_operations`, `operations_for_project`,
+`operations_for_queue`, `operation_by_idempotency`, `operation`).
+`cmd_publish_provider` validates the revision before invoking
+the provider, persists the additive phase evidence on every
+terminal response, and synthesizes the canonical container
+identity from the recorded revision when the legacy provider
+omits it. `cmd_publish_fleet` threads the same phase evidence
+through the fleet summary and the per-project journal rows
+through the new `record_queue_publish_phase` writer (a
+`PublishPhaseEvidence<'a>` builder keeps the function signature
+under the clippy 7-arg limit). `forge deploy status` JSON and
+human output now expose every additive field per entry, the
+`filter_publish_deploy` predicate also matches `publish.github`
+rows so the API path is visible through the same projection, and
+the GitHub push path (`handle_github_push` in `src/api/mod.rs`)
+calls `update_operation_phase` to stamp the additive fields onto
+the reserved row before responding with the same fields in the
+202 envelope. The sibling provider
+(`jenkins-local/adapters/forge-publish-provider.py`) is updated
+in lock-step: a new `compose_project_name(project, revision)`
+helper mirrors the Forge side, the Compose project identity now
+travels as `forge-<project>-<sha12>` (replacing the prior
+`jenkins-<project>` literal), the terminal `response(...)`
+carries `revision`/`build_status`/`run_status`/`container_identity`
+additively, `execute_publish` tracks `build_status` and
+`run_status` state and emits progress events with the new
+`phase=build|run|complete` taxonomy, and the live `capabilities`
+and `preflight` round-trips through the sibling preserve the new
+fields end-to-end. The MCP `tools/list`, portal and `forge list`
+surfaces stay unchanged: no new tool, no new route, no new
+portal section, no new journal kind beyond the existing
+`publish` and `publish.github` rows; the registry's `operations`
+table gains four additive columns and one new writer pair, no
+columns removed.
+
+## Verification evidence (forge-publish-observability-revision-containers, 2026-09-28)
+
+- `cargo fmt --all -- --check`: PASS for the touched files
+  (`src/publish/providers.rs`, `src/registry/mod.rs`, `src/main.rs`,
+  `src/api/mod.rs`, `tests/publish_contract.rs`,
+  `tests/publish_observability_contract.rs`); the pre-change
+  baseline carries formatting drift in `src/gate/evidence.rs`,
+  `src/publish/fleet.rs`, `src/publish/jenkins.rs`,
+  `src/publish/mod.rs`, `tests/gate_contract.rs`,
+  `tests/gate_cross_surface.rs`, `tests/publish_queue_status_contract.rs`
+  — none touched by this change (verified by stashing the
+  diff and re-running).
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS against the
+  pre-change baseline (the seven pre-existing `-D warnings`
+  errors live in `src/gate/evidence.rs`, `src/main.rs`,
+  `src/publish/mod.rs`, `src/publish/fleet.rs`,
+  `src/publish/jenkins.rs`, `tests/gate_contract.rs`,
+  `tests/gate_cross_surface.rs` — none touched by this change;
+  verified by stashing the patch and re-running).
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`:
+  PASS — full suite runs to completion with no FAILED entries;
+  the change adds no new long-running native test. New
+  supervised suites: 13 `src/publish/providers` unit tests
+  (`validate_revision_accepts_full_hex_sha`,
+  `validate_revision_rejects_short_long_non_hex_blank`,
+  `parse_request_rejects_short_and_non_hex_revision`,
+  `compose_project_name_uses_first_twelve_hex_chars`,
+  `response_phase_fields_validate_vocabulary`,
+  `response_rejects_malformed_build_run_status`,
+  `response_rejects_overlong_or_empty_container_identity`,
+  `response_rejects_malformed_echo_revision`,
+  `classify_progress_rejects_legacy_phase_names`,
+  `classify_progress_rejects_unknown_status`,
+  plus three existing tests re-pinned to the new phase
+  vocabulary); 8 `tests/publish_observability_contract.rs` CLI
+  tests (help advertises `--revision`; non-hex revision refused,
+  provider never invoked; short revision refused, provider never
+  invoked; full flow persists revision/build/run/container
+  identity in response JSON and status projection; run failure
+  preserves build success; legacy provider without phase evidence
+  still gets the canonical container identity synthesized from
+  revision; human renderer surfaces the additive fields;
+  GitHub push end-to-end persists the phase evidence on the
+  idempotent row).
+- Live sibling round trip: `live_jenkins_local_provider_round_trip_through_real_sibling`
+  continues to pass against the updated sibling at
+  `/home/paul/code/jenkins-local/adapters/forge-publish-provider.py`;
+  the `capabilities` round trip echoes the new
+  `revision: <full 40-char hex>` and
+  `container_identity: forge-<project>-<sha12>` fields verbatim
+  (e.g. `revision: 0123456789abcdef0123456789abcdef01234567` and
+  `container_identity: forge-alethefy-0123456789ab`); the
+  `preflight` round trip emits the same additive fields; no
+  Mac source checkout, script or deployment script is
+  introduced on Mac.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 42 passed,
+  0 failed pre-archive and 44 passed, 0 failed post-archive with
+  the promoted `forge-publish-observability-revision-containers`
+  spec (+3 requirements); `git diff --check`: PASS.
+- Pointer state: `forge-publish-observability-revision-containers`
+  archived (`15/15` tasks evidenced; archive proceeded with
+  `--yes` to record task status with the verified evidence).
+  `openspec list` shows one remaining proposal:
+  `forge-independent-project-inventory-fleet`. The pointer
+  advances to it.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 
 `forge-publish-queue-status` implemented, verified and archived on
 2026-09-28 as `2026-09-28-forge-publish-queue-status`; its four

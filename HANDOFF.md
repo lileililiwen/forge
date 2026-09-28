@@ -2,6 +2,38 @@
 
 ## Current state
 
+`sibling-cwd-publish` implemented, verified and archived on 2026-09-28 as
+`2026-09-28-sibling-cwd-publish`; its six requirements (cwd-discovered
+single publish, shared provider engine, explicit flag precedence,
+revision discipline, typed failures without silent fallback, plugin
+boundary preservation) were promoted into
+[openspec/specs/sibling-cwd-publish/spec.md](openspec/specs/sibling-cwd-publish/spec.md).
+The implementation closes every Section-2 DFS and Section-3 BFS task in
+the proposal except the two optional verification tasks (native
+scaffold build and live jenkins-local round trip): `forge publish` with
+no `--project`/`--folder` now discovers the project from cwd
+(`.project.json:id` > `forge.yaml:project.id` > directory basename),
+validates the kebab/snake id, captures `HEAD` as a 40-hex revision
+through the same `validate_revision` gate, and delegates to
+`publish_via_provider_dir` — the exact provider path as `--folder`
+(typed `forge-publish-provider/0.1.0` contract, bounded `1800s`
+invocation, secret redaction, additive `revision`/`build_status`/
+`run_status`/`container_identity`, `operations` `publish` journal row
+with `queue_id=None`, visible via `forge deploy status --project <id>`).
+`--cwd <PATH>` overrides the process cwd for scripting; `--project` and
+`--folder` bypass discovery entirely; malformed `.project.json`,
+invalid basename, non-hex revision and unknown/disabled provider all
+return typed `publish-invalid` with empty stdout and zero provider
+spawn; no parent-directory walk or sibling-directory scan is performed.
+Fleet mode (`forge publish fleet --inventory <path>`) and `forge
+inventory show [SOURCE]` are unchanged — every inventory entry still
+classifies `compose_ready`/`compose_missing`/`invalid`/
+`source_unavailable` and only `compose_ready` invokes a provider.
+`jenkins-local` remains a Forge-side plugin configured via
+`FORGE_PUBLISH_PROVIDER` / `.forge/providers.yaml`; siblings never call
+`project-action.sh` directly. `forge publish --help` now advertises the
+bare invocation and `--cwd`. No new registry columns or tables.
+
 `forge-independent-project-inventory-fleet` implemented, verified and
 archived on 2026-09-28 as
 `2026-09-28-forge-independent-project-inventory-fleet`; its five
@@ -103,6 +135,52 @@ promoted to their canonical specs.
   `inventory_subdomain` projection that the jenkins-local Caddy
   renderer consumes. The full Mac end-to-end (77 projects published
   through one wildcard tunnel) is a sibling-owned follow-up.
+
+## Verification evidence (sibling-cwd-publish, 2026-09-28)
+
+- `cargo fmt --check`: PASS for the touched files (`src/main.rs`,
+  `tests/sibling_cwd_publish_contract.rs`); the pre-change baseline
+  carries formatting drift in unrelated files, which is out of scope.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: baseline has 4 pre-existing
+  `-D warnings` errors (`src/gate/evidence.rs`, `src/publish/mod.rs`
+  shape issues) — none touched by this change (verified by stashing
+  the patch and re-running).
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`:
+  PASS — parallel run has 1 flaky API/healthz race (`Connection refused`);
+  all suites green in isolation. New supervised suite: 12
+  `tests/sibling_cwd_publish_contract.rs` CLI tests
+  (`publish_help_advertises_cwd_and_bare_publish`,
+  `cwd_publish_discovers_project_json`,
+  `cwd_publish_falls_back_to_forge_yaml`,
+  `cwd_publish_falls_back_to_directory_basename`,
+  `cwd_explicit_flag_overrides_process_cwd`,
+  `cwd_folder_flag_beats_cwd_discovery`,
+  `malformed_project_json_is_typed_failure`,
+  `invalid_basename_cwd_is_typed_failure`,
+  `cwd_non_hex_revision_is_refused_before_provider`,
+  `cwd_disabled_provider_is_refused`,
+  `cwd_publish_persists_and_visible_via_deploy_status`,
+  `project_json_takes_precedence_over_forge_yaml`) plus
+  12 `src/publish/inventory` + 9 `tests/inventory_contract.rs`
+  still green.
+- Live sibling smoke: `forge publish --help` advertises `--cwd`;
+  bare `forge publish --dry-run --provider jenkins` from
+  `alethefy` (or `forge` itself) discovers `project_id=alethefy`
+  and `revision` 40-hex without a provider spawn; explicit
+  `--folder` still beats cwd.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 41 passed,
+  0 failed pre-archive and 42 passed, 0 failed post-archive with the
+  promoted `sibling-cwd-publish` spec (+6 requirements);
+  `git diff --check`: PASS.
+- Pointer state: `sibling-cwd-publish` archived (`17/19` tasks
+  evidenced; 4.2 native scaffold build and 4.4 live jenkins-local
+  round trip are optional follow-ups when toolchains/siblings are
+  available). `openspec list` reports no remaining active changes;
+  the `current_spec` pointer is removed.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
 verified and archived on 2026-09-28 as
 `2026-09-28-forge-publish-observability-revision-containers`; its
 three requirements (phase-visible publish lifecycle, revision-bound

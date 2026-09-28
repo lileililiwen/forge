@@ -1,21 +1,40 @@
-current_spec: portal-web-ui
+current_spec: portfolio-metadata-and-review
 
 # Forge handoff
 
 ## Current state
 
-`portal-web-ui` implemented on 2026-09-29 against the refined
-spec (maud renderer, v0 scope reduction, bearer-token +
-Origin auth). The dependency closure opens with exactly three
-crates (`maud` 0.27, `maud_macros` 0.27, `itoa` 1), all
-MIT/Apache-2.0 and allow-listed. No new persistence, no new
-ports, no new auth surface. The three new HTTP routes
-(`GET /ui`, `GET /ui/projects/{id}`, `POST
-/ui/projects/{id}/publish`) are wired into the existing
-`forge api serve` listener through `Route::UiFleet`,
-`Route::UiProjectDetail { id }`, and `Route::UiProjectPublish
-{ id }`. The dispatch short-circuits the existing
-`authorize()` so the UI handlers own their auth flow.
+`portal-web-ui` implemented, verified and archived on
+2026-09-29 as `2026-09-28-portal-web-ui`; its four
+requirements (browser project list with latest journal
+publish state, project detail with evidence, confirm-gated
+republish from the browser, dependency closure explicitly
+registered) were promoted into
+[openspec/specs/portal-web-ui/spec.md](openspec/specs/portal-web-ui/spec.md).
+The implementation closes every Section-2 DFS and
+Section-3 BFS task in the proposal: `forge api serve` now
+serves `GET /ui` (fleet project list with per-project
+journal `publish` state), `GET /ui/projects/{id}` (project
+detail with manifest, maturity, doctor summary and
+journal rows), and `POST /ui/projects/{id}/publish`
+(confirm-gated republish that re-passes Core gates).
+Renderer: `maud 0.27` — JSX-shaped compile-time HTML, the
+closest in-Rust equivalent to the deferred graphical
+portal framework (ASP.NET Core / Next.js) — added with
+exactly three new transitive crates (`maud` + `maud_macros`
++ `itoa`), all MIT/Apache-2.0 (already allow-listed) and
+registered in `deny.toml` with the rationale. No new
+persistence, no new ports, no new auth surface. The
+existing JSON API envelopes stay byte-identical
+(`Accept: application/json` returns the unchanged
+envelope); the CLI / MCP / portal CLI outputs are
+untouched. The pointer advances to
+`portfolio-metadata-and-review` — the next sibling UI
+package whose proposal declares a dependency on
+`portal-web-ui` (plus `forge-independent-project-inventory-fleet`
+and `forge-publish-plugin-orchestration`, both already
+archived) — so the operator's next cycle has the right
+`current_spec`.
 
 ## Verification evidence (portal-web-ui, 2026-09-29)
 

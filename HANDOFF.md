@@ -1,6 +1,234 @@
-current_spec: portfolio-interest-snapshots
+current_spec: standard-pack-registry-and-snapshots
 
 # Forge handoff
+
+## Current state
+
+`portfolio-interest-snapshots` implemented, verified and archived on
+2026-09-28 as `2026-09-28-portfolio-interest-snapshots`; its three
+requirements (Forge accepts only privacy-safe aggregate snapshots,
+snapshot evidence is immutable and idempotent, comparisons preserve
+window semantics) were promoted into
+[openspec/specs/interest-snapshots/spec.md](openspec/specs/interest-snapshots/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS,
+Section-3 BFS and Section-4 verification task in the proposal.
+
+**Domain** (`src/portfolio/interest/`). The package is split by
+concern so each file answers one question, matching
+`src/portfolio/share/*`: `mod.rs` owns the vocabularies, bounds and
+record shapes, `validation.rs` owns the single `validate_snapshot`
+gate, `compare.rs` owns the comparison and trend projections.
+`PrivacyMode` (`exact-count|lower-bound|undeclared`), `Coverage`
+(`complete|partial`), `SnapshotState` (`accepted|superseded`),
+`Freshness` (`current|stale`) and the five-count `InterestMetric`
+allowlist (`unique_visitors`, `completed_public_workflows`,
+`returning_visitors`, `outbound_cta_clicks`, `paid_interest_events`)
+are closed enums. `paid_interest_events` is an aggregate signal,
+deliberately **absent** from the `PAYMENT_KEYS` refusal list, and
+never a basis for granting access.
+
+The load-bearing rule is the **closed key set**: a record may carry
+only `SNAPSHOT_KEYS` (nine keys) and a `metrics` object may carry only
+metric labels, so an identity, raw-event, payment or credential field
+is refused *by construction* rather than by review, and a refusal
+names the field and the rule and never echoes the value. The four
+deny lists are `IDENTITY_KEYS`, `RAW_EVENT_KEYS`, `PAYMENT_KEYS` and
+`CREDENTIAL_KEYS`; an email-shaped value and a raw URL carrying a
+query are refused on shape as well as on name; every refusal,
+rejection and finding passes `redact_interest_text`, which applies
+`policy::redact_credentials` and then drops address-shaped tokens. A
+metric map that is all zeros is refused unless the source declared
+`coverage: complete` — a partially measured window reporting zero is a
+collection gap, and storing it would turn a broken provider into a
+standing statement that nobody was interested.
+
+**Persistence** (`src/registry/interest/`). Three additive tables
+(`portfolio_interest_snapshots`, `portfolio_interest_metrics`,
+`portfolio_interest_findings`) applied by
+`apply_portfolio_interest_migration` inside its own explicit
+`BEGIN IMMEDIATE` … `COMMIT` batch with `ROLLBACK` on any failure —
+deliberately *separate* from the portfolio and share batches so a
+rollback in any domain leaves the others intact. `projects`,
+`operations` and every portfolio/share table are untouched, and the
+interest domain writes **no** `operations` journal row. Metrics are
+rows, not a JSON blob: there is no `payload`/`events`/`metadata`
+column for a free-form value to hide in. Snapshots are append-only —
+only `accepted` → `superseded` ever changes, and only when the source
+names the revision it replaces. Identity
+(`project_id, source, source_revision, window_start, window_end`) is a
+`UNIQUE` constraint: an exact repeat is an idempotent `AlreadyPresent`,
+and a *changed* payload under an already-attested identity is a
+conflict rather than a merge.
+
+**Orchestration** (`src/portfolio/interest_report.rs`). The single
+door both transports enter. `import_snapshots` is deliberately
+per-record: a batch stores its sound records and reports the rest with
+an index, a field, a stable code and a reason. Windows are UTC
+half-open, so `2026-09-01..09-08` and `2026-09-08..09-15` are adjacent
+and both storable, while any same-source overlap is refused until the
+source declares `replaces_source_revision`. `compare_projects` and
+`interest_trend` read *current* snapshots only, so a superseded
+revision never answers the same question twice; `project_interest`
+(`show`) is the history view and keeps them. Freshness is derived from
+the window end at read time and never stored, so widening the bound
+never rewrites an observed value.
+
+**CLI.** `forge portfolio interest import|list|show|compare|trend|audit`.
+`import` takes a path or `-` for stdin, bounded to 1 MiB before it is
+parsed. A batch whose records are **all** refused is a typed
+`portfolio-interest-invalid` whose reason names each refused record's
+index, code and reason (bounded to five and 200 chars each) — the
+`forge fleet online` precedent for "a report with zero successes is a
+failure the shell can see". The reason text has already been scrubbed,
+so nothing echoes.
+
+**JSON API.** `GET|POST /v1/projects/{id}/interest`,
+`GET /v1/interest/{compare,trend,audit}` — all behind the existing
+`authorize()`, and **all** requiring `admin:access`, the reads
+included: which projects draw interest, and which draw none, is the
+private half of a portfolio decision. The import route injects the
+project from the path and refuses a body that names a different one,
+and records the **authenticated session subject** as the importer, not
+a client-claimed actor. Two new typed errors:
+`portfolio-interest-invalid` → 400, `portfolio-interest-conflict` →
+409. `percent_decode` handles the comma-separated project list.
+
+The pointer advances to `standard-pack-registry-and-snapshots` — the
+next active change in `openspec list` whose declared prerequisites
+(the profile registry, generation and the runtime template contract)
+are all archived and whose oracle ("render/diff/upgrade contract
+tests") is locally verifiable. `fleet-live-rollout` remains active but
+is deliberately **not** selected: its acceptance is live 20/20 green on
+the Mac, and the previous cycle recorded that the Mac has no fleet yet,
+so it cannot be completed or honestly evidenced from this checkout.
+
+## Verification evidence (portfolio-interest-snapshots, 2026-09-28)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/api/mod.rs`, `src/core/mod.rs`, `src/main.rs`,
+  `src/portfolio/mod.rs`, `src/registry/mod.rs`,
+  `src/portfolio/interest/{mod,validation,compare}.rs`,
+  `src/portfolio/interest_report.rs`, `src/registry/interest/mod.rs`,
+  `tests/support/{mod,interest}.rs`,
+  `tests/portfolio_interest_{cli,api,cross}_contract.rs`). The
+  pre-change baseline carries formatting drift in
+  `src/gate/evidence.rs`, `src/publish/{fleet,jenkins}.rs`,
+  `src/portfolio/share/validation.rs`, `tests/gate_contract.rs`,
+  `tests/gate_cross_surface.rs` and
+  `tests/publish_queue_status_contract.rs`; `cargo fmt` touched them
+  incidentally and those edits were reverted with `git checkout --`, so
+  the drift is preserved exactly as the prior cycles left it.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: verified against the
+  stashed baseline with `git stash push -u -- src tests` and a
+  location-by-location `comm` diff — **12 baseline locations, 12 after,
+  zero new**. The pre-existing locations are
+  `src/api/ui/auth.rs:166-167`, `src/gate/evidence.rs` (229, 425, 826,
+  827, 862), `src/portfolio/share/validation.rs` (13, 392),
+  `src/publish/fleet.rs:51` and `src/publish/mod.rs:634-636`. Three
+  clippy errors this change *did* introduce were fixed rather than
+  suppressed: two "this loop never actually loops" in the interest
+  query parsers, rewritten into the `parse_share_limit` shape, and one
+  needless borrow in `validate_window`.
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: **78 result
+  groups, 1772 tests, 0 failed**; the change adds no new long-running
+  native test. New supervised suites: 34 unit tests across
+  `src/portfolio::interest::{mod,validation,compare}` and
+  `src/registry::interest`, 16 `tests/portfolio_interest_cli_contract.rs`,
+  13 `tests/portfolio_interest_api_contract.rs` and 10
+  `tests/portfolio_interest_cross_surface.rs`. Notable coverage: closed
+  vocabularies; the strict envelope (wrong/absent contract, stray
+  envelope key, non-object record, empty batch); all four refusal
+  classes plus an unknown field named and never echoed; a closed metric
+  object; negative / fractional / string / list / object / over-bound
+  values; the naive-timestamp, inverted, empty and 731-day window
+  refusals; self-replacement; UTC normalization and canonical metric
+  order; the all-zero-complete vs all-zero-partial rule; half-open
+  adjacency vs overlap; idempotent repeat vs changed-payload conflict;
+  declared replacement superseding only the named revision; the
+  registry proving additive idempotent migration, a hand-built
+  pre-change registry carrying forward with its project *and* journal
+  rows intact, an interrupted batch rolling back with no partial table
+  and the next open retrying cleanly, an unreadable state reading as
+  the one that never compares, and metrics stored as rows in canonical
+  order; the schema-column privacy assertion; stored metric names read
+  back against the allowlist; refused imports never erasing evidence;
+  two sources over the same instants never summed (and `150` never
+  appearing anywhere); the private portfolio projection, public share
+  manifest and fleet list carrying no interest data; and no
+  `operations` row written.
+- Live binary smoke (CLI), against a two-project local registry:
+  `forge portfolio interest --help` advertises all six subcommands;
+  a four-record batch reports `3 accepted, 0 already present, 0
+  superseded, 1 refused` and the JSON report names the refused record's
+  index, field and code; `compare` on two windows renders
+  `comparable across windows: false`, both windows, per-row
+  `[source / source_revision / privacy_mode / freshness]`, and the two
+  notes ("will not rank or total across windows", "lower-bound is not
+  an exact count"); `show` renders both `accepted` windows, their
+  metrics, `stale windows: 2` and the persisted refusal; `trend`
+  renders both points with `lower-bound`/`stale` labels. Refusals:
+  an overlapping record reports
+  `record 0 [interest-overlap-refused]: source \`github-analytics\`
+  already reported the window … count the shared days twice` (exit 1,
+  stdout empty); a `card_number` metric reports
+  `interest-payment-refused`; an `email` metric reports
+  `interest-identity-refused` with the address absent from every
+  finding; an unknown project reports `unknown-project` and stores
+  nothing; `--stale-after-days 0` and `501`-record audit limits are
+  typed refusals. Widening `--stale-after-days` from 1 to 365 moved
+  `stale windows` from 1 to 0 while leaving the stored value identical.
+- Live binary smoke (HTTP), `forge api serve --bind 127.0.0.1 --port
+  18971` with a minted session: `/healthz` stays byte-identical; every
+  interest route without a bearer is 401 (including
+  `GET /v1/interest/audit?limit=0`, which is 401 rather than a 400
+  disclosure); `/v1/projects` and `/ui` without a bearer are 401; a
+  mixed batch over `POST /v1/projects/alethefy/interest` returns
+  `accepted 1 rejected [(1, 'interest-identity-refused')] actor
+  release-bot`; a session minted for `alethefy` presented to
+  `POST /v1/projects/forge/interest` is 403 `api-project-mismatch`; the
+  projection returns `measured True snapshots 1 refusals 1`; `compare`
+  returns `rows 1 total None freshness stale privacy exact-count`; the
+  trend returns one point; `audit` returns the refusal and **zero**
+  occurrences of the address; an unknown metric is a 400
+  `api-invalid` naming the allowlist; an overlap over HTTP is reported
+  per record; and `GET /v1/projects/alethefy/portfolio` and
+  `GET /v1/share/manifest` contain zero occurrences of the interest
+  metrics, source revision or `interest` key.
+- `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok.
+  **No new dependency** was added and `Cargo.toml`/`deny.toml` are
+  unmodified; the closure is unchanged.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 50 passed,
+  0 failed (50 items) pre-archive and 50 passed, 0 failed post-archive
+  with the promoted `interest-snapshots` spec (+3 requirements);
+  `git diff --check`: PASS.
+- **Blocked, honestly recorded:** no analytics provider was contacted
+  and no provider credential was used. Every fixture in this package is
+  a local JSON document or an in-process call; there is no adapter
+  subprocess, no `FORGE_*_BIN` override and no network request in the
+  interest code path. This package is the *consuming* half of an
+  analytics pipeline: the provider that produces the aggregate, its
+  collection policy and its credentials stay outside Forge, and Forge
+  claims nothing about how a figure was produced beyond the
+  `privacy_mode` and `coverage` the source declared. Real provider
+  runtime collection remains external evidence that does not exist yet.
+  The package also fixes no schema in `platform-contracts`: the import
+  envelope is Forge's own
+  (`forge-portfolio-interest/0.1.0`), and no cross-repo fixture
+  validation is claimed.
+- Pointer state: `portfolio-interest-snapshots` archived (`14/14` tasks
+  evidenced, `4/4` artifacts complete). `openspec list` shows the two
+  remaining proposals (`standard-pack-registry-and-snapshots`,
+  `fleet-live-rollout`); the pointer advances to
+  `standard-pack-registry-and-snapshots`, whose prerequisites are
+  archived and whose oracle is local, while `fleet-live-rollout` stays
+  active but unselected because it requires live target access.
+- No shared Gate Runtime is configured; no Gate pass is claimed. No
+  PostgreSQL, multi-user, SSO or remote-synchronization readiness is
+  claimed; no product database, visitor identity, payment record or
+  external analytics host was contacted, read or written.
 
 ## Current state
 

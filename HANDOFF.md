@@ -1,3 +1,5 @@
+current_spec: fleet-liveness-status
+
 # Forge handoff
 
 ## Current state
@@ -4683,3 +4685,29 @@ two design guesses about sibling behaviour).
 - Archive: `2026-09-27-gate-evidence-export-consumption`; spec promoted to
   `openspec/specs/gate-evidence-export-consumption/spec.md`; no active
   changes remain; `current_spec` line removed.
+
+## decoupled-remote-publish archived (2026-09-28)
+
+`decoupled-remote-publish` implemented, verified and archived on 2026-09-28 as
+`2026-09-28-decoupled-remote-publish`; 8 requirements promoted to
+[openspec/specs/decoupled-remote-publish/spec.md](openspec/specs/decoupled-remote-publish/spec.md).
+New: `src/publish/{remote_compose,port_allocator,db_overlay,caddy}.rs`
+(`RemoteComposeAdapter` default lane, no target scripts), `JenkinsAdapter`
+retained behind `FORGE_PUBLISH_ADAPTER=jenkins`, per-command timeouts,
+redacted failure evidence, `tests/decoupled_remote_publish_contract.rs`
+(5 CLI tests). Live canaries green: alethefy, mortalect, crossify,
+dharmatlas, cvunify. Full 20/20 rollout split to `fleet-live-rollout`
+(deferred to a later cycle, after liveness + portal). Next active:
+`fleet-liveness-status`, then `portal-web-ui`.
+Validation at archive: 46 passed, 0 failed; suite green; `git diff --check` pass.
+
+## Verification evidence (decoupled-remote-publish, 2026-09-28)
+
+- `cargo build`: PASS.
+- Full workspace suite (`--skip rust_scaffold_builds_and_tests_with_native_toolchain`): PASS, 0 failures.
+- `cargo clippy --all-targets`: no new-file warnings (remaining `-D warnings` errors are pre-existing baseline drift, verified via stash).
+- `rustfmt --check` on all touched files: PASS. `git diff --check`: PASS.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate --all --strict --no-interactive`: 46 passed, 0 failed.
+- Live: `forge publish all` green with healthy containers for 5 canary projects; registry/Caddyfile/overlay docs verified on target.
+- No gate pass claimed (no Gate configured); no push performed.

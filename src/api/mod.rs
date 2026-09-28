@@ -819,7 +819,10 @@ fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiResponse {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let git_ref = body.get("ref").and_then(Value::as_str).unwrap_or_default();
-    let after = body.get("after").and_then(Value::as_str).unwrap_or_default();
+    let after = body
+        .get("after")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let secret = match std::env::var("FORGE_GITHUB_WEBHOOK_SECRET") {
         Ok(value) if !value.is_empty() => value,
         _ => return bad_request("FORGE_GITHUB_WEBHOOK_SECRET is not configured"),
@@ -835,12 +838,7 @@ fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiResponse {
         signature,
         body: request.body.clone(),
     };
-    if let Err(error) = verify_push(
-        &event,
-        secret.as_bytes(),
-        &allowed_repository,
-        &allowed_ref,
-    ) {
+    if let Err(error) = verify_push(&event, secret.as_bytes(), &allowed_repository, &allowed_ref) {
         return bad_request(&error.to_string());
     }
     let project_id = match std::env::var("FORGE_GITHUB_PROJECT_ID") {
@@ -924,9 +922,27 @@ fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiResponse {
             return ApiResponse::from_error(&error);
         }
     };
+    let phase_revision = response
+        .revision
+        .clone()
+        .unwrap_or_else(|| provider_request.revision.clone());
+    let container_identity = response.container_identity.clone().unwrap_or_else(|| {
+        crate::publish::providers::compose_project_name(&project_id, &phase_revision)
+    });
+    let _ = registry.update_operation_phase(
+        op_id,
+        Some(&phase_revision),
+        response.build_status.as_deref(),
+        response.run_status.as_deref(),
+        Some(&container_identity),
+    );
     let detail = format!(
-        "provider={} revision={} health={}",
-        response.provider, provider_request.revision, response.health
+        "provider={} revision={} health={} build={:?} run={:?}",
+        response.provider,
+        phase_revision,
+        response.health,
+        response.build_status,
+        response.run_status
     );
     let _ = registry.finalize_operation(op_id, &response.status, &detail);
     ApiResponse::json(
@@ -936,7 +952,10 @@ fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiResponse {
             "delivery_id": delivery_id,
             "operation_id": op_id,
             "provider": response.provider,
-            "revision": provider_request.revision,
+            "revision": phase_revision,
+            "build_status": response.build_status,
+            "run_status": response.run_status,
+            "container_identity": container_identity,
             "status": response.status,
             "health": response.health,
             "evidence": response.evidence,

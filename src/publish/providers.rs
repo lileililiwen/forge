@@ -1,4 +1,20 @@
 //! External Forge publish-provider contract.
+//!
+//! Owns the revision-bound phase evidence and the runtime identity
+//! the contract guarantees:
+//!
+//! - Every request carries a full 40-character hex Git revision.
+//! - Terminal responses may carry additive `revision`,
+//!   `build_status`, `run_status`, and `container_identity` fields
+//!   so `forge deploy status` can answer "what revision is running?"
+//!   without contacting the provider again. Missing fields render
+//!   as `unknown` in the projection — a response without phase
+//!   evidence is not a verified success.
+//! - `forge-<project>-<sha12>` is the canonical Compose project /
+//!   container identity, where `<sha12>` is the first 12 hex
+//!   characters of the committed revision. Compose files that
+//!   override `container_name` to a value without the SHA fail the
+//!   run phase before it reports success.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +39,35 @@ pub const QUEUE_ID_MAX: usize = 128;
 /// provider cannot blow the journal row width.
 pub const PROGRESS_DETAIL_MAX: usize = 512;
 
+/// A full Git revision is exactly 40 lowercase or uppercase hex
+/// characters. Providers MUST populate `request.revision` (and the
+/// matching response field) with the committed SHA the publish
+/// actually transferred; an empty, short, long or non-hex value is a
+/// contract violation.
+pub const REVISION_LEN: usize = 40;
+
+/// The number of hex characters that travel in the Docker / Compose
+/// identity. The full 40-character SHA stays in Forge state.
+pub const REVISION_SHA12_LEN: usize = 12;
+
+/// Progress event phase vocabulary. `build` and `run` mark the two
+/// publish phases; `complete` marks the final healthy phase. Other
+/// phase names from earlier providers (e.g. `preflight`,
+/// `build-and-run`, `verify`) are accepted as legacy aliases so
+/// sibling providers that have not yet migrated still classify.
+pub const PHASE_BUILD: &str = "build";
+pub const PHASE_RUN: &str = "run";
+pub const PHASE_COMPLETE: &str = "complete";
+
+/// Phase status vocabulary carried both on progress events and in the
+/// additive terminal response fields. Status names are shared
+/// verbatim with the journal and `forge deploy status` projection so
+/// the operator can map `unknown` / `not_started` to missing evidence.
+pub const PHASE_STATUS_SUCCEEDED: &str = "succeeded";
+pub const PHASE_STATUS_FAILED: &str = "failed";
+pub const PHASE_STATUS_NOT_STARTED: &str = "not_started";
+pub const PHASE_STATUS_UNKNOWN: &str = "unknown";
+
 /// Validate a queue_id string. Accepts ASCII alphanumeric characters
 /// plus `-` and `_`, length 1..=[QUEUE_ID_MAX]. Empty / blank / over-
 /// length / non-conforming values are refused with
@@ -38,6 +83,30 @@ pub fn validate_queue_id(value: &str) -> Result<(), ProviderContractError> {
         return Err(ProviderContractError::QueueIdShape(value.to_string()));
     }
     Ok(())
+}
+
+/// Validate a Git revision string. Accepts exactly 40 lowercase or
+/// uppercase hexadecimal characters (`[0-9a-fA-F]`). Any other value
+/// — empty, short, long, non-hex — is refused with
+/// [`ProviderContractError::RevisionShape`] so a stale or truncated
+/// SHA never reaches the journal.
+pub fn validate_revision(value: &str) -> Result<(), ProviderContractError> {
+    if value.len() != REVISION_LEN {
+        return Err(ProviderContractError::RevisionShape(value.to_string()));
+    }
+    if !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ProviderContractError::RevisionShape(value.to_string()));
+    }
+    Ok(())
+}
+
+/// Compose project / container identity for a revision-bound
+/// deployment. The 12-character SHA prefix is the human/container
+/// identity; the full 40-character SHA stays in Forge state so the
+/// status projection never has to round-trip through the provider.
+pub fn compose_project_name(project_id: &str, revision: &str) -> String {
+    let prefix: String = revision.chars().take(REVISION_SHA12_LEN).collect();
+    format!("forge-{project_id}-{prefix}")
 }
 
 pub fn provider_timeout() -> Duration {
@@ -95,6 +164,28 @@ pub struct PublishProviderResponse {
     /// back to the originating fleet run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_id: Option<String>,
+    /// Optional echo of the committed Git revision the provider
+    /// actually transferred. When the provider omits it the Forge
+    /// status projection assumes the request's revision (so the
+    /// additive fields never widen the contract for legacy providers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// Terminal status of the `build` phase (`succeeded`, `failed`,
+    /// `not_started`, `unknown`). Missing fields render as `unknown`
+    /// in the status projection — a response without phase evidence
+    /// is not a verified success.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_status: Option<String>,
+    /// Terminal status of the `run` phase (same vocabulary as
+    /// `build_status`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_status: Option<String>,
+    /// Bounded container / Compose project identity the provider
+    /// actually deployed (canonical `forge-<project>-<sha12>` for
+    /// sibling providers that follow the contract; absent when the
+    /// provider cannot prove the identity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_identity: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -127,6 +218,18 @@ pub enum ProviderContractError {
     SecretLeak,
     #[error("provider queue_id `{0}` is not 1..=128 ASCII alphanumeric/`-`/`_` characters")]
     QueueIdShape(String),
+    #[error("provider revision `{0}` is not a 40-character hex SHA")]
+    RevisionShape(String),
+    #[error(
+        "provider build_status `{0}` is not one of `succeeded`/`failed`/`not_started`/`unknown`"
+    )]
+    BuildStatusShape(String),
+    #[error(
+        "provider run_status `{0}` is not one of `succeeded`/`failed`/`not_started`/`unknown`"
+    )]
+    RunStatusShape(String),
+    #[error("provider container_identity `{0}` must not be empty and must be <= 256 characters")]
+    ContainerIdentityShape(String),
     #[error("provider progress event `{0}` is missing or invalid")]
     ProgressShape(&'static str),
     #[error("provider progress event claims a different operation_id than the active request")]
@@ -158,17 +261,45 @@ pub fn parse_request(value: Value) -> Result<PublishProviderRequest, ProviderCon
     for (field, value) in [
         ("provider", request.provider.as_str()),
         ("project_id", request.project_id.as_str()),
-        ("revision", request.revision.as_str()),
         ("operation_id", request.operation_id.as_str()),
     ] {
         if value.trim().is_empty() {
             return Err(ProviderContractError::MissingField(field));
         }
     }
+    validate_revision(&request.revision)?;
     if let Some(queue_id) = request.queue_id.as_deref() {
         validate_queue_id(queue_id)?;
     }
     Ok(request)
+}
+
+/// Maximum length for the bounded `container_identity` field. The
+/// Compose project / container name is bounded so a verbose provider
+/// cannot blow the journal row width.
+pub const CONTAINER_IDENTITY_MAX: usize = 256;
+
+fn validate_phase_status(field: &'static str, value: &str) -> Result<(), ProviderContractError> {
+    match value {
+        PHASE_STATUS_SUCCEEDED
+        | PHASE_STATUS_FAILED
+        | PHASE_STATUS_NOT_STARTED
+        | PHASE_STATUS_UNKNOWN => Ok(()),
+        _ => match field {
+            "build_status" => Err(ProviderContractError::BuildStatusShape(value.to_string())),
+            "run_status" => Err(ProviderContractError::RunStatusShape(value.to_string())),
+            _ => Err(ProviderContractError::ProgressShape("phase_status")),
+        },
+    }
+}
+
+fn validate_container_identity(value: &str) -> Result<(), ProviderContractError> {
+    if value.is_empty() || value.len() > CONTAINER_IDENTITY_MAX {
+        return Err(ProviderContractError::ContainerIdentityShape(
+            value.to_string(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn validate_response(response: &PublishProviderResponse) -> Result<(), ProviderContractError> {
@@ -179,6 +310,18 @@ pub fn validate_response(response: &PublishProviderResponse) -> Result<(), Provi
     }
     if let Some(queue_id) = response.queue_id.as_deref() {
         validate_queue_id(queue_id)?;
+    }
+    if let Some(revision) = response.revision.as_deref() {
+        validate_revision(revision)?;
+    }
+    if let Some(build_status) = response.build_status.as_deref() {
+        validate_phase_status("build_status", build_status)?;
+    }
+    if let Some(run_status) = response.run_status.as_deref() {
+        validate_phase_status("run_status", run_status)?;
+    }
+    if let Some(container_identity) = response.container_identity.as_deref() {
+        validate_container_identity(container_identity)?;
     }
     let rendered =
         serde_json::to_string(response).map_err(|_| ProviderContractError::SecretLeak)?;
@@ -277,6 +420,28 @@ pub fn classify_progress_event(
     if event_status.is_none() {
         return ProgressEventDecision::Malformed {
             reason: "event status is missing".to_string(),
+        };
+    }
+    let phase = event_phase.unwrap_or("");
+    if !matches!(phase, PHASE_BUILD | PHASE_RUN | PHASE_COMPLETE) {
+        return ProgressEventDecision::Malformed {
+            reason: format!("event phase `{phase}` is not one of `build`/`run`/`complete`"),
+        };
+    }
+    let status = event_status.unwrap_or("");
+    if !matches!(
+        status,
+        PHASE_STATUS_SUCCEEDED
+            | PHASE_STATUS_FAILED
+            | PHASE_STATUS_NOT_STARTED
+            | PHASE_STATUS_UNKNOWN
+            | "started"
+    ) {
+        return ProgressEventDecision::Malformed {
+            reason: format!(
+                "event status `{status}` is not one of \
+                 `started`/`succeeded`/`failed`/`not_started`/`unknown`"
+            ),
         };
     }
     if event_operation_id != Some(active_operation_id) {
@@ -517,6 +682,10 @@ mod tests {
             evidence: vec!["token=leaked".to_string()],
             recovery: vec![],
             queue_id: None,
+            revision: None,
+            build_status: None,
+            run_status: None,
+            container_identity: None,
         };
         assert_eq!(
             validate_response(&response),
@@ -546,6 +715,10 @@ mod tests {
             evidence,
             recovery,
             queue_id: None,
+            revision: None,
+            build_status: None,
+            run_status: None,
+            container_identity: None,
         }
     }
 
@@ -878,7 +1051,7 @@ mod tests {
             Some("fleet-1"),
             Some("op-a"),
             Some("alpha"),
-            Some("build-and-run"),
+            Some("build"),
             Some("started"),
             Some("stage 1/5"),
         );
@@ -1046,6 +1219,167 @@ mod tests {
             Some("alpha"),
             Some("build"),
             None,
+            None,
+        );
+        assert!(matches!(
+            classify_progress_event(&event, "op-a", "alpha", Some("fleet-1")),
+            ProgressEventDecision::Malformed { .. }
+        ));
+    }
+
+    #[test]
+    fn validate_revision_accepts_full_hex_sha() {
+        let lower = "0123456789abcdef0123456789abcdef01234567";
+        let upper = "0123456789ABCDEF0123456789ABCDEF01234567";
+        let mixed = "0123456789AbCdEf0123456789aBcDeF01234567";
+        assert!(validate_revision(lower).is_ok());
+        assert!(validate_revision(upper).is_ok());
+        assert!(validate_revision(mixed).is_ok());
+    }
+
+    #[test]
+    fn validate_revision_rejects_short_long_non_hex_blank() {
+        for bad in [
+            "",
+            "abc",
+            "0123456789abcdef0123456789abcdef0123456", // 39 chars
+            "0123456789abcdef0123456789abcdef012345678", // 41 chars
+            "0123456789abcdef0123456789abcdef0123456g", // non-hex
+            "not a sha at all not a sha at all !",     // 41 chars, non-hex
+        ] {
+            assert!(
+                matches!(
+                    validate_revision(bad),
+                    Err(ProviderContractError::RevisionShape(_))
+                ),
+                "expected RevisionShape for `{bad}`"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_request_rejects_short_and_non_hex_revision() {
+        let short = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "provider": "openpanel",
+            "project_id": "demo",
+            "revision": "0123456789abcdef",
+            "operation_id": "delivery-1"
+        }))
+        .unwrap_err();
+        assert!(matches!(short, ProviderContractError::RevisionShape(_)));
+        let non_hex = parse_request(json!({
+            "contract": PUBLISH_PROVIDER_CONTRACT,
+            "operation": "publish",
+            "provider": "openpanel",
+            "project_id": "demo",
+            "revision": "0123456789abcdef0123456789abcdef0123456g",
+            "operation_id": "delivery-1"
+        }))
+        .unwrap_err();
+        assert!(matches!(non_hex, ProviderContractError::RevisionShape(_)));
+    }
+
+    #[test]
+    fn compose_project_name_uses_first_twelve_hex_chars() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(
+            compose_project_name("alethefy", sha),
+            "forge-alethefy-0123456789ab"
+        );
+    }
+
+    #[test]
+    fn response_phase_fields_validate_vocabulary() {
+        let mut response = response_with(vec![], vec![]);
+        response.build_status = Some(PHASE_STATUS_SUCCEEDED.to_string());
+        response.run_status = Some(PHASE_STATUS_SUCCEEDED.to_string());
+        response.container_identity = Some("forge-alethefy-0123456789ab".to_string());
+        assert!(validate_response(&response).is_ok());
+    }
+
+    #[test]
+    fn response_rejects_malformed_build_run_status() {
+        let mut response = response_with(vec![], vec![]);
+        response.build_status = Some("success".to_string()); // wrong vocabulary
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::BuildStatusShape("success".into()))
+        );
+        let mut response = response_with(vec![], vec![]);
+        response.run_status = Some("queued".to_string()); // wrong vocabulary
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::RunStatusShape("queued".into()))
+        );
+    }
+
+    #[test]
+    fn response_rejects_overlong_or_empty_container_identity() {
+        let mut response = response_with(vec![], vec![]);
+        response.container_identity = Some(String::new());
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::ContainerIdentityShape(String::new()))
+        );
+        let mut response = response_with(vec![], vec![]);
+        response.container_identity = Some("x".repeat(CONTAINER_IDENTITY_MAX + 1));
+        assert!(matches!(
+            validate_response(&response),
+            Err(ProviderContractError::ContainerIdentityShape(_))
+        ));
+    }
+
+    #[test]
+    fn response_rejects_malformed_echo_revision() {
+        let mut response = response_with(vec![], vec![]);
+        response.revision = Some("not-a-sha".to_string());
+        assert_eq!(
+            validate_response(&response),
+            Err(ProviderContractError::RevisionShape("not-a-sha".into()))
+        );
+    }
+
+    #[test]
+    fn classify_progress_rejects_legacy_phase_names() {
+        // Phases from earlier providers (`preflight`, `transfer`,
+        // `verify`, `build-and-run`, `routing`, `completed`) are not
+        // part of the new vocabulary and are refused as malformed.
+        for legacy in [
+            "preflight",
+            "transfer",
+            "verify",
+            "build-and-run",
+            "routing",
+            "completed",
+        ] {
+            let event = progress_event(
+                Some("fleet-1"),
+                Some("op-a"),
+                Some("alpha"),
+                Some(legacy),
+                Some("started"),
+                None,
+            );
+            assert!(
+                matches!(
+                    classify_progress_event(&event, "op-a", "alpha", Some("fleet-1")),
+                    ProgressEventDecision::Malformed { .. }
+                ),
+                "legacy phase `{legacy}` must be Malformed"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_progress_rejects_unknown_status() {
+        let event = progress_event(
+            Some("fleet-1"),
+            Some("op-a"),
+            Some("alpha"),
+            Some("build"),
+            Some("queued"),
             None,
         );
         assert!(matches!(

@@ -258,6 +258,7 @@ fn publish_apply_invokes_provider_with_typed_contract() {
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("demo");
     write_minimal_project(&proj, "demo");
+    init_git_repo(&proj);
     let scripts = tmp.path().join("scripts");
     fs::create_dir_all(&scripts).unwrap();
     let log = scripts.join("recording.log");
@@ -345,6 +346,7 @@ fn publish_provider_failure_does_not_prevent_other_provider_use() {
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("demo");
     write_minimal_project(&proj, "demo");
+    init_git_repo(&proj);
     let scripts = tmp.path().join("scripts");
     fs::create_dir_all(&scripts).unwrap();
     let op_log = scripts.join("openpanel.log");
@@ -409,6 +411,7 @@ fn publish_jenkins_optional_and_no_mac_script_required() {
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("demo");
     write_minimal_project(&proj, "demo");
+    init_git_repo(&proj);
     let scripts = tmp.path().join("scripts");
     fs::create_dir_all(&scripts).unwrap();
     let log = scripts.join("openpanel.log");

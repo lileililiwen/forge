@@ -108,7 +108,7 @@ use forge::readiness::{
     artifact_evidence, evaluate_gate, render_artifact_human, render_gate_human,
     render_matrix_human, run_matrix, READINESS_CONTRACT_VERSION,
 };
-use forge::registry::{default_registry_path, ProjectRecord, Registry};
+use forge::registry::{default_registry_path, ProjectRecord, PublishPhaseEvidence, Registry};
 use forge::release::engine::{
     apply_release, list_releases, prepare_release, read_release, PlanReport as EnginePlanReport,
     ReleaseListEntry,
@@ -3573,9 +3573,18 @@ fn cmd_deploy_status(
 fn filter_publish_deploy(
     entries: Vec<forge::registry::OperationEntry>,
 ) -> Vec<forge::registry::OperationEntry> {
+    // Includes every variant of the publish surface — the manual
+    // `forge publish` path (`publish`), the legacy stage publish
+    // (`deploy`), and the GitHub-push reserve id (`publish.github`)
+    // — so the additive `revision` / `build_status` / `run_status` /
+    // `container_identity` evidence stays visible through one
+    // `forge deploy status` query regardless of which path produced
+    // the row.
     entries
         .into_iter()
-        .filter(|entry| entry.kind == "publish" || entry.kind == "deploy")
+        .filter(|entry| {
+            entry.kind == "publish" || entry.kind == "deploy" || entry.kind == "publish.github"
+        })
         .collect()
 }
 
@@ -3603,18 +3612,37 @@ fn render_deploy_status_human(
             .as_deref()
             .map(|q| format!(" queue={q}"))
             .unwrap_or_default();
+        let revision_label = entry
+            .revision
+            .as_deref()
+            .map(|r| format!(" revision={r}"))
+            .unwrap_or_default();
+        let build_label = entry
+            .build_status
+            .as_deref()
+            .map(|b| format!(" build={b}"))
+            .unwrap_or_default();
+        let run_label = entry
+            .run_status
+            .as_deref()
+            .map(|r| format!(" run={r}"))
+            .unwrap_or_default();
+        let identity_label = entry
+            .container_identity
+            .as_deref()
+            .map(|c| format!(" container={c}"))
+            .unwrap_or_default();
         lines.push(format!(
-            "  #{} {} {} {}{}{}",
+            "  #{} {} {} {}{}{}{}{}{}",
             entry.op_id,
             entry.project_id,
             entry.kind,
             entry.state,
             queue_label,
-            entry
-                .detail
-                .as_deref()
-                .map(|detail| format!(" — {detail}"))
-                .unwrap_or_default()
+            revision_label,
+            build_label,
+            run_label,
+            identity_label,
         ));
     }
     lines.join("\n")
@@ -3640,8 +3668,12 @@ fn cmd_deploy_status_watch(
         let still_active = entries
             .iter()
             .any(|entry| entry.state == "pending" || entry.state == "running");
-        let rendered_human =
-            render_deploy_status_human(&entries, None, Some(queue_id), &format!("queue={queue_id}"));
+        let rendered_human = render_deploy_status_human(
+            &entries,
+            None,
+            Some(queue_id),
+            &format!("queue={queue_id}"),
+        );
         let rendered_json = serde_json::json!({
             "contract": "forge-deploy-status/0.2.0",
             "queue": queue_id,
@@ -3652,8 +3684,9 @@ fn cmd_deploy_status_watch(
         });
         render_output(as_output(format, rendered_human, rendered_json));
         if !still_active {
-            let all_succeeded = entries.iter().all(|entry| entry.state == "done"
-                || entry.state == "succeeded");
+            let all_succeeded = entries
+                .iter()
+                .all(|entry| entry.state == "done" || entry.state == "succeeded");
             return Ok(if all_succeeded {
                 as_output(format, String::new(), serde_json::json!({"watch":"done"}))
             } else {
@@ -3948,6 +3981,13 @@ fn cmd_publish_provider(
         .map(str::to_string)
         .or_else(|| git_revision(&project_dir))
         .unwrap_or_else(|| "unknown".to_string());
+    forge::publish::providers::validate_revision(&revision).map_err(|error| {
+        ForgeError::PublishInvalid {
+            reason: format!(
+                "publish requires a 40-character hex revision; got `{revision}` ({error})"
+            ),
+        }
+    })?;
     let operation_id = format!(
         "publish-{project_id}-{}",
         &revision[..revision.len().min(12)]
@@ -3957,7 +3997,7 @@ fn cmd_publish_provider(
         operation: ProviderOperation::Publish,
         provider: provider_id.clone(),
         project_id: project_id.clone(),
-        revision,
+        revision: revision.clone(),
         operation_id,
         folder: Some(project_dir.display().to_string()),
         dry_run,
@@ -3972,11 +4012,25 @@ fn cmd_publish_provider(
     } else {
         let response = invoke_provider(&entry, &request, &project_dir)?;
         let registry = open_registry(db_path)?;
-        registry.record_operation(
-            "publish",
+        let phase_revision = response
+            .revision
+            .clone()
+            .unwrap_or_else(|| revision.clone());
+        let container_identity = response.container_identity.clone().unwrap_or_else(|| {
+            forge::publish::providers::compose_project_name(&project_id, &phase_revision)
+        });
+        registry.record_publish_phase(
             &project_id,
             &response.status,
-            &format!("provider={} health={}", response.provider, response.health),
+            PublishPhaseEvidence::new()
+                .revision(&phase_revision)
+                .container_identity(&container_identity)
+                .build_status_opt(response.build_status.as_deref())
+                .run_status_opt(response.run_status.as_deref()),
+            Some(&format!(
+                "provider={} health={}",
+                response.provider, response.health
+            )),
         )?;
         serde_json::to_value(response).map_err(|error| ForgeError::PublishInvalid {
             reason: format!("cannot encode publish response: {error}"),
@@ -4157,13 +4211,41 @@ fn cmd_publish_fleet(
                         "provider": provider_id,
                         "healthy": healthy,
                         "status": value.get("status"),
+                        "build_status": value.get("build_status"),
+                        "run_status": value.get("run_status"),
+                        "container_identity": value.get("container_identity"),
                     }));
                     let terminal_state = if healthy { "done" } else { "failed" };
-                    if let Ok(op_id) = core_registry.record_queue_operation(
-                        "publish",
+                    let phase_revision = value.get("revision").and_then(|v| v.as_str());
+                    let build_status = value.get("build_status").and_then(|v| v.as_str());
+                    let run_status = value.get("run_status").and_then(|v| v.as_str());
+                    let container_identity = value
+                        .get("container_identity")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            phase_revision.map(|rev| {
+                                forge::publish::providers::compose_project_name(&project.id, rev)
+                            })
+                        });
+                    let mut phase = PublishPhaseEvidence::new();
+                    if let Some(rev) = phase_revision {
+                        phase = phase.revision(rev);
+                    }
+                    if let Some(b) = build_status {
+                        phase = phase.build_status(b);
+                    }
+                    if let Some(r) = run_status {
+                        phase = phase.run_status(r);
+                    }
+                    if let Some(c) = container_identity.as_deref() {
+                        phase = phase.container_identity(c);
+                    }
+                    if let Ok(op_id) = core_registry.record_queue_publish_phase(
                         &project.id,
                         &queue_id,
                         terminal_state,
+                        phase,
                         Some(&format!("fleet provider={provider_id}")),
                     ) {
                         queue_op_ids.push((project.id.clone(), op_id));

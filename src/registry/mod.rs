@@ -54,7 +54,11 @@ CREATE TABLE IF NOT EXISTS operations (
     detail          TEXT,
     idempotency_key TEXT,
     request_hash    TEXT,
-    queue_id        TEXT
+    queue_id        TEXT,
+    revision        TEXT,
+    build_status    TEXT,
+    run_status      TEXT,
+    container_identity TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS operations_idempotency_uniq
     ON operations (kind, idempotency_key)
@@ -78,6 +82,10 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
         "ALTER TABLE operations ADD COLUMN idempotency_key TEXT",
         "ALTER TABLE operations ADD COLUMN request_hash TEXT",
         "ALTER TABLE operations ADD COLUMN queue_id TEXT",
+        "ALTER TABLE operations ADD COLUMN revision TEXT",
+        "ALTER TABLE operations ADD COLUMN build_status TEXT",
+        "ALTER TABLE operations ADD COLUMN run_status TEXT",
+        "ALTER TABLE operations ADD COLUMN container_identity TEXT",
     ];
     for stmt in migrations {
         if let Err(err) = conn.execute(stmt, []) {
@@ -164,6 +172,56 @@ impl ProjectRecord {
     }
 }
 
+/// Phase evidence carried by a publish journal row. All four fields
+/// are optional so legacy providers that did not advertise phase
+/// evidence still get their rows persisted with `NULL` values; the
+/// `forge deploy status` projection renders the missing values as
+/// `unknown` instead of a verified success. The struct groups the
+/// phase inputs so callers do not have to pass seven positional
+/// arguments to [`Registry::record_publish_phase`] or
+/// [`Registry::record_queue_publish_phase`].
+#[derive(Debug, Clone, Default)]
+pub struct PublishPhaseEvidence<'a> {
+    pub revision: Option<&'a str>,
+    pub build_status: Option<&'a str>,
+    pub run_status: Option<&'a str>,
+    pub container_identity: Option<&'a str>,
+}
+
+impl<'a> PublishPhaseEvidence<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn revision(mut self, value: &'a str) -> Self {
+        self.revision = Some(value);
+        self
+    }
+    pub fn build_status(mut self, value: &'a str) -> Self {
+        self.build_status = Some(value);
+        self
+    }
+    pub fn build_status_opt(mut self, value: Option<&'a str>) -> Self {
+        self.build_status = value;
+        self
+    }
+    pub fn run_status(mut self, value: &'a str) -> Self {
+        self.run_status = Some(value);
+        self
+    }
+    pub fn run_status_opt(mut self, value: Option<&'a str>) -> Self {
+        self.run_status = value;
+        self
+    }
+    pub fn container_identity(mut self, value: &'a str) -> Self {
+        self.container_identity = Some(value);
+        self
+    }
+    pub fn container_identity_opt(mut self, value: Option<&'a str>) -> Self {
+        self.container_identity = value;
+        self
+    }
+}
+
 /// One journal entry; surfaced for reconciliation evidence.
 #[derive(Debug, Clone, Serialize)]
 pub struct OperationEntry {
@@ -183,6 +241,24 @@ pub struct OperationEntry {
     /// operations (registration, upgrade, gate, …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue_id: Option<String>,
+    /// Committed Git revision the publish transferred (full 40-char
+    /// hex SHA). `None` for non-publish operations and for legacy
+    /// rows persisted before phase evidence existed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// Terminal status of the `build` phase
+    /// (`succeeded`/`failed`/`not_started`/`unknown`). `None` for
+    /// legacy rows that did not carry phase evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_status: Option<String>,
+    /// Terminal status of the `run` phase (same vocabulary as
+    /// `build_status`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_status: Option<String>,
+    /// Bounded Compose project / container identity the provider
+    /// actually deployed (canonical `forge-<project>-<sha12>`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_identity: Option<String>,
 }
 
 /// Outcome of [`Registry::reserve_idempotent_operation`]. `Reserved`
@@ -198,6 +274,29 @@ pub enum ReservationOutcome {
 
 pub struct Registry {
     conn: Connection,
+}
+
+/// Decode one row from any of the operations-table SELECTs into an
+/// [`OperationEntry`]. The column order is fixed and shared by every
+/// query in this module so the projection code stays a single
+/// match-the-field-to-its-index helper.
+fn row_to_operation_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<OperationEntry> {
+    Ok(OperationEntry {
+        op_id: row.get(0)?,
+        kind: row.get(1)?,
+        project_id: row.get(2)?,
+        state: row.get(3)?,
+        started_at: row.get(4)?,
+        finished_at: row.get(5)?,
+        detail: row.get(6)?,
+        idempotency_key: row.get(7)?,
+        request_hash: row.get(8)?,
+        queue_id: row.get(9)?,
+        revision: row.get(10)?,
+        build_status: row.get(11)?,
+        run_status: row.get(12)?,
+        container_identity: row.get(13)?,
+    })
 }
 
 impl Registry {
@@ -241,23 +340,11 @@ impl Registry {
     pub fn journal_entries(&self) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash, queue_id
+                    idempotency_key, request_hash, queue_id,
+                    revision, build_status, run_status, container_identity
              FROM operations ORDER BY op_id",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(OperationEntry {
-                op_id: row.get(0)?,
-                kind: row.get(1)?,
-                project_id: row.get(2)?,
-                state: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                detail: row.get(6)?,
-                idempotency_key: row.get(7)?,
-                request_hash: row.get(8)?,
-                queue_id: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map([], row_to_operation_entry)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -271,23 +358,11 @@ impl Registry {
     pub fn recent_operations(&self, limit: usize) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash, queue_id
+                    idempotency_key, request_hash, queue_id,
+                    revision, build_status, run_status, container_identity
              FROM operations ORDER BY op_id DESC LIMIT ?1",
         )?;
-        let rows = stmt.query_map(params![limit as i64], |row| {
-            Ok(OperationEntry {
-                op_id: row.get(0)?,
-                kind: row.get(1)?,
-                project_id: row.get(2)?,
-                state: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                detail: row.get(6)?,
-                idempotency_key: row.get(7)?,
-                request_hash: row.get(8)?,
-                queue_id: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![limit as i64], row_to_operation_entry)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -306,23 +381,11 @@ impl Registry {
     ) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash, queue_id
+                    idempotency_key, request_hash, queue_id,
+                    revision, build_status, run_status, container_identity
              FROM operations WHERE project_id = ?1 ORDER BY op_id DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![project_id, limit as i64], |row| {
-            Ok(OperationEntry {
-                op_id: row.get(0)?,
-                kind: row.get(1)?,
-                project_id: row.get(2)?,
-                state: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                detail: row.get(6)?,
-                idempotency_key: row.get(7)?,
-                request_hash: row.get(8)?,
-                queue_id: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![project_id, limit as i64], row_to_operation_entry)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -334,24 +397,12 @@ impl Registry {
     pub fn operation(&self, op_id: i64) -> Result<Option<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash, queue_id
+                    idempotency_key, request_hash, queue_id,
+                    revision, build_status, run_status, container_identity
              FROM operations WHERE op_id = ?1",
         )?;
         let entry = stmt
-            .query_row(params![op_id], |row| {
-                Ok(OperationEntry {
-                    op_id: row.get(0)?,
-                    kind: row.get(1)?,
-                    project_id: row.get(2)?,
-                    state: row.get(3)?,
-                    started_at: row.get(4)?,
-                    finished_at: row.get(5)?,
-                    detail: row.get(6)?,
-                    idempotency_key: row.get(7)?,
-                    request_hash: row.get(8)?,
-                    queue_id: row.get(9)?,
-                })
-            })
+            .query_row(params![op_id], row_to_operation_entry)
             .optional()?;
         Ok(entry)
     }
@@ -368,23 +419,11 @@ impl Registry {
     ) -> Result<Vec<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash, queue_id
+                    idempotency_key, request_hash, queue_id,
+                    revision, build_status, run_status, container_identity
              FROM operations WHERE queue_id = ?1 ORDER BY op_id DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![queue_id, limit as i64], |row| {
-            Ok(OperationEntry {
-                op_id: row.get(0)?,
-                kind: row.get(1)?,
-                project_id: row.get(2)?,
-                state: row.get(3)?,
-                started_at: row.get(4)?,
-                finished_at: row.get(5)?,
-                detail: row.get(6)?,
-                idempotency_key: row.get(7)?,
-                request_hash: row.get(8)?,
-                queue_id: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![queue_id, limit as i64], row_to_operation_entry)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -479,6 +518,38 @@ impl Registry {
         Ok(())
     }
 
+    /// Update one operation row with the additive revision /
+    /// build_status / run_status / container_identity fields. Used by
+    /// the GitHub push path so the same `op_id` that the idempotency
+    /// layer reserved also carries the publish phase evidence.
+    /// `None` arguments leave the existing column value intact so a
+    /// partial update never blanks an already-recorded field.
+    pub fn update_operation_phase(
+        &self,
+        op_id: i64,
+        revision: Option<&str>,
+        build_status: Option<&str>,
+        run_status: Option<&str>,
+        container_identity: Option<&str>,
+    ) -> Result<(), ForgeError> {
+        self.conn.execute(
+            "UPDATE operations
+             SET revision        = COALESCE(?1, revision),
+                 build_status    = COALESCE(?2, build_status),
+                 run_status      = COALESCE(?3, run_status),
+                 container_identity = COALESCE(?4, container_identity)
+             WHERE op_id = ?5",
+            params![
+                revision,
+                build_status,
+                run_status,
+                container_identity,
+                op_id
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Look up an operation by `(kind, idempotency_key)`. Returns
     /// `None` when the key has never been recorded for this kind.
     pub fn operation_by_idempotency(
@@ -488,27 +559,15 @@ impl Registry {
     ) -> Result<Option<OperationEntry>, ForgeError> {
         let mut stmt = self.conn.prepare(
             "SELECT op_id, kind, project_id, state, started_at, finished_at, detail,
-                    idempotency_key, request_hash, queue_id
+                    idempotency_key, request_hash, queue_id,
+                    revision, build_status, run_status, container_identity
              FROM operations
              WHERE kind = ?1 AND idempotency_key = ?2
              ORDER BY op_id DESC
              LIMIT 1",
         )?;
         let entry = stmt
-            .query_row(params![kind, idempotency_key], |row| {
-                Ok(OperationEntry {
-                    op_id: row.get(0)?,
-                    kind: row.get(1)?,
-                    project_id: row.get(2)?,
-                    state: row.get(3)?,
-                    started_at: row.get(4)?,
-                    finished_at: row.get(5)?,
-                    detail: row.get(6)?,
-                    idempotency_key: row.get(7)?,
-                    request_hash: row.get(8)?,
-                    queue_id: row.get(9)?,
-                })
-            })
+            .query_row(params![kind, idempotency_key], row_to_operation_entry)
             .optional()?;
         Ok(entry)
     }
@@ -534,6 +593,75 @@ impl Registry {
             "INSERT INTO operations (kind, project_id, queue_id, state, started_at, finished_at, detail)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![kind, project_id, queue_id, state, now, now, detail],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Append one publish journal row with the additive revision /
+    /// build_status / run_status / container_identity fields. Used by
+    /// `cmd_publish_provider` so `forge deploy status` can answer
+    /// "what revision is running?" without contacting the provider
+    /// again. All phase fields are optional so legacy providers that
+    /// never carried phase evidence still get their row persisted.
+    pub fn record_publish_phase(
+        &self,
+        project_id: &str,
+        state: &str,
+        phase: PublishPhaseEvidence<'_>,
+        detail: Option<&str>,
+    ) -> Result<i64, ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO operations
+                (kind, project_id, state, started_at, finished_at, detail,
+                 revision, build_status, run_status, container_identity)
+             VALUES ('publish', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                project_id,
+                state,
+                now,
+                now,
+                detail,
+                phase.revision,
+                phase.build_status,
+                phase.run_status,
+                phase.container_identity
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Append one publish journal row inside a fleet queue with
+    /// additive revision / build_status / run_status /
+    /// container_identity fields. Used by `cmd_publish_fleet` so a
+    /// `forge deploy status --queue <id>` query reads every phase
+    /// field from the journal.
+    pub fn record_queue_publish_phase(
+        &self,
+        project_id: &str,
+        queue_id: &str,
+        state: &str,
+        phase: PublishPhaseEvidence<'_>,
+        detail: Option<&str>,
+    ) -> Result<i64, ForgeError> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO operations
+                (kind, project_id, queue_id, state, started_at, finished_at, detail,
+                 revision, build_status, run_status, container_identity)
+             VALUES ('publish', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                project_id,
+                queue_id,
+                state,
+                now,
+                now,
+                detail,
+                phase.revision,
+                phase.build_status,
+                phase.run_status,
+                phase.container_identity
+            ],
         )?;
         Ok(self.conn.last_insert_rowid())
     }

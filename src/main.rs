@@ -101,6 +101,7 @@ use forge::publish::{
         invoke_provider, load_config as load_publish_provider_config, select_provider,
         ProviderOperation, PublishProviderRequest,
     },
+    remote_compose::RemoteComposeAdapter,
     render_report_human as render_publish_report_human, request_from as build_publish_request,
     run_publish, PublishAction, SubprocessTransport, PUBLISH_CONTRACT_VERSION,
 };
@@ -4331,10 +4332,20 @@ fn cmd_publish_single(
     };
 
     let request = build_publish_request(project_id.clone(), project_dir, action, dry_run);
-    let adapter = JenkinsAdapter::from_env();
+    // Decoupled default with one-cycle legacy rollback (`decoupled-remote-publish`
+    // task 2.6/3.5): `FORGE_PUBLISH_ADAPTER=jenkins` restores the Mac-script
+    // lane; every other value (including unset) selects `remote-compose`.
+    // No new CLI flags; both adapters stay compiled.
+    let jenkins_adapter = JenkinsAdapter::from_env();
+    let remote_adapter = RemoteComposeAdapter::from_env();
+    let adapter: &dyn forge::publish::PublishAdapter = if use_legacy_publish_adapter() {
+        &jenkins_adapter
+    } else {
+        &remote_adapter
+    };
     let registry = open_registry(db_path)?;
     let transport = SubprocessTransport::default();
-    let report = run_publish(&request, &adapter, &transport, Some(&registry))?;
+    let report = run_publish(&request, adapter, &transport, Some(&registry))?;
 
     let human = render_publish_report_human(&report);
     let mut value = match serde_json::to_value(&report) {
@@ -4456,7 +4467,13 @@ fn cmd_publish_fleet(
         });
     }
 
-    let adapter = JenkinsAdapter::from_env();
+    let jenkins_adapter = JenkinsAdapter::from_env();
+    let remote_adapter = RemoteComposeAdapter::from_env();
+    let adapter: &dyn forge::publish::PublishAdapter = if use_legacy_publish_adapter() {
+        &jenkins_adapter
+    } else {
+        &remote_adapter
+    };
     let core_registry = open_registry(db_path)?;
     let transport = SubprocessTransport::default();
 
@@ -4648,7 +4665,7 @@ fn cmd_publish_fleet(
 
         let request =
             build_publish_request(project_id.clone(), source_path, PublishAction::All, dry_run);
-        let outcome = run_publish(&request, &adapter, &transport, Some(&core_registry));
+        let outcome = run_publish(&request, adapter, &transport, Some(&core_registry));
         match outcome {
             Ok(report) => {
                 let human = render_publish_report_human(&report);
@@ -4887,6 +4904,21 @@ fn legacy_inventory_snapshot(
         projects,
         malformed,
     })
+}
+
+/// Select the publish adapter without a new CLI flag (`decoupled-remote-publish`
+/// task 2.6). `FORGE_PUBLISH_ADAPTER=jenkins` (or `legacy`/`mac-scripts`)
+/// restores the Mac-script lane for one-cycle rollback; every other value, including
+/// unset, selects `remote-compose`. Both adapters stay compiled.
+fn use_legacy_publish_adapter() -> bool {
+    matches!(
+        std::env::var(forge::publish::remote_compose::ADAPTER_ENV)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "jenkins" | "legacy" | "mac-scripts"
+    )
 }
 
 fn resolve_publish_target(target: &str) -> Result<(std::path::PathBuf, String), ForgeError> {

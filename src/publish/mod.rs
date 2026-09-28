@@ -43,6 +43,7 @@
 //! preserves the prior partial state on failure, and never claims
 //! success on an unreachable target.
 
+use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
@@ -51,13 +52,18 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::core::ForgeError;
+use crate::policy::redact_credentials;
 use crate::registry::Registry;
 
+pub mod caddy;
+pub mod db_overlay;
 pub mod fleet;
 pub mod github;
 pub mod inventory;
 pub mod jenkins;
+pub mod port_allocator;
 pub mod providers;
+pub mod remote_compose;
 
 // ---------------------------------------------------------------------------
 // Contract version and stable labels
@@ -70,6 +76,13 @@ pub const PUBLISH_CONTRACT_VERSION: &str = "forge-publish/0.1.0";
 /// Subprocess timeout. The Mac may be slow over SSH; the timeout is
 /// bounded so an unresponsive host never hangs Forge forever.
 pub const PUBLISH_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Subprocess timeout for stages that build or recreate containers
+/// (`docker compose up --build`, router reload). Image builds
+/// routinely exceed the interactive 60s bound; the 1800s ceiling
+/// matches the external provider invocation bound while still
+/// refusing to hang forever.
+pub const PUBLISH_DEPLOY_TIMEOUT: Duration = Duration::from_secs(1800);
 
 /// Stable stage names. The transport renders these labels verbatim.
 pub const STAGE_SYNC: &str = "sync";
@@ -200,6 +213,29 @@ pub trait PublishAdapter {
     fn id(&self) -> &'static str;
     /// Human label, used in dry-run banners and reports.
     fn label(&self) -> &'static str;
+    /// Materialise adapter-owned inputs before a stage is planned.
+    ///
+    /// Called once per run, and only for actions that include
+    /// [`PublishAction::Prepare`], with the same transport the
+    /// orchestrator uses for execution. An adapter that computes
+    /// documents from target state (the remote-compose adapter reads
+    /// the target port registry, the Compose config and the ports
+    /// Docker already binds, then renders the port override, the
+    /// shared-database overlay and the router documents) observes the
+    /// target here so [`PublishAdapter::plan`] stays a pure renderer.
+    ///
+    /// The default is a no-op, so an adapter with no target-derived
+    /// inputs is unaffected. `dry_run` is passed through: a dry run
+    /// must not contact the target, and the adapter decides what it can
+    /// still preview without an observation.
+    fn materialize(
+        &self,
+        _request: &PublishRequest,
+        _transport: &dyn SshTransport,
+        _dry_run: bool,
+    ) -> Result<(), ForgeError> {
+        Ok(())
+    }
     /// Build the commands for one stage.
     fn plan(&self, request: &PublishRequest, stage: PublishAction)
         -> Result<StagePlan, ForgeError>;
@@ -292,6 +328,11 @@ pub struct CommandSpec {
     pub program: String,
     pub args: Vec<OsString>,
     pub label: String,
+    /// Per-command timeout override. `None` means the transport's
+    /// default bound; adapters set it for stages whose runtime
+    /// legitimately exceeds the interactive default (container
+    /// builds). The timeout never renders into dry-run plans.
+    pub timeout: Option<Duration>,
 }
 
 impl CommandSpec {
@@ -300,10 +341,29 @@ impl CommandSpec {
             program: program.into(),
             args: Vec::new(),
             label: label.into(),
+            timeout: None,
         }
     }
     pub fn arg(mut self, value: impl Into<OsString>) -> Self {
         self.args.push(value.into());
+        self
+    }
+    /// Append several arguments in one call. `arg` consumes the spec,
+    /// so a long argv reads better as a single call.
+    pub fn with_args<I, V>(mut self, values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<OsString>,
+    {
+        self.args
+            .extend(values.into_iter().map(|value| value.into()));
+        self
+    }
+    /// Override the transport's default subprocess bound for this
+    /// command (container builds). The value never renders into
+    /// dry-run output.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
         self
     }
     pub fn render(&self) -> String {
@@ -347,19 +407,19 @@ impl Default for SubprocessTransport {
 
 impl SshTransport for SubprocessTransport {
     fn run(&self, spec: CommandSpec) -> Result<CommandResult, ForgeError> {
-        run_subprocess(&spec, self.timeout)
+        run_subprocess(&spec, spec.timeout.unwrap_or(self.timeout))
     }
 }
 
 /// In-memory transport used by tests. Records every command the
 /// orchestrator would have run so a dry-run assertion can inspect
-/// the exact argv. Returns the next queued result on each call;
+/// the exact argv, and hands out the next queued result on each call;
 /// missing results default to success.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct RecordingTransport {
-    pub commands: Vec<CommandSpec>,
+    recorded: RefCell<Vec<CommandSpec>>,
     queue: Vec<Result<CommandResult, String>>,
-    cursor: usize,
+    cursor: Cell<usize>,
 }
 
 impl RecordingTransport {
@@ -369,7 +429,7 @@ impl RecordingTransport {
     /// Pre-seed N successes (one per expected subprocess).
     pub fn succeeding(&mut self, n: usize) -> &mut Self {
         self.queue.clear();
-        self.cursor = 0;
+        self.cursor.set(0);
         for _ in 0..n {
             self.queue.push(Ok(CommandResult {
                 status: 0,
@@ -384,26 +444,29 @@ impl RecordingTransport {
         self.queue.push(result);
         self
     }
+    /// Every command the orchestrator handed to this transport, in
+    /// invocation order.
+    pub fn commands(&self) -> Vec<CommandSpec> {
+        self.recorded.borrow().clone()
+    }
+    pub fn command_count(&self) -> usize {
+        self.recorded.borrow().len()
+    }
 }
 
 impl SshTransport for RecordingTransport {
     fn run(&self, spec: CommandSpec) -> Result<CommandResult, ForgeError> {
-        let mut owned = self.clone();
-        owned.commands.push(spec);
-        let next = owned.queue.get(owned.cursor).cloned().unwrap_or_else(|| {
-            Ok(CommandResult {
+        self.recorded.borrow_mut().push(spec);
+        let cursor = self.cursor.get();
+        self.cursor.set(cursor + 1);
+        match self.queue.get(cursor).cloned() {
+            Some(Ok(result)) => Ok(result),
+            Some(Err(reason)) => Err(ForgeError::PublishInvalid { reason }),
+            None => Ok(CommandResult {
                 status: 0,
                 stdout: String::new(),
                 stderr: String::new(),
-            })
-        });
-        owned.cursor += 1;
-        // Persist the advanced cursor back into `self` through the
-        // caller's borrow by returning a clone; tests observe
-        // `commands` (recorded list) for assertions.
-        match next {
-            Ok(r) => Ok(r),
-            Err(reason) => Err(ForgeError::PublishInvalid { reason }),
+            }),
         }
     }
 }
@@ -514,6 +577,9 @@ pub fn run_publish(
     registry: Option<&Registry>,
 ) -> Result<PublishReport, ForgeError> {
     request.validate()?;
+    if request.action.stages().contains(&PublishAction::Prepare) {
+        adapter.materialize(request, transport, request.dry_run)?;
+    }
 
     let mut stages: Vec<StageOutcome> = Vec::new();
     let mut healthy = true;
@@ -671,14 +737,45 @@ fn execute_stage(
     } else {
         format!("{} (exit {})", classification.note, result.status)
     };
+    // A failed stage carries the failing command's bounded,
+    // credential-redacted stderr tail so `forge publish` and
+    // `forge deploy status` show the cause without re-running.
+    let mut evidence = vec![format!("exit {} after {}ms", result.status, elapsed_ms)];
+    if !is_done {
+        let tail = bounded_stderr_tail(&result.stderr);
+        if !tail.is_empty() {
+            evidence.push(format!("detail: {tail}"));
+        }
+    }
     StageOutcome {
         stage: plan.stage.clone(),
         status: classification.status,
         note,
         command: command_lines,
-        evidence: vec![format!("exit {} after {}ms", result.status, elapsed_ms)],
+        evidence,
         recovery: classification.recovery,
         elapsed_ms,
+    }
+}
+
+/// Last ~1500 characters of redacted stderr, trimmed of blank edge
+/// lines. Empty when the command said nothing on stderr.
+fn bounded_stderr_tail(stderr: &str) -> String {
+    const MAX_TAIL: usize = 1500;
+    let redacted = redact_credentials(stderr);
+    let trimmed = redacted.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let tail = trimmed.to_string();
+    let chars: Vec<char> = tail.chars().collect();
+    if chars.len() > MAX_TAIL {
+        format!(
+            "…{}",
+            chars[chars.len() - MAX_TAIL..].iter().collect::<String>()
+        )
+    } else {
+        tail
     }
 }
 
@@ -863,6 +960,104 @@ mod tests {
         assert_eq!(err.code(), "publish-invalid");
     }
 
+    /// Adapter that records how often the orchestrator asked it to
+    /// materialise adapter-owned inputs, and can refuse.
+    struct MaterializingAdapter {
+        id: &'static str,
+        label: &'static str,
+        seen: Cell<usize>,
+        refuse: bool,
+    }
+    impl PublishAdapter for MaterializingAdapter {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn label(&self) -> &'static str {
+            self.label
+        }
+        fn materialize(
+            &self,
+            _request: &PublishRequest,
+            _transport: &dyn SshTransport,
+            _dry_run: bool,
+        ) -> Result<(), ForgeError> {
+            self.seen.set(self.seen.get() + 1);
+            if self.refuse {
+                return Err(ForgeError::PublishInvalid {
+                    reason: "target observation refused".to_string(),
+                });
+            }
+            Ok(())
+        }
+        fn plan(
+            &self,
+            request: &PublishRequest,
+            stage: PublishAction,
+        ) -> Result<StagePlan, ForgeError> {
+            let label = format!("stub-{:?}", stage);
+            Ok(StagePlan {
+                stage: stage.label().to_string(),
+                commands: vec![CommandSpec::new("echo", label.clone()).arg(label)],
+                project_id: request.project_id.clone(),
+            })
+        }
+        fn classify(&self, plan: &StagePlan, result: &CommandResult) -> Classification {
+            if result.success() {
+                Classification::done(format!("{} ok", plan.stage))
+            } else {
+                Classification::failed(format!("{} failed", plan.stage), vec![])
+            }
+        }
+        fn subdomain(&self, project_id: &str) -> Option<String> {
+            Some(format!("{project_id}.stub.test"))
+        }
+    }
+
+    #[test]
+    fn materialize_runs_once_for_actions_that_prepare() {
+        let (req, _tmp) = fixture_request(PublishAction::All, true);
+        let adapter = MaterializingAdapter {
+            id: "materializing",
+            label: "materializing",
+            seen: Cell::new(0),
+            refuse: false,
+        };
+        let transport = RecordingTransport::new();
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert_eq!(adapter.seen.get(), 1);
+        assert_eq!(report.stages.len(), 4);
+    }
+
+    #[test]
+    fn materialize_is_skipped_for_actions_without_prepare() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, true);
+        let adapter = MaterializingAdapter {
+            id: "materializing",
+            label: "materializing",
+            seen: Cell::new(0),
+            refuse: false,
+        };
+        let transport = RecordingTransport::new();
+        run_publish(&req, &adapter, &transport, None).unwrap();
+        assert_eq!(adapter.seen.get(), 0);
+    }
+
+    #[test]
+    fn materialize_failure_aborts_before_any_stage_runs() {
+        let (req, _tmp) = fixture_request(PublishAction::All, false);
+        let adapter = MaterializingAdapter {
+            id: "materializing",
+            label: "materializing",
+            seen: Cell::new(0),
+            refuse: true,
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(4);
+        let err = run_publish(&req, &adapter, &transport, None).unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+        assert_eq!(transport.command_count(), 0);
+    }
+
     #[test]
     fn action_stages_returns_correct_slices() {
         assert_eq!(PublishAction::Sync.stages(), &[PublishAction::Sync]);
@@ -902,7 +1097,7 @@ mod tests {
         // The recording transport is not real, so execute_stage
         // short-circuits regardless; confirm the recorder stays
         // empty.
-        assert!(transport.commands.is_empty());
+        assert_eq!(transport.command_count(), 0);
         assert!(report.healthy);
     }
 
@@ -936,6 +1131,30 @@ mod tests {
         let report = run_publish(&req, &adapter, &transport, None).unwrap();
         assert_eq!(report.stages.len(), 1);
         assert!(!report.healthy);
+    }
+
+    #[test]
+    fn failed_stage_carries_redacted_bounded_stderr_detail() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.push(Ok(CommandResult {
+            status: 1,
+            stdout: String::new(),
+            stderr: "no such service: web\npassword=hunter2\n".to_string(),
+        }));
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(!report.healthy);
+        let evidence = report.stages[0].evidence.join("\n");
+        assert!(evidence.contains("exit 1"), "evidence was: {evidence}");
+        assert!(
+            evidence.contains("no such service: web"),
+            "evidence was: {evidence}"
+        );
+        assert!(!evidence.contains("hunter2"), "evidence was: {evidence}");
     }
 
     #[test]

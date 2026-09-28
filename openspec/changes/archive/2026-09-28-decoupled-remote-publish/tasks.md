@@ -1,0 +1,26 @@
+# Tasks: decoupled-remote-publish
+
+## 1. BFS — Baseline and impact coverage
+- [x] 1.1 Inventory current publish lane: `src/publish/{mod,fleet,jenkins}.rs` `JenkinsAdapter`/`PublishAction`/`PublishAdapter`/`SshTransport`, `src/main.rs:cmd_publish_fleet|publish_via_provider_dir|cmd_publish_provider`, inventory `compose_ready` 20/68 roster from `workspace-governance/projects.json` vs Mac scripts as oracles (`port_allocator.py`, `compose-ports.py`, `project-db-overlay.py`, `generate-caddyfile.py`, `project-action.sh`, `project-up.sh`).
+- [x] 1.2 Baseline dry-run fleet shape and live failure evidence: capture `forge publish fleet --dry-run` (and `--dry-run --format json`) expected `compose_ready=20`/`skipped=48` + `src/publish/jenkins.rs` `ssh bash project-ports.sh|shared-postgres.sh|project-action.sh` command strings; capture live `alethefy` `services must be a mapping` failure and empty-overlay `services: {}` expectation.
+
+## 2. DFS — Requirement-by-requirement implementation
+- [x] 2.1 Add `RemoteConfig` (`ssh_target`, `remote_root`, `runtime_root`/`platform_root`/`secrets_root`/`shared_infra_root`, `domain`, `nav_host`) with new envs `FORGE_PUBLISH_RUNTIME_ROOT|PLATFORM_ROOT|SECRETS_ROOT|SHARED_INFRA_ROOT` (Mac-preserving defaults) alongside existing `*_SSH_TARGET|*_REMOTE_ROOT|*_DOMAIN`; deprecate but keep `SCRIPTS_ROOT` unused-by-default.
+- [x] 2.2 Port `port_allocator.py` (`PortAllocator` SHA256-block → 20-port-block 10000-19999, legacy-port reuse, unavailable avoidance, `port-registry.json` atomic read/write) into `src/publish/port_allocator.rs` with Rust unit tests against Python fixtures.
+- [x] 2.3 Port `project-db-overlay.py` (`database_services`/`application_services`/`render_overlay`, `!reset []`, `production-db-network`) into `src/publish/db_overlay.rs`; ensure empty-`services` emits `services: {}` and validates.
+- [x] 2.4 Vendor or port `generate-caddyfile.py` (registry → `platform/Caddyfile` + `site/index.html` → `platform/compose.yml up`) into `src/publish/caddy.rs` (template or Rust renderer).
+- [x] 2.5 Add `src/publish/remote_compose.rs` `RemoteComposeAdapter` (id e.g. `remote-compose`) on `RemoteConfig`: `Sync`=`mkdir -p`+`rsync -az --human-readable -e ssh` (+ `--exclude .git/ node_modules/ target/ dist/ build/`); `Prepare`=read `runtime/port-registry.json` over `ssh cat`, allocate via `PortAllocator`, render `ports.compose.yml` locally, ship via `scp`/`install -m 644`; `Db`=`ssh /usr/local/bin/docker …` shared-infra + per-project `.shared-db.env` path only; `Deploy`=`ssh docker compose -p forge-<id> -f … + [-f shared-db] [--env-file …] up -d --build` (`BUILDKIT_PROGRESS=plain`, `/usr/local/bin/docker`, Docker Desktop PATH).
+- [x] 2.6 Wire `src/main.rs` `cmd_publish_fleet`/`publish_via_provider_dir` to select `RemoteComposeAdapter` by adapter id/env, keeping `JenkinsAdapter` compiled for one-cycle rollback; no new CLI flags.
+- [x] 2.7 Fix Mac-side trust: keep `runtime/port-registry.json` target-hosted (read via `ssh cat`, write via `scp→mv`); secrets stay target-local (`--env-file` refs, no copy; every captured line through `policy::redact_credentials` before journal/Caddy evidence).
+
+## 3. BFS — Cross-surface regression and completeness
+- [x] 3.1 Prove `forge publish fleet --dry-run` renders no `project-action.sh|project-ports.sh|shared-postgres.sh` string and shows real `ssh`/`rsync`/`docker compose` plan; `--dry-run --format json` still reports `compose_ready=20`/`skipped=48` per-entry classified.
+- [x] 3.2 Prove roster/journal/wildcard contract unchanged: `workspace-governance/projects.json` roster `→ compose_ready` filter, per-entry explicit classification, queue/phase `operations` journal no new columns, subdomains `<project>.tooosall.uk` + wildcard Cloudflare → Caddy in `publish-commands` §30.
+- [x] 3.3 Prove empty-overlay fix: `services: {}` case validates via YAML + `docker compose config` success on the canary `alethefy` image before fleet.
+- [x] 3.4 Prove env-only cloud portability: staging `FORGE_PUBLISH_SSH_TARGET=cloud` dry-run renders `cloud:<remote_root>` and cloud runtime/secret paths without any shell-script path.
+- [x] 3.5 Prove rollback is a flag: setting adapter id/env restores legacy `JenkinsAdapter` dry-run (`project-action.sh`/`project-ports.sh`) and fleet still classifies `20/68`.
+
+## 4. Verification
+- [x] 4.1 Run `cargo fmt --check` (touched files), `cargo build`, `cargo clippy --all-targets -- -D warnings` (touched files), `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain` (full suite green + new unit/contract suites); `git diff --check` pass.
+- [x] 4.2 Run `node scripts/check-openspec-change-names.mjs` and `openspec validate --all --strict --no-interactive` (0 failed pre/post); re-render ensures proposal/design/specs/tasks still satisfy workflow.md BFS→DFS→BFS, capability, and non-goals sections.
+- [x] 4.3 Live Mac canary: `forge publish all` green on `alethefy` (healthy container + subdomain), `mortalect`, `crossify`, `dharmatlas`, `cvunify` (healthy containers); registry/Caddyfile/overlay documents verified on target. Full 20/20 fleet rollout (incl. per-project secrets, legacy-container cleanup, slow-build handling) MOVED to `fleet-live-rollout`.

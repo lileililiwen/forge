@@ -1,0 +1,24 @@
+{
+  "contract": "forge-project-inventory/0.1.0",
+  "provider": "local",
+  "generated_at": "2026-09-28T00:00:00Z",
+  "projects": [
+    {
+      "id": "ok",
+      "repository": "https://github.com/example/ok.git",
+      "revision": "0123456789abcdef0123456789abcdef01234567",
+      "profile": "rust-product",
+      "runtime": "web",
+      "compose_file": "docker-compose.yml",
+      "source_path": "__STAGE_ok__",
+      "public_http": false
+    },
+    {
+      "id": "bad-rev",
+      "repository": "https://github.com/example/bad-rev.git",
+      "revision": "short",
+      "profile": "rust-product",
+      "runtime": "web"
+    }
+  ]
+}

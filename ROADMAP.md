@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all nine sibling-integration packages (orders 30, `driftwatch-cli-alignment`, 31, `external-checker-emission`, 32, `workspace-governance-adapter-consumption`, 33, `fleet-registry-observation`, 34, `supervised-agent-adapters`, 35, `jenkins-deploy-adapter-consumption`, 36, `workspace-metadata-emission`, 37, `gate-runtime-evidence`, and 38, `gate-evidence-export`) are implemented, archived and promoted to their canonical specs; `gate-evidence-export-consumption` (order 39) is in progress. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, and Driftwatchdog's evidence-export verb consumed by Forge. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) are implemented, archived and promoted to their canonical specs; `openspec list` reports no remaining active changes. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -55,6 +55,7 @@ Follow the order below by default; every dependency was implemented and verified
 | 37 | sibling | [gate-runtime-evidence](openspec/specs/gate-runtime-evidence/spec.md) | `driftwatch-cli-alignment`, `profile-and-release-readiness` | §24, §25, §29, §32 |
 | 38 | sibling | [driftwatchdog gate-evidence-export](openspec/specs/gate-runtime-evidence/spec.md) | `gate-runtime-evidence`; driftwatchdog `gate-evidence-export` (external, archived 2026-09-27) | evidence export entry point |
 | 39 | sibling | `gate-evidence-export-consumption` | `driftwatchdog gate-evidence-export` (archived sibling) | §24, §25, §29, §32, §38 |
+|| 40 | later | [forge-independent-project-inventory-fleet](openspec/specs/forge-independent-project-inventory-fleet/spec.md) | `forge-publish-queue-status`, `forge-publish-observability-revision-containers` | §7, §23, §29, §32, §34, §36 |
 
 ## Release acceptance
 
@@ -71,4 +72,11 @@ The brief recommends Rust Core/CLI, SQLite initially, YAML and stdio MCP. Versio
 
 ## Operating rule
 
-All 29 baseline and audit changes plus the sibling-integration packages (orders 30 through 38) are archived; `gate-evidence-export-consumption` (order 39) is in progress. [HANDOFF.md](HANDOFF.md) carries the active `current_spec` pointer. A new implementation cycle starts with exactly one eligible change, sets the single `current_spec` pointer, and follows implement-one-change → local verify/Gate → strict validate → archive, committing only related work, updating and committing handoff, then stopping without pushing.
+All 29 baseline and audit changes plus the sibling-integration packages
+(orders 30 through 39) are archived and promoted to their canonical
+specs; `openspec list` reports no remaining active changes. [HANDOFF.md](HANDOFF.md)
+carries no `current_spec` pointer. A new implementation cycle starts
+with exactly one eligible change, sets the single `current_spec`
+pointer, and follows implement-one-change → local verify/Gate → strict
+validate → archive, committing only related work, updating and
+committing handoff, then stopping without pushing.

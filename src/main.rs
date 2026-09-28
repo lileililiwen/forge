@@ -450,6 +450,13 @@ enum Commands {
         #[command(subcommand)]
         command: ContractCommands,
     },
+    /// Load, validate and report a portable project inventory
+    /// (`forge-project-inventory/0.1.0`). Read-only; never
+    /// invokes a provider or mutates the registry.
+    Inventory {
+        #[command(subcommand)]
+        command: InventoryCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -748,18 +755,33 @@ enum PublishCommands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Publish every active project from the workspace registry that has a docker-compose file.
+    /// Publish every project in an explicit inventory that has a Compose contract.
+    ///
+    /// When `--inventory <path>` is supplied Forge consumes the
+    /// `forge-project-inventory/0.1.0` contract (local file or
+    /// external adapter) and reports every entry as
+    /// `compose_ready`, `compose_missing`, `invalid`, or
+    /// `source_unavailable`. Only `compose_ready` entries invoke a
+    /// provider; the others are reported, never silently dropped.
+    /// The legacy `--fleet-registry` flag is retained as a
+    /// compatibility adapter for the seven-project handoff.
     Fleet {
-        /// Path to the workspace-governance projects.json registry.
+        /// Explicit inventory source (local JSON file or executable
+        /// adapter path). Takes precedence over `--fleet-registry`.
+        #[arg(long = "inventory")]
+        inventory: Option<std::path::PathBuf>,
+        /// Path to the legacy workspace-governance `projects.json`
+        /// registry. Used only when `--inventory` is absent.
         #[arg(long = "fleet-registry")]
         fleet_registry: Option<std::path::PathBuf>,
-        /// Workspace root (where project paths in the registry are resolved against).
+        /// Workspace root (where project paths in the legacy registry are resolved against).
         #[arg(long)]
         workspace_root: Option<std::path::PathBuf>,
         /// Read-only plan: report what would happen without contacting the Mac.
         #[arg(long)]
         dry_run: bool,
-        /// Only publish projects whose lifecycle matches (default: `active`).
+        /// Only publish projects whose lifecycle matches (legacy
+        /// `--fleet-registry` path; default `active`).
         #[arg(long, default_value = "active")]
         lifecycle: String,
         /// Stop at the first failure instead of continuing the rest of the fleet.
@@ -1286,6 +1308,23 @@ enum ContractCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum InventoryCommands {
+    /// Load, validate and project an inventory into the fleet
+    /// classification report. Read-only; never invokes a
+    /// provider or mutates the registry.
+    Show {
+        /// Path to a local inventory JSON file or an external
+        /// adapter executable. Defaults to $FORGE_INVENTORY_SOURCE.
+        #[arg(value_name = "SOURCE")]
+        source: Option<PathBuf>,
+        /// Public domain used for `<project>.<domain>` routing
+        /// (default `tooosall.uk`).
+        #[arg(long, value_name = "DOMAIN", default_value = "tooosall.uk")]
+        domain: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1535,6 +1574,7 @@ fn main() -> ExitCode {
         Commands::Governance { command } => cmd_governance(command, cli.format),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
         Commands::Contract { command } => cmd_contract(&db_path, command, cli.format),
+        Commands::Inventory { command } => cmd_inventory(command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -3825,12 +3865,14 @@ fn cmd_publish(
         PublishCommands::Fleet {
             fleet_registry,
             workspace_root,
+            inventory,
             dry_run,
             lifecycle,
             fail_fast,
             provider,
         } => cmd_publish_fleet(
             db_path,
+            inventory.clone(),
             fleet_registry.clone(),
             workspace_root.clone(),
             *dry_run,
@@ -4117,13 +4159,23 @@ fn cmd_publish_single(
     Ok(as_output(format, human, value))
 }
 
-/// Publish every active business project in the workspace-governance
-/// registry. Reads `projects.json`, filters by lifecycle and
-/// docker-compose presence, and runs the full 4-stage publish for
-/// each one in order. The Caddyfile is regenerated once at the end
-/// so every successful deploy lands in the subdomain router.
+/// Publish every declared project in the resolved inventory.
+///
+/// Inventory resolution order:
+/// 1. `--inventory <path>` — local JSON file or external adapter
+///    executable (consumes the
+///    `forge-project-inventory/0.1.0` contract).
+/// 2. `--fleet-registry <path>` or `$FORGE_WORKSPACE_REGISTRY` —
+///    legacy workspace-governance `projects.json` (compatibility
+///    adapter that synthesizes an inventory snapshot).
+///
+/// Every declared entry is reported as `compose_ready`,
+/// `compose_missing`, `invalid`, or `source_unavailable`. Only
+/// `compose_ready` entries invoke a provider; the others are
+/// surfaced to the operator instead of silently omitted.
 fn cmd_publish_fleet(
     db_path: &Path,
+    inventory: Option<std::path::PathBuf>,
     registry_path: Option<std::path::PathBuf>,
     workspace_root: Option<std::path::PathBuf>,
     dry_run: bool,
@@ -4132,22 +4184,71 @@ fn cmd_publish_fleet(
     provider: Option<String>,
     format: Format,
 ) -> Result<Output, ForgeError> {
-    use forge::publish::fleet::{
-        default_registry_path, default_workspace_root, filter_eligible, load_registry,
+    use forge::publish::fleet::{default_registry_path, default_workspace_root};
+    use forge::publish::inventory::{
+        classify, resolve_source, InventoryClassification, DEFAULT_DOMAIN,
     };
 
-    let workspace_root = workspace_root.unwrap_or_else(default_workspace_root);
-    let registry_path =
-        registry_path.unwrap_or_else(|| default_registry_path(Some(&workspace_root)));
-    let registry = load_registry(&registry_path)?;
-    let eligible = filter_eligible(&registry, &workspace_root, &lifecycle);
+    // Resolve the inventory: explicit `--inventory` first, then the
+    // legacy registry path (compatibility adapter).
+    let (snapshot, source_label) = if let Some(path) = inventory
+        .as_ref()
+        .map(|p| p.to_path_buf())
+        .or_else(|| resolve_source(None))
+        .or(registry_path.clone())
+    {
+        let snapshot = load_inventory_snapshot(&path)?;
+        let label = format!("inventory:{}", path.display());
+        (snapshot, label)
+    } else {
+        // No explicit source — synthesise an inventory from the
+        // legacy workspace-governance registry so the seven-project
+        // handoff keeps working without configuration.
+        let workspace_root = workspace_root.unwrap_or_else(default_workspace_root);
+        let registry_path =
+            registry_path.unwrap_or_else(|| default_registry_path(Some(&workspace_root)));
+        let snapshot = legacy_inventory_snapshot(&registry_path, &workspace_root, &lifecycle)?;
+        (snapshot, format!("registry:{}", registry_path.display()))
+    };
+
+    let fleet_report = classify(&snapshot, DEFAULT_DOMAIN);
+    let eligible: Vec<forge::publish::inventory::InventoryFleetEntry> = fleet_report
+        .entries
+        .iter()
+        .filter(|entry| entry.classification == InventoryClassification::ComposeReady)
+        .cloned()
+        .collect();
+    let skipped: Vec<&forge::publish::inventory::InventoryFleetEntry> = fleet_report
+        .entries
+        .iter()
+        .filter(|entry| entry.classification != InventoryClassification::ComposeReady)
+        .collect();
 
     if eligible.is_empty() {
+        let declared = snapshot.declared_count();
+        let summary = serde_json::json!({
+            "contract": forge::publish::inventory::INVENTORY_CONTRACT_VERSION,
+            "inventory_source": source_label,
+            "provider": snapshot.provider,
+            "generated_at": snapshot.generated_at,
+            "declared": declared,
+            "compose_ready": 0,
+            "skipped": skipped.iter().map(|entry| {
+                serde_json::json!({
+                    "id": entry.id,
+                    "classification": entry.classification.as_str(),
+                    "reason": entry.reason,
+                })
+            }).collect::<Vec<_>>(),
+        });
+        let human = format!(
+            "fleet publish: 0/{declared} compose_ready in {source_label}; nothing to publish"
+        );
+        render_output(as_output(format, human, summary));
         return Err(ForgeError::PublishInvalid {
             reason: format!(
-                "no projects with lifecycle `{}` and a docker-compose file in registry {}",
-                lifecycle,
-                registry_path.display()
+                "no compose_ready entries in inventory source `{source_label}`; \
+                 check that every project declares a Compose file at a resolvable source path"
             ),
         });
     }
@@ -4183,12 +4284,53 @@ fn cmd_publish_fleet(
     let mut success_count = 0usize;
     let mut failure_count = 0usize;
 
-    for project in &eligible {
+    for entry in &eligible {
+        let project_id = entry.id.clone();
+        let source_path = entry
+            .source_path
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        // The provider transport needs an on-disk folder to compose.
+        // Entries declared as remote-only git sources fail closed
+        // here rather than fabricating a synthetic workdir; the
+        // classification step above already surfaced the gap so the
+        // operator can remediate.
+        if !source_path.is_dir() {
+            failure_count += 1;
+            let detail = format!(
+                "fleet publish: project `{project_id}` source `{}` is not a directory",
+                source_path.display()
+            );
+            summaries.push(serde_json::json!({
+                "project": project_id,
+                "healthy": false,
+                "error": "source_unavailable_at_invoke",
+            }));
+            if let Ok(op_id) = core_registry.record_queue_operation(
+                "publish",
+                &project_id,
+                &queue_id,
+                "failed",
+                Some(&detail),
+            ) {
+                queue_op_ids.push((project_id.clone(), op_id));
+            }
+            if fail_fast && first_failure.is_none() {
+                first_failure = Some(ForgeError::PublishInvalid { reason: detail });
+                break;
+            }
+            continue;
+        }
+
+        // Optional external `--provider` branch. Honours the same
+        // phase-evidence contract as the manual path so the journal
+        // rows are byte-equivalent regardless of provider selection.
         if let Some(provider_id) = provider.as_deref() {
             let outcome = cmd_publish_provider(
                 db_path,
                 None,
-                Some(&project.path),
+                Some(&source_path),
                 Some(provider_id),
                 None,
                 dry_run,
@@ -4198,16 +4340,16 @@ fn cmd_publish_fleet(
                 Ok(Output::Json(value)) => {
                     let healthy = value
                         .get("health")
-                        .and_then(|value| value.as_str())
-                        .map(|value| value == "healthy")
+                        .and_then(|v| v.as_str())
+                        .map(|v| v == "healthy")
                         .unwrap_or(dry_run);
                     render_output(as_output(
                         format,
-                        format!("publish {}: provider={provider_id}", project.id),
+                        format!("publish {project_id}: provider={provider_id}"),
                         value.clone(),
                     ));
                     summaries.push(serde_json::json!({
-                        "project": project.id,
+                        "project": project_id,
                         "provider": provider_id,
                         "healthy": healthy,
                         "status": value.get("status"),
@@ -4225,7 +4367,7 @@ fn cmd_publish_fleet(
                         .map(|s| s.to_string())
                         .or_else(|| {
                             phase_revision.map(|rev| {
-                                forge::publish::providers::compose_project_name(&project.id, rev)
+                                forge::publish::providers::compose_project_name(&project_id, rev)
                             })
                         });
                     let mut phase = PublishPhaseEvidence::new();
@@ -4242,13 +4384,13 @@ fn cmd_publish_fleet(
                         phase = phase.container_identity(c);
                     }
                     if let Ok(op_id) = core_registry.record_queue_publish_phase(
-                        &project.id,
+                        &project_id,
                         &queue_id,
                         terminal_state,
                         phase,
                         Some(&format!("fleet provider={provider_id}")),
                     ) {
-                        queue_op_ids.push((project.id.clone(), op_id));
+                        queue_op_ids.push((project_id.clone(), op_id));
                     }
                     if healthy {
                         success_count += 1;
@@ -4256,10 +4398,7 @@ fn cmd_publish_fleet(
                         failure_count += 1;
                         if fail_fast && first_failure.is_none() {
                             first_failure = Some(ForgeError::PublishDeployFailed {
-                                reason: format!(
-                                    "fleet provider publish failed at `{}`",
-                                    project.id
-                                ),
+                                reason: format!("fleet provider publish failed at `{project_id}`"),
                             });
                             break;
                         }
@@ -4270,12 +4409,12 @@ fn cmd_publish_fleet(
                     success_count += 1;
                     if let Ok(op_id) = core_registry.record_queue_operation(
                         "publish",
-                        &project.id,
+                        &project_id,
                         &queue_id,
                         "done",
                         Some(&format!("fleet provider={provider_id}")),
                     ) {
-                        queue_op_ids.push((project.id.clone(), op_id));
+                        queue_op_ids.push((project_id.clone(), op_id));
                     }
                 }
                 Err(error) => {
@@ -4283,19 +4422,19 @@ fn cmd_publish_fleet(
                     let detail = format!("fleet provider={provider_id} failed: {error}");
                     render_output(as_output(
                         format,
-                        format!("publish {} failed: {error}", project.id),
-                        serde_json::json!({"project": project.id, "error": error.to_string()}),
+                        format!("publish {project_id} failed: {error}"),
+                        serde_json::json!({"project": project_id, "error": error.to_string()}),
                     ));
                     if let Ok(op_id) = core_registry.record_queue_operation(
                         "publish",
-                        &project.id,
+                        &project_id,
                         &queue_id,
                         "failed",
                         Some(&detail),
                     ) {
-                        queue_op_ids.push((project.id.clone(), op_id));
+                        queue_op_ids.push((project_id.clone(), op_id));
                     }
-                    if fail_fast {
+                    if fail_fast && first_failure.is_none() {
                         first_failure = Some(error);
                         break;
                     }
@@ -4303,30 +4442,33 @@ fn cmd_publish_fleet(
             }
             continue;
         }
-        let request = build_publish_request(
-            project.id.clone(),
-            project.path.clone(),
-            PublishAction::All,
-            dry_run,
-        );
+
+        let request =
+            build_publish_request(project_id.clone(), source_path, PublishAction::All, dry_run);
         let outcome = run_publish(&request, &adapter, &transport, Some(&core_registry));
         match outcome {
             Ok(report) => {
                 let human = render_publish_report_human(&report);
                 let mut value =
                     serde_json::to_value(&report).map_err(|err| ForgeError::PublishInvalid {
-                        reason: format!("cannot encode report for {}: {err}", project.id),
+                        reason: format!("cannot encode report for {project_id}: {err}"),
                     })?;
                 if let Some(obj) = value.as_object_mut() {
                     obj.insert(
                         "contract".to_string(),
                         serde_json::json!(PUBLISH_CONTRACT_VERSION),
                     );
+                    if let Some(subdomain) = entry.subdomain.as_deref() {
+                        obj.insert(
+                            "inventory_subdomain".to_string(),
+                            serde_json::json!(subdomain),
+                        );
+                    }
                 }
                 render_output(as_output(format, human.clone(), value.clone()));
                 let healthy = report.healthy;
                 summaries.push(serde_json::json!({
-                    "project": project.id,
+                    "project": project_id,
                     "healthy": healthy,
                     "subdomain": report.subdomain,
                     "stages": report.stages.len(),
@@ -4334,7 +4476,7 @@ fn cmd_publish_fleet(
                 let terminal_state = if healthy { "done" } else { "failed" };
                 if let Ok(op_id) = core_registry.record_queue_operation(
                     "publish",
-                    &project.id,
+                    &project_id,
                     &queue_id,
                     terminal_state,
                     Some(&format!(
@@ -4343,7 +4485,7 @@ fn cmd_publish_fleet(
                         healthy
                     )),
                 ) {
-                    queue_op_ids.push((project.id.clone(), op_id));
+                    queue_op_ids.push((project_id.clone(), op_id));
                 }
                 if healthy {
                     success_count += 1;
@@ -4351,7 +4493,7 @@ fn cmd_publish_fleet(
                     failure_count += 1;
                     if fail_fast && first_failure.is_none() {
                         first_failure = Some(ForgeError::PublishDeployFailed {
-                            reason: format!("fleet publish failed at `{}`", project.id),
+                            reason: format!("fleet publish failed at `{project_id}`"),
                         });
                         break;
                     }
@@ -4361,19 +4503,19 @@ fn cmd_publish_fleet(
                 failure_count += 1;
                 let detail = format!("fleet publish failed: {err}");
                 let summary = serde_json::json!({
-                    "project": project.id,
+                    "project": project_id,
                     "healthy": false,
                     "error": err.to_string(),
                 });
                 summaries.push(summary);
                 if let Ok(op_id) = core_registry.record_queue_operation(
                     "publish",
-                    &project.id,
+                    &project_id,
                     &queue_id,
                     "failed",
                     Some(&detail),
                 ) {
-                    queue_op_ids.push((project.id.clone(), op_id));
+                    queue_op_ids.push((project_id.clone(), op_id));
                 }
                 if fail_fast && first_failure.is_none() {
                     first_failure = Some(err);
@@ -4383,24 +4525,39 @@ fn cmd_publish_fleet(
         }
     }
 
+    let skipped_summary: Vec<serde_json::Value> = skipped
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "id": entry.id,
+                "runtime": entry.runtime.as_str(),
+                "classification": entry.classification.as_str(),
+                "reason": entry.reason,
+            })
+        })
+        .collect();
     let summary = serde_json::json!({
-        "contract": PUBLISH_CONTRACT_VERSION,
+        "contract": forge::publish::inventory::INVENTORY_CONTRACT_VERSION,
+        "inventory_source": source_label,
+        "provider": snapshot.provider,
+        "generated_at": snapshot.generated_at,
         "fleet": {
-            "registry": registry_path.display().to_string(),
-            "lifecycle": lifecycle,
-            "eligible": eligible.len(),
+            "queue_id": queue_id,
+            "declared": snapshot.declared_count(),
+            "compose_ready": eligible.len(),
+            "skipped": skipped.len(),
             "success": success_count,
             "failed": failure_count,
-            "queue_id": queue_id,
             "projects": summaries,
+            "skipped_entries": skipped_summary,
         },
     });
     let human = format!(
-        "fleet publish: {}/{} succeeded (lifecycle={}, registry={})",
+        "fleet publish: {}/{} compose_ready succeeded, {} skipped ({} in {source_label})",
         success_count,
         eligible.len(),
-        lifecycle,
-        registry_path.display()
+        skipped.len(),
+        snapshot.declared_count(),
     );
 
     render_output(as_output(format, human, summary.clone()));
@@ -4415,6 +4572,118 @@ fn cmd_publish_fleet(
     } else {
         Ok(Output::Human(String::new()))
     }
+}
+
+/// Load an inventory snapshot from a local JSON file or an
+/// external adapter executable. The path is checked for `is_file`
+/// so an external adapter is distinguishable from a regular file.
+fn load_inventory_snapshot(
+    path: &std::path::Path,
+) -> Result<forge::publish::inventory::InventorySnapshot, ForgeError> {
+    use forge::publish::inventory::invoke_external;
+    if path.is_file() {
+        // Distinguish the JSON contract from an external adapter by
+        // checking the suffix: `.json` always means local; anything
+        // else is an adapter executable.
+        let is_json = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("json"))
+            .unwrap_or(false);
+        if is_json {
+            return forge::publish::inventory::load_local(path);
+        }
+        return invoke_external(path, std::path::Path::new("."));
+    }
+    Err(ForgeError::PublishInvalid {
+        reason: format!(
+            "inventory source `{}` is not a local file or adapter executable",
+            path.display()
+        ),
+    })
+}
+
+/// Compatibility adapter that synthesizes an inventory snapshot
+/// from the legacy workspace-governance `projects.json` registry.
+/// Used when no `--inventory` is supplied so the seven-project
+/// handoff keeps working during migration.
+fn legacy_inventory_snapshot(
+    registry_path: &std::path::Path,
+    workspace_root: &std::path::Path,
+    lifecycle: &str,
+) -> Result<forge::publish::inventory::InventorySnapshot, ForgeError> {
+    use forge::publish::fleet::{filter_eligible, load_registry};
+    use forge::publish::inventory::{
+        InventoryEntry, InventoryMalformedEntry, InventorySnapshot, RuntimeClass,
+        INVENTORY_CONTRACT_VERSION,
+    };
+
+    let registry = load_registry(registry_path).map_err(|err| match err {
+        ForgeError::PublishInvalid { reason } => ForgeError::PublishInvalid {
+            reason: format!(
+                "legacy fleet registry `{registry_path}`: {reason}",
+                registry_path = registry_path.display()
+            ),
+        },
+        other => other,
+    })?;
+    let eligible = filter_eligible(&registry, workspace_root, lifecycle);
+    let now = forge::publish::inventory::now_rfc3339();
+    let mut projects = Vec::with_capacity(eligible.len());
+    let mut malformed = Vec::new();
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // Surface every declared entry — even those the legacy filter
+    // excluded — so the operator sees the complete fleet.
+    for entry in &registry.projects {
+        if !seen.insert(entry.id.clone()) {
+            malformed.push(InventoryMalformedEntry {
+                name: entry.id.clone(),
+                reason: "duplicate fleet registry id".to_string(),
+            });
+            continue;
+        }
+        let declared_lifecycle = entry.lifecycle.as_deref().unwrap_or("active");
+        let compose = if eligible.iter().any(|e| e.id == entry.id) {
+            "docker-compose.yml"
+        } else if declared_lifecycle != lifecycle {
+            continue; // non-matching lifecycle — skip without claiming invalid
+        } else {
+            malformed.push(InventoryMalformedEntry {
+                name: entry.id.clone(),
+                reason: format!(
+                    "legacy registry entry has no Compose file at `{}`",
+                    entry.path.as_deref().unwrap_or("<unspecified>")
+                ),
+            });
+            continue;
+        };
+        // Revision is unknown from the legacy registry; a future
+        // git-aware adapter replaces this. Synthesize an explicit
+        // sentinel so the contract field stays populated.
+        let revision = "0".repeat(40);
+        projects.push(InventoryEntry {
+            id: entry.id.clone(),
+            repository: format!("legacy-registry:{}", registry_path.display()),
+            revision,
+            profile: entry.profile.clone().unwrap_or_default(),
+            runtime: RuntimeClass::Web,
+            compose_file: Some(compose.to_string()),
+            source_path: entry
+                .path
+                .as_deref()
+                .map(|path| workspace_root.join(path).display().to_string()),
+            public_http: false,
+            public_port: None,
+        });
+    }
+    Ok(InventorySnapshot {
+        contract: INVENTORY_CONTRACT_VERSION.to_string(),
+        provider: "legacy-fleet-registry".to_string(),
+        generated_at: now,
+        source: Some(registry_path.display().to_string()),
+        projects,
+        malformed,
+    })
 }
 
 fn resolve_publish_target(target: &str) -> Result<(std::path::PathBuf, String), ForgeError> {
@@ -7314,4 +7583,83 @@ fn cmd_contract(
             Ok(as_output(format, human, json))
         }
     }
+}
+
+fn cmd_inventory(command: &InventoryCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        InventoryCommands::Show { source, domain } => {
+            use forge::publish::inventory::{classify, resolve_source};
+            let path = source
+                .clone()
+                .or_else(|| resolve_source(None))
+                .ok_or_else(|| ForgeError::PublishInvalid {
+                    reason: "inventory source is not configured: pass a positional path or set \
+                         $FORGE_INVENTORY_SOURCE"
+                        .to_string(),
+                })?;
+            let snapshot = load_inventory_snapshot(&path)?;
+            let report = classify(&snapshot, domain);
+            let mut human = format!(
+                "inventory {contract}: {provider} at {source}, declared={declared}, \
+                 compose_ready={ready}, compose_missing={missing}, \
+                 source_unavailable={unavailable}, invalid={invalid}\n",
+                contract = report.contract,
+                provider = report.provider,
+                source = source_label(&snapshot),
+                declared = report.entries.len(),
+                ready = report
+                    .entries
+                    .iter()
+                    .filter(|e| matches!(
+                        e.classification,
+                        forge::publish::inventory::InventoryClassification::ComposeReady
+                    ))
+                    .count(),
+                missing = report
+                    .entries
+                    .iter()
+                    .filter(|e| matches!(
+                        e.classification,
+                        forge::publish::inventory::InventoryClassification::ComposeMissing
+                    ))
+                    .count(),
+                unavailable = report
+                    .entries
+                    .iter()
+                    .filter(|e| matches!(
+                        e.classification,
+                        forge::publish::inventory::InventoryClassification::SourceUnavailable
+                    ))
+                    .count(),
+                invalid = report
+                    .entries
+                    .iter()
+                    .filter(|e| matches!(
+                        e.classification,
+                        forge::publish::inventory::InventoryClassification::Invalid
+                    ))
+                    .count(),
+            );
+            for entry in &report.entries {
+                human.push_str(&format!(
+                    "  {id:<20} {runtime:<8} {classification:<18} subdomain={subdomain}\n",
+                    id = entry.id,
+                    runtime = entry.runtime.as_str(),
+                    classification = entry.classification.as_str(),
+                    subdomain = entry.subdomain.as_deref().unwrap_or("-"),
+                ));
+            }
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::PublishInvalid {
+                reason: format!("cannot encode inventory report: {err}"),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+    }
+}
+
+fn source_label(snapshot: &forge::publish::inventory::InventorySnapshot) -> String {
+    snapshot
+        .source
+        .clone()
+        .unwrap_or_else(|| "<unspecified>".to_string())
 }

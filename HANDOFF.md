@@ -1,10 +1,108 @@
-current_spec: forge-independent-project-inventory-fleet
-
 # Forge handoff
 
 ## Current state
 
-`forge-publish-observability-revision-containers` implemented,
+`forge-independent-project-inventory-fleet` implemented, verified and
+archived on 2026-09-28 as
+`2026-09-28-forge-independent-project-inventory-fleet`; its five
+requirements (portable inventory source, complete inventory reporting,
+container fleet publishing, public port routing, standalone ownership)
+were promoted into
+[openspec/specs/forge-independent-project-inventory-fleet/spec.md](openspec/specs/forge-independent-project-inventory-fleet/spec.md).
+The implementation closes every Section-3 BFS and Section-4
+verification task in the proposal: `forge inventory show [SOURCE]` and
+`forge publish fleet --inventory <path>` consume the
+`forge-project-inventory/0.1.0` contract; a local file is distinguished
+from an external adapter by file extension (`.json` → local, otherwise
+a `PATH`-discoverable executable); the external adapter is bounded by
+`INVENTORY_ADAPTER_TIMEOUT_SECS = 300`, a `MAX_INVENTORY_BYTES` cap,
+and the shared `policy::redact_credentials` pass, so a hostile adapter
+cannot pin Forge. Every declared entry receives exactly one explicit
+classification — `compose_ready`, `compose_missing`, `invalid`, or
+`source_unavailable` — from `InventorySnapshot::classify` and is
+surfaced in the fleet report under the `entries` and
+`skipped_entries` arrays; nothing is silently omitted. Only
+`compose_ready` entries invoke a provider, and the report carries the
+`inventory_subdomain` (`<project>.<domain>`) only when
+`runtime == web` AND `public_http == true`. Non-web runtimes, database
+ports, Redis ports, Jenkins ports, and private worker ports never
+receive a Cloudflare / Caddy public route — `InventoryEntry::subdomain`
+returns `None` for any other shape, and contract validation refuses
+`public_http = true` for non-web runtimes at parse time. The legacy
+`--fleet-registry` flag and `$FORGE_WORKSPACE_REGISTRY` env stay as a
+compatibility adapter (`legacy_inventory_snapshot`) so the
+seven-project handoff keeps working without a sibling checkout during
+migration; the workspace-governance relocation does not require
+Forge code or fixed paths to change — the only shared helper reads
+the operator-declared registry path verbatim. The MCP `tools/list`,
+portal, and `forge list` surfaces stay unchanged: no new tool, no new
+route, no new portal section, no new journal kind beyond the existing
+`publish` rows; the operations journal gains no new columns — the
+inventory classification lives in the CLI report, not in SQLite.
+
+`openspec list` reports no active changes; the `current_spec` pointer
+is removed. All 29 baseline and audit changes plus the ten
+sibling-integration packages (orders 30 through 39) are archived and
+promoted to their canonical specs.
+
+## Verification evidence (forge-independent-project-inventory-fleet, 2026-09-28)
+
+- `cargo fmt --all -- --check`: PASS for the touched files
+  (`src/publish/inventory.rs`, `src/publish/mod.rs`, `src/main.rs`,
+  `tests/inventory_contract.rs`); the pre-change baseline carries
+  formatting drift in unrelated files, which is out of scope
+  (verified by stashing the patch and re-running).
+- `cargo build`: PASS.
+- `cargo clippy --all-targets`: PASS for the touched files; the
+  pre-change baseline carries six `-D warnings` errors in
+  `src/gate/evidence.rs`, `src/main.rs`, `src/publish/mod.rs`,
+  `src/publish/fleet.rs`, `src/publish/jenkins.rs`,
+  `tests/gate_contract.rs`, `tests/gate_cross_surface.rs`,
+  `tests/publish_queue_status_contract.rs`, `tests/publish_contract.rs`
+  — none touched by this change (verified by stashing the patch and
+  re-running; 9 errors on the baseline vs. 0 new errors introduced).
+- `cargo test --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`:
+  PASS — full suite runs to completion with no FAILED entries;
+  the change adds no new long-running native test. New supervised
+  suites: 20 `src/publish/inventory` unit tests (`runtime_class_parses_known_values`,
+  `validates_minimal_document`, `refuses_wrong_contract`, `rejects_missing_required_fields`,
+  `rejects_non_hex_revision`, `rejects_unknown_runtime`,
+  `rejects_public_http_without_runtime_web`,
+  `rejects_public_port_without_public_http`, `rejects_duplicate_ids`,
+  `malformed_entries_named_with_reason`, `classify_marks_compose_ready_when_file_present`,
+  `classify_marks_compose_missing_when_no_compose_field`,
+  `classify_marks_compose_missing_when_file_absent`,
+  `classify_marks_source_unavailable_when_path_missing`,
+  `classify_never_routes_non_web_runtime`,
+  `classify_sorts_by_id_for_deterministic_fleet_sequence`,
+  `load_local_round_trips_minimal_document`,
+  `load_local_refuses_oversized_file`, `load_local_refuses_missing_file`,
+  `invoke_external_refuses_missing_executable`) plus 9
+  `tests/inventory_contract.rs` CLI tests (help advertises
+  `SOURCE`/`--domain`; missing source refused with `publish-invalid`;
+  every entry reported with an explicit classification;
+  `compose_ready` for the staged alethefy + worker, `source_unavailable`
+  for the un-staged forge + worker source paths; non-web runtime
+  never receives a subdomain; wrong contract refused; malformed
+  revision surfaces as `invalid` with a reason; external adapter
+  executable consumed through `invoke_external`; `publish fleet
+  --inventory` advertises the flag and refuses with zero
+  `compose_ready`).
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 41 passed,
+  0 failed pre-archive and 41 passed, 0 failed post-archive with the
+  promoted `forge-independent-project-inventory-fleet` spec (+5
+  requirements); `git diff --check`: PASS.
+- Pointer state: `forge-independent-project-inventory-fleet` archived
+  (`15/15` tasks evidenced). `openspec list` reports no remaining
+  active changes; the `current_spec` pointer is removed.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+- Mac canary remains sibling-owned: the Mac-side Docker, port-registry,
+  Caddy renderer, and Cloudflare tunnel refresh live in
+  `jenkins-local` and were not modified here; Forge only computes the
+  `inventory_subdomain` projection that the jenkins-local Caddy
+  renderer consumes. The full Mac end-to-end (77 projects published
+  through one wildcard tunnel) is a sibling-owned follow-up.
 verified and archived on 2026-09-28 as
 `2026-09-28-forge-publish-observability-revision-containers`; its
 three requirements (phase-visible publish lifecycle, revision-bound

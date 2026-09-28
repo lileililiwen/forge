@@ -1,0 +1,38 @@
+{
+  "contract": "forge-project-inventory/0.1.0",
+  "provider": "local",
+  "generated_at": "2026-09-28T00:00:00Z",
+  "projects": [
+    {
+      "id": "alethefy",
+      "repository": "https://github.com/example/alethefy.git",
+      "revision": "0123456789abcdef0123456789abcdef01234567",
+      "profile": "rust-product",
+      "runtime": "web",
+      "compose_file": "docker-compose.yml",
+      "source_path": "__STAGE_alethefy__",
+      "public_http": true,
+      "public_port": 8080
+    },
+    {
+      "id": "forge",
+      "repository": "https://github.com/example/forge.git",
+      "revision": "89abcdef0123456789abcdef0123456789abcdef",
+      "profile": "rust-product",
+      "runtime": "web",
+      "compose_file": "docker-compose.yml",
+      "source_path": "__STAGE_forge__",
+      "public_http": false
+    },
+    {
+      "id": "worker",
+      "repository": "https://github.com/example/worker.git",
+      "revision": "fedcba9876543210fedcba9876543210fedcba98",
+      "profile": "rust-product",
+      "runtime": "worker",
+      "compose_file": "docker-compose.yml",
+      "source_path": "__STAGE_worker__",
+      "public_http": false
+    }
+  ]
+}

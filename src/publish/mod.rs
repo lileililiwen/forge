@@ -55,6 +55,7 @@ use crate::registry::Registry;
 
 pub mod fleet;
 pub mod github;
+pub mod inventory;
 pub mod jenkins;
 pub mod providers;
 
@@ -200,7 +201,8 @@ pub trait PublishAdapter {
     /// Human label, used in dry-run banners and reports.
     fn label(&self) -> &'static str;
     /// Build the commands for one stage.
-    fn plan(&self, request: &PublishRequest, stage: PublishAction) -> Result<StagePlan, ForgeError>;
+    fn plan(&self, request: &PublishRequest, stage: PublishAction)
+        -> Result<StagePlan, ForgeError>;
     /// Translate a transport result into a status + note. The
     /// adapter decides what counts as success and which exit
     /// codes map to which recovery hints.
@@ -388,17 +390,13 @@ impl SshTransport for RecordingTransport {
     fn run(&self, spec: CommandSpec) -> Result<CommandResult, ForgeError> {
         let mut owned = self.clone();
         owned.commands.push(spec);
-        let next = owned
-            .queue
-            .get(owned.cursor)
-            .cloned()
-            .unwrap_or_else(|| {
-                Ok(CommandResult {
-                    status: 0,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                })
-            });
+        let next = owned.queue.get(owned.cursor).cloned().unwrap_or_else(|| {
+            Ok(CommandResult {
+                status: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        });
         owned.cursor += 1;
         // Persist the advanced cursor back into `self` through the
         // caller's borrow by returning a clone; tests observe
@@ -567,7 +565,13 @@ pub fn run_publish(
     };
 
     if let Some(reg) = registry {
-        let verdict = if request.dry_run { "done" } else if healthy { "done" } else { "failed" };
+        let verdict = if request.dry_run {
+            "done"
+        } else if healthy {
+            "done"
+        } else {
+            "failed"
+        };
         let _ = reg.record_operation(
             "publish",
             &request.project_id,
@@ -654,10 +658,7 @@ fn execute_stage(
             note: err.to_string(),
             command: command_lines,
             evidence: vec![format!("transport error after {}ms", elapsed_ms)],
-            recovery: vec![format!(
-                "verify the transport can reach `{}`",
-                plan.stage
-            )],
+            recovery: vec![format!("verify the transport can reach `{}`", plan.stage)],
             elapsed_ms,
         };
     }
@@ -845,8 +846,14 @@ mod tests {
     fn action_parse_accepts_known_values() {
         assert_eq!(PublishAction::parse("sync").unwrap(), PublishAction::Sync);
         assert_eq!(PublishAction::parse("db").unwrap(), PublishAction::Db);
-        assert_eq!(PublishAction::parse("prepare").unwrap(), PublishAction::Prepare);
-        assert_eq!(PublishAction::parse("deploy").unwrap(), PublishAction::Deploy);
+        assert_eq!(
+            PublishAction::parse("prepare").unwrap(),
+            PublishAction::Prepare
+        );
+        assert_eq!(
+            PublishAction::parse("deploy").unwrap(),
+            PublishAction::Deploy
+        );
         assert_eq!(PublishAction::parse("all").unwrap(), PublishAction::All);
     }
 

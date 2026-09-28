@@ -8,8 +8,12 @@
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
+use crate::portfolio::{Confidence, EvidenceStatus, Lifecycle, PortfolioFilter};
+
 use super::data::{
-    FleetRow, JournalRowView, OperationIdentity, ProjectIdentity, PublishPlanStep, SkippedRow,
+    EvidenceRowView, FleetRow, JournalRowView, OperationIdentity, PortfolioEdit,
+    PortfolioRelationView, ProjectIdentity, ProjectPortfolioView, PublishPlanStep, ReviewRowView,
+    SkippedRow,
 };
 
 // --- shared chrome ----------------------------------------------------
@@ -29,6 +33,7 @@ th { background: #f5f5f5; }\
 .row-ok { color: #0a7a0a; }\
 .row-fail { color: #a02020; }\
 .row-warn { color: #8a6a00; }\
+.row-stale { color: #8a6a00; }\
 .row-skip { color: #666; }\
 pre { background: #f5f5f5; padding: 0.5rem; overflow-x: auto; }\
 form { margin: 0.5rem 0; }\
@@ -36,6 +41,9 @@ button { padding: 0.3rem 0.7rem; }\
 nav a { margin-right: 0.5rem; }\
 .field-row { margin: 0.25rem 0; }\
 .field-label { display: inline-block; min-width: 9rem; color: #444; }\
+.tag { display: inline-block; margin-right: 0.25rem; padding: 0 0.35rem; border: 1px solid #bbb; border-radius: 0.6rem; font-size: 0.85rem; }\
+fieldset { margin: 0.75rem 0; }\
+label { margin-right: 0.75rem; }\
 @media (prefers-color-scheme: dark) { th { background: #2a2a2a; } pre { background: #2a2a2a; } }\
 </style>",
     )
@@ -100,24 +108,72 @@ pub fn fleet_list(
     title: &str,
     rows: &[FleetRow],
     skipped: &[SkippedRow],
+    filter: &PortfolioFilter,
     contract: &str,
 ) -> String {
-    let body = fleet_list_body(rows, skipped);
+    let body = fleet_list_body(rows, skipped, filter);
     fleet_frame(title, contract, body).into_string()
 }
 
-fn fleet_list_body(rows: &[FleetRow], skipped: &[SkippedRow]) -> Markup {
+/// The active filter rendered above the table. Every control is a
+/// plain GET form against `/ui`, so filtering needs no script and
+/// no mutation: the portfolio metadata is user-owned, but reading
+/// it here writes nothing.
+fn portfolio_filter_form(filter: &PortfolioFilter) -> Markup {
+    html! {
+        form method="get" action="/ui" {
+            fieldset {
+                legend { "Portfolio filter" }
+                label { "Tag " input type="text" name="tag" value=(filter.tag.clone().unwrap_or_default()) {} }
+                label {
+                    "Lifecycle "
+                    select name="lifecycle" {
+                        option value="" selected=(filter.lifecycle.is_none()) { "any" }
+                        @for value in Lifecycle::ALL {
+                            option value=(value.label()) selected=(filter.lifecycle == Some(value)) { (value.label()) }
+                        }
+                    }
+                }
+                label {
+                    "Confidence "
+                    select name="confidence" {
+                        option value="" selected=(filter.confidence.is_none()) { "any" }
+                        @for value in Confidence::ALL {
+                            option value=(value.label()) selected=(filter.confidence == Some(value)) { (value.label()) }
+                        }
+                    }
+                }
+                button type="submit" { "Apply" }
+                a href="/ui" { "Clear" }
+            }
+            @if !filter.is_empty() {
+                p { small { "Filtered by " (crate::portfolio::filter_query(filter)) "." } }
+            }
+        }
+    }
+}
+
+fn fleet_list_body(rows: &[FleetRow], skipped: &[SkippedRow], filter: &PortfolioFilter) -> Markup {
     html! {
         main {
             h2 { "Fleet" }
-            @if rows.is_empty() && skipped.is_empty() {
-                p { "no projects in the fleet registry" }
+            (portfolio_filter_form(filter))
+            @if rows.is_empty() {
+                @if filter.is_empty() && skipped.is_empty() {
+                    p { "no projects in the fleet registry" }
+                } @else {
+                    p { "no project matches the active portfolio filter" }
+                }
             } @else {
                 table {
                     thead {
                         tr {
                             th { "Project" }
                             th { "Profile" }
+                            th { "Lifecycle" }
+                            th { "Confidence" }
+                            th { "Tags" }
+                            th { "Evidence" }
                             th { "Last publish" }
                             th { "State" }
                             th { "Subdomain" }
@@ -151,6 +207,7 @@ fn fleet_list_body(rows: &[FleetRow], skipped: &[SkippedRow]) -> Markup {
                     }
                 }
                 p { small { "Liveness per row lives behind " code { "forge fleet online" } "; the browser UI shows the latest journal state so no target access is required." } }
+                p { small { "Lifecycle, confidence and tags are user-owned portfolio metadata (" code { "forge portfolio" } "). Evidence states are imported from their own source systems; an " code { "unavailable" } " or " code { "stale" } " row never means the check passed." } }
             }
         }
     }
@@ -165,6 +222,38 @@ fn fleet_row(row: &FleetRow) -> Markup {
                 a href={ (detail_href) } { code { (row.id) } }
             }
             td { (row.profile) }
+            td {
+                @if let Some(lifecycle) = row.lifecycle {
+                    (lifecycle.label())
+                } @else {
+                    span class="row-skip" { "—" }
+                }
+            }
+            td {
+                @if let Some(confidence) = row.confidence {
+                    (confidence.label())
+                } @else {
+                    span class="row-skip" { "—" }
+                }
+            }
+            td {
+                @if row.tags.is_empty() {
+                    span class="row-skip" { "—" }
+                } @else {
+                    @for tag in &row.tags {
+                        span class="tag" { (tag) }
+                    }
+                }
+            }
+            td {
+                @if row.evidence.is_empty() {
+                    span class="row-skip" { "no evidence" }
+                } @else {
+                    @for (source, status) in &row.evidence {
+                        div { (source) " " span class={ (evidence_class(*status)) } { (status.label()) } }
+                    }
+                }
+            }
             td { (row.last_at) }
             td {
                 span class={ (state_class) } { (row.last_state) }
@@ -186,6 +275,7 @@ pub struct ProjectDetailArgs<'a> {
     pub doctor: &'a DoctorSummary,
     pub inventory_subdomain: &'a str,
     pub journal: &'a [JournalRowView],
+    pub portfolio: &'a ProjectPortfolioView,
     pub token: &'a str,
     pub origin: &'a str,
     pub contract: &'a str,
@@ -208,6 +298,7 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
     let doctor = args.doctor;
     let inventory_subdomain = args.inventory_subdomain;
     let journal = args.journal;
+    let portfolio = args.portfolio;
     let token = args.token;
     let origin = args.origin;
     html! {
@@ -220,6 +311,8 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
             @if !inventory_subdomain.is_empty() {
                 div class="field-row" { span class="field-label" { "Subdomain" } (inventory_subdomain) }
             }
+
+            (portfolio_section(portfolio, identity, token, origin))
 
             h3 { "Republish" }
             p { "Dry-run preview, then confirm. The publish enqueues the same " code { "RemoteComposeAdapter" } " lane as " code { "forge publish all" } "." }
@@ -251,6 +344,220 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
             }
         }
     }
+}
+
+/// The user-owned portfolio block plus its write form.
+///
+/// The section separates the two ownership domains explicitly: the
+/// classification fields are editable here, while the evidence
+/// table is read-only and attributes every row to the source
+/// system and revision that produced it. No form on this page
+/// writes a repository file or a provider record.
+fn portfolio_section(
+    portfolio: &ProjectPortfolioView,
+    identity: &ProjectIdentity,
+    token: &str,
+    origin: &str,
+) -> Markup {
+    html! {
+        h3 { "Portfolio" }
+        div class="field-row" { span class="field-label" { "Lifecycle" } (portfolio.lifecycle) }
+        div class="field-row" { span class="field-label" { "Confidence" } (portfolio.confidence) }
+        div class="field-row" { span class="field-label" { "Next action" } (portfolio.next_action) }
+        div class="field-row" {
+            span class="field-label" { "Blocker" }
+            @if portfolio.blocker == "—" {
+                span class="row-skip" { "—" }
+            } @else {
+                span class="row-warn" { (portfolio.blocker) }
+            }
+        }
+        div class="field-row" { span class="field-label" { "Reviewed at" } (portfolio.reviewed_at) }
+        div class="field-row" {
+            span class="field-label" { "Tags" }
+            @if portfolio.tags.is_empty() {
+                span class="row-skip" { "—" }
+            } @else {
+                @for tag in &portfolio.tags {
+                    span class="tag" { (tag) }
+                }
+            }
+        }
+        @if !portfolio.goals.is_empty() {
+            div class="field-row" {
+                span class="field-label" { "Goals" }
+                @for (title, status) in &portfolio.goals {
+                    span { (title) " " small { "[" (status) "]" } " " }
+                }
+            }
+        }
+
+        h4 { "Relations" }
+        @if portfolio.relations.is_empty() {
+            p { "no declared relation for this project" }
+        } @else {
+            table {
+                thead {
+                    tr {
+                        th { "Direction" }
+                        th { "Relation" }
+                        th { "Project" }
+                        th { "Note" }
+                    }
+                }
+                tbody {
+                    @for relation in &portfolio.relations {
+                        (relation_row(relation))
+                    }
+                }
+            }
+        }
+
+        h4 { "Imported evidence" }
+        p { small { "Observations are imported from their own source systems. Forge stores what the source reported; it does not run the check." } }
+        @if portfolio.evidence.is_empty() {
+            p { "no source observation imported for this project" }
+        } @else {
+            table {
+                thead {
+                    tr {
+                        th { "Source" }
+                        th { "Source revision" }
+                        th { "Observed at" }
+                        th { "Stale after" }
+                        th { "State" }
+                    }
+                }
+                tbody {
+                    @for row in &portfolio.evidence {
+                        (evidence_row(row))
+                    }
+                }
+            }
+        }
+
+        h4 { "Review history" }
+        @if portfolio.reviews.is_empty() {
+            p { "no review recorded for this project" }
+        } @else {
+            table {
+                thead {
+                    tr {
+                        th { "When" }
+                        th { "Confidence" }
+                        th { "Note" }
+                    }
+                }
+                tbody {
+                    @for row in &portfolio.reviews {
+                        (review_row(row))
+                    }
+                }
+            }
+        }
+
+        h4 { "Edit portfolio metadata" }
+        form method="post" action={ "/ui/projects/" (identity.id) "/portfolio" } {
+            input type="hidden" name="token" value={ (token) } {}
+            input type="hidden" name="origin" value={ (origin) } {}
+            fieldset {
+                legend { "Classification" }
+                label {
+                    "Lifecycle "
+                    select name="lifecycle" {
+                        option value="" { "unchanged" }
+                        @for value in Lifecycle::ALL {
+                            option value=(value.label()) { (value.label()) }
+                        }
+                    }
+                }
+                label {
+                    "Confidence "
+                    select name="confidence" {
+                        option value="" { "unchanged" }
+                        @for value in Confidence::ALL {
+                            option value=(value.label()) { (value.label()) }
+                        }
+                    }
+                }
+            }
+            fieldset {
+                legend { "Notes" }
+                label { "Next action " input type="text" name="next_action" value="" {} }
+                label { "Blocker " input type="text" name="blocker" value="" {} }
+            }
+            fieldset {
+                legend { "Tags" }
+                label { "Add " input type="text" name="tag" value="" {} }
+                label { "Remove " input type="text" name="remove_tag" value="" {} }
+            }
+            button type="submit" { "Save portfolio metadata" }
+        }
+    }
+}
+
+fn relation_row(relation: &PortfolioRelationView) -> Markup {
+    let href = format!("/ui/projects/{}", relation.other_project);
+    html! {
+        tr {
+            td { (relation.direction) }
+            td { code { (relation.relation_type) } }
+            td { a href={ (href) } { code { (relation.other_project) } } }
+            td { small { (relation.note) } }
+        }
+    }
+}
+
+fn evidence_row(row: &EvidenceRowView) -> Markup {
+    html! {
+        tr {
+            td { code { (row.source_system) } }
+            td { code { (row.source_revision) } }
+            td { (row.observed_at) }
+            td {
+                @if row.stale_after.is_empty() {
+                    span class="row-skip" { "—" }
+                } @else {
+                    (row.stale_after)
+                }
+            }
+            td { span class={ (evidence_class(row.status)) } { (row.status.label()) } }
+        }
+    }
+}
+
+fn review_row(row: &ReviewRowView) -> Markup {
+    html! {
+        tr {
+            td { (row.reviewed_at) }
+            td { (row.confidence) }
+            td { small { (row.note) } }
+        }
+    }
+}
+
+/// Render the applied edits after a confirm-gated portfolio POST.
+pub fn portfolio_saved(
+    title: &str,
+    project_id: &str,
+    edits: &[PortfolioEdit],
+    contract: &str,
+) -> String {
+    let body = html! {
+        main {
+            h2 { "Portfolio — " (project_id) }
+            p class="row-ok" { "Saved portfolio metadata." }
+            ul {
+                @for edit in edits {
+                    li { strong { (edit.action) } " — " (edit.detail) }
+                }
+            }
+            p { "Imported evidence was not touched; source-owned snapshots are append-only." }
+            p { a href={ "/ui/projects/" (project_id) } { "← Back to project" } }
+            p { a href="/ui" { "← Back to fleet" } }
+        }
+    };
+    project_frame(title, project_id, contract, body).into_string()
 }
 
 fn doctor_summary(summary: &DoctorSummary) -> Markup {
@@ -417,6 +724,18 @@ fn state_class(state: &str) -> &'static str {
         "failed" | "blocked" => "row-fail",
         "pending" => "row-warn",
         _ => "row-skip",
+    }
+}
+
+/// CSS class for an imported evidence state. Only `observed` reads
+/// as a result; `stale` and every absence state stay visually
+/// distinct from a pass so an unavailable provider is never
+/// mistaken for a green check.
+fn evidence_class(status: EvidenceStatus) -> &'static str {
+    match status {
+        EvidenceStatus::Observed => "row-ok",
+        EvidenceStatus::Stale | EvidenceStatus::NotRun => "row-stale",
+        EvidenceStatus::Unavailable | EvidenceStatus::Invalid => "row-skip",
     }
 }
 

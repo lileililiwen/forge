@@ -1,11 +1,14 @@
 //! HTTP handlers for the in-process portal UI.
 //!
-//! Three routes are registered on the existing
-//! `forge api serve` listener:
+//! Routes registered on the existing `forge api serve` listener:
 //!
-//! - `GET /ui` — fleet list
-//! - `GET /ui/projects/{id}` — project detail
+//! - `GET /ui` — fleet list, optionally filtered by portfolio
+//!   metadata (`?tag=&lifecycle=&confidence=`)
+//! - `GET /ui/projects/{id}` — project detail with the portfolio
+//!   projection
 //! - `POST /ui/projects/{id}/publish` — confirm-gated republish
+//! - `POST /ui/projects/{id}/portfolio` — bearer- and
+//!   origin-checked user-owned metadata write
 //!
 //! Content negotiation: `Accept: text/html` serves maud-
 //! rendered HTML; otherwise the handler returns a JSON error
@@ -16,17 +19,20 @@ use std::path::Path;
 
 use crate::api::{ApiConfig, ApiRequest, ApiResponse, API_CONTRACT_VERSION};
 use crate::core::{validate_project_id, ForgeError};
+use crate::portfolio::parse_filter;
 
 use super::auth::{check_origin, recheck_post_token, AuthDecision};
-use super::data;
+use super::data::{self, PortfolioFormInput};
 use super::render::{
-    error_page, fleet_list, operation_accepted, project_detail, publish_plan, ErrorKind,
+    error_page, fleet_list, operation_accepted, portfolio_saved, project_detail, publish_plan,
+    ErrorKind,
 };
 
 const FLEET_TITLE: &str = "Forge fleet";
 const PROJECT_TITLE: &str = "Forge project";
 const PLAN_TITLE: &str = "Forge publish plan";
 const ENQUEUED_TITLE: &str = "Forge publish enqueued";
+const PORTFOLIO_TITLE: &str = "Forge portfolio";
 
 // --- response builders -------------------------------------------------
 
@@ -59,6 +65,7 @@ fn forge_error_to_html(err: ForgeError) -> ApiResponse {
         "api-unauthorized" => (401, ErrorKind::Auth, "missing or invalid bearer token"),
         "unknown-project" => (404, ErrorKind::Project, "no such project"),
         "publish-confirm-required" => (409, ErrorKind::Conflict, "publish requires confirm=yes"),
+        "portfolio-invalid" => (400, ErrorKind::Project, "portfolio metadata refused"),
         _ => (500, ErrorKind::Project, "internal error"),
     };
     render_error(status, err.code(), message, kind)
@@ -200,10 +207,30 @@ pub fn handle_fleet(db_path: &Path, _config: &ApiConfig, request: &ApiRequest) -
     if let Some(resp) = require_token(Some(&token)) {
         return resp;
     }
-    match data::load_fleet_list(db_path) {
+    // A malformed filter is a typed refusal, not a silently
+    // widened result set: an operator who typed `lifecycle=shipped`
+    // must learn the vocabulary rather than see every project.
+    let filter = match parse_filter(request.query.as_deref().unwrap_or("")) {
+        Ok(filter) => filter,
+        Err(reason) => {
+            return render_error(
+                400,
+                "portfolio-invalid",
+                &format!("invalid portfolio filter: {reason}"),
+                ErrorKind::Project,
+            )
+        }
+    };
+    match data::load_fleet_list_filtered(db_path, &filter) {
         Ok(view) => html_response(
             200,
-            fleet_list(FLEET_TITLE, &view.rows, &[], API_CONTRACT_VERSION),
+            fleet_list(
+                FLEET_TITLE,
+                &view.rows,
+                &[],
+                &view.filter,
+                API_CONTRACT_VERSION,
+            ),
         ),
         Err(err) => forge_error_to_html(err),
     }
@@ -231,6 +258,9 @@ pub fn handle_project_detail(
     if let Some(resp) = require_token(token.as_deref()) {
         return resp;
     }
+    // The detail page is project-scoped: the portfolio filter
+    // belongs to the fleet list, so a query string here is
+    // ignored rather than silently narrowing the view.
     match data::load_project_detail(db_path, project_id) {
         Ok(view) => {
             let args = super::render::ProjectDetailArgs {
@@ -239,6 +269,7 @@ pub fn handle_project_detail(
                 doctor: &view.doctor,
                 inventory_subdomain: &view.inventory_subdomain,
                 journal: &view.journal,
+                portfolio: &view.portfolio,
                 token: &token.unwrap_or_default(),
                 origin: request.header("origin").unwrap_or(""),
                 contract: API_CONTRACT_VERSION,
@@ -343,6 +374,93 @@ fn enqueue_confirmed_publish(db_path: &Path, project_id: &str) -> ApiResponse {
         .headers
         .insert("location".to_string(), format!("/ui/projects/{project_id}"));
     response
+}
+
+/// `POST /ui/projects/{id}/portfolio` — user-owned metadata write.
+///
+/// The same three checks the republish POST runs apply here:
+/// a bearer token must be present, the `Origin` header must match
+/// the loopback bind, and the hidden `token` field must match the
+/// bearer token. Only then is any field validated or written, so an
+/// unauthorized or cross-origin submission persists no change.
+/// Imported evidence has no form on this page: source-owned
+/// snapshots are append-only and arrive through the import
+/// surface.
+pub fn handle_project_portfolio(
+    db_path: &Path,
+    config: &ApiConfig,
+    request: &ApiRequest,
+    project_id: &str,
+) -> ApiResponse {
+    if !wants_html(request) {
+        return json_only_response();
+    }
+    if let Err(err) = validate_project_id(project_id) {
+        return render_error(
+            400,
+            "manifest-invalid",
+            &err.to_string(),
+            ErrorKind::Project,
+        );
+    }
+
+    // 1. Bearer token
+    let token = match extract_token(request) {
+        Some(t) => t,
+        None => return require_token(None).unwrap(),
+    };
+    if let Some(resp) = require_token(Some(&token)) {
+        return resp;
+    }
+
+    // 2. Cross-origin check
+    if let AuthDecision::Refuse { code, message } = check_origin(request.header("origin"), config) {
+        return render_error(403, code, message, ErrorKind::Project);
+    }
+
+    // 3. Form token re-check
+    let form = parse_form(&request.body);
+    if let AuthDecision::Refuse { code, message } =
+        recheck_post_token(form.get("token").map(String::as_str), &token)
+    {
+        return render_error(403, code, message, ErrorKind::Project);
+    }
+
+    let input = PortfolioFormInput {
+        lifecycle: form_value(&form, "lifecycle"),
+        confidence: form_value(&form, "confidence"),
+        next_action: form_value(&form, "next_action"),
+        blocker: form_value(&form, "blocker"),
+        tag: form_value(&form, "tag"),
+        remove_tag: form_value(&form, "remove_tag"),
+    };
+    match data::apply_portfolio_form(db_path, project_id, &input) {
+        Ok(edits) => {
+            let mut response = html_response(
+                200,
+                portfolio_saved(PORTFOLIO_TITLE, project_id, &edits, API_CONTRACT_VERSION),
+            );
+            response
+                .headers
+                .insert("location".to_string(), format!("/ui/projects/{project_id}"));
+            response
+        }
+        Err(ForgeError::UnknownProject { .. }) => render_error(
+            404,
+            "unknown-project",
+            &format!("project `{project_id}` is not in the registry"),
+            ErrorKind::Project,
+        ),
+        Err(err) => forge_error_to_html(err),
+    }
+}
+
+/// One trimmed, non-empty form field. An empty box means "leave
+/// this field alone" and is never treated as a value to store.
+fn form_value(form: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    form.get(key)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 // --- tests -------------------------------------------------------------

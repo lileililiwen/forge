@@ -265,6 +265,9 @@ pub enum ForgeError {
     #[error("portal invalid: {reason}")]
     PortalInvalid { reason: String },
 
+    #[error("portfolio invalid: {reason}; no portfolio state was changed")]
+    PortfolioInvalid { reason: String },
+
     #[error("readiness invalid: {reason}")]
     ReadinessInvalid { reason: String },
 
@@ -386,6 +389,7 @@ impl ForgeError {
             ForgeError::ApiProjectMismatch { .. } => "api-project-mismatch",
             ForgeError::IdempotencyKeyConflict { .. } => "idempotency-key-conflict",
             ForgeError::PortalInvalid { .. } => "portal-invalid",
+            ForgeError::PortfolioInvalid { .. } => "portfolio-invalid",
             ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
             ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
             ForgeError::ProviderInvalid { .. } => "provider-invalid",

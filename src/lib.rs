@@ -27,6 +27,7 @@ pub mod mcp;
 pub mod planner;
 pub mod policy;
 pub mod portal;
+pub mod portfolio;
 pub mod procedure;
 pub mod profile;
 pub mod provider;

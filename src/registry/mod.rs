@@ -7,6 +7,11 @@
 //! terminal journal state in a second transaction. A `pending` entry
 //! found at open time belongs to an interrupted run and is reconciled to
 //! `failed` — it is never reported as success.
+//!
+//! The portfolio domain shares this file but never a row: its tables
+//! live in [`portfolio`] and are created additively by
+//! [`PORTFOLIO_SCHEMA_SQL`], so a registry written before the portfolio
+//! package keeps every one of its own rows untouched.
 
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -18,6 +23,10 @@ use std::time::Duration;
 
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
+
+mod portfolio;
+
+pub use portfolio::{PortfolioWrite, SnapshotWrite, PORTFOLIO_SCHEMA_SQL};
 
 /// Platform (Forge) version recorded with every registered project.
 pub const PLATFORM_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -128,6 +137,40 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
                 reason: format!("queue index creation failed: {message}"),
             });
         }
+    }
+    apply_portfolio_migration(conn)
+}
+
+/// Apply the additive portfolio schema inside one explicit
+/// transaction.
+///
+/// `BEGIN` / `COMMIT` are issued explicitly rather than relying on
+/// SQLite's implicit batch behaviour, so the rollback guarantee is
+/// deterministic: if any statement fails, the batch is rolled back
+/// and neither a partial portfolio table nor a half-applied index
+/// survives. The pre-existing `projects`/`operations` tables stay
+/// exactly as they were and the next open retries the whole batch.
+/// Every statement is idempotent, so the batch is a no-op on a
+/// registry that already carries the portfolio domain.
+fn apply_portfolio_migration(conn: &Connection) -> Result<(), ForgeError> {
+    if let Err(err) = conn.execute_batch("BEGIN IMMEDIATE") {
+        return Err(ForgeError::Registry {
+            reason: format!("portfolio migration could not begin: {err}; registry left unchanged"),
+        });
+    }
+    if let Err(err) = conn.execute_batch(PORTFOLIO_SCHEMA_SQL) {
+        // Best effort: surface the original failure, not a
+        // rollback failure that would hide it.
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(ForgeError::Registry {
+            reason: format!("portfolio migration failed: {err}; registry left unchanged"),
+        });
+    }
+    if let Err(err) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(ForgeError::Registry {
+            reason: format!("portfolio migration commit failed: {err}; registry left unchanged"),
+        });
     }
     Ok(())
 }

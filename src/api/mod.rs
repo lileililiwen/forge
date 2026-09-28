@@ -305,6 +305,7 @@ fn err_status(err: &ForgeError) -> u16 {
         | "incompatible-feature"
         | "feature-ownership-conflict"
         | "spec-invalid"
+        | "portfolio-invalid"
         | "deploy-invalid"
         | "release-invalid" => 400,
         _ => 500,
@@ -362,6 +363,32 @@ pub enum Route {
     UiProjectPublish {
         id: String,
     },
+    /// `POST /ui/projects/{id}/portfolio` — user-owned metadata write.
+    UiProjectPortfolio {
+        id: String,
+    },
+    /// `GET /v1/projects/{id}/portfolio` — read-only portfolio
+    /// projection: user-owned metadata plus the newest
+    /// source-owned snapshot per source system.
+    PortfolioProject {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/portfolio/tags` — attach a tag.
+    PortfolioTag {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/portfolio/relations` — link two projects.
+    PortfolioRelation {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/portfolio/reviews` — record a review.
+    PortfolioReview {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/portfolio/evidence` — append a snapshot.
+    PortfolioEvidence {
+        id: String,
+    },
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -409,6 +436,28 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["ui", "projects", id, "publish"]) => Some(Route::UiProjectPublish {
             id: (*id).to_string(),
         }),
+        ("POST", ["ui", "projects", id, "portfolio"]) => Some(Route::UiProjectPortfolio {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "projects", id, "portfolio"]) => Some(Route::PortfolioProject {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "portfolio", "tags"]) => Some(Route::PortfolioTag {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "portfolio", "relations"]) => {
+            Some(Route::PortfolioRelation {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "projects", id, "portfolio", "reviews"]) => Some(Route::PortfolioReview {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "portfolio", "evidence"]) => {
+            Some(Route::PortfolioEvidence {
+                id: (*id).to_string(),
+            })
+        }
         _ => None,
     }
 }
@@ -463,13 +512,19 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::Governance { .. }
         | Route::UiFleet
         | Route::UiProjectDetail { .. } => None,
+        Route::PortfolioProject { .. } => None,
         Route::CreateProject
         | Route::AddFeature { .. }
         | Route::UpgradeProject { .. }
         | Route::GenerateSpec { .. }
         | Route::AgentTransition { .. }
+        | Route::PortfolioTag { .. }
+        | Route::PortfolioRelation { .. }
+        | Route::PortfolioReview { .. }
+        | Route::PortfolioEvidence { .. }
         | Route::ApplyDeployment { .. }
-        | Route::UiProjectPublish { .. } => Some("admin:access"),
+        | Route::UiProjectPublish { .. }
+        | Route::UiProjectPortfolio { .. } => Some("admin:access"),
     }
 }
 
@@ -535,7 +590,10 @@ pub fn handle(
     // handlers do the bearer/origin checks themselves.
     if !matches!(
         route,
-        Route::UiFleet | Route::UiProjectDetail { .. } | Route::UiProjectPublish { .. }
+        Route::UiFleet
+            | Route::UiProjectDetail { .. }
+            | Route::UiProjectPublish { .. }
+            | Route::UiProjectPortfolio { .. }
     ) {
         if let Err(response) = authorize(db_path, &route, request, now) {
             return response;
@@ -574,6 +632,14 @@ pub fn handle(
         Route::UiProjectPublish { id } => {
             ui::routes::handle_project_publish(db_path, config, request, &id)
         }
+        Route::UiProjectPortfolio { id } => {
+            ui::routes::handle_project_portfolio(db_path, config, request, &id)
+        }
+        Route::PortfolioProject { id } => handle_portfolio_project(db_path, &id, now),
+        Route::PortfolioTag { id } => handle_portfolio_tag(db_path, request, &id),
+        Route::PortfolioRelation { id } => handle_portfolio_relation(db_path, request, &id),
+        Route::PortfolioReview { id } => handle_portfolio_review(db_path, request, &id),
+        Route::PortfolioEvidence { id } => handle_portfolio_evidence(db_path, request, &id),
     }
 }
 
@@ -633,7 +699,10 @@ fn authorize(
         // UI routes do their own auth flow; the dispatch
         // short-circuits before reaching this match, but
         // Rust requires the arms anyway.
-        Route::UiFleet | Route::UiProjectDetail { .. } | Route::UiProjectPublish { .. } => Ok(()),
+        Route::UiFleet
+        | Route::UiProjectDetail { .. }
+        | Route::UiProjectPublish { .. }
+        | Route::UiProjectPortfolio { .. } => Ok(()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known
@@ -729,6 +798,11 @@ fn authorize(
         | Route::UpgradeProject { id }
         | Route::GenerateSpec { id }
         | Route::AgentTransition { id }
+        | Route::PortfolioProject { id }
+        | Route::PortfolioTag { id }
+        | Route::PortfolioRelation { id }
+        | Route::PortfolioReview { id }
+        | Route::PortfolioEvidence { id }
         | Route::ApplyDeployment { id } => {
             // Project-scoped route: load the project,
             // locate the session in the project directory
@@ -1602,6 +1676,201 @@ fn handle_get_operation(db_path: &Path, op_id: i64) -> ApiResponse {
                     "code": "operation-not-found",
                     "message": format!("operation `{op_id}` is not recorded in the registry's journal")
                 },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+// --- portfolio ----------------------------------------------------------
+//
+// Every portfolio handler dispatches into the same Core contracts
+// the CLI uses, so the JSON transport adds no business rule of its
+// own. The read projection is read-only; the four mutations share
+// the existing authorization boundary (an `admin:access`
+// session for the target project) and validate their payload
+// before touching the registry. An unauthorized request never
+// reaches a write, so it persists no change.
+
+/// `GET /v1/projects/{id}/portfolio`
+fn handle_portfolio_project(db_path: &Path, id: &str, now: DateTime<Utc>) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.portfolio_project_view(id, now) {
+        Ok(view) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "portfolio": view,
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn required_field<'a>(body: &'a Value, field: &str) -> Result<&'a str, ApiResponse> {
+    body.get(field)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| bad_request(&format!("portfolio request requires a `{field}` field")))
+}
+
+fn optional_field<'a>(body: &'a Value, field: &str) -> Option<&'a str> {
+    body.get(field)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
+}
+
+/// `POST /v1/projects/{id}/portfolio/tags`
+fn handle_portfolio_tag(db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    let body = request.json_body();
+    let name = match required_field(&body, "name") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let color = optional_field(&body, "color").map(|value| value.to_string());
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.portfolio_add_tag(id, &name, color.as_deref()) {
+        Ok(tag) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "portfolio": { "project_id": id, "tag": tag },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/projects/{id}/portfolio/relations`
+fn handle_portfolio_relation(db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    let body = request.json_body();
+    let to = match required_field(&body, "to") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let raw_type = match required_field(&body, "type") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let relation_type = match crate::portfolio::RelationType::parse(&raw_type) {
+        Ok(value) => value,
+        Err(reason) => return bad_request(&reason),
+    };
+    let note = optional_field(&body, "note").map(|value| value.to_string());
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.portfolio_add_relation(id, &to, relation_type, note.as_deref()) {
+        Ok(relation) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "portfolio": { "project_id": id, "relation": relation },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/projects/{id}/portfolio/reviews`
+fn handle_portfolio_review(db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    let body = request.json_body();
+    let raw_confidence = match required_field(&body, "confidence") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let confidence = match crate::portfolio::Confidence::parse(&raw_confidence) {
+        Ok(value) => value,
+        Err(reason) => return bad_request(&reason),
+    };
+    let lifecycle = match optional_field(&body, "lifecycle") {
+        Some(raw) => match crate::portfolio::Lifecycle::parse(raw) {
+            Ok(value) => Some(value),
+            Err(reason) => return bad_request(&reason),
+        },
+        None => None,
+    };
+    let note = optional_field(&body, "note").map(|value| value.to_string());
+    let next_action = optional_field(&body, "next_action").map(|value| value.to_string());
+    let blocker = optional_field(&body, "blocker").map(|value| value.to_string());
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let write = crate::registry::PortfolioWrite {
+        lifecycle,
+        confidence: Some(confidence),
+        next_action,
+        blocker,
+    };
+    let outcome = registry.portfolio_write(id, &write).and_then(|profile| {
+        registry
+            .portfolio_record_review(id, confidence, note.as_deref())
+            .map(|review| (profile, review))
+    });
+    match outcome {
+        Ok((profile, review)) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "portfolio": { "project_id": id, "profile": profile, "review": review },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `POST /v1/projects/{id}/portfolio/evidence`
+fn handle_portfolio_evidence(db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    let body = request.json_body();
+    let source = match required_field(&body, "source") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let revision = match required_field(&body, "revision") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let raw_status = match required_field(&body, "status") {
+        Ok(value) => value.to_string(),
+        Err(response) => return response,
+    };
+    let status = match crate::portfolio::EvidenceStatus::parse(&raw_status) {
+        Ok(value) => value,
+        Err(reason) => return bad_request(&reason),
+    };
+    let write = crate::registry::SnapshotWrite {
+        source_system: source,
+        source_revision: revision,
+        observed_at: optional_field(&body, "observed_at")
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| Utc::now().to_rfc3339()),
+        status,
+        stale_after: optional_field(&body, "stale_after").map(|value| value.to_string()),
+        evidence_json: body
+            .get("evidence")
+            .cloned()
+            .filter(|value| !value.is_null())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "{}".to_string()),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match registry.portfolio_import_snapshot(id, &write) {
+        Ok(snapshot) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "portfolio": { "project_id": id, "snapshot": snapshot },
                 "contract": API_CONTRACT_VERSION,
             }),
         ),

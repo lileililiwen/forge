@@ -342,6 +342,12 @@ pub enum ForgeError {
 
     #[error("semantic conflict: {reason}; the proposal was not approved")]
     SemanticConflict { reason: String },
+
+    #[error("graduation artifact invalid: {reason}; no project state was created")]
+    GraduationInvalid { reason: String },
+
+    #[error("graduation import conflict: {reason}; nothing was written")]
+    GraduationConflict { reason: String },
 }
 
 impl ForgeError {
@@ -457,6 +463,8 @@ impl ForgeError {
             ForgeError::GithubAdapterUnavailable { .. } => "github-adapter-unavailable",
             ForgeError::SemanticInvalid { .. } => "semantic-invalid",
             ForgeError::SemanticConflict { .. } => "semantic-conflict",
+            ForgeError::GraduationInvalid { .. } => "graduation-invalid",
+            ForgeError::GraduationConflict { .. } => "graduation-conflict",
         }
     }
 

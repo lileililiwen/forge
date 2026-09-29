@@ -23,6 +23,7 @@ pub mod generate;
 pub mod github;
 pub mod gitops;
 pub mod governance;
+pub mod graduation;
 pub mod identity;
 pub mod import;
 pub mod mcp;

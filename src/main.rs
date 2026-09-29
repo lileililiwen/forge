@@ -64,6 +64,10 @@ use forge::governance::{
     save_provider_selection_with_root, GovernanceObservation, ProviderStatus,
     GOVERNANCE_CONTRACT_VERSION, LOCAL_PROVIDER_ID, WORKSPACE_ROOT_ENV,
 };
+use forge::graduation::{
+    adopt_graduation, build_proposal, render_preview_human, GraduationImport, GraduationPreview,
+    GraduationRefusal, GRADUATION_CONTRACT_VERSION,
+};
 use forge::identity::{
     build_challenge, delete_challenge_file as delete_identity_challenge,
     list_sessions as list_identity_sessions, load_challenge, load_session, mint_session,
@@ -215,6 +219,12 @@ enum Commands {
         /// Explicit project id overriding the directory-name default.
         #[arg(long)]
         id: Option<String>,
+    },
+    /// Validate a local `platform.idea-graduation` artifact and, on
+    /// explicit confirmation, create a project from its brief.
+    Graduation {
+        #[command(subcommand)]
+        command: GraduationCommands,
     },
     /// Inspect versioned MVP profile descriptors and compatibility.
     Profile {
@@ -1282,6 +1292,38 @@ enum PortfolioCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum GraduationCommands {
+    /// Validate and show an artifact without choosing a destination.
+    /// Read-only: prints the mapped brief, provenance and evidence.
+    Preview {
+        /// Local artifact path, or `-` for stdin.
+        artifact: String,
+    },
+    /// Validate an artifact, resolve the project identity and, with
+    /// `--confirm`, create the project. Without `--confirm` it prints
+    /// the preview and writes nothing.
+    Import {
+        /// Local artifact path, or `-` for stdin.
+        artifact: String,
+        /// Destination project directory.
+        #[arg(long)]
+        path: PathBuf,
+        /// Explicit profile id for the new project.
+        #[arg(long)]
+        profile: String,
+        /// Explicit project id (default: kebab-cased brief title).
+        #[arg(long)]
+        id: Option<String>,
+        /// Who is importing. Recorded in the receipt, bounded and scrubbed.
+        #[arg(long, default_value = "local-admin")]
+        actor: String,
+        /// Perform the write; without it the command is a dry run.
+        #[arg(long)]
+        confirm: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum PortfolioInterestCommands {
     /// Import a versioned batch of aggregate snapshots from a JSON
     /// file, or from stdin when the path is `-`. Every record is
@@ -2312,6 +2354,7 @@ fn main() -> ExitCode {
             id.as_deref(),
             cli.format,
         ),
+        Commands::Graduation { command } => cmd_graduation(&db_path, command, cli.format),
         Commands::Profile { command } => cmd_profile(command, cli.format),
         Commands::New {
             path,
@@ -2577,6 +2620,130 @@ fn cmd_import(
     let proposal = inspect_import(path, profile)?;
     let human = render_proposal_human(&proposal);
     let json = serde_json::json!({"proposal": proposal});
+    Ok(as_output(format, human, json))
+}
+
+/// Map a graduation refusal to the single typed Core error. The
+/// refusal code is part of the reason so a caller sees both the class
+/// (`graduation-not-validated`) and the named field.
+fn graduation_invalid(refusal: GraduationRefusal) -> ForgeError {
+    ForgeError::GraduationInvalid {
+        reason: format!("{}: {}", refusal.code, refusal.detail),
+    }
+}
+
+/// Read, decode and validate an artifact. This is the only path into
+/// the graduation surface, so `preview`, the dry run and the confirmed
+/// import all apply the same gate.
+fn load_graduation(artifact: &str) -> Result<GraduationImport, ForgeError> {
+    use forge::graduation::{parse_artifact, read_artifact, validate_graduation};
+    let raw = read_artifact(artifact)?;
+    let record = parse_artifact(&raw).map_err(graduation_invalid)?;
+    validate_graduation(&record).map_err(graduation_invalid)
+}
+
+fn render_preview_output(
+    preview: &GraduationPreview,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let human = render_preview_human(preview);
+    let proposed = match &preview.proposal {
+        Some(proposal) => serde_json::to_value(proposal).map_err(|err| ForgeError::Registry {
+            reason: err.to_string(),
+        })?,
+        None => serde_json::Value::Null,
+    };
+    let json = serde_json::json!({
+        "contract": GRADUATION_CONTRACT_VERSION,
+        "preview": {
+            "artifact": preview.artifact,
+            "source": preview.import.source,
+            "brief": preview.import.brief,
+            "experiment": preview.import.experiment,
+            "proposed": proposed,
+        },
+    });
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_graduation(
+    db_path: &Path,
+    command: &GraduationCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        GraduationCommands::Preview { artifact } => cmd_graduation_preview(artifact, format),
+        GraduationCommands::Import {
+            artifact,
+            path,
+            profile,
+            id,
+            actor,
+            confirm,
+        } => cmd_graduation_import(
+            db_path,
+            artifact,
+            path,
+            profile,
+            id.as_deref(),
+            actor,
+            *confirm,
+            format,
+        ),
+    }
+}
+
+fn cmd_graduation_preview(artifact: &str, format: Format) -> Result<Output, ForgeError> {
+    let import = load_graduation(artifact)?;
+    let preview = GraduationPreview {
+        artifact: artifact.to_string(),
+        import,
+        proposal: None,
+    };
+    render_preview_output(&preview, format)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_graduation_import(
+    db_path: &Path,
+    artifact: &str,
+    path: &Path,
+    profile: &str,
+    id: Option<&str>,
+    actor: &str,
+    confirm: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let import = load_graduation(artifact)?;
+    let proposal = build_proposal(&import, profile, path, id)?;
+    if !confirm {
+        let preview = GraduationPreview {
+            artifact: artifact.to_string(),
+            import,
+            proposal: Some(proposal),
+        };
+        return render_preview_output(&preview, format);
+    }
+    let mut registry = open_registry(db_path)?;
+    let now = chrono::Utc::now();
+    let adoption = adopt_graduation(&mut registry, &proposal, &import, actor, now)?;
+    let human = format!(
+        "imported {} ({})\nprofile: {}\nreceipt: {}\nsource: {} hypora_revision={}\nNo scaffold, deploy, network call or gate approval was performed.",
+        adoption.record.id,
+        adoption.record.path,
+        proposal.profile,
+        adoption.receipt_path,
+        import.source.contract,
+        import.source.hypora_revision,
+    );
+    let json = serde_json::json!({
+        "imported": adoption.record,
+        "graduation": {
+            "contract": GRADUATION_CONTRACT_VERSION,
+            "receipt": adoption.receipt_path,
+            "source": import.source,
+        },
+    });
     Ok(as_output(format, human, json))
 }
 

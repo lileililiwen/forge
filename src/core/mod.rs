@@ -336,6 +336,12 @@ pub enum ForgeError {
 
     #[error("github adapter unavailable: {reason}")]
     GithubAdapterUnavailable { reason: String },
+
+    #[error("semantic invalid: {reason}; no proposal was stored")]
+    SemanticInvalid { reason: String },
+
+    #[error("semantic conflict: {reason}; the proposal was not approved")]
+    SemanticConflict { reason: String },
 }
 
 impl ForgeError {
@@ -449,6 +455,8 @@ impl ForgeError {
             ForgeError::CatalogInvalid { .. } => "catalog-invalid",
             ForgeError::GithubInvalid { .. } => "github-invalid",
             ForgeError::GithubAdapterUnavailable { .. } => "github-adapter-unavailable",
+            ForgeError::SemanticInvalid { .. } => "semantic-invalid",
+            ForgeError::SemanticConflict { .. } => "semantic-conflict",
         }
     }
 

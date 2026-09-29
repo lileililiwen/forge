@@ -38,6 +38,7 @@ pub mod readiness;
 pub mod registry;
 pub mod release;
 pub mod remediation;
+pub mod semantic;
 pub mod spec;
 pub mod standard;
 pub mod ui_pattern;

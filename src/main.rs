@@ -124,6 +124,7 @@ use forge::release::{
     ReleaseAdapterConfig, ReleaseReport, ReleaseRequest, ReleaseState, Semver,
 };
 use forge::remediation::{self, RemediationPlan};
+use forge::semantic::{self, ProposalEvidence, ProposalKind, SuggestRequest};
 use forge::spec::{
     apply_routing, ensure_single_project, generate_spec, list_specs, read_spec,
     render_proposal_markdown, route_finding, DoctorFindingInput, FindingSource, RoutingOutcome,
@@ -506,6 +507,18 @@ enum Commands {
     Remediate {
         #[command(subcommand)]
         command: RemediateCommands,
+    },
+    /// Suggest, list, show, approve and reject semantic project
+    /// descriptions (`forge-semantic-proposal/0.1.0`).
+    Describe {
+        #[command(subcommand)]
+        command: DescribeCommands,
+    },
+    /// Suggest, list, show, approve and reject semantic project
+    /// classifications (domain, portfolio tags, profile, lifecycle).
+    Classify {
+        #[command(subcommand)]
+        command: ClassifyCommands,
     },
 }
 
@@ -2022,6 +2035,123 @@ enum RemediateCommands {
     Apply(RemediationArgs),
 }
 
+#[derive(Debug, Subcommand)]
+enum DescribeCommands {
+    /// Suggest a bounded description for the named project.
+    Suggest(SemanticSuggestArgs),
+    /// List every recorded semantic proposal for the named project.
+    List {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Show the full proposal manifest for one proposal id.
+    Show {
+        /// Proposal id (`<kind>-<hash>`, e.g. `description-deadbeef`).
+        proposal: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Approve a `Suggested` proposal after explicit confirmation.
+    Approve {
+        /// Proposal id.
+        proposal: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Required explicit confirmation; without it the command refuses.
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Reject a `Suggested` proposal after explicit confirmation.
+    Reject {
+        /// Proposal id.
+        proposal: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Required explicit confirmation; without it the command refuses.
+        #[arg(long)]
+        confirm: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ClassifyCommands {
+    /// Suggest a bounded classification for the named project.
+    Suggest(SemanticSuggestArgs),
+    /// List every recorded classification proposal for the named project.
+    List {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Show the full proposal manifest for one proposal id.
+    Show {
+        /// Proposal id (`<kind>-<hash>`, e.g. `domain-deadbeef`).
+        proposal: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Approve a `Suggested` proposal after explicit confirmation.
+    Approve {
+        /// Proposal id.
+        proposal: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Required explicit confirmation; without it the command refuses.
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Reject a `Suggested` proposal after explicit confirmation.
+    Reject {
+        /// Proposal id.
+        proposal: String,
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Required explicit confirmation; without it the command refuses.
+        #[arg(long)]
+        confirm: bool,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+struct SemanticSuggestArgs {
+    /// Registered project id or filesystem path (default: current directory).
+    #[arg(default_value = ".")]
+    target: String,
+    /// Bounded, control-free suggested value (e.g. `tools for inspecting catalogs`).
+    #[arg(long)]
+    suggested_value: String,
+    /// Optional current value (the value the project has today).
+    #[arg(long = "current-value")]
+    current_value: Option<String>,
+    /// Confidence label: `low`, `medium`, or `high` (default: `medium`).
+    #[arg(long, default_value = "medium")]
+    confidence: String,
+    /// Provider identity: `operator` (default) or `local`.
+    #[arg(long, default_value = "operator")]
+    provider: String,
+    /// Path to the evidence source (repeatable; one per source).
+    #[arg(long = "evidence-path", value_name = "PATH")]
+    evidence_paths: Vec<String>,
+    /// Revision the evidence was observed at. A single revision
+    /// applies to every `--evidence-path`; an evidence path
+    /// without a paired revision is refused.
+    #[arg(long = "evidence-revision", value_name = "REV")]
+    evidence_revisions: Vec<String>,
+    /// Optional bounded excerpt for each `--evidence-path`.
+    #[arg(long = "evidence-excerpt", value_name = "EXCERPT")]
+    evidence_excerpts: Vec<String>,
+    /// Optional human note recorded with the proposal.
+    #[arg(long)]
+    note: Option<String>,
+}
+
 #[derive(Debug, clap::Args)]
 struct RemediationArgs {
     /// Project directory (default: current directory).
@@ -2300,6 +2430,8 @@ fn main() -> ExitCode {
         Commands::Inventory { command } => cmd_inventory(command, cli.format),
         Commands::Standard { command } => cmd_standard(command, cli.format),
         Commands::Remediate { command } => cmd_remediate(&db_path, command, cli.format),
+        Commands::Describe { command } => cmd_describe(command, cli.format),
+        Commands::Classify { command } => cmd_classify(command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -2902,6 +3034,269 @@ fn cmd_remediate(
             ))
         }
     }
+}
+
+fn cmd_describe(command: &DescribeCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        DescribeCommands::Suggest(args) => {
+            let request = build_suggest_request(ProposalKind::Description, args)?;
+            let outcome = semantic::suggest(&request)?;
+            semantic_suggest_output(&outcome, format)
+        }
+        DescribeCommands::List { target } => {
+            let project_path = resolve_spec_target(target)?;
+            let entries = semantic::list(&project_path)?;
+            semantic_list_output(&entries, format)
+        }
+        DescribeCommands::Show { proposal, target } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_proposal_id(target, &project_path, proposal)?;
+            match semantic::read(&project_path, &id)? {
+                Some(proposal) => semantic_show_output(&proposal, format),
+                None => Err(ForgeError::SemanticInvalid {
+                    reason: format!("proposal `{proposal}` was not found under `.forge/semantic/`"),
+                }),
+            }
+        }
+        DescribeCommands::Approve {
+            proposal,
+            target,
+            confirm,
+        } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_proposal_id(target, &project_path, proposal)?;
+            let outcome = semantic::approve(&project_path, &id, chrono::Utc::now(), *confirm)?;
+            semantic_decide_output(&outcome, format)
+        }
+        DescribeCommands::Reject {
+            proposal,
+            target,
+            confirm,
+        } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_proposal_id(target, &project_path, proposal)?;
+            let outcome = semantic::reject(&project_path, &id, chrono::Utc::now(), *confirm)?;
+            semantic_decide_output(&outcome, format)
+        }
+    }
+}
+
+fn cmd_classify(command: &ClassifyCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        ClassifyCommands::Suggest(args) => {
+            let kind = ProposalKind::Domain;
+            let request = build_suggest_request(kind, args)?;
+            let outcome = semantic::suggest(&request)?;
+            semantic_suggest_output(&outcome, format)
+        }
+        ClassifyCommands::List { target } => {
+            let project_path = resolve_spec_target(target)?;
+            let entries = semantic::list(&project_path)?;
+            semantic_list_output(&entries, format)
+        }
+        ClassifyCommands::Show { proposal, target } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_proposal_id(target, &project_path, proposal)?;
+            match semantic::read(&project_path, &id)? {
+                Some(proposal) => semantic_show_output(&proposal, format),
+                None => Err(ForgeError::SemanticInvalid {
+                    reason: format!("proposal `{proposal}` was not found under `.forge/semantic/`"),
+                }),
+            }
+        }
+        ClassifyCommands::Approve {
+            proposal,
+            target,
+            confirm,
+        } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_proposal_id(target, &project_path, proposal)?;
+            let outcome = semantic::approve(&project_path, &id, chrono::Utc::now(), *confirm)?;
+            semantic_decide_output(&outcome, format)
+        }
+        ClassifyCommands::Reject {
+            proposal,
+            target,
+            confirm,
+        } => {
+            let project_path = resolve_spec_target(target)?;
+            let id = parse_proposal_id(target, &project_path, proposal)?;
+            let outcome = semantic::reject(&project_path, &id, chrono::Utc::now(), *confirm)?;
+            semantic_decide_output(&outcome, format)
+        }
+    }
+}
+
+fn build_suggest_request(
+    kind: ProposalKind,
+    args: &SemanticSuggestArgs,
+) -> Result<SuggestRequest, ForgeError> {
+    let project_path = resolve_spec_target(&args.target)?;
+    if args.evidence_paths.is_empty() {
+        return Err(ForgeError::SemanticInvalid {
+            reason: "suggest requires at least one --evidence-path".to_string(),
+        });
+    }
+    if args.evidence_revisions.len() != 1 {
+        return Err(ForgeError::SemanticInvalid {
+            reason: "--evidence-revision must be passed exactly once; the same revision applies to every --evidence-path".to_string(),
+        });
+    }
+    let revision = &args.evidence_revisions[0];
+    let mut evidence: Vec<ProposalEvidence> = Vec::with_capacity(args.evidence_paths.len());
+    for (index, path) in args.evidence_paths.iter().enumerate() {
+        let excerpt = args
+            .evidence_excerpts
+            .get(index)
+            .cloned()
+            .unwrap_or_default();
+        evidence.push(ProposalEvidence::new(
+            path.clone(),
+            revision.clone(),
+            excerpt,
+        )?);
+    }
+    Ok(SuggestRequest {
+        project_path,
+        kind,
+        current_value: args.current_value.clone(),
+        suggested_value: args.suggested_value.clone(),
+        confidence: forge::semantic::parse_confidence(&args.confidence)?,
+        provider: forge::semantic::parse_provider(&args.provider)?,
+        evidence,
+        note: args.note.clone(),
+        now: chrono::Utc::now(),
+    })
+}
+
+fn parse_proposal_id(
+    _target: &str,
+    project_path: &std::path::Path,
+    raw: &str,
+) -> Result<forge::semantic::ProposalId, ForgeError> {
+    let (kind_label, hash) = raw.rsplit_once('-').ok_or_else(|| ForgeError::SemanticInvalid {
+        reason: format!(
+            "proposal id `{raw}` is malformed: expected `<kind>-<hash>` (e.g. `description-deadbeef`)"
+        ),
+    })?;
+    let kind = forge::semantic::parse_kind(kind_label)?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(project_path, None)
+        .map_err(|err| ForgeError::SemanticInvalid {
+            reason: format!("cannot resolve project id: {err}"),
+        })?;
+    Ok(forge::semantic::ProposalId {
+        project_id: manifest.project.id,
+        kind,
+        hash: hash.to_string(),
+    })
+}
+
+fn semantic_suggest_output(
+    outcome: &forge::semantic::SuggestOutcome,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "status": outcome.status_label(),
+        "note": outcome.note,
+        "files_written": outcome.files_written,
+        "proposal": outcome.proposal,
+    });
+    let human = match outcome.proposal.as_ref() {
+        Some(proposal) => format!(
+            "semantic {}: {}\nfiles: {}\n{}",
+            outcome.status_label(),
+            proposal.id.dir_name(),
+            if outcome.files_written.is_empty() {
+                "(none)".to_string()
+            } else {
+                outcome.files_written.join(", ")
+            },
+            outcome.note
+        ),
+        None => format!(
+            "semantic {}: {}\n{}",
+            outcome.status_label(),
+            outcome.note,
+            "(no proposal stored)"
+        ),
+    };
+    Ok(as_output(format, human, json))
+}
+
+fn semantic_list_output(
+    entries: &[forge::semantic::ProposalListEntry],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"proposals": entries});
+    let mut human = format!(
+        "{:<48} {:<16} {:<11} {:<8} {:<8} {}",
+        "Proposal", "Kind", "State", "Conf", "Provider", "Evidence"
+    );
+    for entry in entries {
+        human.push_str(&format!(
+            "\n{:<48} {:<16} {:<11} {:<8} {:<8} {}",
+            entry.dir_name,
+            entry.kind.label(),
+            entry.state.label(),
+            entry.confidence.label(),
+            entry.provider.label(),
+            entry.evidence_count
+        ));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn semantic_show_output(
+    proposal: &forge::semantic::Proposal,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({"proposal": proposal});
+    let mut human = format!(
+        "proposal: {}\nstate: {}\nkind: {}\nconfidence: {}\nprovider: {}\nsuggested_value: {}\n",
+        proposal.id.dir_name(),
+        proposal.state,
+        proposal.kind,
+        proposal.confidence,
+        proposal.provider,
+        proposal.suggested_value
+    );
+    for ev in &proposal.evidence {
+        human.push_str(&format!(
+            "evidence: path=`{}` revision=`{}`\n",
+            ev.path, ev.revision
+        ));
+    }
+    if let Some(conflict) = &proposal.conflict {
+        human.push_str(&format!(
+            "conflict: first=`{}` second=`{}`\n",
+            conflict.first_value, conflict.second_value
+        ));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn semantic_decide_output(
+    outcome: &forge::semantic::DecideOutcome,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "id": outcome.id,
+        "state": outcome.state,
+        "files_written": outcome.files_written,
+        "note": outcome.note,
+    });
+    let human = format!(
+        "semantic proposal {} moved to state {}\nfiles: {}\n{}",
+        outcome.id.dir_name(),
+        outcome.state,
+        if outcome.files_written.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.files_written.join(", ")
+        },
+        outcome.note
+    );
+    Ok(as_output(format, human, json))
 }
 
 fn pack_state_word(state: forge::standard::PackSupportState) -> &'static str {
@@ -10215,7 +10610,10 @@ fn cmd_github_observe(
     let adapter = GithubAdapter::from_env();
     if !adapter.binary_available() {
         return Err(ForgeError::GithubAdapterUnavailable {
-            reason: format!("no GitHub adapter binary is configured ({})", adapter.source),
+            reason: format!(
+                "no GitHub adapter binary is configured ({})",
+                adapter.source
+            ),
         });
     }
     if adapter.token.is_none() {
@@ -10274,12 +10672,15 @@ fn cmd_github_propose(
     format: Format,
 ) -> Result<Output, ForgeError> {
     use forge::github::{
-        GithubAdapter, MutationMode, ProposedChange, ProposeRequest, GITHUB_CONTRACT_VERSION,
+        GithubAdapter, MutationMode, ProposeRequest, ProposedChange, GITHUB_CONTRACT_VERSION,
     };
     let adapter = GithubAdapter::from_env();
     if !adapter.binary_available() {
         return Err(ForgeError::GithubAdapterUnavailable {
-            reason: format!("no GitHub adapter binary is configured ({})", adapter.source),
+            reason: format!(
+                "no GitHub adapter binary is configured ({})",
+                adapter.source
+            ),
         });
     }
     if adapter.token.is_none() {
@@ -10315,11 +10716,11 @@ fn cmd_github_propose(
     };
     let mut changes: Vec<ProposedChange> = Vec::new();
     for raw in sets {
-        let (field, value) = raw.split_once('=').ok_or_else(|| ForgeError::GithubInvalid {
-            reason: format!(
-                "proposed change `{raw}` is not in `field=value` form"
-            ),
-        })?;
+        let (field, value) = raw
+            .split_once('=')
+            .ok_or_else(|| ForgeError::GithubInvalid {
+                reason: format!("proposed change `{raw}` is not in `field=value` form"),
+            })?;
         changes.push(ProposedChange {
             field: field.trim().to_string(),
             new_value: value.trim().to_string(),
@@ -10381,10 +10782,7 @@ fn render_github_observe_human(
             observation.repository,
             observation.state.id(),
             observation.observed_at,
-            observation
-                .source_revision
-                .as_deref()
-                .unwrap_or("unknown"),
+            observation.source_revision.as_deref().unwrap_or("unknown"),
         ));
         if let Some(description) = observation.description.as_deref() {
             out.push_str(&format!("    description: {description}\n"));

@@ -20,6 +20,7 @@ pub mod feature;
 pub mod fleet;
 pub mod gate;
 pub mod generate;
+pub mod github;
 pub mod gitops;
 pub mod governance;
 pub mod identity;

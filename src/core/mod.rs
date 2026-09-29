@@ -330,6 +330,12 @@ pub enum ForgeError {
 
     #[error("catalog invalid: {reason}; no catalog state was changed")]
     CatalogInvalid { reason: String },
+
+    #[error("github invalid: {reason}")]
+    GithubInvalid { reason: String },
+
+    #[error("github adapter unavailable: {reason}")]
+    GithubAdapterUnavailable { reason: String },
 }
 
 impl ForgeError {
@@ -441,6 +447,8 @@ impl ForgeError {
             ForgeError::ContractInvalid { .. } => "contract-invalid",
             ForgeError::StandardInvalid { .. } => "standard-invalid",
             ForgeError::CatalogInvalid { .. } => "catalog-invalid",
+            ForgeError::GithubInvalid { .. } => "github-invalid",
+            ForgeError::GithubAdapterUnavailable { .. } => "github-adapter-unavailable",
         }
     }
 

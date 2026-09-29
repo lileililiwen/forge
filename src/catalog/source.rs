@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{validate_project_id, ForgeError};
 use crate::fleet::{self, FleetFreshness, FleetReport};
+use crate::github::{self, GithubAdapter, GithubObservation, GithubState};
 use crate::publish::inventory;
 use crate::registry::Registry;
 
@@ -39,6 +40,10 @@ pub struct CatalogSourceSelection {
     pub workspace_registry: Option<PathBuf>,
     /// Portable inventory source, if the inventory source is selected.
     pub inventory: Option<PathBuf>,
+    /// Explicit GitHub repositories (`owner/repo`) for the GitHub
+    /// source. When empty, the GitHub source walks the local registry
+    /// for projects whose `git_remote` looks like a GitHub URL.
+    pub github_repositories: Vec<String>,
 }
 
 impl Default for CatalogSourceSelection {
@@ -48,6 +53,7 @@ impl Default for CatalogSourceSelection {
             git_repositories: Vec::new(),
             workspace_registry: None,
             inventory: None,
+            github_repositories: Vec::new(),
         }
     }
 }
@@ -125,12 +131,7 @@ pub fn collect(request: &CatalogRequest) -> SourceBundle {
             SourceKind::Git => collect_git(request, &mut bundle),
             SourceKind::WorkspaceRegistry => collect_workspace(request, &local_ids, &mut bundle),
             SourceKind::Inventory => collect_inventory(request, &mut bundle),
-            SourceKind::Github => bundle.statuses.push(SourceStatus::unavailable(
-                "github",
-                SourceKind::Github,
-                "no GitHub metadata adapter is configured; the \
-                 github-project-metadata-adapter package owns that source",
-            )),
+            SourceKind::Github => collect_github(request, &mut bundle),
         }
     }
     bundle
@@ -171,6 +172,197 @@ fn collect_local(request: &CatalogRequest, bundle: &mut SourceBundle) {
             format!("cannot open the local registry read-only: {err}"),
         )),
     }
+}
+
+fn collect_github(request: &CatalogRequest, bundle: &mut SourceBundle) {
+    let adapter = GithubAdapter::from_env();
+    if !adapter.binary_available() {
+        let reason = if adapter.binary.is_none() {
+            format!("{}: {}", github::GITHUB_BIN_ENV, adapter.source)
+        } else {
+            format!(
+                "GitHub adapter binary `{}` is not executable; {}",
+                adapter
+                    .binary
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "<missing>".to_string()),
+                adapter.source
+            )
+        };
+        bundle.statuses.push(SourceStatus::unavailable(
+            "github",
+            SourceKind::Github,
+            reason,
+        ));
+        return;
+    }
+    if adapter.token.is_none() {
+        bundle.statuses.push(SourceStatus::unavailable(
+            "github",
+            SourceKind::Github,
+            format!(
+                "{} is not set; the GitHub source requires a token and is unavailable",
+                github::GITHUB_TOKEN_ENV
+            ),
+        ));
+        return;
+    }
+    let repositories = github_repositories_to_observe(request);
+    if repositories.is_empty() {
+        bundle.statuses.push(SourceStatus::unavailable(
+            "github",
+            SourceKind::Github,
+            "no GitHub repositories were declared (pass --source github --github-repository \
+             owner/repo, or set a --git-repository whose remote is on github.com, or register \
+             a project whose git_remote points to a GitHub URL)"
+                .to_string(),
+        ));
+        return;
+    }
+    let host = github::GITHUB_DEFAULT_HOST;
+    let observation_request = github::GithubObservationRequest {
+        host: host.to_string(),
+        repositories: repositories.clone(),
+    };
+    match adapter.observe(&observation_request) {
+        Ok(observations) => {
+            let records: Vec<CatalogRecord> = observations
+                .iter()
+                .map(|observation| {
+                    github::normalize_observation(observation, request.max_age_seconds, request.now)
+                })
+                .collect();
+            let label = format!("github:{host}");
+            let mut status = SourceStatus::available(&label, SourceKind::Github, records.len());
+            let unavailable: Vec<&GithubObservation> = observations
+                .iter()
+                .filter(|observation| {
+                    matches!(
+                        observation.state,
+                        GithubState::Unavailable { .. } | GithubState::Partial
+                    )
+                })
+                .collect();
+            if !unavailable.is_empty() {
+                status.reason = Some(format!(
+                    "{} of {} repository observation(s) reported an unavailable state",
+                    unavailable.len(),
+                    observations.len()
+                ));
+            }
+            bundle.statuses.push(status);
+            bundle.records.extend(records);
+        }
+        Err(err) => {
+            bundle.statuses.push(SourceStatus::unavailable(
+                "github",
+                SourceKind::Github,
+                err.to_string(),
+            ));
+        }
+    }
+}
+
+/// Resolve the list of `owner/repo` identities the GitHub source
+/// should observe. Explicit `--github-repository` flags win; when
+/// none are given, walk the local registry for projects whose
+/// `git_remote` looks like a GitHub URL.
+fn github_repositories_to_observe(request: &CatalogRequest) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for raw in &request.selection.github_repositories {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let key = trimmed.to_ascii_lowercase();
+        if seen.insert(key) {
+            out.push(trimmed.to_string());
+        }
+    }
+    if !out.is_empty() {
+        return out;
+    }
+    if !request.registry_path.is_file() {
+        return out;
+    }
+    let Ok(registry) = Registry::open_read_only(request.registry_path) else {
+        return out;
+    };
+    let Ok(projects) = registry.list() else {
+        return out;
+    };
+    for project in projects {
+        let Some(remote) = project.git_remote.as_deref() else {
+            continue;
+        };
+        if let Some(repository) = github_repository_from_remote(remote) {
+            let key = repository.to_ascii_lowercase();
+            if seen.insert(key) {
+                out.push(repository);
+            }
+        }
+    }
+    out
+}
+
+/// Parse a `git_remote` URL and return the `owner/repo` it points to
+/// when the host is github.com. SSH (`git@github.com:owner/repo.git`),
+/// HTTPS (`https://github.com/owner/repo.git`) and git-protocol
+/// (`git://github.com/owner/repo.git`) forms are accepted; everything
+/// else returns `None` so a non-GitHub remote is silently skipped
+/// rather than mis-mapped.
+pub fn github_repository_from_remote(remote: &str) -> Option<String> {
+    let trimmed = remote.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(stripped) = trimmed
+        .strip_prefix("https://github.com/")
+        .or_else(|| trimmed.strip_prefix("http://github.com/"))
+    {
+        return owner_repo(stripped);
+    }
+    if let Some(stripped) = trimmed.strip_prefix("git://github.com/") {
+        return owner_repo(stripped);
+    }
+    if let Some(stripped) = trimmed.strip_prefix("ssh://git@github.com/") {
+        return owner_repo(stripped);
+    }
+    if let Some(stripped) = trimmed.strip_prefix("git@github.com:") {
+        return owner_repo(stripped);
+    }
+    None
+}
+
+fn owner_repo(stripped: &str) -> Option<String> {
+    let trimmed = stripped.trim_end_matches('/').trim_end_matches(".git");
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut parts = trimmed.split('/');
+    let owner = parts.next()?;
+    let name = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if owner.is_empty() || name.is_empty() {
+        return None;
+    }
+    if !owner
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return None;
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return None;
+    }
+    Some(format!("{owner}/{name}"))
 }
 
 fn collect_git(request: &CatalogRequest, bundle: &mut SourceBundle) {

@@ -1,6 +1,33 @@
-current_spec: project-evidence-gap-assessment
+current_spec: project-local-remediation-plans
 
 # Forge handoff
+
+## Current state
+
+`project-evidence-gap-assessment` was implemented, verified and archived on
+2026-09-29 as `2026-09-29-project-evidence-gap-assessment`; its three
+requirements (evidence-backed findings, distinct verdicts, and read-only
+assessment) were promoted into
+[openspec/specs/project-evidence-gap-assessment/spec.md](openspec/specs/project-evidence-gap-assessment/spec.md).
+
+**Implementation.** `src/doctor/gaps.rs` projects the catalog's normalized
+records and source statuses into the closed `forge-project-evidence/0.1.0`
+finding contract. `forge project gaps [PROJECT]` supports catalog source
+selection, category/status/remediation filters, table/JSON/NDJSON output,
+stable ordering, explicit unavailable and not-applicable findings, and
+credential redaction. It performs no registry or provider writes.
+
+**Verification evidence (2026-09-29).** The focused suites pass: 18 contract
+tests and 14 cross-surface tests. `cargo build --bin forge`, strict OpenSpec
+validation (57/57), the change-name check and diff checks pass. Full workspace
+verification remains subject to the repository's recorded pre-existing
+formatting drift and baseline warnings; no new dependency or Gate Runtime was
+introduced. No provider was contacted and no project was repaired.
+
+**Pointer state.** The completed change is archived. `openspec list` selects
+`project-local-remediation-plans` as the next dependency-ready implementation
+package; the other planning packages remain unselected. No deployment,
+production, or shared Gate pass is claimed.
 
 ## Current state
 

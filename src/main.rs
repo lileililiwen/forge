@@ -146,7 +146,7 @@ use forge::upgrade::{
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
@@ -1972,6 +1972,76 @@ enum GithubCommands {
         /// `language`.
         #[arg(long = "set", value_name = "FIELD=VALUE")]
         sets: Vec<String>,
+    },
+    /// Probe the installed GitHub CLI authentication state without
+    /// reading or displaying the credential
+    /// (`forge-github-cli-workflows/0.1.0`).
+    Auth {
+        /// GitHub host (default: `github.com`).
+        #[arg(long, value_name = "HOST", default_value = "github.com")]
+        host: String,
+    },
+    /// Clone an existing GitHub repository through the installed
+    /// `gh` CLI to a local destination directory.
+    Clone {
+        /// Repository identity (`owner/repo`).
+        #[arg(value_name = "OWNER/REPO")]
+        repository: String,
+        /// Local destination directory.
+        #[arg(value_name = "PATH")]
+        destination: PathBuf,
+        /// Required explicit confirmation. The command refuses any
+        /// clone without this flag so an unexpected remote read is
+        /// never implicit.
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Create a remote GitHub repository for an existing local
+    /// project. Private is the default; public requires
+    /// `--visibility public --confirm-public`. Initial source push
+    /// requires `--push-source --confirm`.
+    Create {
+        /// Project identifier or registered path.
+        #[arg(value_name = "PROJECT")]
+        project: String,
+        /// Repository identity to create on GitHub (`owner/name`).
+        #[arg(long = "repo", value_name = "OWNER/NAME")]
+        repo: String,
+        /// Visibility (`private` default, `public` requires
+        /// `--confirm-public`).
+        #[arg(long, value_name = "VISIBILITY", default_value = "private")]
+        visibility: String,
+        /// Required to make a public repository visible without
+        /// review.
+        #[arg(long = "confirm-public")]
+        confirm_public: bool,
+        /// Push the local source to the new remote on creation.
+        #[arg(long = "push-source")]
+        push_source: bool,
+        /// Required explicit confirmation that this is a remote
+        /// write.
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Open a draft pull request for a registered project through
+    /// the installed `gh` CLI.
+    PullRequest {
+        /// Project identifier or registered path.
+        #[arg(value_name = "PROJECT")]
+        project: String,
+        /// Pull-request title.
+        #[arg(long, value_name = "TITLE")]
+        title: String,
+        /// Pull-request body.
+        #[arg(long, value_name = "BODY")]
+        body: String,
+        /// Open the pull request as a draft.
+        #[arg(long)]
+        draft: bool,
+        /// Required explicit confirmation that this is a remote
+        /// write.
+        #[arg(long)]
+        confirm: bool,
     },
 }
 
@@ -10977,6 +11047,36 @@ fn cmd_project_github(
             confirm,
             sets,
         } => cmd_github_propose(repository, host, mode, confirm.as_deref(), sets, format),
+        GithubCommands::Auth { host } => cmd_github_cli_auth(host, format),
+        GithubCommands::Clone {
+            repository,
+            destination,
+            confirm,
+        } => cmd_github_cli_clone(db_path, repository, destination, *confirm, format),
+        GithubCommands::Create {
+            project,
+            repo,
+            visibility,
+            confirm_public,
+            push_source,
+            confirm,
+        } => cmd_github_cli_create(
+            db_path,
+            project,
+            repo,
+            visibility,
+            *confirm_public,
+            *push_source,
+            *confirm,
+            format,
+        ),
+        GithubCommands::PullRequest {
+            project,
+            title,
+            body,
+            draft,
+            confirm,
+        } => cmd_github_cli_pull_request(db_path, project, title, body, *draft, *confirm, format),
     }
 }
 
@@ -11232,6 +11332,385 @@ fn render_github_propose_human(outcome: &forge::github::ProposeOutcome) -> Strin
         text.push_str(&format!("note: {}\n", outcome.note));
     }
     text.trim_end().to_string()
+}
+
+fn cmd_github_cli_auth(host: &str, format: Format) -> Result<Output, ForgeError> {
+    use forge::github::{run_auth, GhCli};
+    let host_trimmed = host.trim();
+    let host = if host_trimmed.is_empty() {
+        forge::github::GITHUB_CLI_DEFAULT_HOST
+    } else {
+        host_trimmed
+    };
+    let cli = GhCli::from_env();
+    let result = run_auth(&cli, host);
+    let json = serde_json::json!({
+        "contract": forge::github::GITHUB_CLI_CONTRACT_VERSION,
+        "operation": result.operation.id(),
+        "outcome": result.outcome.id(),
+        "exit_code": result.exit_code,
+        "stderr_tail": result.stderr_tail,
+        "note": result.note,
+        "cli_source": cli.source,
+    });
+    let human = format!(
+        "forge project github auth — contract {}\n\
+         cli_source={}\n\
+         outcome={}\n",
+        forge::github::GITHUB_CLI_CONTRACT_VERSION,
+        cli.source,
+        result.outcome.id(),
+    );
+    if !result.note.is_empty() {
+        return Err(result.to_error("github cli auth"));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_github_cli_clone(
+    _db_path: &Path,
+    repository: &str,
+    destination: &Path,
+    confirm: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::github::{parse_repository, run_clone, GhCli, GITHUB_CLI_CONTRACT_VERSION};
+    if !confirm {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "github cli clone requires explicit --confirm; refusing to clone `{repository}` without it"
+            ),
+        });
+    }
+    parse_repository(repository).map_err(|reason| ForgeError::GithubCliInvalid {
+        reason: format!("repository `{repository}`: {reason}"),
+    })?;
+    if destination.exists() {
+        if destination.is_dir() {
+            let read =
+                std::fs::read_dir(destination).map_err(|err| ForgeError::GithubCliConflict {
+                    reason: format!(
+                        "destination `{}` is an unreadable existing directory: {err}",
+                        destination.display()
+                    ),
+                })?;
+            if read.count() > 0 {
+                return Err(ForgeError::GithubCliConflict {
+                    reason: format!(
+                        "destination `{}` already exists and is not empty; refusing to clone over it",
+                        destination.display()
+                    ),
+                });
+            }
+        } else {
+            return Err(ForgeError::GithubCliConflict {
+                reason: format!(
+                    "destination `{}` already exists and is not a directory",
+                    destination.display()
+                ),
+            });
+        }
+    }
+    let cli = GhCli::from_env();
+    let result = run_clone(&cli, repository, destination);
+    let artifact = result.artifact_url.clone();
+    let json = serde_json::json!({
+        "contract": GITHUB_CLI_CONTRACT_VERSION,
+        "operation": result.operation.id(),
+        "outcome": result.outcome.id(),
+        "exit_code": result.exit_code,
+        "repository": repository,
+        "destination": destination.display().to_string(),
+        "artifact_url": artifact,
+        "stderr_tail": result.stderr_tail,
+        "note": result.note,
+        "cli_source": cli.source,
+    });
+    if result.outcome != forge::github::GhOutcome::Done {
+        return Err(clone_error(&result));
+    }
+    let human = format!(
+        "forge project github clone — contract {}\n\
+         cli_source={}\n\
+         outcome=done\n\
+         repository={}\n\
+         destination={}\n",
+        GITHUB_CLI_CONTRACT_VERSION,
+        cli.source,
+        repository,
+        destination.display(),
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn clone_error(result: &forge::github::GhResult) -> ForgeError {
+    use forge::github::{GhOutcome, GhResult};
+    let ctx = format!("github cli clone {}", result.repository());
+    match result {
+        GhResult {
+            outcome: GhOutcome::Done,
+            ..
+        } => ForgeError::GithubCliInvalid {
+            reason: "internal: done outcome cannot be turned into an error".to_string(),
+        },
+        _ => result.to_error(&ctx),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_github_cli_create(
+    _db_path: &Path,
+    project: &str,
+    repo: &str,
+    visibility: &str,
+    confirm_public: bool,
+    push_source: bool,
+    confirm: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::github::{
+        parse_repository, run_create, GhCli, GhOutcome, GhVisibility, GITHUB_CLI_CONTRACT_VERSION,
+    };
+    if !confirm {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "github cli create requires explicit --confirm; refusing to create the remote for `{project}` without it"
+            ),
+        });
+    }
+    parse_repository(repo).map_err(|reason| ForgeError::GithubCliInvalid {
+        reason: format!("--repo `{repo}`: {reason}"),
+    })?;
+    let visibility = match visibility.trim() {
+        "private" => GhVisibility::Private,
+        "public" => GhVisibility::Public,
+        other => {
+            return Err(ForgeError::GithubCliInvalid {
+                reason: format!(
+                    "unknown --visibility `{other}`; expected `private` (default) or `public`"
+                ),
+            });
+        }
+    };
+    if matches!(visibility, GhVisibility::Public) && !confirm_public {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: "github cli create with --visibility public requires --confirm-public; refusing to publish a public repository without it".to_string(),
+        });
+    }
+    if push_source {
+        // The CLI confirm flag is the same one we already required;
+        // when --push-source is set, the caller is explicitly opting
+        // in to the initial push. The `--confirm` flag remains the
+        // single gate.
+    }
+    let project_path = PathBuf::from(project);
+    let source = if project_path.exists() && project_path.is_dir() {
+        project_path
+    } else {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "github cli create expects an existing local project directory; `{project}` is not a directory"
+            ),
+        });
+    };
+    let cli = GhCli::from_env();
+    let name = repo.split_once('/').map(|(_, n)| n).unwrap_or(repo);
+    let result = run_create(&cli, name, &source, visibility, push_source);
+    let outcome = result.outcome.clone();
+    let json = serde_json::json!({
+        "contract": GITHUB_CLI_CONTRACT_VERSION,
+        "operation": result.operation.id(),
+        "outcome": outcome.id(),
+        "exit_code": result.exit_code,
+        "repository": repo,
+        "visibility": visibility.id(),
+        "push_source": push_source,
+        "source": source.display().to_string(),
+        "artifact_url": result.artifact_url,
+        "stderr_tail": result.stderr_tail,
+        "note": result.note,
+        "cli_source": cli.source,
+    });
+    if outcome != GhOutcome::Done {
+        return Err(create_error(&result));
+    }
+    let human = format!(
+        "forge project github create — contract {}\n\
+         cli_source={}\n\
+         outcome=done\n\
+         repository={}\n\
+         visibility={}\n\
+         push_source={}\n",
+        GITHUB_CLI_CONTRACT_VERSION,
+        cli.source,
+        repo,
+        visibility.id(),
+        push_source,
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn create_error(result: &forge::github::GhResult) -> ForgeError {
+    use forge::github::{GhOutcome, GhResult};
+    let ctx = format!("github cli create {}", result.repository());
+    match result {
+        GhResult {
+            outcome: GhOutcome::Done,
+            ..
+        } => ForgeError::GithubCliInvalid {
+            reason: "internal: done outcome cannot be turned into an error".to_string(),
+        },
+        _ => result.to_error(&ctx),
+    }
+}
+
+fn cmd_github_cli_pull_request(
+    _db_path: &Path,
+    project: &str,
+    title: &str,
+    body: &str,
+    draft: bool,
+    confirm: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::github::{
+        run_pull_request, GhCli, GhOutcome, GITHUB_CLI_CONTRACT_VERSION, MAX_BODY_BYTES,
+        MAX_TITLE_BYTES,
+    };
+    if !confirm {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "github cli pull-request requires explicit --confirm; refusing to open a PR for `{project}` without it"
+            ),
+        });
+    }
+    if title.trim().is_empty() {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: "--title is required and must not be empty".to_string(),
+        });
+    }
+    if title.len() > MAX_TITLE_BYTES {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "--title exceeds the {MAX_TITLE_BYTES}-byte cap (was {} bytes)",
+                title.len()
+            ),
+        });
+    }
+    if body.len() > MAX_BODY_BYTES {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "--body exceeds the {MAX_BODY_BYTES}-byte cap (was {} bytes)",
+                body.len()
+            ),
+        });
+    }
+    if std::path::Path::new(project).exists() {
+        // Local working tree preflight: clean tree + remote present.
+        let tree = Command::new("git")
+            .arg("-C")
+            .arg(project)
+            .args(["status", "--porcelain"])
+            .output();
+        match tree {
+            Ok(output) if output.status.success() => {
+                let porcelain = String::from_utf8_lossy(&output.stdout);
+                if !porcelain.trim().is_empty() {
+                    return Err(ForgeError::GithubCliConflict {
+                        reason: format!(
+                            "github cli pull-request requires a clean working tree; `{project}` has uncommitted changes"
+                        ),
+                    });
+                }
+            }
+            _ => {
+                return Err(ForgeError::GithubCliConflict {
+                    reason: format!(
+                        "github cli pull-request requires `{project}` to be a git working tree"
+                    ),
+                });
+            }
+        }
+        let remote = Command::new("git")
+            .arg("-C")
+            .arg(project)
+            .args(["remote", "get-url", "origin"])
+            .output();
+        match remote {
+            Ok(output) if output.status.success() => {
+                let url = String::from_utf8_lossy(&output.stdout);
+                let url = url.trim();
+                if url.is_empty() {
+                    return Err(ForgeError::GithubCliConflict {
+                        reason: format!(
+                            "github cli pull-request requires `{project}` to have an `origin` remote pointing at GitHub"
+                        ),
+                    });
+                }
+                if !url.contains("github.com") && !url.contains("github:") {
+                    return Err(ForgeError::GithubCliConflict {
+                        reason: format!(
+                            "github cli pull-request requires the `origin` remote to point at GitHub; `{project}` points at `{url}`"
+                        ),
+                    });
+                }
+            }
+            _ => {
+                return Err(ForgeError::GithubCliConflict {
+                    reason: format!(
+                        "github cli pull-request requires `{project}` to have an `origin` remote"
+                    ),
+                });
+            }
+        }
+    } else {
+        return Err(ForgeError::GithubCliInvalid {
+            reason: format!(
+                "github cli pull-request expects an existing local project directory; `{project}` is not a directory"
+            ),
+        });
+    }
+    let cli = GhCli::from_env();
+    let result = run_pull_request(&cli, title, body, draft);
+    let outcome = result.outcome.clone();
+    let json = serde_json::json!({
+        "contract": GITHUB_CLI_CONTRACT_VERSION,
+        "operation": result.operation.id(),
+        "outcome": outcome.id(),
+        "exit_code": result.exit_code,
+        "title": title,
+        "draft": draft,
+        "artifact_url": result.artifact_url,
+        "stderr_tail": result.stderr_tail,
+        "note": result.note,
+        "cli_source": cli.source,
+    });
+    if outcome != GhOutcome::Done {
+        return Err(pr_error(&result));
+    }
+    let human = format!(
+        "forge project github pull-request — contract {}\n\
+         cli_source={}\n\
+         outcome=done\n\
+         title={}\n\
+         draft={}\n",
+        GITHUB_CLI_CONTRACT_VERSION, cli.source, title, draft,
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn pr_error(result: &forge::github::GhResult) -> ForgeError {
+    use forge::github::{GhOutcome, GhResult};
+    let ctx = "github cli pull-request".to_string();
+    match result {
+        GhResult {
+            outcome: GhOutcome::Done,
+            ..
+        } => ForgeError::GithubCliInvalid {
+            reason: "internal: done outcome cannot be turned into an error".to_string(),
+        },
+        _ => result.to_error(&ctx),
+    }
 }
 
 fn cmd_project_gaps(

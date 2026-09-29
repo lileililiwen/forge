@@ -41,18 +41,16 @@
 //! side-effect data.
 
 use std::collections::BTreeSet;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
+use crate::process::spawn_with_timeout;
 
 /// Versioned request/response contract for the GitHub metadata adapter.
 pub const GITHUB_CONTRACT_VERSION: &str = "forge-github-metadata/0.1.0";
@@ -435,9 +433,7 @@ impl GithubAdapter {
             .arg("--host")
             .arg(host)
             .arg("--repository")
-            .arg(repository)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .arg(repository);
         // The token stays in the inherited environment. The command
         // line never carries it.
         if let Some(token) = self.token.as_ref() {
@@ -446,7 +442,7 @@ impl GithubAdapter {
             command.env_remove(GITHUB_TOKEN_ENV);
         }
         let output = match spawn_with_timeout(&mut command, GITHUB_ADAPTER_TIMEOUT) {
-            Ok(output) => output,
+            Ok(output) => AdapterOutput::from_child(output),
             Err(reason) => {
                 return Ok(unavailable_observation(
                     host,
@@ -511,9 +507,8 @@ impl GithubAdapter {
                 .arg("--set")
                 .arg(format!("{}={}", change.field, change.new_value));
         }
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
         let output = match spawn_with_timeout(&mut command, GITHUB_ADAPTER_TIMEOUT) {
-            Ok(output) => output,
+            Ok(output) => AdapterOutput::from_child(output),
             Err(reason) => {
                 return Ok(ProposeOutcome {
                     mode: mutation_mode_label(&request.mode),
@@ -521,10 +516,7 @@ impl GithubAdapter {
                     state: GithubState::Unavailable {
                         reason: redact_credentials(&reason),
                     },
-                    note: format!(
-                        "cannot execute adapter: {}",
-                        redact_credentials(&reason)
-                    ),
+                    note: format!("cannot execute adapter: {}", redact_credentials(&reason)),
                 });
             }
         };
@@ -539,79 +531,21 @@ pub struct AdapterOutput {
     pub exit_code: Option<i32>,
     pub stdout: Vec<u8>,
     pub stderr: String,
+    pub timed_out: bool,
 }
 
-fn spawn_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<AdapterOutput, String> {
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(err) => return Err(format!("cannot spawn adapter: {err}")),
-    };
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let stdout_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-    let stderr_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
-    let stdout_reader = {
-        let buf = Arc::clone(&stdout_buf);
-        thread::spawn(move || {
-            if let Some(mut stdout) = stdout {
-                let mut local = Vec::new();
-                let _ = stdout.read_to_end(&mut local);
-                if let Ok(mut guard) = buf.lock() {
-                    *guard = local;
-                }
-            }
-        })
-    };
-    let stderr_reader = {
-        let buf = Arc::clone(&stderr_buf);
-        thread::spawn(move || {
-            if let Some(mut stderr) = stderr {
-                let mut local = Vec::new();
-                let _ = stderr.read_to_end(&mut local);
-                if let Ok(mut guard) = buf.lock() {
-                    *guard = local;
-                }
-            }
-        })
-    };
-    let start = Instant::now();
-    let exit_code = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.code(),
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = stdout_reader.join();
-                    let _ = stderr_reader.join();
-                    return Err(format!("adapter timed out after {timeout:?}"));
-                }
-                thread::sleep(Duration::from_millis(50));
-            }
-            Err(err) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
-                return Err(format!("cannot wait on adapter: {err}"));
-            }
+impl AdapterOutput {
+    /// Wrap a [`crate::process::ChildOutput`] as the adapter-shaped
+    /// output the parsers consume. The shared spawn helper already
+    /// bounds stderr and tracks the timeout flag.
+    pub fn from_child(output: crate::process::ChildOutput) -> Self {
+        Self {
+            exit_code: output.exit_code,
+            stdout: output.stdout,
+            stderr: output.stderr,
+            timed_out: output.timed_out,
         }
-    };
-    let _ = stdout_reader.join();
-    let _ = stderr_reader.join();
-    let stdout_bytes = stdout_buf
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_else(|_| Vec::new());
-    let stderr_bytes = stderr_buf
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_else(|_| Vec::new());
-    Ok(AdapterOutput {
-        exit_code,
-        stdout: stdout_bytes,
-        stderr: String::from_utf8_lossy(&stderr_bytes).to_string(),
-    })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -816,10 +750,7 @@ fn parse_propose_output(
                     redact_credentials(&output.stderr)
                 ),
             },
-            note: format!(
-                "adapter `{}` refused the mutation",
-                binary.display()
-            ),
+            note: format!("adapter `{}` refused the mutation", binary.display()),
         });
     }
     let payload: AdapterProposePayload = match serde_json::from_slice(&output.stdout) {
@@ -922,9 +853,7 @@ fn validate_repository(repository: &str) -> Result<(), String> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
     {
-        return Err(
-            "expected `owner/repo` with letters, digits, `-`, `_` or `.` only".to_string(),
-        );
+        return Err("expected `owner/repo` with letters, digits, `-`, `_` or `.` only".to_string());
     }
     Ok(())
 }
@@ -983,8 +912,7 @@ fn validate_propose_request(request: &ProposeRequest) -> Result<(), ForgeError> 
 
 /// Closed set of fields the adapter is allowed to mutate. The package
 /// never opens issues, comments or labels through this surface.
-pub const ALLOWED_PROPOSED_FIELDS: [&str; 4] =
-    ["topic", "description", "homepage", "language"];
+pub const ALLOWED_PROPOSED_FIELDS: [&str; 4] = ["topic", "description", "homepage", "language"];
 
 fn mutation_mode_label(mode: &MutationMode) -> String {
     match mode {

@@ -1,6 +1,197 @@
-current_spec: github-cli-project-workflows
+current_spec: site-studio-preview-refinement
 
 # Forge handoff
+
+## Current state
+
+`github-cli-project-workflows` implemented, verified and archived on
+2026-09-29 as `2026-09-29-github-cli-project-workflows`; its three
+requirements (reuse the user's installed `gh` authentication context,
+require explicit confirmation for repository / pull-request writes
+with private visibility as the default, and bounded credential-safe
+process execution) were promoted into
+[openspec/specs/github-cli-project-workflows/spec.md](openspec/specs/github-cli-project-workflows/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS,
+Section-3 BFS and Section-4 verification task in the proposal.
+
+**Shared spawn helper** (`src/process.rs`). A bounded
+`spawn_with_timeout` and a 2 KiB `cap_stderr` are extracted from the
+existing `src/github/adapter.rs` so the metadata adapter and the new
+`gh` CLI surface share one bounded spawn path: 30-second per-call
+wall-clock cap, stderr truncated with `[truncated]`, stdout read to
+end, no shell. The metadata adapter's behaviour stays
+byte-compatible: the existing `forge-github-metadata/0.1.0` contract,
+the `FORGE_GITHUB_BIN` and `FORGE_GITHUB_TOKEN` env vars, and the
+`tests/github_adapter_*` suites (11 contract + 3 cross-surface) still
+pass without modification.
+
+**Domain** (`src/github/cli.rs`). New contract
+`forge-github-cli-workflows/0.1.0`. Closed `GhOperation`
+(`auth|clone|create|pull-request`), closed `GhOutcome`
+(`done|auth-required|forbidden|not-found|conflict|rate-limited|timeout|unavailable|failed`),
+and closed `GhVisibility` (`private|public`). The `gh` binary is
+resolved in this order: `$FORGE_GH_BIN` (default `gh` on `PATH`); a
+missing or non-executable binary is a typed `github-cli-unavailable`
+with the exact source label echoed. Every command is invoked with
+`LC_ALL=C` and a fixed allowlisted argument array — `auth status
+--hostname <host>`, `repo clone <owner/repo> <destination>`, `repo
+create <name> --source <path> --remote origin
+--private|--public [--push]`, `pr create --title <title> --body
+<body> [--draft]` — and the captured stderr is bounded to 2 KiB and
+credential-redacted through `policy::redact_credentials`.
+
+**CLI** (`src/main.rs` — `Commands::Project { ProjectCommands::Github
+{ GithubCommands::{Auth, Clone, Create, PullRequest} } }`).
+`forge project github auth [--host <host>]` runs the closed
+auth-status probe (read-only, no journal row). `forge project github
+clone <owner/repo> <destination> --confirm` runs the bounded clone,
+refusing a non-empty existing destination. `forge project github
+create <project> --repo <owner/name> [--visibility
+private|public] [--confirm-public] [--push-source] --confirm` runs
+the bounded create with private as the default; public requires
+`--confirm-public`, `--push-source` requires `--confirm`. `forge
+project github pull-request <project> --title <title> --body <body>
+[--draft] --confirm` opens a draft PR after a clean-tree /
+github.com-origin remote / explicit-confirm preflight. Every refusal
+path prints 0 bytes to stdout and exits 1 with a typed error code
+(`github-cli-invalid`, `github-cli-conflict`,
+`github-cli-unavailable`, `github-cli-auth-required`).
+
+**Core errors** (`src/core/mod.rs`). Four additive typed errors —
+`GithubCliInvalid { reason }`, `GithubCliConflict { reason }`,
+`GithubCliUnavailable { reason }`, `GithubCliAuthRequired { reason
+}` — map to kebab-case codes `github-cli-invalid`,
+`github-cli-conflict`, `github-cli-unavailable`,
+`github-cli-auth-required`; every transport renders the typed code
+unchanged.
+
+**No new schema and no new dependency.** The CLI surface never opens
+a registry connection (every operation is a thin adapter over
+`gh`); the existing `operations` table is unchanged; `Cargo.toml`
+and `deny.toml` are unmodified.
+
+## Verification evidence (github-cli-project-workflows, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/process.rs`, `src/github/{mod,cli,adapter}.rs`,
+  `src/core/mod.rs`, `src/lib.rs`, `src/main.rs`,
+  `tests/github_cli_{contract,cross_surface}.rs`). The pre-change
+  baseline drift in `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`,
+  `src/api/ui/auth.rs`, `src/github/{adapter,normalize}.rs`,
+  `tests/{gate,github_adapter,publish_queue_status}_*` is preserved
+  exactly as prior cycles left it — verified by `git checkout --`
+  after each `cargo fmt --all` to revert incidental reformat.
+- `cargo build`: PASS; `cargo clippy --all-targets`: identical to
+  the captured baseline (verified by `git stash push -u -- src
+  tests` and `diff`). **Zero new clippy errors**; the only
+  structural clippy hint introduced (`too_many_arguments` on
+  `cmd_github_cli_create`) is suppressed with
+  `#[allow(clippy::too_many_arguments)]` so the bound remains at
+  the project baseline.
+- `cargo test --lib -- github::cli`: **18 passed; 0 failed**. New
+  coverage: closed operation / outcome / visibility enums, stable
+  kebab-case codes, `parse_repository` rejects every malformed
+  identity, `classify_failure` reads the closed stderr keyword set,
+  `parse_repo_url` extracts a github.com URL, `auth_command` /
+  `clone_command` / `create_command` (private default, public
+  only-with-confirmation, push only-on-explicit) /
+  `pr_command` (title / body / draft) build the exact allowlisted
+  argv, `result_from_output` classifies exit 0 as `done` and
+  redacts credential-shaped stderr, `result_to_error` maps every
+  outcome to the matching `ForgeError` variant. `cargo test --lib
+  -- process`: **5 passed; 0 failed** — `spawn_with_timeout` kills
+  a long-running child, captures exit-0 stdout/stderr, caps
+  oversized stderr with `[truncated]`, and `cap_stderr` passes
+  small input through.
+- `cargo test --test github_cli_contract`: **12 passed; 0 failed**.
+  New coverage: `auth_command_uses_only_allowlisted_arguments`,
+  `auth_command_reports_unavailable_when_gh_is_missing`,
+  `clone_command_uses_only_allowlisted_arguments`,
+  `clone_command_refuses_without_confirm`,
+  `clone_command_refuses_when_destination_already_exists_and_is_non_empty`,
+  `create_command_defaults_to_private`,
+  `create_command_refuses_public_without_confirm_public`,
+  `create_command_adds_public_only_with_confirm_public`,
+  `pull_request_command_refuses_without_confirm`,
+  `pull_request_command_uses_only_allowlisted_arguments_with_draft`,
+  `pull_request_command_refuses_with_dirty_tree`,
+  `no_subcommand_ever_spawns_gh_auth_token`. Every fixture is a
+  local `/bin/sh` stub on a controlled `PATH`; no live GitHub
+  host is contacted and no repository is mutated.
+- `cargo test --test github_cli_cross_surface`: **3 passed; 0
+  failed**. New coverage:
+  `a_cli_read_writes_no_registry_byte_table_column_index_or_journal_row`
+  pins the byte-identical registry after a successful `auth`
+  probe; `every_subcommand_emits_the_closed_contract_envelope`
+  pins the `forge-github-cli-workflows/0.1.0` envelope for
+  auth/clone/create/pull-request; `no_subcommand_emits_a_token_shaped_string_on_stdout_or_stderr`
+  walks every subcommand with a `ghp_*` token and asserts the
+  token never reaches stdout or stderr.
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: only the
+  pre-existing `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  failure (sandbox listener restriction, reproduced on the stashed
+  baseline with `git stash push -u -- src tests`). All 11
+  `tests/github_adapter_contract.rs` and 3
+  `tests/github_adapter_cross_surface.rs` tests stay byte-identical;
+  the 30 lib tests, 12 contract tests, and 3 cross-surface tests
+  added by this change stay green; the existing graduation,
+  semantic, delivery, catalog and project suites stay green.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 61
+  passed, 0 failed (61 items) pre-archive and post-archive with
+  the promoted `github-cli-project-workflows` spec (+3
+  requirements); `git diff --check`: clean.
+- Live binary smoke (CLI): `./target/release/forge project github
+  auth --host github.com --format json` against the host `gh`
+  answered the closed contract envelope
+  (`contract=forge-github-cli-workflows/0.1.0`, `operation=auth`,
+  `outcome=done`, `exit_code=0`). `./target/release/forge project
+  github clone octocat/hello-world /tmp/gh-smoke/dest` (no
+  `--confirm`) refused with
+  `error[github-cli-invalid]: github cli invalid: github cli
+  clone requires explicit --confirm; refusing to clone
+  \`octocat/hello-world\` without it` and 0 bytes of stdout.
+  `./target/release/forge project github create /tmp/gh-smoke/proj
+  --repo octocat/hello-world --visibility public --confirm` (no
+  `--confirm-public`) refused with
+  `error[github-cli-invalid]: github cli invalid: github cli
+  create with --visibility public requires --confirm-public;
+  refusing to publish a public repository without it` and 0 bytes
+  of stdout. `FORGE_GH_BIN=/nonexistent/forge-gh ./target/release/
+  forge project github auth` refused with
+  `error[github-cli-unavailable]: ... FORGE_GH_BIN=... (not
+  executable)` and 0 bytes of stdout.
+- **Blocked, honestly recorded:** live GitHub writes (`gh repo
+  create`, `gh pr create`, `gh repo clone` against a real remote)
+  are **not** claimed by this change. The fake `gh` shell-stub on
+  a controlled `PATH` is the production oracle; every typed
+  outcome is asserted against the local fixture. `cargo deny
+  check` could not run (sandbox has no network); the change adds
+  **zero** new dependencies and `Cargo.toml`/`deny.toml` are
+  unmodified. No `gh auth token` call is ever spawned, no
+  `FORGE_GITHUB_TOKEN` value ever crosses the CLI surface, no
+  GitHub credential ever reaches the operations journal, and no
+  live `gh` host was contacted during verification.
+- Pointer state: `github-cli-project-workflows` archived
+  (`16/16` tasks evidenced, `4/4` artifacts complete). The
+  canonical `openspec/specs/github-cli-project-workflows/spec.md`
+  carries the three promoted requirements. `openspec list` now
+  shows `fleet-live-rollout` (still blocked on Mac Docker engine
+  recovery, 10/11 tasks) and two planning-only packages
+  (`site-studio-preview-refinement` 0/13, no longer blocked by
+  this package since the declared consumer was
+  `project-to-production-workflow`). The pointer advances to
+  **`site-studio-preview-refinement`**, the next planning-only
+  candidate in the operator queue. Per AGENTS.md, a planning-only
+  package does not authorize implementation by itself; the
+  operator must first direct the cycle and the package must be
+  extended with implementation-ready detail before work begins.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+  No GitHub request, no remote write, no provider credential
+  reached the network; no product, repository setting or registry
+  row was changed by this change.
 
 ## Current state
 

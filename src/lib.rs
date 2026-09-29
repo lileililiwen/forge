@@ -33,6 +33,7 @@ pub mod policy;
 pub mod portal;
 pub mod portfolio;
 pub mod procedure;
+pub mod process;
 pub mod profile;
 pub mod provider;
 pub mod publish;

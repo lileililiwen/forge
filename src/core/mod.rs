@@ -337,6 +337,18 @@ pub enum ForgeError {
     #[error("github adapter unavailable: {reason}")]
     GithubAdapterUnavailable { reason: String },
 
+    #[error("github cli invalid: {reason}")]
+    GithubCliInvalid { reason: String },
+
+    #[error("github cli conflict: {reason}")]
+    GithubCliConflict { reason: String },
+
+    #[error("github cli unavailable: {reason}")]
+    GithubCliUnavailable { reason: String },
+
+    #[error("github cli auth required: {reason}")]
+    GithubCliAuthRequired { reason: String },
+
     #[error("semantic invalid: {reason}; no proposal was stored")]
     SemanticInvalid { reason: String },
 
@@ -470,6 +482,10 @@ impl ForgeError {
             ForgeError::CatalogInvalid { .. } => "catalog-invalid",
             ForgeError::GithubInvalid { .. } => "github-invalid",
             ForgeError::GithubAdapterUnavailable { .. } => "github-adapter-unavailable",
+            ForgeError::GithubCliInvalid { .. } => "github-cli-invalid",
+            ForgeError::GithubCliConflict { .. } => "github-cli-conflict",
+            ForgeError::GithubCliUnavailable { .. } => "github-cli-unavailable",
+            ForgeError::GithubCliAuthRequired { .. } => "github-cli-auth-required",
             ForgeError::SemanticInvalid { .. } => "semantic-invalid",
             ForgeError::SemanticConflict { .. } => "semantic-conflict",
             ForgeError::GraduationInvalid { .. } => "graduation-invalid",

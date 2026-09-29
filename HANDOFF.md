@@ -1,6 +1,162 @@
-current_spec: github-project-metadata-adapter
+current_spec: project-semantic-description-review
 
 # Forge handoff
+
+## Current state
+
+`github-project-metadata-adapter` implemented, verified and archived on
+2026-09-29 as `2026-09-29-github-project-metadata-adapter`; its four
+requirements (versioned optional observation with provenance, explicit
+closed provider-state set, PR-mode default with explicit-confirmation
+direct mode, and credential redaction with three separate namespaces)
+were promoted into
+[openspec/specs/github-project-metadata-adapter/spec.md](openspec/specs/github-project-metadata-adapter/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS, Section-3
+BFS and Section-4 verification task in the proposal.
+
+**Adapter** (`src/github/adapter.rs`). External executable contract
+`forge-github-metadata/0.1.0`. The adapter binary is resolved from
+`FORGE_GITHUB_BIN` (default `forge-github-metadata-adapter` on `PATH`)
+and is invoked with a bounded argument array (`["observe"|"propose",
+...repositories]` or `["propose", "<owner/repo>", "--mode", "...",
+"--confirm", "<token>"]`), a 15-second wall-clock timeout, and the
+token passed through the inherited `FORGE_GITHUB_TOKEN` environment
+variable only — never on the command line and never in any report.
+`GithubState` (`current|stale|unavailable|unauthorized|forbidden|not-found|rate-limited|partial`)
+is a closed `serde(rename_all = "kebab-case")` enum; `MutationMode`
+defaults to `PullRequest` and `Direct { confirmation }` requires the
+adapter to echo the same `FORGE_GITHUB_TOKEN` back before any write is
+made. Two additive error codes: `github-invalid` (400-class refusal)
+and `github-adapter-unavailable` (503-class).
+
+**Normalization** (`src/github/normalize.rs`). `normalize_observation`
+turns one `GithubObservation` into one `CatalogRecord` carrying
+`source = github:<host>/<repository>`, the adapter-reported revision,
+the observation timestamp, a freshness derived at read time and a
+closed `evidence` state. The portfolio `tags` list is **always empty**
+for a GitHub record, and the record field set is the same closed
+`RECORD_KEYS` set every other source uses — no GitHub-only field is
+ever added. Topics, releases, languages, description and archived
+state all flow through `clean_field` (the same 200-char bound +
+`policy::redact_credentials` redactor every other catalog field uses),
+and a credential-shaped topic is dropped from the list before it can
+reach any output.
+
+**Catalog integration** (`src/catalog/source.rs`). `SourceKind::Github`
+is no longer a placeholder unavailable source. When the binary is
+missing or the token is unset, the source contributes an
+`unavailable` `SourceStatus` with a typed reason and **no** record
+— the same shape the other sources use. When both are configured,
+`collect_github` resolves the repository list: explicit
+`--github-repository owner/repo` flags win, otherwise the local
+registry is walked read-only for projects whose `git_remote` matches
+any of the closed `https://`, `http://`, `git://`, `ssh://git@` and
+`git@github.com:` forms of a `github.com` URL. The local registry
+opens through the same `Registry::open_read_only` constructor the
+catalog contract already shipped, so a GitHub read cannot write a
+registry byte.
+
+**CLI** (`src/main.rs`). `forge project github observe [owner/repo ...]`
+and `forge project github propose <owner/repo> --set field=value
+[--mode direct --confirm <token>]` are the two new subcommands;
+`forge project list --source github [--github-repository owner/repo]`
+exposes the catalog integration. The four typed errors are
+`github-invalid`, `github-adapter-unavailable`, `unknown-project` (for
+inspect) and the existing `catalog-invalid` for a malformed
+`--github-repository` value.
+
+**Persistence decision, honestly recorded.** No registry schema was
+added, no migration runs and the `github` source owns no new table
+— the catalog is a projection, and a GitHub record lives in memory
+until the read returns.
+
+**Verification evidence (github-project-metadata-adapter, 2026-09-29).**
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/catalog/source.rs`, `src/core/mod.rs`, `src/github/{mod,adapter,normalize}.rs`,
+  `src/lib.rs`, `src/main.rs`, `tests/github_adapter_contract.rs`,
+  `tests/github_adapter_cross_surface.rs`). The pre-change baseline
+  drift in `src/gate/evidence.rs`, `src/portfolio/share/validation.rs`,
+  `src/publish/fleet.rs`, `tests/gate_contract.rs`,
+  `tests/gate_cross_surface.rs` and `tests/publish_queue_status_contract.rs`
+  is preserved unchanged.
+- `cargo build`: PASS. `cargo clippy --all-targets -- -D warnings`:
+  identical to the recorded baseline — the same 12 pre-existing
+  locations (`src/api/ui/auth.rs:166-167`,
+  `src/gate/evidence.rs:229/425/826/827/862`,
+  `src/portfolio/share/validation.rs:13/392`,
+  `src/publish/fleet.rs:51`, `src/publish/mod.rs:642/644`).
+  **Zero new clippy errors.**
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`:
+  every result group passes except the pre-existing
+  `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  failure (sandbox listener restriction, fails on the stashed
+  baseline too). New supervised suites: 13
+  `src/github::adapter` unit tests, 9 `src/github::normalize`
+  unit tests, the `github` filter on `cargo test --lib`, 11
+  `tests/github_adapter_contract.rs` (missing binary, missing
+  token, credential redaction, rate-limited with reset and
+  no partial payload, unauthorized → unverified evidence, PR
+  default mode, direct-mode refusals with and without
+  confirmation, unknown proposed field, catalog source
+  unavailable without binary+token, catalog source with
+  explicit `--github-repository`), and 3
+  `tests/github_adapter_cross_surface.rs` (read leaves the
+  registry byte-identical across the table set, column set,
+  index set, project count and operations count; a token never
+  reaches stdout/stderr/operations journal across CLI surfaces;
+  the closed record key set never gains a `topics`/`releases`
+  field for GitHub or local records).
+- Live binary smoke (CLI): without `FORGE_GITHUB_BIN` or
+  `FORGE_GITHUB_TOKEN`, `forge project list --source github`
+  reports `state=unavailable reason=...` with 0 records and the
+  closed GitHub source never invents a row; with both
+  configured and a local stub, both records — the local
+  `alpha` and the GitHub `octocat__hello-world` — appear with
+  `tags: []` on the GitHub record and the closed
+  `RECORD_KEYS` set; `forge project github observe
+  octocat/hello-world` produces a JSON page with `observations`
+  carrying `topics` and `releases` while the `records` field
+  carries neither; `forge project github propose
+  octocat/hello-world --set topic=rust` in PR mode succeeds;
+  `--mode direct` without `--confirm` refuses with
+  `error[github-invalid]`; `--mode direct --confirm
+  not-the-token` refuses because the stub did not echo the
+  token; a `--set language=rust` payload passes the closed
+  field allowlist; `--set settings=block` is refused with
+  `error[github-invalid]: unknown field 'settings'`.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 57
+  passed, 0 failed (57 items) pre-archive and 57 passed,
+  0 failed post-archive with the promoted
+  `github-project-metadata-adapter` spec (+4 requirements);
+  `git diff --check` and `git diff --cached --check`: PASS.
+- **Blocked, honestly recorded:** `cargo deny check` could
+  **not** run — this sandbox has no network. The change adds
+  **zero** new dependencies and `Cargo.toml` is unmodified,
+  so the dependency and licence closure is unchanged. No
+  live GitHub host was contacted and no repository was
+  mutated; every fixture is a local `/bin/sh` stub on a
+  controlled `PATH` and `FORGE_GITHUB_TOKEN` is the only
+  channel through which a credential reaches the adapter.
+- Pointer state: `github-project-metadata-adapter` archived
+  (`12/12` tasks evidenced, `4/4` artifacts complete).
+  `openspec list` now shows three active changes:
+  `project-query-consumer-surfaces` (transport-only consumer
+  of the catalog contract), `project-semantic-description-review`
+  (the parent that orchestrates the now-archived
+  `github-project-metadata-adapter` and the now-archived
+  `project-local-remediation-plans`) and `fleet-live-rollout`
+  (still blocked on Mac Docker engine recovery). The pointer
+  advances to **`project-semantic-description-review`**, the
+  next change whose declared prerequisites are all archived
+  and whose oracle (approved-proposal → applied-PR and
+  applied-local-diff tests) is locally verifiable now that
+  both consumer packages are implemented.
+- No shared Gate Runtime is configured; no Gate pass is
+  claimed. No GitHub request, no remote write, no provider
+  credential reached the network; no product, repository
+  setting or registry row was changed by this change.
 
 ## Current state
 

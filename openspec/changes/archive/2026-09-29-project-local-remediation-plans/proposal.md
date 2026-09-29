@@ -15,8 +15,11 @@ separate from semantic judgment or external GitHub writes.
   catalog-selected targets.
 - Consume the existing standard-pack registry for versioned CI and Compose
   assets rather than introducing a second template system.
-- Support safe repairs for Forge-owned metadata, `.project.json`, selected CI
-  templates, Compose contracts, and required documentation links.
+- Support safe installation of the selected standard pack's project-local CI
+  snapshot for automatic missing-CI findings; the pack renderer supplies CI
+  and companion `.standard/` files together with their ownership receipt.
+- Keep metadata editing, `.project.json` changes, and documentation-link repair
+  out of this package until their ownership and merge contracts are specified.
 - Require explicit confirmation, refuse unowned collisions, and record
   rollback information for every applied action.
 

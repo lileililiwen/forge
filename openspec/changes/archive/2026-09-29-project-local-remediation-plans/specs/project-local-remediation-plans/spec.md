@@ -21,6 +21,19 @@ and SHALL let a caller preview it with `scan`, `plan` and `diff` without writing
 - **THEN** it is refused as an action with a typed error naming its class, and no
   plan is emitted for it
 
+#### Scenario: Finding belongs to another project
+
+- **WHEN** a caller selects a `gaps.ci.<project>.ci` finding whose project id
+  differs from the target manifest
+- **THEN** Forge refuses with `remediation-invalid` before producing actions
+
+#### Scenario: Scan identifies a missing local CI asset
+
+- **WHEN** a caller runs `scan` against a valid target without
+  `.standard/ci/verify.yml`
+- **THEN** Forge reports the automatic `gaps.ci.<project>.ci` finding without
+  requiring a pack selector or writing project or registry files
+
 ### Requirement: Ownership-safe, idempotent apply
 
 Forge SHALL require explicit confirmation before applying, SHALL write only
@@ -44,6 +57,18 @@ when re-applied with unchanged inputs.
 - **WHEN** an apply fails part-way through promoting staged files
 - **THEN** the prior bytes are restored and a failed/rolled-back outcome with
   rollback information is recorded
+
+#### Scenario: A saved plan becomes stale
+
+- **WHEN** an affected file changes after a plan is produced
+- **THEN** applying the saved plan returns `remediation-conflict` and preserves
+  the changed bytes
+
+#### Scenario: Standard asset path escapes through a symlink
+
+- **WHEN** a planned `.standard/` path resolves outside the target through a
+  symlink
+- **THEN** Forge refuses before writing outside the target
 
 ### Requirement: Bounded repair that never leaks or reaches out
 

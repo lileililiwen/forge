@@ -123,6 +123,7 @@ use forge::release::{
     release_config_from_manifest, render_report_human as render_release_report_human,
     ReleaseAdapterConfig, ReleaseReport, ReleaseRequest, ReleaseState, Semver,
 };
+use forge::remediation::{self, RemediationPlan};
 use forge::spec::{
     apply_routing, ensure_single_project, generate_spec, list_specs, read_spec,
     render_proposal_markdown, route_finding, DoctorFindingInput, FindingSource, RoutingOutcome,
@@ -500,6 +501,11 @@ enum Commands {
     Standard {
         #[command(subcommand)]
         command: StandardCommands,
+    },
+    /// Plan and apply ownership-safe local remediation.
+    Remediate {
+        #[command(subcommand)]
+        command: RemediateCommands,
     },
 }
 
@@ -1951,6 +1957,37 @@ enum StandardCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum RemediateCommands {
+    /// Inspect automatic findings and produce a read-only plan.
+    Scan(RemediationArgs),
+    /// Produce a versioned read-only remediation plan.
+    Plan(RemediationArgs),
+    /// Show the files a remediation plan would change.
+    Diff(RemediationArgs),
+    /// Apply a plan after explicit confirmation.
+    Apply(RemediationArgs),
+}
+
+#[derive(Debug, clap::Args)]
+struct RemediationArgs {
+    /// Project directory (default: current directory).
+    #[arg(long, default_value = ".")]
+    target: PathBuf,
+    /// Doctor finding id, for example gaps.ci.demo.ci.
+    #[arg(long)]
+    finding: Option<String>,
+    /// Standard pack selector, for example baseline-service@1.1.0.
+    #[arg(long)]
+    pack: Option<String>,
+    /// Read a previously saved JSON plan instead of assembling one.
+    #[arg(long)]
+    plan: Option<PathBuf>,
+    /// Required for apply; prevents accidental writes.
+    #[arg(long)]
+    confirm: bool,
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -2208,6 +2245,7 @@ fn main() -> ExitCode {
         Commands::Contract { command } => cmd_contract(&db_path, command, cli.format),
         Commands::Inventory { command } => cmd_inventory(command, cli.format),
         Commands::Standard { command } => cmd_standard(command, cli.format),
+        Commands::Remediate { command } => cmd_remediate(&db_path, command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -2712,6 +2750,102 @@ fn cmd_standard(command: &StandardCommands, format: Format) -> Result<Output, Fo
                 reason: err.to_string(),
             })?;
             Ok(as_output(format, human, json))
+        }
+    }
+}
+
+fn cmd_remediate(
+    registry_path: &Path,
+    command: &RemediateCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let build = |args: &RemediationArgs| -> Result<RemediationPlan, ForgeError> {
+        if let Some(path) = args.plan.as_deref() {
+            remediation::load_plan(path)
+        } else {
+            remediation::build_plan(
+                &args.target,
+                args.finding
+                    .as_deref()
+                    .ok_or_else(|| ForgeError::RemediationInvalid {
+                        reason: "--finding is required when --plan is not supplied".to_string(),
+                    })?,
+                args.pack.as_deref(),
+            )
+        }
+    };
+    match command {
+        RemediateCommands::Scan(args) if args.finding.is_none() && args.plan.is_none() => {
+            let report = remediation::scan(&args.target)?;
+            let names: Vec<_> = report
+                .findings
+                .iter()
+                .map(|finding| finding.finding_id.as_str())
+                .collect();
+            let human = if names.is_empty() {
+                format!(
+                    "no automatic remediation findings for {}",
+                    report.target.project_id
+                )
+            } else {
+                format!(
+                    "automatic findings for {}: {}",
+                    report.target.project_id,
+                    names.join(", ")
+                )
+            };
+            let json =
+                serde_json::to_value(&report).map_err(|err| ForgeError::RemediationInvalid {
+                    reason: format!("cannot serialize scan report: {err}"),
+                })?;
+            Ok(as_output(format, human, json))
+        }
+        RemediateCommands::Scan(args) | RemediateCommands::Plan(args) => {
+            let plan = build(args)?;
+            let json = serde_json::json!({
+                "contract": remediation::REMEDIATION_CONTRACT_VERSION,
+                "plan": plan,
+            });
+            Ok(as_output(
+                format,
+                format!(
+                    "remediation plan {}\n{} action(s)",
+                    json["plan"]["plan_id"],
+                    json["plan"]["actions"].as_array().map_or(0, Vec::len)
+                ),
+                json,
+            ))
+        }
+        RemediateCommands::Diff(args) => {
+            let plan = build(args)?;
+            let entries = remediation::diff(&plan);
+            let json = serde_json::json!({
+                "contract": remediation::REMEDIATION_CONTRACT_VERSION,
+                "plan": plan,
+                "diff": entries,
+            });
+            Ok(as_output(
+                format,
+                format!("remediation diff: {} action(s)", entries.len()),
+                json,
+            ))
+        }
+        RemediateCommands::Apply(args) => {
+            let plan = build(args)?;
+            let outcome = remediation::apply(&plan, args.confirm, registry_path)?;
+            let json = serde_json::json!({
+                "contract": remediation::REMEDIATION_CONTRACT_VERSION,
+                "plan": plan,
+                "outcome": outcome,
+            });
+            Ok(as_output(
+                format,
+                format!(
+                    "remediation {}: {}",
+                    json["outcome"]["status"], json["outcome"]["detail"]
+                ),
+                json,
+            ))
         }
     }
 }

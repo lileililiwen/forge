@@ -4,7 +4,11 @@
 
 - Read [README.md](README.md), [ROADMAP.md](ROADMAP.md) and [HANDOFF.md](HANDOFF.md).
 - [requirement.md](requirement.md) is the authoritative full product brief.
-- This is a planning-only repository until implementation evidence says otherwise.
+- This repository may contain planning-only OpenSpec packages and implemented
+  packages. A planning-only package does not authorize implementation by
+  itself; when the user asks to continue or implement it, first extend its
+  proposal/design/tasks/spec with implementation-ready detail, then implement
+  and verify that same change.
 - Preserve existing user files and unrelated worktree changes.
 - Use direct technical language; omit greetings and filler.
 
@@ -24,7 +28,12 @@
 - Commit only related implementation, tests and specs.
 - Update HANDOFF and its pointer, commit handoff, then stop; do not push.
 - Advance the pointer after archive; remove it when no active changes remain.
-- Planning artifacts do not authorize implementation, archive or commits.
+- Planning artifacts do not authorize implementation, archive or commits by
+  themselves. Explicit user direction to continue/implement authorizes the
+  selected change after its package is made implementation-ready. Do not create
+  a second project plan: OpenSpec `proposal.md`, `design.md`, `tasks.md`, and
+  canonical `specs/` are the only durable plan/design source; temporary
+  execution notes belong in the agent session folder.
 
 ## Validation and invariants
 

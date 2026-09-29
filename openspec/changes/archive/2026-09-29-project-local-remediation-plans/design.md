@@ -1,7 +1,6 @@
 # Design: project-local-remediation-plans
 
-Status: implementation-ready planning package. No code is written by this
-change.
+Status: implementation-ready package; implementation authorized by the user.
 
 ## Implementation boundary
 
@@ -9,11 +8,8 @@ Repository `forge`, Rust 1.87+, existing generation and standard-pack stack.
 
 Files to **add**:
 
-- `src/remediation/mod.rs` — module root and re-exports.
-- `src/remediation/plan.rs` — the versioned plan, action, precondition and
-  ownership-receipt shapes.
-- `src/remediation/apply.rs` — the apply engine (stage → verify → promote,
-  rollback on failure).
+- `src/remediation/mod.rs` — the versioned plan, action, precondition, scan,
+  diff and apply service.
 - `tests/remediation_contract.rs`, `tests/remediation_cross_surface.rs`.
 
 Files to **change** (additive only):
@@ -21,8 +17,9 @@ Files to **change** (additive only):
 | File | Change |
 |---|---|
 | `src/lib.rs` | `pub mod remediation;` |
-| `src/main.rs` | `Remediate` command tree: `scan`, `plan`, `diff`, `apply` with `--target`, `--finding`, `--confirm`, `--format` |
-| `src/standard/mod.rs` | consume pack-owned CI/Compose assets as the only template source |
+| `src/main.rs` | `Remediate` command tree: `scan`, `plan`, `diff`, `apply` with shared `--target`, `--finding`, `--pack`, optional `--plan`, `--confirm`, and global `--format`; previews never open the registry |
+| `src/standard/mod.rs` | expose the existing pack renderer/receipt semantics to the remediation builder without changing pack ownership |
+| `src/core/mod.rs` | add `remediation-invalid`, `remediation-conflict`, and `remediation-apply-failed` typed errors |
 
 Do **not** touch: semantic generation, GitHub transport, deployment execution,
 or the standard pack's own ownership semantics.
@@ -53,20 +50,38 @@ pub enum PlanState { Proposed, Confirmed, Applied, Failed, RolledBack }
 pub enum RemediationClass { Automatic, Semantic, Manual }
 ```
 
+The serialized action names are `write_owned_file`, `refresh_manifest_field`,
+`install_standard_asset`, `add_doc_link`, and `refresh_ownership_receipt`;
+states are `proposed` and the apply outcome is `applied`. The implementation
+supports standard asset installation and receipt refresh for automatic
+missing-CI findings. Other closed action variants remain rejected. The full
+selected pack snapshot is materialized so the receipt cannot claim ownership
+of files the plan did not write.
+
+`RemediationPlan` contains `contract`, `plan_id`, `state`, `target` (absolute
+path, project id and profile), `finding_id`, `finding_class`, `pack` (id,
+version and asset digest), `actions`, and `preconditions`. Each action contains
+`kind`, repository-relative `path`, `owner`, `expected_digest`, `content`, and
+`source`. Preconditions contain the optional Git revision and one expected
+digest/ownership tuple per affected path. Content comes only from the selected
+built-in standard pack renderer; no finding or provider value is copied into
+file content, and no credential value is generated or persisted.
+
 | Rule | Behaviour |
 |---|---|
 | Selection | only findings whose `remediation_class == automatic` become actions |
-| Ownership | an action may write only a path Forge owns (declared in the pack receipt / `.project.json`); an unowned collision refuses |
+| Ownership | an action may write only a declared pack path under `.standard/`; an existing path is writable only when the current receipt proves Forge ownership and its digest matches; symlink escapes and unowned collisions refuse |
 | Idempotency | a plan applied twice with unchanged inputs is a no-op that reports `already applied` |
 | Preconditions | target revision and owned-file digests are bound into the plan; a mismatch refuses before any write |
-| Apply | stage to a temp path, verify digests, then promote; on any failure restore prior bytes |
+| Apply | re-read and re-render the selected pack, validate target/profile/pack/revision/digests and confirmation, stage every file in a target-local temporary directory, verify staged digests, promote in deterministic path order, restore captured prior bytes on failure, and journal restored/failed rollback paths |
 
 ## Contract and compatibility
 
 Plan, diff and outcome are versioned JSON documents; the table is human-facing.
 Errors are typed: `remediation-invalid` (malformed plan, missing asset,
-incompatible profile), `remediation-conflict` (unowned collision, stale
-revision). A `--dry-run`/`plan`/`diff` never writes.
+incompatible profile, unsupported finding class), `remediation-conflict`
+(unowned collision, stale revision or digest), and `remediation-apply-failed`
+(promotion or rollback failure). A `scan`/`plan`/`diff` never writes.
 
 ## Failure and boundary policy
 

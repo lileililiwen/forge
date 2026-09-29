@@ -205,6 +205,15 @@ pub enum ForgeError {
     #[error("plan apply failed at step '{step}': {reason}")]
     PlanApplyFailed { step: String, reason: String },
 
+    #[error("remediation invalid: {reason}; no project files were changed")]
+    RemediationInvalid { reason: String },
+
+    #[error("remediation conflict: {reason}; no project files were changed")]
+    RemediationConflict { reason: String },
+
+    #[error("remediation apply failed: {reason}; rollback was attempted")]
+    RemediationApplyFailed { reason: String },
+
     #[error("procedure invalid: {reason}")]
     ProcedureInvalid { reason: String },
 
@@ -392,6 +401,9 @@ impl ForgeError {
             ForgeError::PlanStale { .. } => "plan-stale",
             ForgeError::PlanConflict { .. } => "plan-conflict",
             ForgeError::PlanApplyFailed { .. } => "plan-apply-failed",
+            ForgeError::RemediationInvalid { .. } => "remediation-invalid",
+            ForgeError::RemediationConflict { .. } => "remediation-conflict",
+            ForgeError::RemediationApplyFailed { .. } => "remediation-apply-failed",
             ForgeError::ProcedureInvalid { .. } => "procedure-invalid",
             ForgeError::ProcedureUnsupportedOperation { .. } => "procedure-unsupported-operation",
             ForgeError::ProcedureBypassRefused { .. } => "procedure-bypass-refused",

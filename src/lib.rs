@@ -36,6 +36,7 @@ pub mod publish;
 pub mod readiness;
 pub mod registry;
 pub mod release;
+pub mod remediation;
 pub mod spec;
 pub mod standard;
 pub mod ui_pattern;

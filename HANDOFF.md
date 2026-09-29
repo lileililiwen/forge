@@ -1,6 +1,139 @@
-current_spec: project-query-consumer-surfaces
+current_spec: hypora-graduation-import
 
 # Forge handoff
+
+## Current state
+
+`project-query-consumer-surfaces` implemented, verified and archived on
+2026-09-29 as `2026-09-29-project-query-consumer-surfaces`; its three
+requirements (one query service behind every transport, stable machine
+output for pipelines, and authorization/typed failures equivalent
+across transports) were promoted into
+[openspec/specs/project-query-consumer-surfaces/spec.md](openspec/specs/project-query-consumer-surfaces/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS, Section-3
+BFS and Section-4 verification task in the proposal.
+
+**API** (`src/api/mod.rs`). New route `Route::CatalogQuery { id:
+Option<String> }` mapped to `GET /v1/projects/catalog` (list) and
+`GET /v1/projects/{id}/catalog` (inspect). The `catalog` reserved-word
+arm matches before the generic three-segment `projects/<id>` arm so
+`/v1/projects/catalog` never collides with a project id. Authorization
+sits in the fleet-level arm: a valid session is required and no extra
+permission is enforced (same posture as `Route::ListProjects`). The
+handler `handle_catalog_query` parses typed query parameters
+(`CatalogQueryParams` + `parse_catalog_query_params`), builds a
+`CatalogSourceSelection` (`build_catalog_selection`), turns
+`CatalogQueryParams` into `Vec<String>` filter pairs
+(`catalog_filter_pairs_from`) and delegates to the existing Core
+service (`catalog::collect` + `catalog::apply` for list,
+`catalog::inspect_records` for inspect). One additive error code
+`catalog-invalid` is mapped to `400` in `err_status`; the MCP path
+maps it to `-32602` `INVALID_PARAMS` in `core_error`.
+
+**MCP** (`src/mcp/mod.rs`). `list_projects` and `inspect_project` are
+rewired over the shared Core service. New helpers
+`mcp_list_projects` / `mcp_inspect_project` /
+`build_catalog_selection_from_mcp` /
+`catalog_filter_pairs_from_mcp` / `optional_i64` / `optional_usize`
+carry typed MCP parameters (`sources`, `tags`, `languages`, `profiles`,
+`lifecycles`, `repositories`, `ci`, `compose`, `evidence`, `filters`,
+`limit`, `cursor`, `max_age`) into the same `CatalogSourceSelection`
+and `CatalogQuery` the API and CLI use. `inspect_project` requires
+`target` and accepts the same sources / `max_age` keys. The MCP
+response shape is `{"catalog": <page>}` (list) and
+`{"catalog": {contract, project_id, records}}` (inspect); four
+existing `tests/mcp_contract.rs` cases were updated to the new
+`result["catalog"]["records"]` accessor and the renamed `project_id`
+field.
+
+**No filtering re-implementation.** The handler is a thin
+adapter: it parses typed input, delegates to the Core service
+(`catalog::CatalogQuery::from_pairs`, `catalog::apply`,
+`catalog::inspect_records`), and serializes the unchanged
+`CatalogPage` bytes inside the API/MCP envelope. CLI was already
+wired through `cmd_project_list` / `cmd_project_inspect` by the
+catalog service introduction; no edit to `src/main.rs` is required.
+
+**Contract versions.** Catalog `forge-project-catalog/0.1.0`; API
+`API_CONTRACT_VERSION = "0.1.0"`; MCP
+`MCP_CONTRACT_VERSION = "0.1.0"`. The API list envelope is
+`{"catalog": <CatalogPage>, "contract": API_CONTRACT_VERSION}`; the
+API inspect envelope is `{"catalog": {contract, project_id, records},
+"contract": API_CONTRACT_VERSION}` — both match the
+`cmd_project_inspect` / `cmd_project_list` JSON shape so a caller
+swapping transport sees the same `catalog` payload.
+
+**Verification evidence (project-query-consumer-surfaces,
+2026-09-29).**
+
+- `cargo fmt --all`: clean for every touched file; pre-existing
+  formatting drift on `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/{fleet,mod}.rs`,
+  `src/api/ui/auth.rs`, `src/github/{adapter,normalize,mod}.rs` and
+  the related test files was reverted with `git checkout --` to
+  preserve the baseline per the project rules.
+- `cargo build`: PASS. `cargo clippy --all-targets -- -D warnings`:
+  identical to baseline — the same 5 lib + 9 lib-test pre-existing
+  errors in the seven drift files. Verified by `git stash push -u
+  -- src tests` and re-run. **Zero new clippy errors** introduced
+  by the transport package.
+- `cargo test --test project_query_surface_contract
+   -- --test-threads=1`: **8 passed; 0 failed**. The new parity
+  suite covers the empty catalog, the same-records-in-the-same-order
+  list, the same-records inspect, NDJSON determinism, filter
+  parameter carry-across-transports, invalid filter typed refusal,
+  unauthorized caller no-fleet disclosure and unknown project typed
+  refusal. `cargo test --test api_contract`: 11 passed; 0 failed.
+  `cargo test --test mcp_contract`: 15 passed; 0 failed after the
+  four-case update to the new envelope. `cargo test --workspace
+  --all-targets --no-fail-fast -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: only the
+  pre-existing baseline failure
+  `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  (sandbox listener restriction, reproduced on the stashed
+  baseline).
+- Live binary smoke (CLI): `forge project list --format json|ndjson|
+  table` against a three-project local fleet (alpha / api-proj /
+  beta) yields the same `catalog.records` ordered by
+  `(project_id, source)`; NDJSON is one record per line; the table
+  is the human view, not the contract. `forge project inspect
+  alpha --format json` returns
+  `{"catalog": {contract, project_id, records}}`. `forge project
+  list --filter bogus=1` prints 0 bytes to stdout and exits 1 with
+  `error[catalog-invalid]`.
+- Live binary smoke (HTTP), `forge api serve --bind 127.0.0.1` on an
+  ephemeral port: unauthenticated `GET /v1/projects/catalog`
+  answers `401 api-unauthorized`; `?filter=bogus%3D1` with a valid
+  session answers `400 catalog-invalid`; list with a valid session
+  returns `200` with the three-project page; inspect of an
+  unknown id answers `400 unknown-project`; inspect of `alpha`
+  returns `200` with the single record.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 61 passed,
+  0 failed (61 items) post-archive with the promoted
+  `project-query-consumer-surfaces` spec (+3 requirements);
+  `git diff --check`: clean.
+- **Blocked, honestly recorded:** `cargo deny check` could not run
+  on this sandbox (no network). The change adds **zero** new
+  dependencies; `Cargo.toml` and `deny.toml` are unmodified, so the
+  dependency and licence closure is unchanged. No provider was
+  contacted, no model was consulted, no registry byte, no project
+  file and no journal row was changed by this change.
+- Pointer state: `project-query-consumer-surfaces` archived
+  (`12/12` tasks evidenced, `4/4` artifacts complete). `openspec
+  list` now shows `fleet-live-rollout` (still blocked on Mac Docker
+  engine recovery, 10/11 tasks) and four planning-only packages
+  (`github-cli-project-workflows`, `site-studio-preview-refinement`,
+  `project-to-production-workflow`, `hypora-graduation-import`).
+  The pointer advances to **`hypora-graduation-import`**, the most
+  recent planning-only change in the operator's queue; the other
+  three remain equally eligible and the explicit operator choice
+  governs which becomes the next implementation cycle. Per
+  AGENTS.md, a planning-only package does not authorize
+  implementation by itself; the operator must first direct the
+  cycle and the package must be extended with implementation-ready
+  detail before work begins.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
 
 ## Current state
 

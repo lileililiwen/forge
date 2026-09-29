@@ -1,6 +1,138 @@
-current_spec: standard-pack-registry-and-snapshots
+current_spec: fleet-live-rollout
 
 # Forge handoff
+
+## Current state
+
+`standard-pack-registry-and-snapshots` implemented, verified and archived on
+2026-09-29 as `2026-09-29-standard-pack-registry-and-snapshots`; its three
+requirements (versioned standard packs, standalone snapshot generation,
+explicit conflict-safe upgrades) were promoted into
+[openspec/specs/standard-pack-registry-and-snapshots/spec.md](openspec/specs/standard-pack-registry-and-snapshots/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS,
+Section-3 BFS and Section-4 verification task in the proposal.
+
+**Domain** (`src/standard/mod.rs`). Pack descriptors are compiled-in like
+profiles and features: `baseline-service` spans the full lifecycle
+(`0.9.0` deprecated, `1.0.0`/`1.1.0` supported with verified render
+fixtures, `2.0.0` proposed/unverified) with compatible server profiles,
+a per-version asset digest, and the declared (never fetched) external
+origin `workspace-governance/templates/runtime`. Support state
+(`proposed|supported|deprecated`), evidence (`verified|unverified`) and
+snapshot state (`absent|rendered|modified|unknown`) are closed enums.
+Selection is explicit and validated at request normalization: unknown,
+non-selectable or incompatible selectors refuse with `standard-invalid`
+before any file change, and there is no implicit `latest`.
+
+**Generation.** `forge new --standard-pack <pack>@<version>` renders the
+owned `.standard/` subtree (profile declaration, `scripts/verify.sh`,
+CI workflow, quality config, Compose selection) plus a digest receipt
+recording pack/version/asset-digest and one digest per owned file, all
+staged as ordinary template files so the existing stage/promote/cleanup
+and id-collision guarantees cover them. Without the flag nothing is
+selected implicitly and the output is byte-identical to the prior
+release — the incoming pinned tree digests still pass unchanged and no
+existing test was weakened. The receipt's `generated_at` is an emission
+identity field, like the registry `observed_at`. API/MCP creation paths
+pass no selection, so their outputs are unchanged.
+
+**Operations.** `forge standard list|inspect|check|diff|upgrade`.
+`check` is read-only and reports an absent receipt as a state, not an
+error. `diff` names per-file added/updated/unchanged/modified/foreign/
+orphaned outcomes without writing. `upgrade` requires `--confirm`,
+refuses modified owned files and unowned collisions with a typed
+`standard-invalid` naming the paths, restores prior bytes on a write
+failure, refreshes the receipt on success, and never removes orphaned
+files or touches unrelated files; `--force` is the reviewed conflict
+resolution after `diff`. One new typed error: `standard-invalid`.
+
+**Persistence decision, honestly recorded.** No registry schema was
+added: pack identity lives in the compiled descriptors and project
+ownership lives in the filesystem receipt, so `projects`, `operations`
+and every portfolio/share/interest table are untouched and the domain
+writes no journal row. `upgrade` of a project is a filesystem operation
+keyed by its receipt.
+
+## Verification evidence (standard-pack-registry-and-snapshots, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/api/mod.rs`, `src/core/mod.rs`, `src/generate/mod.rs`,
+  `src/lib.rs`, `src/main.rs`, `src/mcp/mod.rs`,
+  `src/readiness/mod.rs`, `src/standard/mod.rs`,
+  `tests/standard_{contract,cross_surface}.rs`). The pre-change baseline
+  carries formatting drift in `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/{fleet,jenkins}.rs`,
+  `tests/gate_contract.rs`, `tests/gate_cross_surface.rs` and
+  `tests/publish_queue_status_contract.rs`; `cargo fmt` touched them
+  incidentally and those edits were reverted with `git checkout --`, so
+  the drift is preserved exactly as prior cycles left it.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: identical to baseline —
+  the same 12 pre-existing locations (`src/api/ui/auth.rs:166-167`,
+  `src/gate/evidence.rs` (229, 425, 826, 827, 862),
+  `src/portfolio/share/validation.rs` (13, 392),
+  `src/publish/fleet.rs:51`, `src/publish/mod.rs:634-636`).
+  **Zero new clippy errors.** (One new `too-many-arguments` from the
+  8-argument `parse_interactive` was fixed with the same
+  `#[allow(clippy::too_many_arguments)]` the profile builders already use.)
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: **80 result
+  groups, 1798 tests, 0 failed**; the change adds no new long-running
+  native test. New supervised suites: 13 `src/standard` unit tests
+  (closed lifecycles; explicit selection refusals; deterministic render;
+  local-fallback origin; absent/rendered/modified check; read-only diff;
+  unconfirmed/missing-receipt refusal; modified-owned conflict with no
+  writes; `--force` resolution; foreign collision preserved; orphan
+  preservation), 1 `src/generate` unit test (explicit selection stages
+  exactly the snapshot subtree and nothing else; bad selections refuse at
+  normalization), 9 `tests/standard_contract.rs` and 3
+  `tests/standard_cross_surface.rs`. The incoming
+  `opt_out_is_byte_identical_to_pre_release` pinned digests and the
+  flag/interactive byte-equivalence test pass unmodified, proving the
+  opt-in default.
+- Live binary smoke (CLI): `standard list` shows all four lifecycle
+  states; unknown selectors are typed `standard-invalid` with empty
+  stdout; `new --profile rust-web --standard-pack
+  baseline-service@1.1.0` renders 6 owned files with a receipt whose
+  per-file digests match, `check` reports `rendered`, `diff` reports
+  `updated` without writing; a user-edited `verify.sh` blocks
+  `upgrade --confirm` with a named `standard-invalid` and is replaced
+  only with `--force` while `user-notes.txt` and an orphaned CI file
+  survive; pinning `0.9.0` keeps `check`/`inspect` working.
+- Live binary smoke (native): from a generated `rust-web` project,
+  `sh .standard/scripts/verify.sh` runs `cargo test` offline to
+  `1 passed, 0 failed` (exit 0); a generated `python-service` project
+  runs its snapshot verify to `OK`; `docker compose -f
+  .standard/compose/docker-compose.yaml config` exits 0
+  (Docker Compose v5.1.4, daemon reachable). No sibling checkout was
+  used: every `.standard/` file carries no Forge invocation, no
+  absolute host path and no `/workspace-governance` reference.
+- `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok.
+  **No new dependency** was added; the closure is unchanged.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 51 passed,
+  0 failed (51 items) pre-archive and 51 passed, 0 failed post-archive
+  with the promoted `standard-pack-registry-and-snapshots` spec
+  (+3 requirements); `git diff --check` and `git diff --cached --check`:
+  PASS (four archive-introduced trailing blank lines were trimmed and
+  re-staged before commit).
+- **Blocked, honestly recorded:** no schema is claimed in
+  `platform-contracts` and no registry table backs packs; the external
+  runtime-template origin is declared but never consulted (local
+  fallback always, never fetched); no GitHub Pages or other external
+  publication was run.
+- Pointer state: `standard-pack-registry-and-snapshots` archived
+  (`10/10` tasks evidenced, `4/4` artifacts complete). `openspec list`
+  shows two remaining active changes (`fleet-live-rollout`,
+  `portfolio-activation-readiness`); the pointer advances to
+  `fleet-live-rollout`, the only implementation change, with the
+  standing record that it requires live Mac target access (live 20/20
+  green) and cannot be completed or honestly evidenced from this
+  checkout. `portfolio-activation-readiness` stays active as a
+  planning-only change.
+- No shared Gate Runtime is configured; no Gate pass is claimed. No
+  PostgreSQL, multi-user, SSO or remote-synchronization readiness is
+  claimed.
 
 ## Current state
 

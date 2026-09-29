@@ -1,33 +1,33 @@
-current_spec: project-local-remediation-plans
+current_spec: github-project-metadata-adapter
 
 # Forge handoff
 
 ## Current state
 
-`project-evidence-gap-assessment` was implemented, verified and archived on
-2026-09-29 as `2026-09-29-project-evidence-gap-assessment`; its three
-requirements (evidence-backed findings, distinct verdicts, and read-only
-assessment) were promoted into
-[openspec/specs/project-evidence-gap-assessment/spec.md](openspec/specs/project-evidence-gap-assessment/spec.md).
+`project-local-remediation-plans` was implemented, verified and archived on
+2026-09-29 as `2026-09-29-project-local-remediation-plans`; its requirements
+were promoted into
+[openspec/specs/project-local-remediation-plans/spec.md](openspec/specs/project-local-remediation-plans/spec.md).
 
-**Implementation.** `src/doctor/gaps.rs` projects the catalog's normalized
-records and source statuses into the closed `forge-project-evidence/0.1.0`
-finding contract. `forge project gaps [PROJECT]` supports catalog source
-selection, category/status/remediation filters, table/JSON/NDJSON output,
-stable ordering, explicit unavailable and not-applicable findings, and
-credential redaction. It performs no registry or provider writes.
+**Implementation.** `src/remediation/` provides scan/plan/diff/apply for
+automatically repairable missing CI assets using a selected standard-pack
+snapshot. Apply validates target identity, profile, ownership, file digests
+and Git revision; stages and verifies target-local assets; promotes with
+rollback evidence; and journals the outcome. Unsupported findings and
+unowned or stale targets are refused. No remote writes or secret generation
+are implemented.
 
-**Verification evidence (2026-09-29).** The focused suites pass: 18 contract
-tests and 14 cross-surface tests. `cargo build --bin forge`, strict OpenSpec
-validation (57/57), the change-name check and diff checks pass. Full workspace
-verification remains subject to the repository's recorded pre-existing
-formatting drift and baseline warnings; no new dependency or Gate Runtime was
-introduced. No provider was contacted and no project was repaired.
+**Verification evidence (2026-09-29).** Both remediation suites pass (9
+contract, 3 cross-surface), as do 3 rollback unit tests and the serial
+workspace suite (`--all-targets`, excluding the named native-toolchain
+scaffold test). `cargo build --bin forge`, touched-file rustfmt, strict
+OpenSpec validation (57/57), change-name and diff checks pass. Strict Clippy
+remains blocked by unrelated existing warnings; the new remediation code has
+no remaining Clippy findings. No shared Gate pass is claimed.
 
-**Pointer state.** The completed change is archived. `openspec list` selects
-`project-local-remediation-plans` as the next dependency-ready implementation
-package; the other planning packages remain unselected. No deployment,
-production, or shared Gate pass is claimed.
+**Pointer state.** `openspec list` selects `github-project-metadata-adapter`
+next; its proposal explicitly depends on the now-archived catalog, evidence
+and remediation contracts. No deployment or production readiness is claimed.
 
 ## Current state
 

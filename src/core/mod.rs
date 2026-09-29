@@ -312,6 +312,9 @@ pub enum ForgeError {
 
     #[error("contract invalid: {reason}")]
     ContractInvalid { reason: String },
+
+    #[error("standard invalid: {reason}; no standard snapshot files were changed")]
+    StandardInvalid { reason: String },
 }
 
 impl ForgeError {
@@ -417,6 +420,7 @@ impl ForgeError {
             ForgeError::GateRuntimeUnavailable { .. } => "gate-runtime-unavailable",
             ForgeError::GateEvidenceUnavailable { .. } => "gate-evidence-unavailable",
             ForgeError::ContractInvalid { .. } => "contract-invalid",
+            ForgeError::StandardInvalid { .. } => "standard-invalid",
         }
     }
 

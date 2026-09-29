@@ -686,6 +686,7 @@ fn mcp_create_project(db_path: &Path, args: &Map<String, Value>) -> Result<Value
         name.as_deref(),
         &features,
         &destination,
+        None,
     )
     .map_err(core_error)?;
     let mut registry = open_registry(db_path)?;

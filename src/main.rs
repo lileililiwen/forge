@@ -228,6 +228,12 @@ enum Commands {
         /// (output is then byte-identical to pre-metadata releases).
         #[arg(long)]
         no_workspace_metadata: bool,
+        /// Render a versioned standard-pack snapshot into `.standard/`
+        /// (e.g. `baseline-service@1.1.0`). Without this flag the output
+        /// is byte-identical to pre-standard releases: no pack is
+        /// selected implicitly.
+        #[arg(long, value_name = "PACK@VERSION")]
+        standard_pack: Option<String>,
     },
     /// Inspect project health and evidence-based maturity without changing files.
     Doctor {
@@ -469,6 +475,11 @@ enum Commands {
     Inventory {
         #[command(subcommand)]
         command: InventoryCommands,
+    },
+    /// List, inspect, check, diff and upgrade versioned standard-pack snapshots.
+    Standard {
+        #[command(subcommand)]
+        command: StandardCommands,
     },
 }
 
@@ -1734,6 +1745,48 @@ enum InventoryCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum StandardCommands {
+    /// List all versioned standard packs with support and evidence state.
+    List,
+    /// Inspect one standard pack version (`<pack>@<version>`).
+    Inspect {
+        /// Pack selector, e.g. `baseline-service@1.1.0`.
+        pack: String,
+    },
+    /// Verify a project's `.standard/` snapshot against its ownership receipt.
+    Check {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+    /// Show what an upgrade to a pack version would change. Read-only.
+    Diff {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Target pack selector, e.g. `baseline-service@1.1.0`.
+        #[arg(long)]
+        against: String,
+    },
+    /// Upgrade a project's snapshot to a pack version; refuses modified files.
+    Upgrade {
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Target pack selector, e.g. `baseline-service@1.1.0`.
+        #[arg(long)]
+        to: String,
+        /// Required explicit confirmation for the file writes.
+        #[arg(long)]
+        confirm: bool,
+        /// Replace modified or foreign owned files after reviewing
+        /// `standard diff` (the reviewed conflict resolution).
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum AgentCommands {
     /// Start a new managed agent session for the named project.
     Start {
@@ -1883,6 +1936,7 @@ fn main() -> ExitCode {
             features,
             verify_native,
             no_workspace_metadata,
+            standard_pack,
         } => cmd_new(
             &db_path,
             path,
@@ -1892,6 +1946,7 @@ fn main() -> ExitCode {
             features,
             *verify_native,
             !no_workspace_metadata,
+            standard_pack.as_deref(),
             cli.format,
         ),
         Commands::Doctor { path, target } => {
@@ -1987,6 +2042,7 @@ fn main() -> ExitCode {
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
         Commands::Contract { command } => cmd_contract(&db_path, command, cli.format),
         Commands::Inventory { command } => cmd_inventory(command, cli.format),
+        Commands::Standard { command } => cmd_standard(command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -2133,15 +2189,25 @@ fn cmd_new(
     features: &[String],
     verify_native_flag: bool,
     workspace_metadata: bool,
+    standard_pack: Option<&str>,
     format: Format,
 ) -> Result<Output, ForgeError> {
     let mut request = if profile.is_some() {
-        normalize_explicit(profile, id, name, features, path)?
+        normalize_explicit(profile, id, name, features, path, standard_pack)?
     } else {
         let stdin = std::io::stdin();
         let mut reader = std::io::BufReader::new(stdin.lock());
         let mut writer = std::io::stderr();
-        parse_interactive(&mut reader, &mut writer, path, profile, id, name, features)?
+        parse_interactive(
+            &mut reader,
+            &mut writer,
+            path,
+            profile,
+            id,
+            name,
+            features,
+            standard_pack,
+        )?
     };
     request.workspace_metadata = workspace_metadata;
     let mut registry = open_registry(db_path)?;
@@ -2329,6 +2395,190 @@ fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<Output, Forg
             let json = serde_json::json!({"preflight": report});
             Ok(as_output(format, human, json))
         }
+    }
+}
+
+fn cmd_standard(command: &StandardCommands, format: Format) -> Result<Output, ForgeError> {
+    use forge::standard;
+    match command {
+        StandardCommands::List => {
+            let packs = standard::all_packs();
+            let mut human = format!(
+                "{:<18} {:<8} {:<11} {:<10} {}",
+                "Pack", "Version", "State", "Evidence", "Compatible profiles"
+            );
+            for pack in &packs {
+                human.push_str(&format!(
+                    "\n{:<18} {:<8} {:<11} {:<10} {}",
+                    pack.id,
+                    pack.version,
+                    pack_state_word(pack.support_state),
+                    pack_evidence_word(pack.evidence),
+                    pack.compatible_profiles.join(", ")
+                ));
+            }
+            let json = serde_json::json!({"packs": packs});
+            Ok(as_output(format, human, json))
+        }
+        StandardCommands::Inspect { pack } => {
+            let descriptor = standard::inspect_pack(pack)?;
+            let mut human = format!(
+                "pack {}@{}\nsupport state: {}\nevidence: {}\nasset digest: {}\ncompatible profiles: {}",
+                descriptor.id,
+                descriptor.version,
+                pack_state_word(descriptor.support_state),
+                pack_evidence_word(descriptor.evidence),
+                descriptor.asset_digest,
+                descriptor.compatible_profiles.join(", ")
+            );
+            if let Some(source) = descriptor.external_source.as_deref() {
+                human.push_str(&format!(
+                    "\nexternal template source: {source} (bundled local fallback; never fetched)"
+                ));
+            }
+            human.push_str(&format!(
+                "\nselectable for new generation: {}",
+                descriptor.is_selectable()
+            ));
+            let json = serde_json::to_value(&descriptor).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+        StandardCommands::Check { path } => {
+            let report = standard::check_snapshot(path)?;
+            let mut human = format!(
+                "standard snapshot: {} ({})",
+                snapshot_state_word(report.state),
+                report.path
+            );
+            if let Some(pack) = report.pack.as_deref() {
+                human.push_str(&format!(
+                    "\npack {}@{} for profile {}",
+                    pack,
+                    report.version.as_deref().unwrap_or("?"),
+                    report.profile.as_deref().unwrap_or("?")
+                ));
+            }
+            for file in &report.files {
+                human.push_str(&format!(
+                    "\n  {} {}",
+                    file_state_word(file.state),
+                    file.path
+                ));
+            }
+            for issue in &report.issues {
+                human.push_str(&format!("\nissue: {issue}"));
+            }
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+        StandardCommands::Diff { path, against } => {
+            let report = standard::diff_snapshot(path, against)?;
+            let mut human = format!(
+                "standard diff {} -> {}\nproject {} (profile {})",
+                report.from, report.against, report.project, report.profile
+            );
+            for entry in &report.entries {
+                human.push_str(&format!(
+                    "\n  {} {}",
+                    diff_change_word(entry.change),
+                    entry.path
+                ));
+            }
+            if !report.conflicts.is_empty() {
+                human.push_str(&format!(
+                    "\nconflicts: {} (upgrade refuses without --force)",
+                    report.conflicts.join(", ")
+                ));
+            }
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+        StandardCommands::Upgrade {
+            path,
+            to,
+            confirm,
+            force,
+        } => {
+            let report = standard::upgrade_snapshot(
+                path,
+                to,
+                *confirm,
+                *force,
+                &chrono::Utc::now().to_rfc3339(),
+            )?;
+            let mut human = format!(
+                "upgraded {} ({}) to {}; {} file(s) written",
+                report.project,
+                report.profile,
+                report.to,
+                report.written.len()
+            );
+            if !report.forced.is_empty() {
+                human.push_str(&format!(
+                    "\nforced replacements: {}",
+                    report.forced.join(", ")
+                ));
+            }
+            if !report.orphaned.is_empty() {
+                human.push_str(&format!(
+                    "\npreserved (not in target): {}",
+                    report.orphaned.join(", ")
+                ));
+            }
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+    }
+}
+
+fn pack_state_word(state: forge::standard::PackSupportState) -> &'static str {
+    match state {
+        forge::standard::PackSupportState::Proposed => "proposed",
+        forge::standard::PackSupportState::Supported => "supported",
+        forge::standard::PackSupportState::Deprecated => "deprecated",
+    }
+}
+
+fn pack_evidence_word(evidence: forge::standard::PackEvidence) -> &'static str {
+    match evidence {
+        forge::standard::PackEvidence::Verified => "verified",
+        forge::standard::PackEvidence::Unverified => "unverified",
+    }
+}
+
+fn snapshot_state_word(state: forge::standard::SnapshotState) -> &'static str {
+    match state {
+        forge::standard::SnapshotState::Absent => "absent",
+        forge::standard::SnapshotState::Rendered => "rendered",
+        forge::standard::SnapshotState::Modified => "modified",
+        forge::standard::SnapshotState::Unknown => "unknown-pack",
+    }
+}
+
+fn file_state_word(state: forge::standard::FileState) -> &'static str {
+    match state {
+        forge::standard::FileState::Present => "ok",
+        forge::standard::FileState::Modified => "modified",
+        forge::standard::FileState::Missing => "missing",
+    }
+}
+
+fn diff_change_word(change: forge::standard::DiffChange) -> &'static str {
+    match change {
+        forge::standard::DiffChange::Added => "added",
+        forge::standard::DiffChange::Updated => "updated",
+        forge::standard::DiffChange::Unchanged => "unchanged",
+        forge::standard::DiffChange::Modified => "modified",
+        forge::standard::DiffChange::Foreign => "foreign",
+        forge::standard::DiffChange::Orphaned => "orphaned",
     }
 }
 

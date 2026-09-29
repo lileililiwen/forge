@@ -46,6 +46,10 @@ pub struct CreationRequest {
     /// Emit the Workspace Governance `.project.json` declaration
     /// (`--no-workspace-metadata` opts out; transports default to `true`).
     pub workspace_metadata: bool,
+    /// Explicitly selected `<pack>@<version>` whose `.standard/` snapshot is
+    /// rendered alongside the project (`--standard-pack`). `None` renders
+    /// exactly the prior output: no pack is ever selected implicitly.
+    pub standard_pack: Option<String>,
 }
 
 /// Outcome of [`generate`]: the registered record plus what was rendered.
@@ -133,12 +137,17 @@ fn check_request(profile: &str, id: &str, features: &[String]) -> Result<Vec<Str
 }
 
 /// Normalize explicit CLI flags into a [`CreationRequest`].
+/// `standard_pack` is an already-explicit `<pack>@<version>` selection (or
+/// `None`); a selection is validated against the pack registry before it is
+/// stored, so an unknown, non-selectable or incompatible pack refuses before
+/// any file change.
 pub fn normalize_explicit(
     profile: Option<&str>,
     id: Option<&str>,
     name: Option<&str>,
     features: &[String],
     dest: &Path,
+    standard_pack: Option<&str>,
 ) -> Result<CreationRequest, ForgeError> {
     let profile = profile.ok_or_else(|| ForgeError::GenerationFailed {
         reason: "missing --profile <id>; re-run with an explicit profile or answer interactively"
@@ -153,6 +162,10 @@ pub fn normalize_explicit(
         .filter(|n| !n.trim().is_empty())
         .unwrap_or_else(|| id.clone());
     let closed_features = check_request(profile, &id, &sorted_features)?;
+    let standard_pack = match standard_pack {
+        Some(spec) => Some(crate::standard::select_for_generation(profile, spec)?),
+        None => None,
+    };
     Ok(CreationRequest {
         profile: profile.to_string(),
         id,
@@ -160,6 +173,7 @@ pub fn normalize_explicit(
         features: closed_features,
         destination: dest.to_path_buf(),
         workspace_metadata: true,
+        standard_pack,
     })
 }
 
@@ -191,6 +205,7 @@ fn prompt_line(
 /// Only fields without a preset are prompted. EOF at any prompt cancels
 /// with `generation-cancelled` and leaves nothing behind; an empty profile
 /// answer (no usable default) also cancels.
+#[allow(clippy::too_many_arguments)]
 pub fn parse_interactive(
     reader: &mut dyn BufRead,
     writer: &mut dyn Write,
@@ -199,6 +214,7 @@ pub fn parse_interactive(
     preset_id: Option<&str>,
     preset_name: Option<&str>,
     preset_features: &[String],
+    preset_standard_pack: Option<&str>,
 ) -> Result<CreationRequest, ForgeError> {
     let cancelled = |what: &str| ForgeError::GenerationCancelled {
         reason: format!("{what}; no project or registry entry was created"),
@@ -267,6 +283,10 @@ pub fn parse_interactive(
         out
     };
     let closed_features = check_request(&profile, &id, &features)?;
+    let standard_pack = match preset_standard_pack {
+        Some(spec) => Some(crate::standard::select_for_generation(&profile, spec)?),
+        None => None,
+    };
     Ok(CreationRequest {
         profile,
         id,
@@ -274,6 +294,7 @@ pub fn parse_interactive(
         features: closed_features,
         destination: dest.to_path_buf(),
         workspace_metadata: true,
+        standard_pack,
     })
 }
 
@@ -323,7 +344,10 @@ fn readme_text(request: &CreationRequest, build: &str, test: &str, notes: &str) 
     )
 }
 
-fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, ForgeError> {
+fn template_files(
+    request: &CreationRequest,
+    generated_at: &str,
+) -> Result<Vec<(String, String)>, ForgeError> {
     let descriptor = inspect_profile(&request.profile)?;
     if descriptor.support_status == crate::profile::ProfileSupportStatus::Planned {
         return Err(ForgeError::UnsupportedProfile {
@@ -602,6 +626,19 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
         }
     }
     files.push(("forge.yaml".to_string(), manifest));
+    // Versioned standard snapshot, only when a pack was explicitly selected
+    // (`--standard-pack`): the owned `.standard/` subtree plus its digest
+    // receipt. Staged as ordinary template files so the promotion/cleanup
+    // guarantees cover them identically. Without a selection the output is
+    // byte-identical to pre-standard releases.
+    if let Some(spec) = request.standard_pack.as_deref() {
+        files.extend(crate::standard::staged_files(
+            &request.id,
+            &request.profile,
+            spec,
+            generated_at,
+        )?);
+    }
     // Workspace Governance declaration + ownership receipt: staged as
     // ordinary template files so the staging, promotion and cleanup
     // guarantees cover them identically. Unmapped profiles stage nothing.
@@ -613,10 +650,12 @@ fn template_files(request: &CreationRequest) -> Result<Vec<(String, String)>, Fo
 }
 
 /// Rendered file bytes for a request, sorted by path. Used to prove
-/// flag/interactive equivalence and repeatability.
+/// flag/interactive equivalence and repeatability. The standard receipt
+/// carries a fixed timestamp here so byte-equality is not defeated by the
+/// wall clock; `generate` substitutes the real emission time.
 pub fn render_files(request: &CreationRequest) -> Result<Vec<(String, String)>, ForgeError> {
     let _ = check_request(&request.profile, &request.id, &request.features)?;
-    template_files(request)
+    template_files(request, crate::standard::DETERMINISTIC_TIMESTAMP)
 }
 
 fn ensure_relative_inside(rel: &str) -> Result<(), ForgeError> {
@@ -694,7 +733,7 @@ pub fn generate(
     request: &CreationRequest,
 ) -> Result<GeneratedProject, ForgeError> {
     let _ = check_request(&request.profile, &request.id, &request.features)?;
-    let files = template_files(request)?;
+    let files = template_files(request, &chrono::Utc::now().to_rfc3339())?;
     check_files_inside(&files)?;
     let mut notes = Vec::new();
     if request.workspace_metadata {
@@ -703,6 +742,13 @@ pub fn generate(
                 notes.push(workspace::omission_note(&request.profile));
             }
         }
+    }
+    if let Some(spec) = request.standard_pack.as_deref() {
+        notes.push(format!(
+            "standard snapshot: rendered {spec} into {STANDARD_DIR}/",
+            spec = spec,
+            STANDARD_DIR = crate::standard::STANDARD_DIR
+        ));
     }
 
     if request.destination.is_file() {
@@ -943,7 +989,7 @@ mod tests {
 
     fn request_for(profile: &str, dest: &Path) -> CreationRequest {
         let id = format!("{profile}-demo");
-        normalize_explicit(Some(profile), Some(id.as_str()), None, &[], dest).unwrap()
+        normalize_explicit(Some(profile), Some(id.as_str()), None, &[], dest, None).unwrap()
     }
 
     fn open_registry(dir: &TempDir) -> Registry {
@@ -968,6 +1014,7 @@ mod tests {
                 None,
                 &[],
                 &dest(&tmp, &format!("meta-{profile}")),
+                None,
             )
             .unwrap();
             let files = render_files(&req).unwrap();
@@ -1020,13 +1067,23 @@ mod tests {
             Some("Equiv App"),
             &["auth".to_string()],
             &target,
+            None,
         )
         .unwrap();
         let input = b"rust-web\nequiv-app\nEquiv App\nauth\n";
         let mut reader = Cursor::new(input);
         let mut writer: Vec<u8> = Vec::new();
-        let interactive =
-            parse_interactive(&mut reader, &mut writer, &target, None, None, None, &[]).unwrap();
+        let interactive = parse_interactive(
+            &mut reader,
+            &mut writer,
+            &target,
+            None,
+            None,
+            None,
+            &[],
+            None,
+        )
+        .unwrap();
         assert_eq!(explicit, interactive);
         let a = render_files(&explicit).unwrap();
         let b = render_files(&interactive).unwrap();
@@ -1042,6 +1099,7 @@ mod tests {
             Some("Same"),
             &[],
             &dest(&tmp, "dir-a"),
+            None,
         )
         .unwrap();
         let b = normalize_explicit(
@@ -1050,6 +1108,7 @@ mod tests {
             Some("Same"),
             &[],
             &dest(&tmp, "dir-b"),
+            None,
         )
         .unwrap();
         assert_eq!(render_files(&a).unwrap(), render_files(&b).unwrap());
@@ -1079,6 +1138,7 @@ mod tests {
                 Some(&id),
                 &[],
                 &dest(&tmp, &format!("scaffold-{profile}")),
+                None,
             )
             .unwrap();
             let files = render_files(&req).unwrap();
@@ -1134,7 +1194,8 @@ mod tests {
         let target = dest(&tmp, "taken");
         fs::create_dir(&target).unwrap();
         fs::write(target.join("keep.txt"), "do not touch").unwrap();
-        let req = normalize_explicit(Some("rust-web"), Some("taken"), None, &[], &target).unwrap();
+        let req =
+            normalize_explicit(Some("rust-web"), Some("taken"), None, &[], &target, None).unwrap();
         let mut reg = open_registry(&tmp);
         let err = generate(&mut reg, &req).expect_err("nonempty must fail");
         assert_eq!(err.code(), "generation-conflict");
@@ -1159,8 +1220,17 @@ mod tests {
         let target = dest(&tmp, "cancelled-app");
         let mut reader = Cursor::new(b"");
         let mut writer: Vec<u8> = Vec::new();
-        let err = parse_interactive(&mut reader, &mut writer, &target, None, None, None, &[])
-            .expect_err("EOF must cancel");
+        let err = parse_interactive(
+            &mut reader,
+            &mut writer,
+            &target,
+            None,
+            None,
+            None,
+            &[],
+            None,
+        )
+        .expect_err("EOF must cancel");
         assert_eq!(err.code(), "generation-cancelled");
         assert!(!target.exists());
         let reg = open_registry(&tmp);
@@ -1171,8 +1241,15 @@ mod tests {
     fn unknown_profile_and_incompatible_features_fail_before_mutation() {
         let tmp = TempDir::new().unwrap();
         let target = dest(&tmp, "bad");
-        let err = normalize_explicit(Some("not-a-real-profile"), Some("bad"), None, &[], &target)
-            .expect_err("unknown profile");
+        let err = normalize_explicit(
+            Some("not-a-real-profile"),
+            Some("bad"),
+            None,
+            &[],
+            &target,
+            None,
+        )
+        .expect_err("unknown profile");
         assert_eq!(err.code(), "unknown-profile");
         assert!(!target.exists());
 
@@ -1182,6 +1259,7 @@ mod tests {
             None,
             &["postgres".to_string()],
             &target,
+            None,
         )
         .expect_err("incompatible feature");
         assert_eq!(err.code(), "incompatible-profile");
@@ -1194,12 +1272,13 @@ mod tests {
         let first = dest(&tmp, "first");
         let second = dest(&tmp, "second");
         let first_req =
-            normalize_explicit(Some("rust-web"), Some("dupe-id"), None, &[], &first).unwrap();
+            normalize_explicit(Some("rust-web"), Some("dupe-id"), None, &[], &first, None).unwrap();
         let mut reg = open_registry(&tmp);
         generate(&mut reg, &first_req).unwrap();
 
         let second_req =
-            normalize_explicit(Some("rust-web"), Some("dupe-id"), None, &[], &second).unwrap();
+            normalize_explicit(Some("rust-web"), Some("dupe-id"), None, &[], &second, None)
+                .unwrap();
         let err = generate(&mut reg, &second_req).expect_err("id reuse must fail");
         assert_eq!(err.code(), "id-collision");
         assert!(!second.join("forge.yaml").exists());
@@ -1226,8 +1305,15 @@ mod tests {
         }
         let tmp = TempDir::new().unwrap();
         let target = dest(&tmp, "native-app");
-        let req =
-            normalize_explicit(Some("rust-web"), Some("native-app"), None, &[], &target).unwrap();
+        let req = normalize_explicit(
+            Some("rust-web"),
+            Some("native-app"),
+            None,
+            &[],
+            &target,
+            None,
+        )
+        .unwrap();
         let files = render_files(&req).unwrap();
         fs::create_dir(&target).unwrap();
         for (rel, contents) in &files {
@@ -1257,6 +1343,7 @@ mod tests {
             Some("React App"),
             &["i18n".to_string()],
             &target,
+            None,
         )
         .unwrap();
         let files = render_files(&req).unwrap();
@@ -1301,8 +1388,15 @@ mod tests {
         let toolchain: HashSet<String> = ["npm".to_string()].into_iter().collect();
         let tmp = TempDir::new().unwrap();
         let target = dest(&tmp, "native-react");
-        let req = normalize_explicit(Some("react-web"), Some("native-react"), None, &[], &target)
-            .unwrap();
+        let req = normalize_explicit(
+            Some("react-web"),
+            Some("native-react"),
+            None,
+            &[],
+            &target,
+            None,
+        )
+        .unwrap();
         let files = render_files(&req).unwrap();
         fs::create_dir(&target).unwrap();
         for (rel, contents) in &files {
@@ -1335,6 +1429,7 @@ mod tests {
             None,
             &[],
             &target,
+            None,
         )
         .expect_err("planned must refuse");
         assert_eq!(err.code(), "unsupported-profile");
@@ -1348,5 +1443,92 @@ mod tests {
         assert!(!target.exists());
         let reg = open_registry(&tmp);
         assert!(reg.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn standard_snapshot_requires_explicit_selection_and_nothing_else_changes() {
+        let tmp = TempDir::new().unwrap();
+        let plain = normalize_explicit(
+            Some("rust-web"),
+            Some("std-plain"),
+            None,
+            &[],
+            &dest(&tmp, "std-plain"),
+            None,
+        )
+        .unwrap();
+        let baseline = render_files(&plain).unwrap();
+        assert!(
+            !baseline
+                .iter()
+                .any(|(p, _)| p.starts_with(crate::standard::STANDARD_DIR)),
+            "without a selection no .standard/ files are staged"
+        );
+        // An explicit selection stages the owned subtree with a receipt
+        // whose recorded digests match the staged content.
+        let with_pack = normalize_explicit(
+            Some("rust-web"),
+            Some("std-plain"),
+            None,
+            &[],
+            &dest(&tmp, "std-plain"),
+            Some("baseline-service@1.1.0"),
+        )
+        .unwrap();
+        let files = render_files(&with_pack).unwrap();
+        let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(paths.contains(&crate::standard::PROFILE_PATH), "{paths:?}");
+        assert!(paths.contains(&crate::standard::RECEIPT_PATH), "{paths:?}");
+        let receipt_text = files
+            .iter()
+            .find(|(p, _)| p == crate::standard::RECEIPT_PATH)
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        let receipt: crate::standard::Receipt = serde_json::from_str(&receipt_text).unwrap();
+        assert_eq!(receipt.pack, "baseline-service");
+        assert_eq!(receipt.version, "1.1.0");
+        assert_eq!(receipt.project, "std-plain");
+        for owned in &receipt.files {
+            let content = files
+                .iter()
+                .find(|(p, _)| p == &owned.path)
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| panic!("{} staged", owned.path));
+            assert_eq!(
+                crate::standard::sha256_hex(content.as_bytes()),
+                owned.digest,
+                "{}",
+                owned.path
+            );
+        }
+        // Selection changes nothing else: minus the snapshot subtree the
+        // two renders are identical.
+        let rest: Vec<(String, String)> = files
+            .iter()
+            .filter(|(p, _)| !p.starts_with(crate::standard::STANDARD_DIR))
+            .cloned()
+            .collect();
+        assert_eq!(rest, baseline);
+        // A bad selection refuses during normalization, before mutation.
+        let err = normalize_explicit(
+            Some("rust-web"),
+            Some("std-bad"),
+            None,
+            &[],
+            &dest(&tmp, "std-bad"),
+            Some("baseline-service@2.0.0"),
+        )
+        .expect_err("proposed pack must refuse generation");
+        assert_eq!(err.code(), "standard-invalid");
+        let err = normalize_explicit(
+            Some("react-web"),
+            Some("std-incompat"),
+            None,
+            &[],
+            &dest(&tmp, "std-incompat"),
+            Some("baseline-service@1.1.0"),
+        )
+        .expect_err("incompatible profile must refuse generation");
+        assert_eq!(err.code(), "standard-invalid");
     }
 }

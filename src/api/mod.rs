@@ -1359,7 +1359,7 @@ fn handle_create_project(db_path: &Path, request: &ApiRequest, _now: DateTime<Ut
     }
     let destination = PathBuf::from(path);
     let normalized =
-        match normalize_explicit(Some(profile), Some(id), name, &features, &destination) {
+        match normalize_explicit(Some(profile), Some(id), name, &features, &destination, None) {
             Ok(value) => value,
             Err(err) => return ApiResponse::from_error(&err),
         };

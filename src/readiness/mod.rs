@@ -333,7 +333,14 @@ pub fn run_profile_row(
         reason: format!("readiness staging directory could not be created: {err}"),
     })?;
     let target = staging.path().join(&fixture_id);
-    let request = normalize_explicit(Some(&descriptor.id), Some(&fixture_id), None, &[], &target)?;
+    let request = normalize_explicit(
+        Some(&descriptor.id),
+        Some(&fixture_id),
+        None,
+        &[],
+        &target,
+        None,
+    )?;
     let files = render_files(&request)?;
     let source_hash = source_hash_for(&files);
 

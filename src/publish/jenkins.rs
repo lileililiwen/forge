@@ -21,7 +21,7 @@ use crate::core::ForgeError;
 
 use super::{
     Classification, CommandResult, CommandSpec, PublishAction, PublishAdapter, PublishRequest,
-    StagePlan, STAGE_DB, STAGE_DEPLOY, STAGE_PREPARE, STAGE_SYNC,
+    StagePlan, PUBLISH_SYNC_TIMEOUT, STAGE_DB, STAGE_DEPLOY, STAGE_PREPARE, STAGE_SYNC,
 };
 
 // ---------------------------------------------------------------------------
@@ -69,11 +69,26 @@ impl JenkinsConfig {
 
     pub fn from_overrides(o: &Overrides) -> Self {
         JenkinsConfig {
-            ssh_target: o.ssh_target.clone().unwrap_or_else(|| DEFAULT_SSH_TARGET.to_string()),
-            remote_root: o.remote_root.clone().unwrap_or_else(|| DEFAULT_REMOTE_ROOT.to_string()),
-            scripts_root: o.scripts_root.clone().unwrap_or_else(|| DEFAULT_SCRIPTS_ROOT.to_string()),
-            domain: o.domain.clone().unwrap_or_else(|| DEFAULT_DOMAIN.to_string()),
-            nav_host: o.nav_host.clone().unwrap_or_else(|| DEFAULT_NAV_HOST.to_string()),
+            ssh_target: o
+                .ssh_target
+                .clone()
+                .unwrap_or_else(|| DEFAULT_SSH_TARGET.to_string()),
+            remote_root: o
+                .remote_root
+                .clone()
+                .unwrap_or_else(|| DEFAULT_REMOTE_ROOT.to_string()),
+            scripts_root: o
+                .scripts_root
+                .clone()
+                .unwrap_or_else(|| DEFAULT_SCRIPTS_ROOT.to_string()),
+            domain: o
+                .domain
+                .clone()
+                .unwrap_or_else(|| DEFAULT_DOMAIN.to_string()),
+            nav_host: o
+                .nav_host
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NAV_HOST.to_string()),
         }
     }
 }
@@ -197,28 +212,28 @@ impl JenkinsAdapter {
         let remote = self.remote_project_dir(&request.project_id)?;
         let local = format!(
             "{}/",
-            request.project_dir.display().to_string().trim_end_matches('/')
+            request
+                .project_dir
+                .display()
+                .to_string()
+                .trim_end_matches('/')
         );
         let ssh_target = self.config.ssh_target.as_str();
-        let remote_target = format!(
-            "{}:{}/",
-            ssh_target,
-            remote.as_str().trim_end_matches('/')
-        );
+        let remote_target = format!("{}:{}/", ssh_target, remote.as_str().trim_end_matches('/'));
 
         // Command 1: ensure the remote directory exists.
         let mut mkdir = CommandSpec::new("ssh", "remote mkdir");
-        mkdir
-            .args
-            .push(OsString::from(ssh_target));
-        mkdir
-            .args
-            .push(OsString::from("mkdir"));
+        mkdir.args.push(OsString::from(ssh_target));
+        mkdir.args.push(OsString::from("mkdir"));
         mkdir.args.push(OsString::from("-p"));
         mkdir.args.push(OsString::from(remote.as_str()));
 
-        // Command 2: rsync the source tree.
+        // Command 2: rsync the source tree. Carries the sync
+        // ceiling so multi-GB trees under parallel-fleet contention
+        // do not fail closed at the interactive 60s transport
+        // default (`fleet-live-rollout`).
         let mut rsync = CommandSpec::new("rsync", "project source sync");
+        rsync.timeout = Some(PUBLISH_SYNC_TIMEOUT);
         rsync.args.push(OsString::from("-az"));
         rsync.args.push(OsString::from("--human-readable"));
         for excl in [".git/", "node_modules/", "target/", "dist/", "build/"] {
@@ -240,7 +255,8 @@ impl JenkinsAdapter {
     fn plan_prepare(&self, request: &PublishRequest) -> Result<StagePlan, ForgeError> {
         let script = self.remote_script("project-ports.sh")?;
         let mut cmd = CommandSpec::new("ssh", "remote project-ports.sh");
-        cmd.args.push(OsString::from(self.config.ssh_target.as_str()));
+        cmd.args
+            .push(OsString::from(self.config.ssh_target.as_str()));
         cmd.args.push(OsString::from("bash"));
         cmd.args.push(OsString::from(script.as_str()));
         cmd.args.push(OsString::from(request.project_id.as_str()));
@@ -261,38 +277,18 @@ impl JenkinsAdapter {
         let script = self.remote_script("shared-postgres.sh")?;
         let target = self.config.ssh_target.as_str();
         let mut start = CommandSpec::new("ssh", "remote shared-postgres.sh start");
-        start
-            .args
-            .push(OsString::from(target));
-        start
-            .args
-            .push(OsString::from("bash"));
-        start
-            .args
-            .push(OsString::from(script.as_str()));
-        start
-            .args
-            .push(OsString::from("start"));
-        start
-            .args
-            .push(OsString::from("production"));
+        start.args.push(OsString::from(target));
+        start.args.push(OsString::from("bash"));
+        start.args.push(OsString::from(script.as_str()));
+        start.args.push(OsString::from("start"));
+        start.args.push(OsString::from("production"));
 
         let mut provision = CommandSpec::new("ssh", "remote shared-postgres.sh provision");
-        provision
-            .args
-            .push(OsString::from(target));
-        provision
-            .args
-            .push(OsString::from("bash"));
-        provision
-            .args
-            .push(OsString::from(script.as_str()));
-        provision
-            .args
-            .push(OsString::from("provision"));
-        provision
-            .args
-            .push(OsString::from("production"));
+        provision.args.push(OsString::from(target));
+        provision.args.push(OsString::from("bash"));
+        provision.args.push(OsString::from(script.as_str()));
+        provision.args.push(OsString::from("provision"));
+        provision.args.push(OsString::from("production"));
         provision
             .args
             .push(OsString::from(request.project_id.as_str()));
@@ -311,7 +307,8 @@ impl JenkinsAdapter {
         // the hood.
         let script = self.remote_script("project-action.sh")?;
         let mut cmd = CommandSpec::new("ssh", "remote project-action.sh deploy");
-        cmd.args.push(OsString::from(self.config.ssh_target.as_str()));
+        cmd.args
+            .push(OsString::from(self.config.ssh_target.as_str()));
         cmd.args.push(OsString::from("bash"));
         cmd.args.push(OsString::from(script.as_str()));
         cmd.args.push(OsString::from(request.project_id.as_str()));
@@ -549,6 +546,7 @@ mod tests {
 
     #[test]
     fn plan_sync_renders_expected_command_shape() {
+        use super::PUBLISH_SYNC_TIMEOUT;
         let adapter = fixture();
         let req = req_with_id("demo");
         let plan = adapter.plan(&req, PublishAction::Sync).unwrap();
@@ -557,6 +555,16 @@ mod tests {
         assert!(rendered.contains("rsync"));
         assert!(rendered.contains("/Users/allen/jenkins/projects/demo/"));
         assert!(rendered.contains(".git/"));
+        // Sync-stage rsync carries the sync ceiling
+        // (`fleet-live-rollout`); the mkdir probe keeps the
+        // transport default and the timeout never renders.
+        let rsync = plan
+            .commands
+            .iter()
+            .find(|cmd| cmd.program == "rsync")
+            .expect("sync rsync command");
+        assert_eq!(rsync.timeout, Some(PUBLISH_SYNC_TIMEOUT));
+        assert!(!rendered.contains("600"));
     }
 
     #[test]
@@ -606,10 +614,7 @@ mod tests {
         };
         let cls = adapter.classify(&plan, &bad);
         assert_eq!(cls.status, "failed");
-        assert!(cls
-            .recovery
-            .iter()
-            .any(|h| h.contains("Docker")));
+        assert!(cls.recovery.iter().any(|h| h.contains("Docker")));
     }
 
     #[test]
@@ -673,10 +678,7 @@ mod tests {
         };
         let cls = adapter.classify(&plan, &bad);
         assert_eq!(cls.status, "failed");
-        assert!(cls
-            .recovery
-            .iter()
-            .any(|h| h.contains("kebab")));
+        assert!(cls.recovery.iter().any(|h| h.contains("kebab")));
     }
 
     #[test]
@@ -691,10 +693,7 @@ mod tests {
         };
         let cls = adapter.classify(&plan, &bad);
         assert_eq!(cls.status, "failed");
-        assert!(cls
-            .recovery
-            .iter()
-            .any(|h| h.contains("prepare")));
+        assert!(cls.recovery.iter().any(|h| h.contains("prepare")));
     }
 
     #[test]
@@ -703,7 +702,10 @@ mod tests {
             domain: "test.example".to_string(),
             ..JenkinsConfig::from_overrides(&Overrides::default())
         });
-        assert_eq!(adapter.subdomain("demo"), Some("demo.test.example".to_string()));
+        assert_eq!(
+            adapter.subdomain("demo"),
+            Some("demo.test.example".to_string())
+        );
     }
 
     #[test]

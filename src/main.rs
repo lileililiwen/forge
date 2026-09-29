@@ -811,6 +811,13 @@ enum PublishCommands {
         /// Stop at the first failure instead of continuing the rest of the fleet.
         #[arg(long)]
         fail_fast: bool,
+        /// Maximum concurrent per-project publishes (1..=32; default
+        /// 4). Workers run publishes concurrently; journal rows and
+        /// output render serially on the main thread. `--jobs 1`
+        /// preserves sequential behavior. The external `--provider`
+        /// branch always stays sequential (`fleet-live-rollout`).
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
         /// Use one external provider for every eligible project.
         #[arg(long)]
         provider: Option<String>,
@@ -4625,6 +4632,7 @@ fn cmd_publish(
                 dry_run,
                 lifecycle,
                 fail_fast,
+                jobs,
                 provider,
             } => {
                 return cmd_publish_fleet(
@@ -4635,6 +4643,7 @@ fn cmd_publish(
                     *dry_run,
                     lifecycle.clone(),
                     *fail_fast,
+                    *jobs,
                     provider.clone(),
                     format,
                 )
@@ -5039,6 +5048,25 @@ fn cmd_publish_single(
 /// `compose_missing`, `invalid`, or `source_unavailable`. Only
 /// `compose_ready` entries invoke a provider; the others are
 /// surfaced to the operator instead of silently omitted.
+/// Maximum `--jobs` value: 32 workers bound the target and the
+/// controller without a thread-per-project explosion on large
+/// rosters (`fleet-live-rollout`).
+pub const FLEET_MAX_JOBS: usize = 32;
+
+/// Default `--jobs` value: four concurrent per-project publishes.
+pub const FLEET_DEFAULT_JOBS: usize = 4;
+
+/// Validate the `--jobs` flag: `1..=FLEET_MAX_JOBS`. Refuses
+/// out-of-range values with a typed error before anything runs.
+pub fn validate_fleet_jobs(jobs: usize) -> Result<usize, ForgeError> {
+    if !(1..=FLEET_MAX_JOBS).contains(&jobs) {
+        return Err(ForgeError::PublishInvalid {
+            reason: format!("fleet --jobs {jobs} is out of bounds; expected 1..={FLEET_MAX_JOBS}"),
+        });
+    }
+    Ok(jobs)
+}
+
 fn cmd_publish_fleet(
     db_path: &Path,
     inventory: Option<std::path::PathBuf>,
@@ -5047,6 +5075,7 @@ fn cmd_publish_fleet(
     dry_run: bool,
     lifecycle: String,
     fail_fast: bool,
+    jobs: usize,
     provider: Option<String>,
     format: Format,
 ) -> Result<Output, ForgeError> {
@@ -5055,13 +5084,24 @@ fn cmd_publish_fleet(
         classify, resolve_source, InventoryClassification, DEFAULT_DOMAIN,
     };
 
-    // Resolve the inventory: explicit `--inventory` first, then the
-    // legacy registry path (compatibility adapter).
-    let (snapshot, source_label) = if let Some(path) = inventory
+    let jobs = validate_fleet_jobs(jobs)?;
+    // An explicit `--fleet-registry <path>` always routes through
+    // the legacy `projects.json` compatibility adapter — never the
+    // inventory branch — so a valid `projects.json` classifies its
+    // entries instead of refusing a contract error
+    // (`fleet-live-rollout` D3). `--inventory` (flag or env) keeps
+    // precedence; the default registry path applies only when no
+    // explicit source exists at all.
+    let (snapshot, source_label) = if let Some(path) = registry_path.clone() {
+        let workspace_root = workspace_root
+            .clone()
+            .unwrap_or_else(default_workspace_root);
+        let snapshot = legacy_inventory_snapshot(&path, &workspace_root, &lifecycle)?;
+        (snapshot, format!("registry:{}", path.display()))
+    } else if let Some(path) = inventory
         .as_ref()
         .map(|p| p.to_path_buf())
         .or_else(|| resolve_source(None))
-        .or(registry_path.clone())
     {
         let snapshot = load_inventory_snapshot(&path)?;
         let label = format!("inventory:{}", path.display());
@@ -5071,8 +5111,7 @@ fn cmd_publish_fleet(
         // legacy workspace-governance registry so the seven-project
         // handoff keeps working without configuration.
         let workspace_root = workspace_root.unwrap_or_else(default_workspace_root);
-        let registry_path =
-            registry_path.unwrap_or_else(|| default_registry_path(Some(&workspace_root)));
+        let registry_path = default_registry_path(Some(&workspace_root));
         let snapshot = legacy_inventory_snapshot(&registry_path, &workspace_root, &lifecycle)?;
         (snapshot, format!("registry:{}", registry_path.display()))
     };
@@ -5119,16 +5158,6 @@ fn cmd_publish_fleet(
         });
     }
 
-    let jenkins_adapter = JenkinsAdapter::from_env();
-    let remote_adapter = RemoteComposeAdapter::from_env();
-    let adapter: &dyn forge::publish::PublishAdapter = if use_legacy_publish_adapter() {
-        &jenkins_adapter
-    } else {
-        &remote_adapter
-    };
-    let core_registry = open_registry(db_path)?;
-    let transport = SubprocessTransport::default();
-
     // One fleet run, one stable queue id. The id is part of every
     // queued/running/terminal journal row this loop writes so
     // `forge deploy status --queue <id> --watch` can poll the
@@ -5156,174 +5185,88 @@ fn cmd_publish_fleet(
     let mut success_count = 0usize;
     let mut failure_count = 0usize;
 
-    for entry in &eligible {
-        let project_id = entry.id.clone();
-        let source_path = entry
-            .source_path
-            .as_deref()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        // The provider transport needs an on-disk folder to compose.
-        // Entries declared as remote-only git sources fail closed
-        // here rather than fabricating a synthetic workdir; the
-        // classification step above already surfaced the gap so the
-        // operator can remediate.
-        if !source_path.is_dir() {
-            failure_count += 1;
-            let detail = format!(
-                "fleet publish: project `{project_id}` source `{}` is not a directory",
-                source_path.display()
-            );
-            summaries.push(serde_json::json!({
-                "project": project_id,
-                "healthy": false,
-                "error": "source_unavailable_at_invoke",
-            }));
-            if let Ok(op_id) = core_registry.record_queue_operation(
-                "publish",
-                &project_id,
-                &queue_id,
-                "failed",
-                Some(&detail),
-            ) {
-                queue_op_ids.push((project_id.clone(), op_id));
-            }
-            if fail_fast && first_failure.is_none() {
-                first_failure = Some(ForgeError::PublishInvalid { reason: detail });
-                break;
-            }
-            continue;
-        }
-
-        // Optional external `--provider` branch. Honours the same
-        // phase-evidence contract as the manual path so the journal
-        // rows are byte-equivalent regardless of provider selection.
-        if let Some(provider_id) = provider.as_deref() {
-            let outcome = cmd_publish_provider(
-                db_path,
-                None,
-                Some(&source_path),
-                Some(provider_id),
-                None,
+    // The external `--provider` branch always stays sequential: it
+    // shells through `cmd_publish_provider` (which re-opens the
+    // registry per project), so no thread owns it
+    // (`fleet-live-rollout` D1).
+    let use_parallel = provider.is_none() && jobs > 1 && !dry_run;
+    if use_parallel {
+        // Concurrent fleet publish (`fleet-live-rollout` D1, phased
+        // refinement): worker threads own phase execution
+        // (per-thread adapter + transport, both cheap to construct
+        // and holding `RefCell` state that is never shared). The
+        // main thread replays every journal row serially from the
+        // returned reports and renders all output — row shapes and
+        // queue id semantics are unchanged.
+        //
+        // Phases exist because Prepare renders *global* target
+        // state (the shared `port-registry.json`, Caddyfile and
+        // index) from whatever the target currently holds: running
+        // N Prepares concurrently is last-writer-wins on shared
+        // files and each render misses the sibling projects. So:
+        // Phase A runs Sync+Db in parallel (per-project remote
+        // dirs; Db is idempotent), Phase B runs Prepare serially in
+        // roster order so the registry converges (each render sees
+        // every prior project), Phase C runs Deploy in parallel
+        // (per-project `forge-<id>` compose projects). Per-project
+        // order Sync -> Db -> Prepare -> Deploy is preserved; with
+        // fail-fast, later phases never start a project whose
+        // earlier phase failed, and Phase B/C stop scheduling new
+        // projects after the first failure they observe.
+        let legacy_lane = use_legacy_publish_adapter();
+        let db_path_owned = db_path.to_path_buf();
+        let phase_a = move |entry: forge::publish::inventory::InventoryFleetEntry| {
+            run_fleet_entry_phases(
+                entry,
+                &db_path_owned,
+                legacy_lane,
                 dry_run,
-                Format::Json,
-            );
-            match outcome {
-                Ok(Output::Json(value)) => {
-                    let healthy = value
-                        .get("health")
-                        .and_then(|v| v.as_str())
-                        .map(|v| v == "healthy")
-                        .unwrap_or(dry_run);
-                    render_output(as_output(
-                        format,
-                        format!("publish {project_id}: provider={provider_id}"),
-                        value.clone(),
-                    ));
-                    summaries.push(serde_json::json!({
-                        "project": project_id,
-                        "provider": provider_id,
-                        "healthy": healthy,
-                        "status": value.get("status"),
-                        "build_status": value.get("build_status"),
-                        "run_status": value.get("run_status"),
-                        "container_identity": value.get("container_identity"),
-                    }));
-                    let terminal_state = if healthy { "done" } else { "failed" };
-                    let phase_revision = value.get("revision").and_then(|v| v.as_str());
-                    let build_status = value.get("build_status").and_then(|v| v.as_str());
-                    let run_status = value.get("run_status").and_then(|v| v.as_str());
-                    let container_identity = value
-                        .get("container_identity")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .or_else(|| {
-                            phase_revision.map(|rev| {
-                                forge::publish::providers::compose_project_name(&project_id, rev)
-                            })
-                        });
-                    let mut phase = PublishPhaseEvidence::new();
-                    if let Some(rev) = phase_revision {
-                        phase = phase.revision(rev);
-                    }
-                    if let Some(b) = build_status {
-                        phase = phase.build_status(b);
-                    }
-                    if let Some(r) = run_status {
-                        phase = phase.run_status(r);
-                    }
-                    if let Some(c) = container_identity.as_deref() {
-                        phase = phase.container_identity(c);
-                    }
-                    if let Ok(op_id) = core_registry.record_queue_publish_phase(
-                        &project_id,
-                        &queue_id,
-                        terminal_state,
-                        phase,
-                        Some(&format!("fleet provider={provider_id}")),
-                    ) {
-                        queue_op_ids.push((project_id.clone(), op_id));
-                    }
-                    if healthy {
-                        success_count += 1;
-                    } else {
-                        failure_count += 1;
-                        if fail_fast && first_failure.is_none() {
-                            first_failure = Some(ForgeError::PublishDeployFailed {
-                                reason: format!("fleet provider publish failed at `{project_id}`"),
-                            });
-                            break;
-                        }
-                    }
-                }
-                Ok(Output::Human(text)) => {
-                    println!("{text}");
-                    success_count += 1;
-                    if let Ok(op_id) = core_registry.record_queue_operation(
-                        "publish",
-                        &project_id,
-                        &queue_id,
-                        "done",
-                        Some(&format!("fleet provider={provider_id}")),
-                    ) {
-                        queue_op_ids.push((project_id.clone(), op_id));
-                    }
-                }
-                Err(error) => {
-                    failure_count += 1;
-                    let detail = format!("fleet provider={provider_id} failed: {error}");
-                    render_output(as_output(
-                        format,
-                        format!("publish {project_id} failed: {error}"),
-                        serde_json::json!({"project": project_id, "error": error.to_string()}),
-                    ));
-                    if let Ok(op_id) = core_registry.record_queue_operation(
-                        "publish",
-                        &project_id,
-                        &queue_id,
-                        "failed",
-                        Some(&detail),
-                    ) {
-                        queue_op_ids.push((project_id.clone(), op_id));
-                    }
-                    if fail_fast && first_failure.is_none() {
-                        first_failure = Some(error);
-                        break;
-                    }
-                }
-            }
-            continue;
+                &[PublishAction::Sync, PublishAction::Db],
+            )
+        };
+        let phase_a_outcomes = run_fleet_concurrent(&eligible, jobs, fail_fast, phase_a);
+        // Per-project accumulated state across phases.
+        struct FleetProgress {
+            reports: Vec<forge::publish::PublishReport>,
+            failed: bool,
+            fail_error: Option<ForgeError>,
+            skipped: bool,
         }
-
-        let request =
-            build_publish_request(project_id.clone(), source_path, PublishAction::All, dry_run);
-        let outcome = run_publish(&request, adapter, &transport, Some(&core_registry));
-        match outcome {
-            Ok(report) => {
-                let human = render_publish_report_human(&report);
+        let mut progress: Vec<FleetProgress> = phase_a_outcomes
+            .into_iter()
+            .map(|outcome| match outcome {
+                FleetEntryOutcome::Phased { reports, error } => FleetProgress {
+                    reports,
+                    failed: error.is_some(),
+                    fail_error: error,
+                    skipped: false,
+                },
+                FleetEntryOutcome::Failed { error, .. } => FleetProgress {
+                    reports: Vec::new(),
+                    failed: true,
+                    fail_error: Some(error),
+                    skipped: false,
+                },
+                FleetEntryOutcome::Published { .. } => FleetProgress {
+                    reports: Vec::new(),
+                    failed: true,
+                    fail_error: Some(ForgeError::PublishInvalid {
+                        reason: "internal fleet phase error: unexpected outcome unit".to_string(),
+                    }),
+                    skipped: false,
+                },
+            })
+            .collect();
+        let core_registry = open_registry(db_path)?;
+        // Replay Phase A journal rows serially (per-stage + summary
+        // rows exactly as `run_publish` writes them) and render.
+        for (entry, prog) in eligible.iter().zip(progress.iter()) {
+            for report in &prog.reports {
+                replay_publish_journal(&core_registry, report);
+                let human = render_publish_report_human(report);
                 let mut value =
-                    serde_json::to_value(&report).map_err(|err| ForgeError::PublishInvalid {
-                        reason: format!("cannot encode report for {project_id}: {err}"),
+                    serde_json::to_value(report).map_err(|err| ForgeError::PublishInvalid {
+                        reason: format!("cannot encode report for {}: {err}", entry.id),
                     })?;
                 if let Some(obj) = value.as_object_mut() {
                     obj.insert(
@@ -5337,49 +5280,262 @@ fn cmd_publish_fleet(
                         );
                     }
                 }
-                render_output(as_output(format, human.clone(), value.clone()));
-                let healthy = report.healthy;
+                render_output(as_output(format, human, value));
+            }
+        }
+        // Phase B: serial Prepare in roster order. The shared
+        // adapter/transport pair is main-thread owned, exactly like
+        // the sequential path.
+        let jenkins_adapter = JenkinsAdapter::from_env();
+        let remote_adapter = RemoteComposeAdapter::from_env();
+        let adapter: &dyn forge::publish::PublishAdapter = if legacy_lane {
+            &jenkins_adapter
+        } else {
+            &remote_adapter
+        };
+        let transport = SubprocessTransport::default();
+        let mut phase_b_stopped = false;
+        for (entry, prog) in eligible.iter().zip(progress.iter_mut()) {
+            if prog.failed || (fail_fast && phase_b_stopped) {
+                if !prog.failed {
+                    prog.skipped = true;
+                }
+                continue;
+            }
+            let source_path = entry
+                .source_path
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let request = build_publish_request(
+                entry.id.clone(),
+                source_path,
+                PublishAction::Prepare,
+                dry_run,
+            );
+            match run_publish(&request, adapter, &transport, Some(&core_registry)) {
+                Ok(report) => {
+                    let human = render_publish_report_human(&report);
+                    let mut value = serde_json::to_value(&report).map_err(|err| {
+                        ForgeError::PublishInvalid {
+                            reason: format!("cannot encode report for {}: {err}", entry.id),
+                        }
+                    })?;
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert(
+                            "contract".to_string(),
+                            serde_json::json!(PUBLISH_CONTRACT_VERSION),
+                        );
+                        if let Some(subdomain) = entry.subdomain.as_deref() {
+                            obj.insert(
+                                "inventory_subdomain".to_string(),
+                                serde_json::json!(subdomain),
+                            );
+                        }
+                    }
+                    render_output(as_output(format, human, value));
+                    if !report.healthy {
+                        prog.failed = true;
+                        prog.fail_error = Some(ForgeError::PublishDeployFailed {
+                            reason: format!("fleet prepare failed at `{}`", entry.id),
+                        });
+                        if fail_fast {
+                            phase_b_stopped = true;
+                        }
+                    }
+                    prog.reports.push(report);
+                }
+                Err(err) => {
+                    prog.failed = true;
+                    prog.fail_error = Some(err);
+                    if fail_fast {
+                        phase_b_stopped = true;
+                    }
+                }
+            }
+        }
+        // Phase C: parallel Deploy for projects whose A+B succeeded.
+        let deployable: Vec<(usize, forge::publish::inventory::InventoryFleetEntry)> = eligible
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                progress
+                    .get(entry_index(eligible.as_slice(), &entry.id))
+                    .map(|p| !p.failed && !p.skipped)
+                    .unwrap_or(false)
+            })
+            .map(|(i, e)| (i, e.clone()))
+            .collect();
+        let db_path_owned_c = db_path.to_path_buf();
+        let phase_c = move |entry: forge::publish::inventory::InventoryFleetEntry| {
+            run_fleet_entry_phases(
+                entry,
+                &db_path_owned_c,
+                legacy_lane,
+                dry_run,
+                &[PublishAction::Deploy],
+            )
+        };
+        let deploy_entries: Vec<forge::publish::inventory::InventoryFleetEntry> =
+            deployable.iter().map(|(_, e)| e.clone()).collect();
+        let phase_c_outcomes = run_fleet_concurrent(&deploy_entries, jobs, fail_fast, phase_c);
+        for ((index, _), outcome) in deployable.iter().zip(phase_c_outcomes.into_iter()) {
+            let prog = &mut progress[*index];
+            match outcome {
+                FleetEntryOutcome::Phased { reports, error } => {
+                    for report in &reports {
+                        replay_publish_journal(&core_registry, report);
+                        let human = render_publish_report_human(report);
+                        let entry = &eligible[*index];
+                        let mut value = serde_json::to_value(report).map_err(|err| {
+                            ForgeError::PublishInvalid {
+                                reason: format!("cannot encode report for {}: {err}", entry.id),
+                            }
+                        })?;
+                        if let Some(obj) = value.as_object_mut() {
+                            obj.insert(
+                                "contract".to_string(),
+                                serde_json::json!(PUBLISH_CONTRACT_VERSION),
+                            );
+                            if let Some(subdomain) = entry.subdomain.as_deref() {
+                                obj.insert(
+                                    "inventory_subdomain".to_string(),
+                                    serde_json::json!(subdomain),
+                                );
+                            }
+                        }
+                        render_output(as_output(format, human, value));
+                    }
+                    prog.reports.extend(reports);
+                    if let Some(err) = error {
+                        prog.failed = true;
+                        prog.fail_error = Some(err);
+                    }
+                }
+                FleetEntryOutcome::Failed { error, .. } => {
+                    prog.failed = true;
+                    prog.fail_error = Some(error);
+                }
+                FleetEntryOutcome::Published { .. } => {
+                    prog.failed = true;
+                    prog.fail_error = Some(ForgeError::PublishInvalid {
+                        reason: "internal fleet phase error: unexpected outcome unit".to_string(),
+                    });
+                }
+            }
+        }
+        // Fleet summary: one queue-tagged terminal row per project,
+        // serially, in roster order — identical shape to the
+        // sequential path.
+        for (entry, prog) in eligible.iter().zip(progress.iter_mut()) {
+            let project_id = entry.id.clone();
+            if prog.skipped {
+                failure_count += 1;
+                let detail = format!(
+                    "fleet publish for `{project_id}` skipped: fail-fast stopped scheduling"
+                );
                 summaries.push(serde_json::json!({
                     "project": project_id,
-                    "healthy": healthy,
-                    "subdomain": report.subdomain,
-                    "stages": report.stages.len(),
+                    "healthy": false,
+                    "error": "fail-fast-skipped",
                 }));
-                let terminal_state = if healthy { "done" } else { "failed" };
                 if let Ok(op_id) = core_registry.record_queue_operation(
                     "publish",
                     &project_id,
                     &queue_id,
-                    terminal_state,
-                    Some(&format!(
-                        "fleet stages={} healthy={}",
-                        report.stages.len(),
-                        healthy
-                    )),
+                    "failed",
+                    Some(&detail),
                 ) {
                     queue_op_ids.push((project_id.clone(), op_id));
                 }
-                if healthy {
-                    success_count += 1;
-                } else {
-                    failure_count += 1;
-                    if fail_fast && first_failure.is_none() {
-                        first_failure = Some(ForgeError::PublishDeployFailed {
+                if first_failure.is_none() {
+                    first_failure = Some(ForgeError::PublishInvalid { reason: detail });
+                }
+                continue;
+            }
+            let healthy = !prog.failed && prog.reports.iter().all(|report| report.healthy);
+            let stage_count: usize = prog.reports.iter().map(|r| r.stages.len()).sum();
+            let subdomain = prog
+                .reports
+                .iter()
+                .filter_map(|r| r.subdomain.clone())
+                .next();
+            summaries.push(serde_json::json!({
+                "project": project_id,
+                "healthy": healthy,
+                "subdomain": subdomain,
+                "stages": stage_count,
+            }));
+            let terminal_state = if healthy { "done" } else { "failed" };
+            let journal = if prog.reports.is_empty() {
+                format!(
+                    "fleet publish failed before any stage: {}",
+                    prog.fail_error
+                        .as_ref()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "unknown error".to_string())
+                )
+            } else {
+                format!("fleet stages={stage_count} healthy={healthy}")
+            };
+            if let Ok(op_id) = core_registry.record_queue_operation(
+                "publish",
+                &project_id,
+                &queue_id,
+                terminal_state,
+                Some(&journal),
+            ) {
+                queue_op_ids.push((project_id.clone(), op_id));
+            }
+            if healthy {
+                success_count += 1;
+            } else {
+                failure_count += 1;
+                if fail_fast && first_failure.is_none() {
+                    first_failure = prog.fail_error.take().or_else(|| {
+                        Some(ForgeError::PublishDeployFailed {
                             reason: format!("fleet publish failed at `{project_id}`"),
-                        });
-                        break;
-                    }
+                        })
+                    });
                 }
             }
-            Err(err) => {
+        }
+    }
+
+    if !use_parallel {
+        let jenkins_adapter = JenkinsAdapter::from_env();
+        let remote_adapter = RemoteComposeAdapter::from_env();
+        let adapter: &dyn forge::publish::PublishAdapter = if use_legacy_publish_adapter() {
+            &jenkins_adapter
+        } else {
+            &remote_adapter
+        };
+        let core_registry = open_registry(db_path)?;
+        let transport = SubprocessTransport::default();
+
+        for entry in &eligible {
+            let project_id = entry.id.clone();
+            let source_path = entry
+                .source_path
+                .as_deref()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            // The provider transport needs an on-disk folder to compose.
+            // Entries declared as remote-only git sources fail closed
+            // here rather than fabricating a synthetic workdir; the
+            // classification step above already surfaced the gap so the
+            // operator can remediate.
+            if !source_path.is_dir() {
                 failure_count += 1;
-                let detail = format!("fleet publish failed: {err}");
-                let summary = serde_json::json!({
+                let detail = format!(
+                    "fleet publish: project `{project_id}` source `{}` is not a directory",
+                    source_path.display()
+                );
+                summaries.push(serde_json::json!({
                     "project": project_id,
                     "healthy": false,
-                    "error": err.to_string(),
-                });
-                summaries.push(summary);
+                    "error": "source_unavailable_at_invoke",
+                }));
                 if let Ok(op_id) = core_registry.record_queue_operation(
                     "publish",
                     &project_id,
@@ -5390,8 +5546,216 @@ fn cmd_publish_fleet(
                     queue_op_ids.push((project_id.clone(), op_id));
                 }
                 if fail_fast && first_failure.is_none() {
-                    first_failure = Some(err);
+                    first_failure = Some(ForgeError::PublishInvalid { reason: detail });
                     break;
+                }
+                continue;
+            }
+
+            // Optional external `--provider` branch. Honours the same
+            // phase-evidence contract as the manual path so the journal
+            // rows are byte-equivalent regardless of provider selection.
+            if let Some(provider_id) = provider.as_deref() {
+                let outcome = cmd_publish_provider(
+                    db_path,
+                    None,
+                    Some(&source_path),
+                    Some(provider_id),
+                    None,
+                    dry_run,
+                    Format::Json,
+                );
+                match outcome {
+                    Ok(Output::Json(value)) => {
+                        let healthy = value
+                            .get("health")
+                            .and_then(|v| v.as_str())
+                            .map(|v| v == "healthy")
+                            .unwrap_or(dry_run);
+                        render_output(as_output(
+                            format,
+                            format!("publish {project_id}: provider={provider_id}"),
+                            value.clone(),
+                        ));
+                        summaries.push(serde_json::json!({
+                            "project": project_id,
+                            "provider": provider_id,
+                            "healthy": healthy,
+                            "status": value.get("status"),
+                            "build_status": value.get("build_status"),
+                            "run_status": value.get("run_status"),
+                            "container_identity": value.get("container_identity"),
+                        }));
+                        let terminal_state = if healthy { "done" } else { "failed" };
+                        let phase_revision = value.get("revision").and_then(|v| v.as_str());
+                        let build_status = value.get("build_status").and_then(|v| v.as_str());
+                        let run_status = value.get("run_status").and_then(|v| v.as_str());
+                        let container_identity = value
+                            .get("container_identity")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                phase_revision.map(|rev| {
+                                    forge::publish::providers::compose_project_name(
+                                        &project_id,
+                                        rev,
+                                    )
+                                })
+                            });
+                        let mut phase = PublishPhaseEvidence::new();
+                        if let Some(rev) = phase_revision {
+                            phase = phase.revision(rev);
+                        }
+                        if let Some(b) = build_status {
+                            phase = phase.build_status(b);
+                        }
+                        if let Some(r) = run_status {
+                            phase = phase.run_status(r);
+                        }
+                        if let Some(c) = container_identity.as_deref() {
+                            phase = phase.container_identity(c);
+                        }
+                        if let Ok(op_id) = core_registry.record_queue_publish_phase(
+                            &project_id,
+                            &queue_id,
+                            terminal_state,
+                            phase,
+                            Some(&format!("fleet provider={provider_id}")),
+                        ) {
+                            queue_op_ids.push((project_id.clone(), op_id));
+                        }
+                        if healthy {
+                            success_count += 1;
+                        } else {
+                            failure_count += 1;
+                            if fail_fast && first_failure.is_none() {
+                                first_failure = Some(ForgeError::PublishDeployFailed {
+                                    reason: format!(
+                                        "fleet provider publish failed at `{project_id}`"
+                                    ),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                    Ok(Output::Human(text)) => {
+                        println!("{text}");
+                        success_count += 1;
+                        if let Ok(op_id) = core_registry.record_queue_operation(
+                            "publish",
+                            &project_id,
+                            &queue_id,
+                            "done",
+                            Some(&format!("fleet provider={provider_id}")),
+                        ) {
+                            queue_op_ids.push((project_id.clone(), op_id));
+                        }
+                    }
+                    Err(error) => {
+                        failure_count += 1;
+                        let detail = format!("fleet provider={provider_id} failed: {error}");
+                        render_output(as_output(
+                            format,
+                            format!("publish {project_id} failed: {error}"),
+                            serde_json::json!({"project": project_id, "error": error.to_string()}),
+                        ));
+                        if let Ok(op_id) = core_registry.record_queue_operation(
+                            "publish",
+                            &project_id,
+                            &queue_id,
+                            "failed",
+                            Some(&detail),
+                        ) {
+                            queue_op_ids.push((project_id.clone(), op_id));
+                        }
+                        if fail_fast && first_failure.is_none() {
+                            first_failure = Some(error);
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+
+            let request =
+                build_publish_request(project_id.clone(), source_path, PublishAction::All, dry_run);
+            let outcome = run_publish(&request, adapter, &transport, Some(&core_registry));
+            match outcome {
+                Ok(report) => {
+                    let human = render_publish_report_human(&report);
+                    let mut value = serde_json::to_value(&report).map_err(|err| {
+                        ForgeError::PublishInvalid {
+                            reason: format!("cannot encode report for {project_id}: {err}"),
+                        }
+                    })?;
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert(
+                            "contract".to_string(),
+                            serde_json::json!(PUBLISH_CONTRACT_VERSION),
+                        );
+                        if let Some(subdomain) = entry.subdomain.as_deref() {
+                            obj.insert(
+                                "inventory_subdomain".to_string(),
+                                serde_json::json!(subdomain),
+                            );
+                        }
+                    }
+                    render_output(as_output(format, human.clone(), value.clone()));
+                    let healthy = report.healthy;
+                    summaries.push(serde_json::json!({
+                        "project": project_id,
+                        "healthy": healthy,
+                        "subdomain": report.subdomain,
+                        "stages": report.stages.len(),
+                    }));
+                    let terminal_state = if healthy { "done" } else { "failed" };
+                    if let Ok(op_id) = core_registry.record_queue_operation(
+                        "publish",
+                        &project_id,
+                        &queue_id,
+                        terminal_state,
+                        Some(&format!(
+                            "fleet stages={} healthy={}",
+                            report.stages.len(),
+                            healthy
+                        )),
+                    ) {
+                        queue_op_ids.push((project_id.clone(), op_id));
+                    }
+                    if healthy {
+                        success_count += 1;
+                    } else {
+                        failure_count += 1;
+                        if fail_fast && first_failure.is_none() {
+                            first_failure = Some(ForgeError::PublishDeployFailed {
+                                reason: format!("fleet publish failed at `{project_id}`"),
+                            });
+                            break;
+                        }
+                    }
+                }
+                Err(err) => {
+                    failure_count += 1;
+                    let detail = format!("fleet publish failed: {err}");
+                    let summary = serde_json::json!({
+                        "project": project_id,
+                        "healthy": false,
+                        "error": err.to_string(),
+                    });
+                    summaries.push(summary);
+                    if let Ok(op_id) = core_registry.record_queue_operation(
+                        "publish",
+                        &project_id,
+                        &queue_id,
+                        "failed",
+                        Some(&detail),
+                    ) {
+                        queue_op_ids.push((project_id.clone(), op_id));
+                    }
+                    if fail_fast && first_failure.is_none() {
+                        first_failure = Some(err);
+                        break;
+                    }
                 }
             }
         }
@@ -5432,6 +5796,13 @@ fn cmd_publish_fleet(
         snapshot.declared_count(),
     );
 
+    let summary = {
+        let mut summary = summary;
+        if let Some(fleet) = summary.get_mut("fleet").and_then(|f| f.as_object_mut()) {
+            fleet.insert("jobs".to_string(), serde_json::json!(jobs));
+        }
+        summary
+    };
     render_output(as_output(format, human, summary.clone()));
     if let Some(err) = first_failure {
         Err(err)
@@ -5443,6 +5814,374 @@ fn cmd_publish_fleet(
         })
     } else {
         Ok(Output::Human(String::new()))
+    }
+}
+
+/// One per-project fleet outcome returned by a worker thread. The
+/// worker performs the publish phases (transport + in-memory
+/// reports) but writes no journal row and prints nothing; the main
+/// thread replays every journal row serially and renders all
+/// output so concurrent runs keep identical row shapes and queue
+/// id semantics (`fleet-live-rollout` D1).
+enum FleetEntryOutcome {
+    Published {
+        human: String,
+        value: serde_json::Value,
+        healthy: bool,
+        stage_count: usize,
+        subdomain: Option<String>,
+        journal: String,
+    },
+    Failed {
+        error: ForgeError,
+        journal: Option<String>,
+    },
+    /// Phased parallel outcome: the full phase reports (carrying
+    /// every stage outcome the journal replay needs) plus the
+    /// phase-terminal error when the phase did not complete.
+    Phased {
+        reports: Vec<forge::publish::PublishReport>,
+        error: Option<ForgeError>,
+    },
+}
+
+/// Roster index of a project id. The phased fleet loop keeps worker
+/// results aligned to roster order through indices, not clones.
+fn entry_index(
+    eligible: &[forge::publish::inventory::InventoryFleetEntry],
+    project_id: &str,
+) -> usize {
+    eligible
+        .iter()
+        .position(|entry| entry.id == project_id)
+        .unwrap_or(0)
+}
+
+/// Replay the exact journal rows `run_publish` would have written
+/// for one report: one per-stage row plus the summary row. The main
+/// thread calls this serially for every worker-returned report, so
+/// parallel runs persist byte-identical row shapes to sequential
+/// runs (only timestamps differ, as between any two runs).
+fn replay_publish_journal(registry: &Registry, report: &forge::publish::PublishReport) {
+    use forge::publish::publish_journal_state;
+    for outcome in &report.stages {
+        let _ = registry.record_operation(
+            "publish",
+            &report.project_id,
+            publish_journal_state(&outcome.status),
+            &format!(
+                "publish {} via {}: {} ({}, {}ms)",
+                outcome.stage, report.adapter, outcome.note, outcome.status, outcome.elapsed_ms
+            ),
+        );
+    }
+    let verdict = if report.dry_run || report.healthy {
+        "done"
+    } else {
+        "failed"
+    };
+    let _ = registry.record_operation(
+        "publish",
+        &report.project_id,
+        verdict,
+        &format!(
+            "publish {} summary via {}: healthy={} stages={}",
+            report.action,
+            report.adapter,
+            report.healthy,
+            report.stages.len()
+        ),
+    );
+}
+
+/// Run a subset of publish phases for one eligible fleet entry on
+/// the calling thread. A fresh adapter + transport pair is built
+/// per call (adapters hold `RefCell` state: not shareable, cheap
+/// to construct) and the publish runs with `registry = None` so no
+/// row escapes the worker; the main thread replays every journal
+/// row serially from the returned reports.
+fn run_fleet_entry_phases(
+    entry: forge::publish::inventory::InventoryFleetEntry,
+    db_path: &std::path::Path,
+    legacy_lane: bool,
+    dry_run: bool,
+    phases: &[PublishAction],
+) -> FleetEntryOutcome {
+    let project_id = entry.id.clone();
+    let source_path = entry
+        .source_path
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    if !source_path.is_dir() {
+        let detail = format!(
+            "fleet publish: project `{project_id}` source `{}` is not a directory",
+            source_path.display()
+        );
+        return FleetEntryOutcome::Failed {
+            error: ForgeError::PublishInvalid {
+                reason: detail.clone(),
+            },
+            journal: Some(detail),
+        };
+    }
+    // Touch the registry once so a missing/unusable database fails
+    // closed on the worker with the same typed error the
+    // sequential path surfaces — without writing any row.
+    if let Err(err) = open_registry(db_path) {
+        return FleetEntryOutcome::Failed {
+            error: err,
+            journal: None,
+        };
+    }
+    let jenkins_adapter = JenkinsAdapter::from_env();
+    let remote_adapter = RemoteComposeAdapter::from_env();
+    let adapter: &dyn forge::publish::PublishAdapter = if legacy_lane {
+        &jenkins_adapter
+    } else {
+        &remote_adapter
+    };
+    let transport = SubprocessTransport::default();
+    let mut reports = Vec::with_capacity(phases.len());
+    for action in phases {
+        let request = build_publish_request(
+            project_id.clone(),
+            source_path.clone(),
+            action.clone(),
+            dry_run,
+        );
+        match run_publish(&request, adapter, &transport, None) {
+            Ok(report) => {
+                let healthy = report.healthy;
+                reports.push(report);
+                // Phase order is Sync -> Db -> Prepare -> Deploy: a
+                // failed phase never starts the next one for this
+                // project (same fail-closed rule the All action
+                // applies inside `run_publish`).
+                if !healthy && !dry_run {
+                    break;
+                }
+            }
+            Err(err) => {
+                return FleetEntryOutcome::Phased {
+                    reports,
+                    error: Some(err),
+                };
+            }
+        }
+    }
+    FleetEntryOutcome::Phased {
+        reports,
+        error: None,
+    }
+}
+
+/// Schedule per-project fleet units across at most `jobs` worker
+/// threads. Results return in roster order. With `fail_fast`,
+/// scheduling stops once a worker reports failure — already-running
+/// projects finish, no new projects start.
+fn run_fleet_concurrent<F>(
+    eligible: &[forge::publish::inventory::InventoryFleetEntry],
+    jobs: usize,
+    fail_fast: bool,
+    worker: F,
+) -> Vec<FleetEntryOutcome>
+where
+    F: Fn(forge::publish::inventory::InventoryFleetEntry) -> FleetEntryOutcome + Sync,
+{
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+
+    let width = jobs.max(1).min(FLEET_MAX_JOBS).min(eligible.len().max(1));
+    let stop = AtomicBool::new(false);
+    let (tx, rx) = mpsc::channel::<(usize, FleetEntryOutcome)>();
+    // Atomic index dispenser: workers claim the next roster slot.
+    let next: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..width {
+            scope.spawn(|| {
+                loop {
+                    if fail_fast && stop.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let index = next.fetch_add(1, Ordering::SeqCst);
+                    let Some(entry) = eligible.get(index) else {
+                        return;
+                    };
+                    if fail_fast && stop.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let outcome = worker(entry.clone());
+                    if fail_fast
+                        && !matches!(outcome, FleetEntryOutcome::Published { healthy: true, .. })
+                    {
+                        stop.store(true, Ordering::SeqCst);
+                    }
+                    // The main thread always drains; a send failure
+                    // means it went away, so the worker exits.
+                    if tx.send((index, outcome)).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    drop(tx);
+    let mut ordered: Vec<Option<FleetEntryOutcome>> = (0..eligible.len()).map(|_| None).collect();
+    for (index, outcome) in rx {
+        if index < ordered.len() {
+            ordered[index] = Some(outcome);
+        }
+    }
+    // Fail-fast may leave tail slots unclaimed; fill them with a
+    // typed skip so result order still matches roster order.
+    ordered
+        .into_iter()
+        .enumerate()
+        .map(|(index, slot)| {
+            slot.unwrap_or_else(|| FleetEntryOutcome::Failed {
+                error: ForgeError::PublishInvalid {
+                    reason: format!(
+                        "fleet publish for `{}` was not scheduled after an earlier fail-fast failure",
+                        eligible[index].id
+                    ),
+                },
+                journal: Some(format!(
+                    "fleet publish for `{}` skipped: fail-fast stopped scheduling",
+                    eligible[index].id
+                )),
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod fleet_jobs_tests {
+    use super::{run_fleet_concurrent, validate_fleet_jobs, FleetEntryOutcome};
+    use forge::core::ForgeError;
+
+    #[test]
+    fn jobs_flag_is_bounded() {
+        assert!(validate_fleet_jobs(1).is_ok());
+        assert!(validate_fleet_jobs(4).is_ok());
+        assert!(validate_fleet_jobs(32).is_ok());
+        assert!(validate_fleet_jobs(0).is_err());
+        assert!(validate_fleet_jobs(33).is_err());
+        assert!(validate_fleet_jobs(usize::MAX).is_err());
+    }
+
+    #[test]
+    fn concurrent_scheduler_preserves_roster_order() {
+        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..8)
+            .map(|i| forge::publish::inventory::InventoryFleetEntry {
+                id: format!("proj-{i:02}"),
+                runtime: forge::publish::inventory::RuntimeClass::Web,
+                profile: String::new(),
+                revision: "0".repeat(40),
+                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
+                compose_file: Some("docker-compose.yml".to_string()),
+                source_path: None,
+                public_http: false,
+                public_port: None,
+                subdomain: None,
+                reason: None,
+            })
+            .collect();
+        let outcomes =
+            run_fleet_concurrent(&entries, 4, false, |entry| FleetEntryOutcome::Published {
+                human: entry.id.clone(),
+                value: serde_json::json!({}),
+                healthy: true,
+                stage_count: 4,
+                subdomain: None,
+                journal: String::new(),
+            });
+        let ids: Vec<String> = outcomes
+            .iter()
+            .map(|o| match o {
+                FleetEntryOutcome::Published { human, .. } => human.clone(),
+                FleetEntryOutcome::Failed { .. } => "failed".to_string(),
+                FleetEntryOutcome::Phased { .. } => "phased".to_string(),
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            (0..8).map(|i| format!("proj-{i:02}")).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn phased_outcomes_preserve_roster_order() {
+        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..5)
+            .map(|i| forge::publish::inventory::InventoryFleetEntry {
+                id: format!("proj-{i:02}"),
+                runtime: forge::publish::inventory::RuntimeClass::Web,
+                profile: String::new(),
+                revision: "0".repeat(40),
+                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
+                compose_file: Some("docker-compose.yml".to_string()),
+                source_path: None,
+                public_http: false,
+                public_port: None,
+                subdomain: None,
+                reason: None,
+            })
+            .collect();
+        let outcomes =
+            run_fleet_concurrent(&entries, 3, false, |_entry| FleetEntryOutcome::Phased {
+                reports: Vec::new(),
+                error: None,
+            });
+        assert_eq!(outcomes.len(), 5);
+        assert!(outcomes.iter().all(|o| matches!(
+            o,
+            FleetEntryOutcome::Phased {
+                reports: _,
+                error: None
+            }
+        )));
+    }
+
+    #[test]
+    fn concurrent_scheduler_stops_scheduling_on_fail_fast() {
+        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..6)
+            .map(|i| forge::publish::inventory::InventoryFleetEntry {
+                id: format!("proj-{i:02}"),
+                runtime: forge::publish::inventory::RuntimeClass::Web,
+                profile: String::new(),
+                revision: "0".repeat(40),
+                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
+                compose_file: Some("docker-compose.yml".to_string()),
+                source_path: None,
+                public_http: false,
+                public_port: None,
+                subdomain: None,
+                reason: None,
+            })
+            .collect();
+        let outcomes = run_fleet_concurrent(&entries, 1, true, |entry| {
+            if entry.id == "proj-00" {
+                FleetEntryOutcome::Failed {
+                    error: ForgeError::PublishInvalid {
+                        reason: "boom".to_string(),
+                    },
+                    journal: None,
+                }
+            } else {
+                FleetEntryOutcome::Published {
+                    human: entry.id.clone(),
+                    value: serde_json::json!({}),
+                    healthy: true,
+                    stage_count: 4,
+                    subdomain: None,
+                    journal: String::new(),
+                }
+            }
+        });
+        assert!(matches!(outcomes[0], FleetEntryOutcome::Failed { .. }));
+        // Tail slots were never scheduled: the scheduler fills them
+        // with a typed skip rather than running them.
+        assert!(matches!(outcomes[1], FleetEntryOutcome::Failed { .. }));
     }
 }
 

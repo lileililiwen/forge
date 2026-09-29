@@ -50,8 +50,8 @@ use serde_json::Value;
 
 use super::{
     Classification, CommandResult, CommandSpec, PublishAction, PublishAdapter, PublishRequest,
-    SshTransport, StagePlan, PUBLISH_DEPLOY_TIMEOUT, STAGE_DB, STAGE_DEPLOY, STAGE_PREPARE,
-    STAGE_SYNC,
+    SshTransport, StagePlan, PUBLISH_DEPLOY_TIMEOUT, PUBLISH_SYNC_TIMEOUT, STAGE_DB, STAGE_DEPLOY,
+    STAGE_PREPARE, STAGE_SYNC,
 };
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
@@ -546,6 +546,9 @@ impl RemoteComposeAdapter {
             exclusions.push("--exclude".to_string());
             exclusions.push(exclusion.to_string());
         }
+        // Source syncs carry the sync ceiling: multi-GB trees
+        // under parallel-fleet contention routinely exceed the
+        // interactive 60s transport default (`fleet-live-rollout`).
         let rsync = CommandSpec::new("rsync", "project source sync")
             .with_args(["-az", "--human-readable"])
             .with_args(exclusions)
@@ -554,7 +557,8 @@ impl RemoteComposeAdapter {
                 "ssh".to_string(),
                 local.clone(),
                 format!("{}:{remote_dir}/", self.config.ssh_target),
-            ]);
+            ])
+            .with_timeout(PUBLISH_SYNC_TIMEOUT);
         Ok(StagePlan {
             stage: STAGE_SYNC.to_string(),
             commands: vec![mkdir, rsync],
@@ -1459,7 +1463,7 @@ mod tests {
 
     #[test]
     fn deploy_build_commands_carry_the_long_timeout() {
-        use crate::publish::PUBLISH_DEPLOY_TIMEOUT;
+        use crate::publish::{PUBLISH_DEPLOY_TIMEOUT, PUBLISH_SYNC_TIMEOUT};
         let dir = local_project();
         let adapter = adapter();
         let transport = RecordingTransport::new();
@@ -1475,8 +1479,18 @@ mod tests {
         // The timeout is transport metadata only: it never renders
         // into the dry-run plan an operator reviews.
         assert!(!deploy.render().contains("1800"));
+        // Sync-stage rsync carries the sync ceiling so multi-GB
+        // trees under parallel-fleet contention do not fail closed
+        // at the 60s transport default (`fleet-live-rollout`); the
+        // mkdir probe keeps the default.
         let sync = adapter.plan(&req, PublishAction::Sync).unwrap();
-        assert!(sync.commands.iter().all(|cmd| cmd.timeout.is_none()));
+        let rsync = sync
+            .commands
+            .iter()
+            .find(|cmd| cmd.program == "rsync")
+            .expect("sync rsync command");
+        assert_eq!(rsync.timeout, Some(PUBLISH_SYNC_TIMEOUT));
+        assert!(!sync.render().contains("600"));
     }
 
     #[test]

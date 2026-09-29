@@ -84,6 +84,14 @@ pub const PUBLISH_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(60);
 /// refusing to hang forever.
 pub const PUBLISH_DEPLOY_TIMEOUT: Duration = Duration::from_secs(1800);
 
+/// Subprocess timeout for the sync stage (`rsync` of the source
+/// tree). Multi-GB trees under parallel-fleet contention routinely
+/// exceed the interactive 60s bound; the 600s ceiling keeps genuine
+/// stalls failing closed at a documented bound while fast probes
+/// keep the 60s default and deploy builds keep the 1800s ceiling
+/// (`fleet-live-rollout`).
+pub const PUBLISH_SYNC_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// Stable stage names. The transport renders these labels verbatim.
 pub const STAGE_SYNC: &str = "sync";
 pub const STAGE_DB: &str = "db";

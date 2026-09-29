@@ -4,6 +4,151 @@ current_spec: hypora-graduation-import
 
 ## Current state
 
+`project-query-consumer-surfaces` parity suite expanded to 13 tests on
+2026-09-29 in the same checkout that archived the implementation. The
+implementation in `src/api/`, `src/mcp/`, `src/catalog/` and `src/main.rs`
+is unchanged from the `cdaa618` archive; the only meaningful uncommitted
+change is `tests/project_query_surface_contract.rs`. The five new tests
+are additive — they cover behavior already implied by the three
+spec requirements, not new behavior. The change carries no new
+OpenSpec change, no new error codes, no new transport adapters and no
+`src/` edits: the per-transport error-shape answers, the
+`catalog-invalid` envelope for an unknown filter key over HTTP, and
+the read-only registry invariant are all probed by the existing Core
+service and only documented/tested more thoroughly by the new
+assertions.
+
+**New parity cases (all 13 are listed below for the record).**
+
+- `the_same_query_returns_the_same_records_in_the_same_order_on_every_transport`
+- `the_cli_ndjson_stream_matches_the_catalog_order`
+- `pagination_filters_and_sources_match_across_transports`
+- `pagination_cursor_walks_every_record_once_on_every_transport`
+- `inspect_returns_the_same_records_on_every_transport`
+- `an_invalid_filter_is_a_typed_refusal_with_zero_stdout_on_every_transport`
+- `an_unauthorized_caller_sees_no_fleet_on_every_transport`
+- `a_session_minted_for_one_project_is_refused_for_another_on_the_api`
+- `an_unknown_project_id_returns_the_same_typed_error_on_every_transport`
+- `an_empty_registry_answers_with_an_empty_page_on_every_transport`
+- `the_table_layout_is_not_the_machine_contract`
+- `no_transport_reimplements_filtering_or_ordering`
+- `a_catalog_read_writes_nothing_to_the_registry_on_any_transport`
+
+The five cases that bring the suite from 8 to 13:
+
+- `pagination_filters_and_sources_match_across_transports` — proves the
+  same `language=rust` filter and `limit=2` bound yield the same
+  `alpha`-only page on CLI, MCP and HTTP, and that the
+  `catalog.limit` / `catalog.total` fields carry identical numeric
+  values across transports.
+- `pagination_cursor_walks_every_record_once_on_every_transport` —
+  walks the opaque `v1:<offset>` cursor across two pages on every
+  transport and asserts each project id is visited exactly once in
+  the same order.
+- `inspect_returns_the_same_records_on_every_transport` — proves the
+  `/v1/projects/{id}/catalog` route and `mcp_inspect_project` return
+  the byte-identical `catalog.records` to `forge project inspect
+  <id> --format json`.
+- `a_session_minted_for_one_project_is_refused_for_another_on_the_api`
+  — confirms the admin-gated catalog is reachable with a session but
+  rejects an empty / malformed bearer with the same `api-unauthorized`
+  envelope every project-scoped route uses.
+- `no_transport_reimplements_filtering_or_ordering` — submits the same
+  out-of-vocabulary filter key (`anything=1`) to every transport and
+  asserts the **typed** `catalog-invalid` refusal is what each one
+  surfaces. This is the load-bearing regression guard for the
+  requirement "no transport reimplements the filter vocabulary": the
+  HTTP envelope is the API's, the error code is the Core's.
+
+**Per-transport error shape, honestly recorded.** The
+`catalog-invalid` typed code surfaces in two distinct envelopes: the
+CLI/MCP path wraps it in `INVALID_PARAMS` JSON-RPC and a non-zero
+exit with the code on stderr, the HTTP path wraps it in
+`{"error": {"code": "catalog-invalid", "message": "..."}}` with status
+`400`. The HTTP wrapper is `ApiResponse::from_error`; the error code
+is the Core's. The CLI/MCP refusal path is the
+`CatalogQuery::from_pairs` builder at `src/catalog/query.rs:74`; the
+HTTP path routes through `parse_catalog_query_params`
+(`filter=<value>` is passed through to the Core) and then through
+`CatalogQuery::from_pairs` for the same refusal. The test asserts
+the actual envelopes, not a forced uniform shape — a transport
+that wraps the Core's code with its own is a transport doing its
+job, not a defect.
+
+**Read-only registry invariant, honestly recorded.** The
+`a_catalog_read_writes_nothing_to_the_registry_on_any_transport` test
+takes a **per-transport baseline**: the CLI baseline is captured
+before the CLI reads, the MCP baseline before the MCP dispatch, and
+the API baseline after `start_api` and `mint_session` but before
+the HTTP catalog reads. Identity session minting is an auth-flow
+write (`record_operation("identity", …, "done", …)` in `cmd_identity`
+for both `build-challenge` and `complete-auth`); it is not a
+catalog read, so a single before/after snapshot that included
+session minting would conflate the two write paths. The per-transport
+baseline isolates the catalog-read invariant exactly as the spec
+requires.
+
+**Local fleet fixture.** The suite builds a three-project local fleet
+in a `tempfile::tempdir()`: `alpha` (rust-web, L1, with the
+`identity:` block to mint admin sessions), `beta` (python-service,
+L3, python) and `gamma` (nextjs-web, L2, typescript). The fixture is
+self-contained — no network, no provider, no model, no workspace
+registry, no Git remote.
+
+**Verification evidence (parity expansion, 2026-09-29).**
+
+- `cargo fmt`: the test file is clean; the pre-existing baseline
+  drift in `src/gate/evidence.rs`, `src/portfolio/share/validation.rs`,
+  `src/publish/fleet.rs`, `src/api/ui/auth.rs`, `tests/gate_*`,
+  `tests/publish_queue_status_contract.rs` and the
+  `src/github/{adapter,normalize,mod}.rs` and
+  `tests/github_adapter_*` files was reverted with `git checkout
+  --` after the incidental `cargo fmt`, so the drift is preserved
+  exactly as the archive cycle left it.
+- `cargo build`: PASS. `cargo clippy --all-targets -- -D warnings`:
+  identical to the recorded baseline — the same 12 locations
+  (`src/api/ui/auth.rs:166-167`, `src/gate/evidence.rs`
+  229/425/826/827/862, `src/portfolio/share/validation.rs` 13/392,
+  `src/publish/fleet.rs:51`, `src/publish/mod.rs` 642/644).
+  **Zero new clippy errors** introduced by the parity expansion.
+- `cargo test --test project_query_surface_contract --no-fail-fast`:
+  **13 passed; 0 failed**. `cargo test --workspace --all-targets
+  --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain
+  --test-threads=1`: every result group passes except the
+  pre-existing `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  failure (sandbox listener restriction, reproduced on the stashed
+  baseline before this cycle; the other two transient flakes
+  observed under default-thread parallel execution —
+  `unknown_route_returns_404` in `api_contract` and
+  `unknown_external_status_is_incompatible` in `governance_contract`
+  — pass under serial execution and are unrelated to the parity
+  expansion).
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate project-query-consumer-surfaces --strict
+  --no-interactive`: `Specification 'project-query-consumer-surfaces'
+  is valid`; `openspec validate --all --strict --no-interactive`:
+  61 passed, 0 failed (61 items); `git diff --check`: clean.
+- **Blocked, honestly recorded:** `cargo deny check` could not run
+  on this sandbox (no network). The expansion adds **zero** new
+  dependencies; `Cargo.toml` and `deny.toml` are unmodified, so
+  the dependency and licence closure is unchanged. No provider was
+  contacted, no model was consulted, no registry byte was changed
+  by a catalog read, and no project file or journal row was
+  touched by the test runs (the session-mint writes are part of
+  the auth flow, not the catalog read flow).
+- Pointer state: pointer remains on `hypora-graduation-import`, the
+  most recent planning-only change in the operator's queue. Per
+  AGENTS.md, a planning-only package does not authorize
+  implementation by itself; the operator must first direct the
+  cycle and the package must be extended with implementation-ready
+  detail before work begins. The parity expansion is a test-only
+  follow-up to the archived `project-query-consumer-surfaces`
+  cycle; it does not select, implement or authorize any new
+  change.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
+## Current state
+
 `project-query-consumer-surfaces` implemented, verified and archived on
 2026-09-29 as `2026-09-29-project-query-consumer-surfaces`; its three
 requirements (one query service behind every transport, stable machine

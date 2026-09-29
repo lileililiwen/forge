@@ -1,7 +1,8 @@
 # Design: project-catalog-query-contract
 
-Status: implementation-ready planning package. No code is written by this
-change; it defines the contract the following packages consume.
+Status: implemented. The contract described here is delivered in
+`src/catalog/` (`record.rs`, `query.rs`, `source.rs`, `mod.rs`) and the
+`forge project list|inspect|tags|languages` CLI.
 
 ## Implementation boundary
 

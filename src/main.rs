@@ -20,6 +20,11 @@ use forge::analytics::{
 use forge::api::{
     serve as api_serve, ApiConfig, ShutdownSignal, API_CONTRACT_VERSION, API_SYNTHETIC_PROJECT,
 };
+use forge::catalog::{
+    self, CatalogQuery, CatalogRequest, CatalogSourceSelection, CATALOG_CONTRACT_VERSION,
+    DEFAULT_LIMIT as CATALOG_DEFAULT_LIMIT,
+    DEFAULT_MAX_AGE_SECONDS as CATALOG_DEFAULT_MAX_AGE_SECONDS,
+};
 use forge::checker::{self, PROTOCOL_MAX_ALERTS};
 use forge::component::{
     component_catalog, inspect_component, record_qualification,
@@ -137,10 +142,19 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
+    /// Human-facing text.
     Human,
+    /// The same human-facing layout, named explicitly by the project
+    /// catalog so `forge project list --format table` reads as a layout
+    /// choice rather than a machine contract.
+    Table,
+    /// The versioned JSON document.
     Json,
+    /// Newline-delimited JSON: one catalog record per line on the
+    /// project query surface, one document line elsewhere.
+    Ndjson,
 }
 
 #[derive(Debug, Parser)]
@@ -449,6 +463,12 @@ enum Commands {
     Fleet {
         #[command(subcommand)]
         command: FleetCommands,
+    },
+    /// Query the normalized read-only project catalog
+    /// (`forge-project-catalog/0.1.0`).
+    Project {
+        #[command(subcommand)]
+        command: ProjectCommands,
     },
     /// Execute the project's declared shared gate runtime and journal revision-bound evidence.
     Gate {
@@ -1746,6 +1766,90 @@ enum FleetCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum ProjectCommands {
+    /// List the normalized project catalog with provenance.
+    List {
+        #[command(flatten)]
+        filters: CatalogFilterArgs,
+    },
+    /// Inspect every catalog record for one project id (all sources).
+    Inspect {
+        /// Project id to inspect.
+        project: String,
+        #[command(flatten)]
+        filters: CatalogFilterArgs,
+    },
+    /// List distinct tags across the filtered catalog with counts.
+    Tags {
+        #[command(flatten)]
+        filters: CatalogFilterArgs,
+    },
+    /// List distinct languages across the filtered catalog with counts.
+    Languages {
+        #[command(flatten)]
+        filters: CatalogFilterArgs,
+    },
+}
+
+/// Shared source selection and filter flags for the catalog commands.
+#[derive(Debug, Clone, clap::Args)]
+struct CatalogFilterArgs {
+    /// Source to read (repeatable): local, git, workspace-registry,
+    /// inventory or github. Defaults to `local`; only declared sources are
+    /// read and no parent directory is ever scanned.
+    #[arg(long = "source", value_name = "KIND")]
+    sources: Vec<String>,
+    /// Tag predicate (repeatable; values are OR within the predicate).
+    #[arg(long = "tag", value_name = "TAG")]
+    tags: Vec<String>,
+    /// Language predicate (repeatable).
+    #[arg(long = "language", value_name = "LANGUAGE")]
+    languages: Vec<String>,
+    /// Profile predicate (repeatable).
+    #[arg(long = "profile", value_name = "PROFILE")]
+    profiles: Vec<String>,
+    /// Lifecycle predicate (repeatable).
+    #[arg(long = "lifecycle", value_name = "LIFECYCLE")]
+    lifecycles: Vec<String>,
+    /// Repository substring predicate (repeatable).
+    #[arg(long = "repository", value_name = "REPO")]
+    repositories: Vec<String>,
+    /// CI-state predicate (repeatable).
+    #[arg(long = "ci", value_name = "STATE")]
+    ci: Vec<String>,
+    /// Compose-state predicate (repeatable).
+    #[arg(long = "compose", value_name = "STATE")]
+    compose: Vec<String>,
+    /// Evidence-state predicate (repeatable).
+    #[arg(long = "evidence", value_name = "STATE")]
+    evidence: Vec<String>,
+    /// Generic `key=value` filter; an unknown key is a `catalog-invalid`
+    /// refusal before any source is contacted.
+    #[arg(long = "filter", value_name = "KEY=VALUE")]
+    filters: Vec<String>,
+    /// Explicit Git working tree for `--source git` (repeatable).
+    #[arg(long = "git-repository", value_name = "PATH")]
+    git_repositories: Vec<PathBuf>,
+    /// Workspace registry document for `--source workspace-registry`
+    /// (defaults to $FORGE_WORKSPACE_REGISTRY).
+    #[arg(long = "workspace-registry", value_name = "PATH")]
+    workspace_registry: Option<PathBuf>,
+    /// Portable inventory source for `--source inventory`
+    /// (defaults to $FORGE_INVENTORY_SOURCE).
+    #[arg(long = "inventory", value_name = "PATH")]
+    inventory: Option<PathBuf>,
+    /// Read-time staleness window in seconds (1..=31536000; default 86400).
+    #[arg(long = "max-age", value_name = "SECONDS", default_value_t = CATALOG_DEFAULT_MAX_AGE_SECONDS)]
+    max_age: i64,
+    /// Maximum records per page (1..=1000; default 50).
+    #[arg(long = "limit", value_name = "N", default_value_t = CATALOG_DEFAULT_LIMIT)]
+    limit: usize,
+    /// Opaque cursor returned by a previous page.
+    #[arg(long = "cursor", value_name = "CURSOR")]
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
 enum ContractCommands {
     /// List every versioned surface and its platform mapping.
     List,
@@ -2082,6 +2186,7 @@ fn main() -> ExitCode {
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
+        Commands::Project { command } => cmd_project(&db_path, command, cli.format),
         Commands::Contract { command } => cmd_contract(&db_path, command, cli.format),
         Commands::Inventory { command } => cmd_inventory(command, cli.format),
         Commands::Standard { command } => cmd_standard(command, cli.format),
@@ -2099,7 +2204,17 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Output::Json(value)) => {
-            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+            // NDJSON is one document per line; every other JSON format
+            // is the indented document.
+            if cli.format == Format::Ndjson {
+                println!("{}", serde_json::to_string(&value).unwrap());
+            } else {
+                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Output::Raw(text)) => {
+            print!("{text}");
             ExitCode::SUCCESS
         }
         Err(err) => {
@@ -2112,6 +2227,8 @@ fn main() -> ExitCode {
 enum Output {
     Human(String),
     Json(serde_json::Value),
+    /// Already-serialized machine output (NDJSON): printed verbatim.
+    Raw(String),
 }
 
 fn open_registry(db_path: &Path) -> Result<Registry, ForgeError> {
@@ -2120,8 +2237,8 @@ fn open_registry(db_path: &Path) -> Result<Registry, ForgeError> {
 
 fn as_output(format: Format, human: String, json: serde_json::Value) -> Output {
     match format {
-        Format::Human => Output::Human(human),
-        Format::Json => Output::Json(json),
+        Format::Human | Format::Table => Output::Human(human),
+        Format::Json | Format::Ndjson => Output::Json(json),
     }
 }
 
@@ -2761,6 +2878,7 @@ fn cmd_upgrade_fleet(
         Output::Json(value) => {
             println!("{}", serde_json::to_string_pretty(&value).unwrap());
         }
+        Output::Raw(text) => print!("{text}"),
     }
     if report.healthy() {
         ExitCode::SUCCESS
@@ -3035,8 +3153,8 @@ fn spec_apply_output(outcome: &RoutingOutcome, format: Format) -> Result<Output,
 
 fn fleet_output(report: &FleetReport, format: Format) -> Output {
     match format {
-        Format::Human => Output::Human(render_fleet_human(report)),
-        Format::Json => Output::Json(serde_json::json!({"fleet": report})),
+        Format::Human | Format::Table => Output::Human(render_fleet_human(report)),
+        Format::Json | Format::Ndjson => Output::Json(serde_json::json!({"fleet": report})),
     }
 }
 
@@ -3184,8 +3302,8 @@ fn render_record_human(p: &ProjectRecord) -> String {
 
 fn render_error(err: &ForgeError, format: Format) {
     match format {
-        Format::Human => eprintln!("error[{}]: {}", err.code(), err),
-        Format::Json => {
+        Format::Human | Format::Table => eprintln!("error[{}]: {}", err.code(), err),
+        Format::Json | Format::Ndjson => {
             let value = serde_json::json!({
                 "error": {"code": err.code(), "message": err.to_string()}
             });
@@ -3791,6 +3909,7 @@ fn cmd_mirror(
             Output::Json(value) => {
                 println!("{}", serde_json::to_string_pretty(value).unwrap());
             }
+            Output::Raw(text) => print!("{text}"),
         }
         Err(ForgeError::DistributionInvalid {
             reason: report.note.clone(),
@@ -3866,6 +3985,7 @@ fn cmd_docs_translate(
             Output::Json(value) => {
                 println!("{}", serde_json::to_string_pretty(value).unwrap());
             }
+            Output::Raw(text) => print!("{text}"),
         }
         Err(ForgeError::TranslationFailed {
             reason: report.note.clone(),
@@ -4016,6 +4136,7 @@ fn cmd_release_apply(
             Output::Json(value) => {
                 println!("{}", serde_json::to_string_pretty(value).unwrap());
             }
+            Output::Raw(text) => print!("{text}"),
         }
         Err(ForgeError::ReleaseCheckFailed {
             reason: report.note.clone(),
@@ -4495,6 +4616,7 @@ fn cmd_deploy_apply(
             Output::Json(value) => {
                 println!("{}", serde_json::to_string_pretty(value).unwrap());
             }
+            Output::Raw(text) => print!("{text}"),
         }
         Err(ForgeError::DeployHealthFailed {
             reason: report.note.clone(),
@@ -4539,6 +4661,7 @@ fn cmd_deploy_observe(
             Output::Json(value) => {
                 println!("{}", serde_json::to_string_pretty(value).unwrap());
             }
+            Output::Raw(text) => print!("{text}"),
         }
         Err(ForgeError::DeployHealthFailed {
             reason: report.note.clone(),
@@ -5673,7 +5796,7 @@ fn cmd_publish_fleet(
                             }
                         }
                     }
-                    Ok(Output::Human(text)) => {
+                    Ok(Output::Human(text)) | Ok(Output::Raw(text)) => {
                         println!("{text}");
                         success_count += 1;
                         if let Ok(op_id) = core_registry.record_queue_operation(
@@ -9170,6 +9293,7 @@ fn cmd_portfolio_activation(
                     Output::Json(value) => {
                         println!("{}", serde_json::to_string_pretty(value).unwrap());
                     }
+                    Output::Raw(text) => print!("{text}"),
                 }
                 return Err(ForgeError::PortfolioActivationNotReady {
                     reason: format!(
@@ -9419,8 +9543,9 @@ fn cmd_readiness_check(profiles: &[String], format: Format) -> Result<Output, Fo
             println!(
                 "{}",
                 match format {
-                    Format::Human => human,
+                    Format::Human | Format::Table => human,
                     Format::Json => serde_json::to_string_pretty(&json).unwrap(),
+                    Format::Ndjson => serde_json::to_string(&json).unwrap(),
                 }
             );
             Err(err)
@@ -9744,6 +9869,195 @@ fn cmd_fleet(
     }
 }
 
+fn cmd_project(
+    db_path: &Path,
+    command: &ProjectCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let args = match command {
+        ProjectCommands::List { filters }
+        | ProjectCommands::Inspect { filters, .. }
+        | ProjectCommands::Tags { filters }
+        | ProjectCommands::Languages { filters } => filters,
+    };
+    catalog::validate_max_age(args.max_age)?;
+    let selection = catalog_selection(args)?;
+    let bundle = catalog::collect(&CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: args.max_age,
+        now: chrono::Utc::now(),
+    });
+    let pairs = catalog_filter_pairs(args);
+    let query = CatalogQuery::from_pairs(&pairs, args.limit, args.cursor.clone())?.normalize();
+    match command {
+        ProjectCommands::List { .. } => {
+            let mut page = catalog::apply(&bundle.records, &query, &bundle.observed_at)?;
+            page.sources = bundle.statuses.clone();
+            catalog_page_output(page, format)
+        }
+        ProjectCommands::Inspect { project, .. } => {
+            let records = catalog::inspect_records(&bundle, project)?;
+            catalog_records_output(project, &records, format)
+        }
+        ProjectCommands::Tags { .. } => {
+            let filtered = catalog::filter(&bundle.records, &query);
+            let counts = catalog::tag_counts(&filtered);
+            catalog_counts_output("tags", &counts, format)
+        }
+        ProjectCommands::Languages { .. } => {
+            let filtered = catalog::filter(&bundle.records, &query);
+            let counts = catalog::language_counts(&filtered);
+            catalog_counts_output("languages", &counts, format)
+        }
+    }
+}
+
+/// Build the source selection from the flags, defaulting to the local
+/// registry. Only declared sources are read.
+fn catalog_selection(args: &CatalogFilterArgs) -> Result<CatalogSourceSelection, ForgeError> {
+    let mut kinds: Vec<forge::catalog::SourceKind> = Vec::new();
+    if args.sources.is_empty() {
+        kinds.push(forge::catalog::SourceKind::Local);
+    } else {
+        for raw in &args.sources {
+            let kind = forge::catalog::SourceKind::parse(raw).ok_or_else(|| {
+                catalog::catalog_invalid(format!(
+                    "unknown --source `{raw}`; expected one of \
+                     local|git|workspace-registry|inventory|github"
+                ))
+            })?;
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+    }
+    let workspace_registry = args
+        .workspace_registry
+        .clone()
+        .or_else(|| fleet::resolve_registry_path(None));
+    let inventory = args
+        .inventory
+        .clone()
+        .or_else(|| forge::publish::inventory::resolve_source(None));
+    Ok(CatalogSourceSelection {
+        kinds,
+        git_repositories: args.git_repositories.clone(),
+        workspace_registry,
+        inventory,
+    })
+}
+
+/// Flatten the typed filters plus `key=value` filters into one ordered
+/// pair list. `CatalogQuery::from_pairs` refuses an unknown key.
+fn catalog_filter_pairs(args: &CatalogFilterArgs) -> Vec<String> {
+    let mut pairs = Vec::new();
+    for value in &args.tags {
+        pairs.push(format!("tag={value}"));
+    }
+    for value in &args.languages {
+        pairs.push(format!("language={value}"));
+    }
+    for value in &args.profiles {
+        pairs.push(format!("profile={value}"));
+    }
+    for value in &args.lifecycles {
+        pairs.push(format!("lifecycle={value}"));
+    }
+    for value in &args.repositories {
+        pairs.push(format!("repository={value}"));
+    }
+    for value in &args.ci {
+        pairs.push(format!("ci={value}"));
+    }
+    for value in &args.compose {
+        pairs.push(format!("compose={value}"));
+    }
+    for value in &args.evidence {
+        pairs.push(format!("evidence={value}"));
+    }
+    pairs.extend(args.filters.iter().cloned());
+    pairs
+}
+
+fn catalog_page_output(
+    page: forge::catalog::CatalogPage,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match format {
+        Format::Human | Format::Table => Ok(Output::Human(catalog::render_page_human(&page))),
+        Format::Json => Ok(Output::Json(serde_json::json!({"catalog": page}))),
+        Format::Ndjson => Ok(Output::Raw(catalog_ndjson(&page.records)?)),
+    }
+}
+
+fn catalog_records_output(
+    project: &str,
+    records: &[forge::catalog::CatalogRecord],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match format {
+        Format::Human | Format::Table => Ok(Output::Human(catalog::render_records_human(
+            "inspect", records,
+        ))),
+        Format::Json => Ok(Output::Json(serde_json::json!({
+            "catalog": {
+                "contract": CATALOG_CONTRACT_VERSION,
+                "project_id": project,
+                "records": records,
+            }
+        }))),
+        Format::Ndjson => Ok(Output::Raw(catalog_ndjson(records)?)),
+    }
+}
+
+fn catalog_counts_output(
+    title: &str,
+    counts: &[forge::catalog::CatalogValueCount],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match format {
+        Format::Human | Format::Table => {
+            Ok(Output::Human(catalog::render_counts_human(title, counts)))
+        }
+        Format::Json => {
+            let mut catalog = serde_json::Map::new();
+            catalog.insert(
+                "contract".to_string(),
+                serde_json::json!(CATALOG_CONTRACT_VERSION),
+            );
+            catalog.insert(
+                title.to_string(),
+                serde_json::to_value(counts).map_err(|err| {
+                    catalog::catalog_invalid(format!("cannot serialize {title}: {err}"))
+                })?,
+            );
+            Ok(Output::Json(serde_json::json!({ "catalog": catalog })))
+        }
+        Format::Ndjson => {
+            let mut out = String::new();
+            for entry in counts {
+                out.push_str(&serde_json::to_string(entry).map_err(|err| {
+                    catalog::catalog_invalid(format!("cannot serialize {title}: {err}"))
+                })?);
+                out.push('\n');
+            }
+            Ok(Output::Raw(out))
+        }
+    }
+}
+
+fn catalog_ndjson(records: &[forge::catalog::CatalogRecord]) -> Result<String, ForgeError> {
+    let mut out = String::new();
+    for record in records {
+        out.push_str(&serde_json::to_string(record).map_err(|err| {
+            catalog::catalog_invalid(format!("cannot serialize catalog record: {err}"))
+        })?);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
 fn cmd_provider_matrix(db_path: &Path, live: bool, format: Format) -> Result<Output, ForgeError> {
     // The matrix is project-agnostic: it invents no project and the
     // journal row carries the synthetic id.
@@ -9897,7 +10211,7 @@ fn cmd_api_serve(
         "synthetic_project": API_SYNTHETIC_PROJECT,
         "registry": db_path.display().to_string(),
     });
-    if matches!(format, Format::Json) {
+    if matches!(format, Format::Json | Format::Ndjson) {
         println!("{}", serde_json::to_string_pretty(&json).unwrap());
     } else {
         println!("{human}");
@@ -9909,8 +10223,8 @@ fn cmd_api_serve(
         "accepted": accepted,
     });
     match format {
-        Format::Human => Ok(Output::Human(summary)),
-        Format::Json => Ok(Output::Json(summary_json)),
+        Format::Human | Format::Table => Ok(Output::Human(summary)),
+        Format::Json | Format::Ndjson => Ok(Output::Json(summary_json)),
     }
 }
 
@@ -10171,6 +10485,7 @@ fn render_output(output: Output) {
     match output {
         Output::Human(text) => println!("{text}"),
         Output::Json(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Output::Raw(text) => print!("{text}"),
     }
 }
 
@@ -11285,6 +11600,7 @@ fn cmd_fleet_online(
             Output::Json(value) => {
                 println!("{}", serde_json::to_string_pretty(value).unwrap());
             }
+            Output::Raw(text) => print!("{text}"),
         }
         return Err(ForgeError::PublishDeployFailed {
             reason: format!(

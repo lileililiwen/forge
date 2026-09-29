@@ -7,6 +7,7 @@
 pub mod agent;
 pub mod analytics;
 pub mod api;
+pub mod catalog;
 pub mod checker;
 pub mod component;
 pub mod contract;

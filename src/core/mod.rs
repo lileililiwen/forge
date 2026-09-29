@@ -318,6 +318,9 @@ pub enum ForgeError {
 
     #[error("standard invalid: {reason}; no standard snapshot files were changed")]
     StandardInvalid { reason: String },
+
+    #[error("catalog invalid: {reason}; no catalog state was changed")]
+    CatalogInvalid { reason: String },
 }
 
 impl ForgeError {
@@ -425,6 +428,7 @@ impl ForgeError {
             ForgeError::GateEvidenceUnavailable { .. } => "gate-evidence-unavailable",
             ForgeError::ContractInvalid { .. } => "contract-invalid",
             ForgeError::StandardInvalid { .. } => "standard-invalid",
+            ForgeError::CatalogInvalid { .. } => "catalog-invalid",
         }
     }
 

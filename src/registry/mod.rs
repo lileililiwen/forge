@@ -455,6 +455,25 @@ impl Registry {
         Ok(registry)
     }
 
+    /// Open an **existing** registry strictly read-only: no directory is
+    /// created, no schema is applied, no migration runs and no journal
+    /// row is reconciled. Read-only projections (the project catalog)
+    /// use this so a query can never write a registry byte, table or
+    /// journal row. A missing file is a typed error the caller reports
+    /// as an unavailable or empty source rather than silently creating
+    /// one.
+    pub fn open_read_only(path: &Path) -> Result<Self, ForgeError> {
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|err| ForgeError::Registry {
+            reason: format!("cannot open registry read-only {}: {err}", path.display()),
+        })?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        Ok(Registry { conn })
+    }
+
     /// Mark every leftover `pending` entry as `failed`. Returns how many
     /// were reconciled.
     pub fn reconcile_journal(&mut self) -> Result<usize, ForgeError> {

@@ -77,10 +77,36 @@ Live analytics aggregate evidence for the interest store is likewise a provider-
 ## Operating rule
 
 All 29 baseline and audit changes plus the sibling-integration packages
-(orders 30 through 39) are archived and promoted to their canonical
-specs; `openspec list` reports no remaining active changes. [HANDOFF.md](HANDOFF.md)
-carries no `current_spec` pointer. A new implementation cycle starts
-with exactly one eligible change, sets the single `current_spec`
-pointer, and follows implement-one-change → local verify/Gate → strict
-validate → archive, committing only related work, updating and
-committing handoff, then stopping without pushing.
+(orders 30 through 39) are archived and promoted to their canonical specs.
+The current active queue is reported by `openspec list`; `HANDOFF.md` retains
+the existing `current_spec` pointer. Planning artifacts do not change that
+implementation pointer. A new implementation cycle selects exactly one
+eligible change and follows implement-one-change → local verify/Gate → strict
+validate → archive, committing only related work, updating and committing
+handoff, then stopping without pushing.
+
+## Proposed idea-to-production workflow changes
+
+These are planning artifacts added after the existing active queue was
+discovered. Implement one dependency-ready change at a time and reconcile
+`HANDOFF.md` before selecting it.
+
+1. `github-cli-project-workflows` — use the developer's existing `gh` session
+   for explicit local repository operations; no separate GitHub login.
+2. `site-studio-preview-refinement` — create a reviewed site spec, scaffold the
+   existing `react-web` profile, run a bounded local preview, and refine via the
+   controlled agent adapter.
+3. `project-to-production-workflow` — stage, health-check, and explicitly
+   promote a project through OpenPanel; retry Hermora enrollment separately
+   without redeploying.
+4. `hypora-graduation-import` — validate a local `platform.idea-graduation`
+   snapshot, preview its brief/evidence, and require confirmation before
+   creating Forge project state. Depends on the shared contract and Hypora's
+   producer change.
+
+Dependencies: Studio consumes existing Intent/generation/agent behavior;
+repository operations are independent; production workflow depends on
+`github-cli-project-workflows`, OpenPanel's `forge-publish-provider`, and
+Hermora's `published-site-onboarding`. The OpenPanel change remains OpenPanel-
+owned. Idea graduation follows `platform-contracts` → Hypora export → Forge
+import and remains independent of production publishing until user action.

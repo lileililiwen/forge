@@ -1,6 +1,140 @@
-current_spec: project-semantic-description-review
+current_spec: project-query-consumer-surfaces
 
 # Forge handoff
+
+## Current state
+
+`project-semantic-description-review` implemented, verified and archived on
+2026-09-29 as `2026-09-29-project-semantic-description-review`; its three
+requirements (traceable semantic proposals, human approval before any
+write, conflicting or unavailable interpretation is explicit) were
+promoted into
+[openspec/specs/project-semantic-description-review/spec.md](openspec/specs/project-semantic-description-review/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS, Section-3
+BFS and Section-4 verification task in the proposal.
+
+**Domain** (`src/semantic/`). Contract
+`forge-semantic-proposal/0.1.0`. `ProposalKind`
+(`description|domain|portfolio-tags|profile|lifecycle`), `ProposalState`
+(`suggested|approved|rejected|superseded|conflicted`), `Confidence`
+(`low|medium|high`) and `Provider` (`operator|local`) are closed
+`serde(rename_all = "kebab-case")` enums; `parse_kind`,
+`parse_confidence` and `parse_provider` refuse every label outside the
+closed set so a model cannot be implicitly cited as the source of
+truth. `ProposalEvidence` is bounded to 4096-char paths and 2000-char
+revisions/excerpts; `looks_like_credential` refuses well-known token
+shapes (`ghp_`, `gho_`, `AKIA`, `xoxb-`, `xoxp-`, `-----BEGIN `) at
+the parser, and every string field passes `policy::redact_credentials`
+on the way out. The `Proposal` record is the on-disk manifest and the
+in-memory copy is a strict mirror so a re-load is byte-equivalent.
+
+**Operations** (`src/semantic/review.rs`).
+`suggest` only stores `Suggested` proposals. Same inputs collapse to
+`Existing` (no files rewritten); a fresh evidence revision supersedes
+the prior open proposal of the same kind; conflicting evidence for the
+same revision is recorded as a `Conflicted` proposal with each source
+retained on `ProposalConflict`. `approve` and `reject` require an
+explicit `--confirm` and refuse a stale proposal with
+`semantic-conflict`; `decide` only transitions out of `Suggested`.
+`read` and `list` are read-only. `provider_available` short-circuits
+to `unavailable` so an offline provider never produces a placeholder
+proposal.
+
+**Persistence, honestly recorded.** No registry schema was added and
+no migration runs. The proposal lives under
+`.forge/semantic/<project_id>/<kind>-<hash>/` with a `manifest.json`
+and a `proposal.md`; the package writes no `operations` row and opens
+no registry connection, so a suggest/list/show/approve/reject is a
+read-only path against the project. The stable `<kind>-<hash>` id is
+derived from the kind, the suggested value, the evidence paths and
+their revisions; two calls that share inputs collapse to one open
+proposal, two calls that differ refuse to merge.
+
+**CLI** (`src/main.rs`). `forge describe suggest|list|show|approve|reject
+<project>` and `forge classify suggest|list|show|approve|reject
+<project>`. The same evidence/revision pair is the
+`forge describe suggest …` shape the contract expects; the
+`--confirm` flag is the explicit operator authority gate. Two
+additive error codes: `semantic-invalid` (400-class refusal) and
+`semantic-conflict` (409-class refusal for stale/conflicted).
+
+## Verification evidence (project-semantic-description-review, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/semantic/{mod,proposal,review}.rs`, `src/core/mod.rs`,
+  `src/lib.rs`, `src/main.rs`,
+  `tests/semantic_review_{contract,cross_surface}.rs`).
+  The pre-existing baseline drift in `src/gate/evidence.rs`,
+  `src/github/{adapter,normalize,mod}.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/{fleet,mod}.rs`,
+  `src/api/ui/auth.rs`, `tests/{gate,github_adapter,publish_queue_status}_*`
+  is preserved exactly as the prior cycles left it (no incidental
+  reformat).
+- `cargo build`: PASS. `cargo clippy --all-targets -- -D warnings`:
+  identical to the recorded baseline — the same 5 lib errors and 9
+  lib-test errors in `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`,
+  `src/publish/mod.rs`, `src/api/ui/auth.rs`. **Zero new clippy
+  errors** introduced by the semantic package.
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: 26 unit
+  tests under `cargo test --lib -- semantic` PASS, 17
+  `tests/semantic_review_contract.rs` PASS, 5
+  `tests/semantic_review_cross_surface.rs` PASS. The one
+  pre-existing failure `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  fails on the stashed baseline too (sandbox listener restriction,
+  unrelated to this change).
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+  `openspec validate project-semantic-description-review --strict
+  --no-interactive`: `Change 'project-semantic-description-review' is
+  valid`. `openspec validate --all --strict --no-interactive`: 61
+  passed, 0 failed (61 items) pre- and post-archive with the
+  promoted `project-semantic-description-review` spec (+3
+  requirements). `git diff --check` and `git diff --cached --check`:
+  PASS.
+- Live binary smoke (CLI): `forge describe suggest` writes
+  `.forge/semantic/<project>/description-<hash>/{manifest.json,proposal.md}`
+  and reports `semantic generated: description-<hash>`; a second
+  suggest with the same inputs reports `existing` and the manifest
+  mtime is unchanged; a fresh revision reports `superseded`; a
+  conflicting value at the same revision reports `conflicted` with
+  the prior `first_value` retained; `forge describe show` round-trips
+  the manifest; `forge describe approve <id> --confirm` moves the
+  state to `approved` and the project `forge.yaml` is byte-identical;
+  `forge describe approve` without `--confirm` is refused with
+  `error[semantic-invalid]: approve requires explicit --confirm`;
+  `--suggested-value ghp_…` is refused at the parser with
+  `error[semantic-invalid]: suggested_value carries a credential
+  shape; refusal is closed, not silenced` and the value never
+  reaches stdout or stderr; `--provider gpt-4` is refused with
+  `error[semantic-invalid]: unknown semantic provider`; the
+  `classify` subcommand accepts `--kind domain` through
+  `forge classify suggest`; the JSON surface is byte-equivalent to
+  the human table for the same input.
+- **Blocked, honestly recorded:** no model or external provider was
+  contacted. The closed `Operator`/`Local` provider set is the only
+  set the surface accepts; the cross-surface test
+  `no_provider_subprocess_is_spawned_and_no_network_is_touched`
+  asserts that the closed set runs locally and the closed set never
+  spawns a subprocess. The package adds **zero** new dependencies;
+  `Cargo.toml` and `deny.toml` are unmodified. `cargo deny check`
+  could not run on this sandbox (no network) but the dependency
+  closure is unchanged.
+- Pointer state: `project-semantic-description-review` archived
+  (`12/12` tasks evidenced, `4/4` artifacts complete). `openspec
+  list` now shows the next eligible change,
+  `project-query-consumer-surfaces` (transport-only consumer of the
+  catalog contract), plus `fleet-live-rollout` (still blocked on
+  Mac Docker engine recovery) and four planning-only packages
+  (`github-cli-project-workflows`, `site-studio-preview-refinement`,
+  `project-to-production-workflow`, `hypora-graduation-import`).
+  The pointer advances to **`project-query-consumer-surfaces`**, the
+  next change whose declared prerequisite (`project-catalog-query-contract`)
+  is archived and whose oracle (CLI/MCP/HTTP cross-surface parity
+  tests) is locally verifiable.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+  No model, no provider, no remote write, no registry row and no
+  project file was changed by this change.
 
 ## Current state
 

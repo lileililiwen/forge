@@ -175,14 +175,37 @@ pub fn tool_registry() -> Vec<McpToolDescriptor> {
     vec![
         McpToolDescriptor::read_only(
             "list_projects",
-            "List registered projects from the local registry.",
-            schema_object(&[("registry_path", string_type())], &[]),
+            "List catalog records from the local registry and the selected sources.",
+            schema_object(
+                &[
+                    ("registry_path", string_type()),
+                    ("sources", array_of_strings()),
+                    ("tags", array_of_strings()),
+                    ("languages", array_of_strings()),
+                    ("profiles", array_of_strings()),
+                    ("lifecycles", array_of_strings()),
+                    ("repositories", array_of_strings()),
+                    ("ci", array_of_strings()),
+                    ("compose", array_of_strings()),
+                    ("evidence", array_of_strings()),
+                    ("filters", array_of_strings()),
+                    ("limit", "integer"),
+                    ("cursor", string_type()),
+                    ("max_age", "integer"),
+                ],
+                &[],
+            ),
         ),
         McpToolDescriptor::read_only(
             "inspect_project",
-            "Inspect a registered project by id or path.",
+            "Inspect every catalog record for a project id across the selected sources.",
             schema_object(
-                &[("registry_path", string_type()), ("target", string_type())],
+                &[
+                    ("registry_path", string_type()),
+                    ("target", string_type()),
+                    ("sources", array_of_strings()),
+                    ("max_age", "integer"),
+                ],
                 &["target"],
             ),
         ),
@@ -564,18 +587,8 @@ fn dispatch_read_only(
     args: &Map<String, Value>,
 ) -> Result<Value, McpRpcError> {
     match name {
-        "list_projects" => {
-            let registry = open_registry(db_path)?;
-            Ok(serde_json::json!({"projects": registry.list().map_err(core_error)?}))
-        }
-        "inspect_project" => {
-            let target = required_string(args, "target")?;
-            let registry = open_registry(db_path)?;
-            let record = registry.inspect(&target).map_err(core_error)?;
-            let value =
-                serde_json::to_value(&record).map_err(|err| internal_error(err.to_string()))?;
-            Ok(serde_json::json!({"project": value}))
-        }
+        "list_projects" => mcp_list_projects(db_path, args),
+        "inspect_project" => mcp_inspect_project(db_path, args),
         "list_profiles" => Ok(serde_json::json!({"profiles": crate::profile::list_profiles()})),
         "inspect_profile" => {
             let id = required_string(args, "id")?;
@@ -664,6 +677,166 @@ fn dispatch_external_write(
 }
 
 // ---- mutating tool implementations --------------------------------
+
+/// `list_projects` — thin adapter over the shared Core catalog
+/// service (`src/catalog/`). The tool accepts the same
+/// filter/source/pagination parameters the CLI exposes, builds a
+/// `CatalogQuery`, and serialises the resulting `CatalogPage` as
+/// the `content` field of one MCP tool result. Filtering, ordering
+/// and pagination live in Core; this handler adds no rule of its
+/// own.
+fn mcp_list_projects(db_path: &Path, args: &Map<String, Value>) -> Result<Value, McpRpcError> {
+    use crate::catalog;
+    let selection = build_catalog_selection_from_mcp(args)?;
+    let max_age = optional_i64(args, "max_age").unwrap_or(catalog::DEFAULT_MAX_AGE_SECONDS);
+    catalog::validate_max_age(max_age).map_err(core_error)?;
+    let limit = optional_usize(args, "limit").unwrap_or(catalog::DEFAULT_LIMIT);
+    let cursor = optional_string(args, "cursor");
+    let pairs = catalog_filter_pairs_from_mcp(args);
+    let query = catalog::CatalogQuery::from_pairs(&pairs, limit, cursor)
+        .map_err(core_error)?
+        .normalize();
+    let bundle = catalog::collect(&catalog::CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: max_age,
+        now: chrono::Utc::now(),
+    });
+    let mut page =
+        catalog::apply(&bundle.records, &query, &bundle.observed_at).map_err(core_error)?;
+    page.sources = bundle.statuses.clone();
+    let value = serde_json::to_value(&page).map_err(|err| internal_error(err.to_string()))?;
+    Ok(serde_json::json!({ "catalog": value }))
+}
+
+/// `inspect_project` — thin adapter over the Core catalog service
+/// that returns every catalog record for the requested project id
+/// across the selected sources. The transport adds no rule; the
+/// record order and set are the Core's.
+fn mcp_inspect_project(db_path: &Path, args: &Map<String, Value>) -> Result<Value, McpRpcError> {
+    use crate::catalog;
+    let target = required_string(args, "target")?;
+    crate::core::validate_project_id(&target).map_err(|reason| {
+        McpRpcError::new(
+            rpc_code::TOOL_REFUSED,
+            format!("invalid project id `{target}`: {reason}"),
+        )
+        .with_data(serde_json::json!({
+            "code": "project-id-invalid",
+            "message": format!("invalid project id: {reason}"),
+        }))
+    })?;
+    let selection = build_catalog_selection_from_mcp(args)?;
+    let max_age = optional_i64(args, "max_age").unwrap_or(catalog::DEFAULT_MAX_AGE_SECONDS);
+    catalog::validate_max_age(max_age).map_err(core_error)?;
+    let bundle = catalog::collect(&catalog::CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: max_age,
+        now: chrono::Utc::now(),
+    });
+    let records = catalog::inspect_records(&bundle, &target).map_err(core_error)?;
+    let page = serde_json::json!({
+        "contract": catalog::CATALOG_CONTRACT_VERSION,
+        "project_id": target,
+        "records": records,
+    });
+    Ok(serde_json::json!({ "catalog": page }))
+}
+
+fn build_catalog_selection_from_mcp(
+    args: &Map<String, Value>,
+) -> Result<crate::catalog::CatalogSourceSelection, McpRpcError> {
+    use crate::catalog;
+    let mut kinds: Vec<catalog::SourceKind> = Vec::new();
+    let sources = match args.get("sources") {
+        Some(value) => string_array_value("sources", value).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    if sources.is_empty() {
+        kinds.push(catalog::SourceKind::Local);
+    } else {
+        for raw in &sources {
+            let kind = catalog::SourceKind::parse(raw).ok_or_else(|| {
+                McpRpcError::new(
+                    rpc_code::INVALID_PARAMS,
+                    format!(
+                        "unknown source `{raw}`; expected one of \
+                         local|git|workspace-registry|inventory|github"
+                    ),
+                )
+            })?;
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+    }
+    let workspace_registry = args
+        .get("workspace_registry")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| crate::fleet::resolve_registry_path(None));
+    let inventory = args
+        .get("inventory")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| crate::publish::inventory::resolve_source(None));
+    let git_repositories = match args.get("git_repositories") {
+        Some(value) => string_array_value("git_repositories", value)
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        None => Vec::new(),
+    };
+    let github_repositories = match args.get("github_repositories") {
+        Some(value) => string_array_value("github_repositories", value).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    Ok(catalog::CatalogSourceSelection {
+        kinds,
+        git_repositories,
+        workspace_registry,
+        inventory,
+        github_repositories,
+    })
+}
+
+fn catalog_filter_pairs_from_mcp(args: &Map<String, Value>) -> Vec<String> {
+    let mut pairs: Vec<String> = Vec::new();
+    for (field, key) in [
+        ("tags", "tag"),
+        ("languages", "language"),
+        ("profiles", "profile"),
+        ("lifecycles", "lifecycle"),
+        ("repositories", "repository"),
+        ("ci", "ci"),
+        ("compose", "compose"),
+        ("evidence", "evidence"),
+    ] {
+        if let Some(value) = args.get(field) {
+            for value in string_array_value(field, value).unwrap_or_default() {
+                pairs.push(format!("{key}={value}"));
+            }
+        }
+    }
+    if let Some(value) = args.get("filters") {
+        pairs.extend(string_array_value("filters", value).unwrap_or_default());
+    }
+    pairs
+}
+
+fn optional_i64(args: &Map<String, Value>, field: &str) -> Option<i64> {
+    args.get(field).and_then(Value::as_i64)
+}
+
+fn optional_usize(args: &Map<String, Value>, field: &str) -> Option<usize> {
+    args.get(field)
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+}
 
 fn mcp_create_project(db_path: &Path, args: &Map<String, Value>) -> Result<Value, McpRpcError> {
     let path = required_string(args, "path")?;
@@ -1298,6 +1471,7 @@ fn core_error(err: ForgeError) -> McpRpcError {
         "path-unavailable" | "manifest-not-found" | "manifest-invalid" | "spec-invalid" => {
             rpc_code::INVALID_PARAMS
         }
+        "catalog-invalid" => rpc_code::INVALID_PARAMS,
         "push-confirm-required" => rpc_code::TOOL_REFUSED,
         other if other.starts_with("agent-") => rpc_code::TOOL_REFUSED,
         _ => rpc_code::INTERNAL_ERROR,
@@ -1789,7 +1963,12 @@ mod tests {
         let db = dir.path().join("registry.db");
         let req = request("list_projects", Value::from(1), serde_json::json!({}));
         let value = dispatch(Some(&db), &req).expect("dispatch");
-        assert_eq!(value, serde_json::json!({"projects": []}));
+        // The tool is a thin adapter over the shared Core catalog
+        // service, so the result envelope is `{"catalog": <page>}`
+        // with an empty record list and a single local source.
+        assert_eq!(value["catalog"]["total"], serde_json::json!(0));
+        assert_eq!(value["catalog"]["records"], serde_json::json!([]));
+        assert_eq!(value["catalog"]["limit"], serde_json::json!(50));
     }
 
     #[test]
@@ -1815,8 +1994,9 @@ mod tests {
         let list = request("list_projects", Value::from(1), serde_json::json!({}));
         let in_a = dispatch(Some(&db_a), &list).expect("list A");
         let in_b = dispatch(Some(&db_b), &list).expect("list B");
-        assert_eq!(in_a["projects"].as_array().unwrap().len(), 1);
-        assert_eq!(in_b, serde_json::json!({"projects": []}));
+        assert_eq!(in_a["catalog"]["total"], serde_json::json!(1));
+        assert_eq!(in_a["catalog"]["records"][0]["project_id"], "isolated-a");
+        assert_eq!(in_b["catalog"]["total"], serde_json::json!(0));
     }
 
     #[test]
@@ -1932,10 +2112,13 @@ mod tests {
             serde_json::json!({"target": "r1-equiv"}),
         );
         let value = dispatch(Some(&db), &req).expect("dispatch");
-        let project = &value["project"];
-        assert_eq!(project["id"], "r1-equiv");
-        assert_eq!(project["profile"], "rust-web");
-        assert_eq!(project["maturity"], "L1");
+        // The tool is a thin adapter over the shared Core catalog
+        // service, so the result envelope is `{"catalog": {"records": […]}}`
+        // keyed by the project id.
+        let records = value["catalog"]["records"].as_array().expect("records");
+        let record = records.first().expect("at least one catalog record");
+        assert_eq!(record["project_id"], "r1-equiv");
+        assert_eq!(record["profile"], "rust-web");
     }
 
     #[test]

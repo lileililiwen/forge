@@ -84,6 +84,7 @@ use crate::agent::{
     apply_transition as apply_agent_transition, new_session, read_session, AgentProvider,
     SessionTransition,
 };
+use crate::catalog;
 use crate::core::ForgeError;
 use crate::deploy::DeployRequest;
 use crate::doctor::{parse_target_level, run_doctor, RegistryObservation};
@@ -315,7 +316,8 @@ fn err_status(err: &ForgeError) -> u16 {
         | "portfolio-share-invalid"
         | "portfolio-interest-invalid"
         | "deploy-invalid"
-        | "release-invalid" => 400,
+        | "release-invalid"
+        | "catalog-invalid" => 400,
         _ => 500,
     }
 }
@@ -441,6 +443,14 @@ pub enum Route {
     /// aggregate evidence justifies the product-owned activation
     /// follow-up. Admin-gated; always answers `200`.
     InterestReadiness,
+    /// `GET /v1/projects/catalog` — read-only catalog query over the
+    /// shared Core service. `GET /v1/projects/{id}/catalog` is the
+    /// same route with a project id, returning every catalog record
+    /// for that id across the selected sources. The transports
+    /// stay thin: filtering, ordering and pagination live in Core.
+    CatalogQuery {
+        id: Option<String>,
+    },
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -452,6 +462,11 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
         ("POST", ["v1", "projects"]) => Some(Route::CreateProject),
+        // `catalog` is a reserved path segment, not a project id, so
+        // this arm must precede the generic `["v1", "projects", id]`
+        // inspect match below. The same applies to the per-id
+        // catalog inspect at the end of the table.
+        ("GET", ["v1", "projects", "catalog"]) => Some(Route::CatalogQuery { id: None }),
         ("GET", ["v1", "projects", id]) => Some(Route::InspectProject {
             id: (*id).to_string(),
         }),
@@ -534,6 +549,9 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("GET", ["v1", "interest", "trend"]) => Some(Route::InterestTrend),
         ("GET", ["v1", "interest", "audit"]) => Some(Route::InterestAudit),
         ("GET", ["v1", "interest", "readiness"]) => Some(Route::InterestReadiness),
+        ("GET", ["v1", "projects", id, "catalog"]) => Some(Route::CatalogQuery {
+            id: Some((*id).to_string()),
+        }),
         _ => None,
     }
 }
@@ -622,6 +640,10 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::InterestTrend
         | Route::InterestAudit
         | Route::InterestReadiness => Some("admin:access"),
+        // Catalog query is a read-only fleet projection; same
+        // authorization posture as `Route::ListProjects` and the
+        // project detail page (any session, no extra permission).
+        | Route::CatalogQuery { .. } => None,
     }
 }
 
@@ -754,6 +776,7 @@ pub fn handle(
         Route::InterestTrend => handle_interest_trend(db_path, request, now),
         Route::InterestAudit => handle_interest_audit(db_path, request),
         Route::InterestReadiness => handle_interest_readiness(db_path, request, now),
+        Route::CatalogQuery { id } => handle_catalog_query(db_path, request, id.as_deref(), now),
     }
 }
 
@@ -853,6 +876,7 @@ fn authorize(
         }
         Route::ListProjects
         | Route::CreateProject
+        | Route::CatalogQuery { .. }
         | Route::SharePreview
         | Route::ShareApprove
         | Route::SharePublish
@@ -1273,6 +1297,76 @@ fn handle_inspect_project(db_path: &Path, id: &str) -> ApiResponse {
             }),
         ),
         Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/projects/catalog` and `GET /v1/projects/{id}/catalog`.
+///
+/// Read-only projection over the shared Core catalog service
+/// (`src/catalog/`). The handler parses query-string parameters,
+/// builds a `CatalogQuery`, and delegates to `catalog::collect` +
+/// `catalog::apply` (list) or `catalog::inspect_records` (inspect).
+/// No filtering, ordering or pagination rule lives in the
+/// transport: the same inputs produce the same `CatalogPage` bytes
+/// the CLI and MCP surfaces serialize.
+fn handle_catalog_query(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: Option<&str>,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let params = match parse_catalog_query_params(request.query.as_deref()) {
+        Ok(params) => params,
+        Err(response) => return response,
+    };
+    let selection = match build_catalog_selection(&params) {
+        Ok(selection) => selection,
+        Err(response) => return response,
+    };
+    if let Err(err) = catalog::validate_max_age(params.max_age) {
+        return ApiResponse::from_error(&err);
+    }
+    let pairs = catalog_filter_pairs_from(&params);
+    let query = match catalog::CatalogQuery::from_pairs(&pairs, params.limit, params.cursor.clone())
+    {
+        Ok(query) => query.normalize(),
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let bundle = catalog::collect(&catalog::CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: params.max_age,
+        now,
+    });
+    match id {
+        Some(project_id) => match catalog::inspect_records(&bundle, project_id) {
+            Ok(records) => ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "catalog": {
+                        "contract": catalog::CATALOG_CONTRACT_VERSION,
+                        "project_id": project_id,
+                        "records": records,
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            ),
+            Err(err) => ApiResponse::from_error(&err),
+        },
+        None => {
+            let mut page = match catalog::apply(&bundle.records, &query, &bundle.observed_at) {
+                Ok(page) => page,
+                Err(err) => return ApiResponse::from_error(&err),
+            };
+            page.sources = bundle.statuses.clone();
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "catalog": page,
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            )
+        }
     }
 }
 
@@ -2788,6 +2882,195 @@ fn parse_interest_limit(query: &str) -> Result<usize, String> {
 
 /// Decode the `%XX` escapes a query string may carry.
 ///
+/// Parsed query parameters for `GET /v1/projects/catalog` and
+/// `GET /v1/projects/{id}/catalog`. Every field is the typed
+/// counterpart of a catalog CLI flag; the handler builds the
+/// `CatalogQuery` from these without re-parsing the wire format
+/// itself.
+#[derive(Debug, Clone)]
+struct CatalogQueryParams {
+    sources: Vec<String>,
+    tags: Vec<String>,
+    languages: Vec<String>,
+    profiles: Vec<String>,
+    lifecycles: Vec<String>,
+    repositories: Vec<String>,
+    ci: Vec<String>,
+    compose: Vec<String>,
+    evidence: Vec<String>,
+    filters: Vec<String>,
+    limit: usize,
+    cursor: Option<String>,
+    max_age: i64,
+    workspace_registry: Option<PathBuf>,
+    inventory: Option<PathBuf>,
+    git_repositories: Vec<PathBuf>,
+    github_repositories: Vec<String>,
+}
+
+impl Default for CatalogQueryParams {
+    fn default() -> Self {
+        Self {
+            sources: Vec::new(),
+            tags: Vec::new(),
+            languages: Vec::new(),
+            profiles: Vec::new(),
+            lifecycles: Vec::new(),
+            repositories: Vec::new(),
+            ci: Vec::new(),
+            compose: Vec::new(),
+            evidence: Vec::new(),
+            filters: Vec::new(),
+            limit: catalog::DEFAULT_LIMIT,
+            cursor: None,
+            max_age: catalog::DEFAULT_MAX_AGE_SECONDS,
+            workspace_registry: None,
+            inventory: None,
+            git_repositories: Vec::new(),
+            github_repositories: Vec::new(),
+        }
+    }
+}
+
+/// Parse the query string of a `/v1/projects/catalog` request into a
+/// [`CatalogQueryParams`]. Unknown keys are a typed `api-invalid`
+/// refusal — the same shape the interest routes use — so a typo
+/// never silently disables a filter.
+fn parse_catalog_query_params(raw: Option<&str>) -> Result<CatalogQueryParams, ApiResponse> {
+    let mut params = CatalogQueryParams::default();
+    let query = raw.unwrap_or_default();
+    for pair in query.split('&').filter(|part| !part.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value);
+        match key.trim() {
+            "source" => params.sources.push(value),
+            "tag" => params.tags.push(value),
+            "language" => params.languages.push(value),
+            "profile" => params.profiles.push(value),
+            "lifecycle" => params.lifecycles.push(value),
+            "repository" | "repo" => params.repositories.push(value),
+            "ci" => params.ci.push(value),
+            "compose" => params.compose.push(value),
+            "evidence" => params.evidence.push(value),
+            "filter" => params.filters.push(value),
+            "limit" => match value.trim().parse::<usize>() {
+                Ok(parsed) => params.limit = parsed,
+                Err(_) => {
+                    return Err(bad_request("limit must be a positive integer"));
+                }
+            },
+            "cursor" => {
+                if !value.trim().is_empty() {
+                    params.cursor = Some(value);
+                }
+            }
+            "max-age" | "max_age" => match value.trim().parse::<i64>() {
+                Ok(parsed) => params.max_age = parsed,
+                Err(_) => return Err(bad_request("max-age must be an integer")),
+            },
+            "workspace-registry" | "workspace_registry" => {
+                if !value.trim().is_empty() {
+                    params.workspace_registry = Some(PathBuf::from(value));
+                }
+            }
+            "inventory" => {
+                if !value.trim().is_empty() {
+                    params.inventory = Some(PathBuf::from(value));
+                }
+            }
+            "git-repository" | "git_repository" => {
+                if !value.trim().is_empty() {
+                    params.git_repositories.push(PathBuf::from(value));
+                }
+            }
+            "github-repository" | "github_repository" => {
+                if !value.trim().is_empty() {
+                    params.github_repositories.push(value);
+                }
+            }
+            other => {
+                return Err(bad_request(&format!(
+                    "unknown catalog query parameter `{other}`"
+                )));
+            }
+        }
+    }
+    Ok(params)
+}
+
+/// Build a `CatalogSourceSelection` from the request params.
+/// Unknown source kinds are a typed `api-invalid` refusal so the
+/// transport surfaces a 400 rather than a silent no-op.
+fn build_catalog_selection(
+    params: &CatalogQueryParams,
+) -> Result<catalog::CatalogSourceSelection, ApiResponse> {
+    let mut kinds: Vec<catalog::SourceKind> = Vec::new();
+    if params.sources.is_empty() {
+        kinds.push(catalog::SourceKind::Local);
+    } else {
+        for raw in &params.sources {
+            let kind = catalog::SourceKind::parse(raw).ok_or_else(|| {
+                bad_request(&format!(
+                    "unknown --source `{raw}`; expected one of \
+                     local|git|workspace-registry|inventory|github"
+                ))
+            })?;
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+    }
+    let workspace_registry = params
+        .workspace_registry
+        .clone()
+        .or_else(|| crate::fleet::resolve_registry_path(None));
+    let inventory = params
+        .inventory
+        .clone()
+        .or_else(|| crate::publish::inventory::resolve_source(None));
+    Ok(catalog::CatalogSourceSelection {
+        kinds,
+        git_repositories: params.git_repositories.clone(),
+        workspace_registry,
+        inventory,
+        github_repositories: params.github_repositories.clone(),
+    })
+}
+
+/// Flatten the typed filters plus the generic `key=value` filters
+/// into one ordered pair list. `CatalogQuery::from_pairs` refuses
+/// an unknown key, so the surface contract — the same wire form
+/// the CLI uses — stays the only place filter keys are named.
+fn catalog_filter_pairs_from(params: &CatalogQueryParams) -> Vec<String> {
+    let mut pairs: Vec<String> = Vec::new();
+    for value in &params.tags {
+        pairs.push(format!("tag={value}"));
+    }
+    for value in &params.languages {
+        pairs.push(format!("language={value}"));
+    }
+    for value in &params.profiles {
+        pairs.push(format!("profile={value}"));
+    }
+    for value in &params.lifecycles {
+        pairs.push(format!("lifecycle={value}"));
+    }
+    for value in &params.repositories {
+        pairs.push(format!("repository={value}"));
+    }
+    for value in &params.ci {
+        pairs.push(format!("ci={value}"));
+    }
+    for value in &params.compose {
+        pairs.push(format!("compose={value}"));
+    }
+    for value in &params.evidence {
+        pairs.push(format!("evidence={value}"));
+    }
+    pairs.extend(params.filters.iter().cloned());
+    pairs
+}
+
 /// The interest routes take a comma-separated project list, so a
 /// caller whose ids ever need escaping could not otherwise express
 /// them. Only the three characters that actually change a query's

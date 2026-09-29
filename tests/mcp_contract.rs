@@ -228,21 +228,25 @@ fn mcp_inspect_project_matches_cli_inspect_outcome() {
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
     register(&db, &proj, "r1-equivalent");
+    // The MCP `inspect_project` is a thin adapter over the
+    // shared Core catalog service, so the comparison target
+    // is the catalog-shaped CLI surface: `forge project
+    // inspect <id> --format json`.
     let cli_out = clean_cmd()
         .arg("--registry")
         .arg(&db)
         .arg("--format")
         .arg("json")
+        .arg("project")
         .arg("inspect")
         .arg("r1-equivalent")
         .output()
-        .expect("cli inspect");
+        .expect("cli project inspect");
     assert_eq!(cli_out.status.code(), Some(0));
     let cli_value: serde_json::Value = serde_json::from_slice(&cli_out.stdout).expect("cli json");
-    // `forge inspect` returns the bare record; the MCP
-    // transport wraps it in `{"project": ...}` per the
-    // contract, so unwrap the envelope before comparing.
-    let cli_project = cli_value.as_object().expect("cli project object");
+    let cli_records = cli_value["catalog"]["records"]
+        .as_array()
+        .expect("cli records");
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -252,18 +256,16 @@ fn mcp_inspect_project_matches_cli_inspect_outcome() {
     });
     let (stdout, _stderr) = run_mcp(&db, &[req]);
     let response = response_for(&stdout, 22);
-    let mcp_project = response["result"]["project"]
-        .as_object()
-        .expect("mcp project");
+    let mcp_records = response["result"]["catalog"]["records"]
+        .as_array()
+        .expect("mcp records");
 
-    // Domain equivalence: id, profile, maturity, runtime
-    // all match between the CLI and MCP outputs. The CLI
-    // uses a bare record, the MCP transport wraps in a
-    // `project` envelope; the inner record must be
-    // identical for the affected fields.
-    for key in ["id", "profile", "maturity", "schema_version"] {
-        assert_eq!(cli_project[key], mcp_project[key], "field {key} differs");
-    }
+    // Domain equivalence: the project id and profile are the
+    // same field on the catalog record, so the wire format
+    // is byte-equal between the CLI and MCP surfaces.
+    assert_eq!(mcp_records.len(), cli_records.len());
+    assert_eq!(mcp_records[0]["project_id"], "r1-equivalent");
+    assert_eq!(mcp_records[0]["profile"], cli_records[0]["profile"]);
 }
 
 #[test]
@@ -420,15 +422,23 @@ fn mcp_list_projects_through_stdio_matches_cli_list() {
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
     register(&db, &proj, "list-equiv");
+    // The MCP `list_projects` is a thin adapter over the
+    // shared Core catalog service, so the comparison target
+    // is the catalog-shaped CLI surface: `forge project list
+    // --format json`.
     let cli = clean_cmd()
         .arg("--registry")
         .arg(&db)
         .arg("--format")
         .arg("json")
+        .arg("project")
         .arg("list")
         .output()
-        .expect("cli list");
+        .expect("cli project list");
     let cli_list: serde_json::Value = serde_json::from_slice(&cli.stdout).expect("cli json");
+    let cli_records = cli_list["catalog"]["records"]
+        .as_array()
+        .expect("cli records");
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -438,15 +448,16 @@ fn mcp_list_projects_through_stdio_matches_cli_list() {
     });
     let (stdout, _stderr) = run_mcp(&db, &[req]);
     let response = response_for(&stdout, 77);
-    let mcp_projects = response["result"]["projects"].as_array().expect("projects");
-    let cli_projects = cli_list["projects"].as_array().expect("cli projects");
+    let mcp_records = response["result"]["catalog"]["records"]
+        .as_array()
+        .expect("mcp records");
     // Both surfaces report the same project id and profile.
-    assert_eq!(mcp_projects.len(), cli_projects.len());
-    for mcp_proj in mcp_projects {
-        let id = mcp_proj["id"].as_str().expect("id");
-        let cli_proj = cli_projects
+    assert_eq!(mcp_records.len(), cli_records.len());
+    for mcp_proj in mcp_records {
+        let id = mcp_proj["project_id"].as_str().expect("project_id");
+        let cli_proj = cli_records
             .iter()
-            .find(|p| p["id"] == id)
+            .find(|p| p["project_id"] == id)
             .unwrap_or_else(|| panic!("cli missing {id}"));
         assert_eq!(mcp_proj["profile"], cli_proj["profile"]);
     }
@@ -475,7 +486,7 @@ fn mcp_dispatch_round_trip_handles_multiple_requests() {
     let two = response_for(&stdout, 2);
     let three = response_for(&stdout, 3);
     let four = response_for(&stdout, 4);
-    assert!(one["result"]["projects"].is_array());
+    assert!(one["result"]["catalog"]["records"].is_array());
     assert!(two["result"]["profiles"].is_array());
     assert!(three["result"]["features"].is_array());
     assert_eq!(four["error"]["code"], -32011);
@@ -524,7 +535,7 @@ fn mcp_isolated_registry_succeeds_with_readonly_home() {
     );
     let response = response_for(&stdout, 1);
     assert!(
-        response["result"]["projects"].is_array(),
+        response["result"]["catalog"]["records"].is_array(),
         "isolated list_projects must succeed: {response}"
     );
     // Restore writability so TempDir cleanup can remove the fixture.

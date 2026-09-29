@@ -1,6 +1,90 @@
-current_spec: fleet-live-rollout
+current_spec: project-evidence-gap-assessment
 
 # Forge handoff
+
+## Current state
+
+`project-catalog-query-contract` implemented, verified and archived on
+2026-09-29 as `2026-09-29-project-catalog-query-contract`; its four
+requirements (normalized records with provenance, a composable read-only
+query, explicit empty/stale/unavailable states, and machine output as the
+contract) were promoted into
+[openspec/specs/project-catalog-query-contract/spec.md](openspec/specs/project-catalog-query-contract/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS, Section-3
+BFS and Section-4 verification task in the proposal.
+
+**Domain** (`src/catalog/`). `src/catalog/record.rs` owns
+`CatalogRecord` and its **closed** 15-field set (`RECORD_KEYS`): there is
+no free-form metadata map and `CatalogRecord::from_value` refuses an
+unknown field by construction, matching the interest store's
+closed-key discipline. `SourceKind` (`local|git|workspace-registry|
+inventory|github`), `EvidenceState` (`present|absent|stale|unavailable|
+unverified`) and `Freshness` (`current|stale|unknown`) are closed enums.
+`freshness` is **derived from `observed_at` at read time**, never stored,
+and `normalize_timestamp` re-emits every observation at the contract's
+whole-second resolution so two readers of unchanged sources produce
+identical bytes. Every field passes through `clean_field`
+(`policy::redact_credentials` + a 200-char bound), so a credential shape
+is redacted before it can reach any output.
+
+**Query** (`src/catalog/query.rs`). `CatalogQuery::from_pairs` refuses an
+unknown filter key before any source is contacted. `filter`/`apply` are
+**pure** functions over an already-collected record set: predicates
+combine as AND, a repeated value is OR within its predicate, ordering is
+stable by `(project_id, source)` — never by observation time and never by
+source arrival order — and pagination is an opaque `v1:<offset>` cursor
+with a bounded `limit` (1..=1000).
+
+**Sources** (`src/catalog/source.rs`). The adapters **wrap the existing
+readers** rather than re-reading files: `Registry` (opened through the
+new **read-only** constructor), `fleet::observe` for the workspace
+registry, `inventory::load_local` for the portable inventory, and the
+`git` argument array for **explicitly declared** working trees only. A
+source that cannot be read contributes a `SourceStatus` of
+`unavailable` **with its reason** — never zero rows presented as an
+answer and never a placeholder record. `SourceKind::Github` is part of
+the vocabulary but selecting it returns an explicit `unavailable` status
+naming `github-project-metadata-adapter` as its owner; no record is
+invented and no GitHub request is made.
+
+**Persistence decision, honestly recorded.** No registry schema was
+added and no migration runs. `Registry::open_read_only`
+(`src/registry/mod.rs`) opens an *existing* database with
+`SQLITE_OPEN_READ_ONLY`: it creates no directory, applies no
+`SCHEMA_SQL`, runs no migration and reconciles no journal row, so a
+query cannot write a registry byte. A missing registry file is answered
+as an empty catalog (exit 0, `records: []`) and is **never created** by a
+read.
+
+**CLI.** `forge project list|inspect|tags|languages` with repeatable
+`--source/--tag/--language/--profile/--lifecycle/--repository/--ci/
+--compose/--evidence/--filter/--git-repository/--workspace-registry/
+--inventory`, plus `--limit`, `--cursor` and `--max-age`. One
+refinement over the design, recorded deliberately: the design proposed a
+per-command `--format table|json|ndjson`, but `--format` is already a
+**global** clap flag, and a subcommand-level flag with the same long name
+panics the parser. The global `Format` enum was therefore extended with
+`table` and `ndjson` (both additive; `table` is byte-identical to
+`human`, and `ndjson` prints one compact JSON document line outside the
+catalog). `forge project list --format json|ndjson|table` therefore
+behaves exactly as the design asked, with one flag for the whole CLI.
+
+**One additive error code.** `catalog-invalid` (400-class refusal) for a
+malformed filter, an unknown source, an out-of-range bound or a bad
+cursor; `unknown-project` is reused for `forge project inspect`.
+
+## Verification evidence (project-catalog-query-contract, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file (`src/catalog/{mod,record,query,source}.rs`, `src/core/mod.rs`, `src/lib.rs`, `src/main.rs`, `src/registry/mod.rs`, `tests/catalog_contract.rs`, `tests/catalog_cross_surface.rs`). The pre-change baseline carries formatting drift in `src/gate/evidence.rs`, `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`, `tests/gate_contract.rs`, `tests/gate_cross_surface.rs` and `tests/publish_queue_status_contract.rs`; `cargo fmt` touched them incidentally and those edits were reverted with `git checkout --`, so the drift is preserved exactly as prior cycles left it.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: identical to the recorded baseline — the same 12 locations (`src/api/ui/auth.rs:166-167`, `src/gate/evidence.rs` (229, 425, 826, 827, 862), `src/portfolio/share/validation.rs` (13, 392), `src/publish/fleet.rs:51`, `src/publish/mod.rs:642/644`). **Zero new clippy errors**; a re-run with those baseline lints allowed produced no finding anywhere in `src/catalog/`.
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain`: **85 result groups, 1888 passed, 1 failed**. That one failure, `fleet_online_routes_to_local_listener_when_alethefy_is_up`, is **pre-existing and unrelated**: it was reproduced on the untouched baseline with `git stash push -u -- src tests` (sandbox listener restriction on the `fleet online` path this change never touches). New supervised suites: 17 `tests/catalog_contract.rs`, 9 `tests/catalog_cross_surface.rs` and the `src/catalog` unit tests. Notable coverage: closed record field set and unknown-field refusal; provenance on every record; JSON/NDJSON byte-parity with the table explicitly *not* the contract; duplicate id in two sources retained twice and never merged; ordering invariant under permuted `--source` order; AND/OR filter composition; cursor pagination walking every record exactly once; empty catalog as exit 0 with no file created; unreadable and unconfigured sources named `unavailable` with a reason and no placeholder record; the Git source reading only a declared working tree; `unknown-project` on inspect; tags/languages summaries; typed `catalog-invalid` refusals with **0 bytes** of stdout; redaction on all three output formats; and — checked against the **database file itself**, not a rendered surface — no registry byte, table row or journal row changes across five catalog commands, no new table, and a byte-identical `forge list` projection afterwards.
+- Live binary smoke (CLI): the local source reports 2 records; adding a deliberately broken workspace registry still answers with the 2 local records and reports `workspace-registry … state=unavailable records=0 reason=fleet registry invalid: … malformed JSON` at exit 0; `--filter bogus=1` prints 0 bytes to stdout and exits 1 with `error[catalog-invalid]`; JSON and NDJSON return the same 4 records in the same order; and a read leaves the registry size **and mtime** unchanged (`208896→208896`, `1790663872→1790663872`).
+- `node scripts/check-openspec-change-names.mjs`: PASS; `openspec validate --all --strict --no-interactive`: 57 passed, 0 failed (57 items) pre-archive and 57 passed, 0 failed post-archive with the promoted `project-catalog-query-contract` spec (+4 requirements); `git diff --check` and `git diff --cached --check`: PASS.
+- **Blocked, honestly recorded:** `cargo deny check` could **not** run — this sandbox has no network and the command failed fetching the RustSec advisory database (`Failed to connect to github.com port 443`). This is recorded as *not run*, not as a pass. It is also not a gap in this change: **no dependency was added** and `Cargo.toml` is unmodified, so the dependency and licence closure is unchanged.
+- **No provider was contacted and nothing was mutated.** There is no network call anywhere in `src/catalog/`; the Git source reads a local working tree, the workspace and inventory sources read local files, and the local source opens SQLite read-only. No project, registry row or journal row is created or changed by any catalog command, and no product was activated, deployed or published.
+- Pointer state: `project-catalog-query-contract` archived (`12/12` tasks evidenced, `4/4` artifacts complete). `openspec list` now shows six active changes: `fleet-live-rollout` (still blocked on Mac Docker engine recovery) plus the five remaining planning-only packages. The pointer advances to **`project-evidence-gap-assessment`**, the next change in dependency order whose only declared prerequisite is this package; it is still an implementation-ready planning package (12 unchecked tasks) and awaits an explicit operator choice. `fleet-live-rollout` remains unselected because its acceptance is live 20/20 green on the Mac, which cannot be evidenced from this checkout.
+- No shared Gate Runtime is configured; no Gate pass is claimed. No PostgreSQL, multi-user, SSO or remote-synchronization readiness is claimed.
 
 ## Current state
 

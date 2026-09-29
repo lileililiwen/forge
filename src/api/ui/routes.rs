@@ -270,6 +270,7 @@ pub fn handle_project_detail(
                 inventory_subdomain: &view.inventory_subdomain,
                 journal: &view.journal,
                 portfolio: &view.portfolio,
+                delivery: &view.delivery,
                 token: &token.unwrap_or_default(),
                 origin: request.header("origin").unwrap_or(""),
                 contract: API_CONTRACT_VERSION,

@@ -297,7 +297,8 @@ fn err_status(err: &ForgeError) -> u16 {
         | "release-check-failed"
         | "deploy-health-failed"
         | "portfolio-share-conflict"
-        | "portfolio-interest-conflict" => 409,
+        | "portfolio-interest-conflict"
+        | "delivery-conflict" => 409,
         // The readiness route never constructs the CLI gate error —
         // it answers `200` for both verdicts — but the row keeps a
         // future caller from silently becoming a `500`.
@@ -317,7 +318,12 @@ fn err_status(err: &ForgeError) -> u16 {
         | "portfolio-interest-invalid"
         | "deploy-invalid"
         | "release-invalid"
-        | "catalog-invalid" => 400,
+        | "catalog-invalid"
+        | "delivery-invalid" => 400,
+        // Delivery provider / adapter availability is a transient
+        // 503: the registry keeps the existing rows intact and the
+        // operator can retry without re-running the stage.
+        "delivery-unavailable" => 503,
         _ => 500,
     }
 }
@@ -451,6 +457,35 @@ pub enum Route {
     CatalogQuery {
         id: Option<String>,
     },
+    /// `GET /v1/projects/{id}/delivery` — read-only delivery status
+    /// projection (`forge-delivery-status/0.1.0`).
+    DeliveryStatus {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/delivery/preflight` — invoke the publish
+    /// provider's `preflight` operation and record the terminal
+    /// evidence.
+    DeliveryPreflight {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/delivery/stage` — invoke the publish
+    /// provider's `publish` operation for the stage environment.
+    /// Requires the `confirm_operation_id` body field.
+    DeliveryStage {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/delivery/promote` — invoke the publish
+    /// provider's `publish` operation for the production environment.
+    /// Requires the `confirm_revision` body field.
+    DeliveryPromote {
+        id: String,
+    },
+    /// `POST /v1/projects/{id}/delivery/hermora/retry` — invoke the
+    /// Hermora adapter for a healthy deployment. Requires
+    /// `deployment_url` and `secret_ref` body fields. Never republishes.
+    DeliveryHermoraRetry {
+        id: String,
+    },
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -552,6 +587,25 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("GET", ["v1", "projects", id, "catalog"]) => Some(Route::CatalogQuery {
             id: Some((*id).to_string()),
         }),
+        ("GET", ["v1", "projects", id, "delivery"]) => Some(Route::DeliveryStatus {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "delivery", "preflight"]) => {
+            Some(Route::DeliveryPreflight {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "projects", id, "delivery", "stage"]) => Some(Route::DeliveryStage {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "delivery", "promote"]) => Some(Route::DeliveryPromote {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "delivery", "hermora", "retry"]) => {
+            Some(Route::DeliveryHermoraRetry {
+                id: (*id).to_string(),
+            })
+        }
         _ => None,
     }
 }
@@ -644,6 +698,15 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         // authorization posture as `Route::ListProjects` and the
         // project detail page (any session, no extra permission).
         | Route::CatalogQuery { .. } => None,
+        // Delivery routes are admin-gated: preflight / stage / promote
+        // trigger provider invocations, and the status projection
+        // surfaces the same private data the per-project journal
+        // shows. The reads are deliberately as restricted as the writes.
+        | Route::DeliveryStatus { .. }
+        | Route::DeliveryPreflight { .. }
+        | Route::DeliveryStage { .. }
+        | Route::DeliveryPromote { .. }
+        | Route::DeliveryHermoraRetry { .. } => Some("admin:access"),
     }
 }
 
@@ -777,6 +840,13 @@ pub fn handle(
         Route::InterestAudit => handle_interest_audit(db_path, request),
         Route::InterestReadiness => handle_interest_readiness(db_path, request, now),
         Route::CatalogQuery { id } => handle_catalog_query(db_path, request, id.as_deref(), now),
+        Route::DeliveryStatus { id } => handle_delivery_status(db_path, &id, now),
+        Route::DeliveryPreflight { id } => handle_delivery_preflight(db_path, &id, now),
+        Route::DeliveryStage { id } => handle_delivery_stage(db_path, request, &id, now),
+        Route::DeliveryPromote { id } => handle_delivery_promote(db_path, request, &id, now),
+        Route::DeliveryHermoraRetry { id } => {
+            handle_delivery_hermora_retry(db_path, request, &id, now)
+        }
     }
 }
 
@@ -885,7 +955,12 @@ fn authorize(
         | Route::InterestCompare
         | Route::InterestTrend
         | Route::InterestAudit
-        | Route::InterestReadiness => {
+        | Route::InterestReadiness
+        | Route::DeliveryStatus { .. }
+        | Route::DeliveryPreflight { .. }
+        | Route::DeliveryStage { .. }
+        | Route::DeliveryPromote { .. }
+        | Route::DeliveryHermoraRetry { .. } => {
             // Fleet routes: walk the registry to find
             // which project minted the session, then
             // validate the permission for the action.
@@ -1367,6 +1442,164 @@ fn handle_catalog_query(
                 }),
             )
         }
+    }
+}
+
+// --- delivery ----------------------------------------------------------
+//
+// The delivery routes share the same handlers the CLI surface
+// uses; every refusal is typed (`delivery-invalid`,
+// `delivery-conflict`, `delivery-unavailable`) so the error code
+// is identical across transports.
+
+fn handle_delivery_status(db_path: &Path, id: &str, now: DateTime<Utc>) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::delivery::handlers::run_status(&registry, id, now) {
+        Ok(report) => ApiResponse::json(200, serde_json::to_value(&report).unwrap_or(Value::Null)),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_delivery_preflight(db_path: &Path, id: &str, now: DateTime<Utc>) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::delivery::handlers::run_preflight(&registry, id, now) {
+        Ok(outcome) => ApiResponse::json(
+            200,
+            serde_json::to_value(&outcome.report).unwrap_or(Value::Null),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_delivery_stage(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let confirm_operation_id = match body.get("confirm_operation_id").and_then(|v| v.as_i64()) {
+        Some(value) => value,
+        None => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "delivery-invalid",
+                        "message": "delivery stage requires a `confirm_operation_id` body field",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::delivery::handlers::run_stage(&registry, id, confirm_operation_id, now) {
+        Ok(outcome) => ApiResponse::json(
+            200,
+            serde_json::to_value(&outcome.report).unwrap_or(Value::Null),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_delivery_promote(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let confirm_revision = match body.get("confirm_revision").and_then(|v| v.as_str()) {
+        Some(value) if !value.is_empty() => value.to_string(),
+        _ => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "delivery-invalid",
+                        "message": "delivery promote requires a `confirm_revision` body field",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::delivery::handlers::run_promote(&registry, id, &confirm_revision, now) {
+        Ok(outcome) => ApiResponse::json(
+            200,
+            serde_json::to_value(&outcome.report).unwrap_or(Value::Null),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_delivery_hermora_retry(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let deployment_url = match body.get("deployment_url").and_then(|v| v.as_str()) {
+        Some(value) if !value.is_empty() => value.to_string(),
+        _ => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "delivery-invalid",
+                        "message": "delivery hermora-retry requires a `deployment_url` body field",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let secret_ref = match body.get("secret_ref").and_then(|v| v.as_str()) {
+        Some(value) if !value.is_empty() => value.to_string(),
+        _ => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "delivery-invalid",
+                        "message": "delivery hermora-retry requires a `secret_ref` body field",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    match crate::delivery::handlers::run_hermora_retry(
+        &registry,
+        id,
+        &deployment_url,
+        &secret_ref,
+        now,
+    ) {
+        Ok(outcome) => ApiResponse::json(
+            200,
+            serde_json::to_value(&outcome.report).unwrap_or(Value::Null),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
     }
 }
 

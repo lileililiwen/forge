@@ -1,8 +1,190 @@
-current_spec: project-to-production-workflow
+current_spec: github-cli-project-workflows
 
 # Forge handoff
 
 ## Current state
+
+`project-to-production-workflow` implemented, verified and archived on
+2026-09-29 as `2026-09-29-project-to-production-workflow`; its four
+requirements (evidence-gated staged delivery, explicit production
+promotion, optional post-publish Hermora onboarding, and the
+read-only delivery status) were promoted into
+[openspec/specs/project-to-production-workflow/spec.md](openspec/specs/project-to-production-workflow/spec.md).
+The implementation closes every Section-1 BFS, Section-2 DFS,
+Section-3 BFS and Section-4 verification task in the proposal.
+
+**Domain** (`src/delivery/`). Contract
+`forge-delivery-status/0.1.0`. Closed `DeliveryPhase` enum (twelve
+labels), closed `DeliveryEnvironment` (`stage|production`), and
+closed `DeliveryVerb` (`preflight|stage|promote|hermora`) are the
+only states the projection emits. `idempotency_key(verb,
+project_id, revision)` derives the deterministic key
+`delivery.<verb>.<project>:<sha12>[:<env>]`; `request_hash(revision,
+environment, confirm_token)` is the SHA-256 of `(revision, env,
+confirm)` so a changed confirmation surfaces as
+`idempotency-key-conflict` rather than re-using the prior
+reservation.
+
+**No new schema.** Every delivery verb is encoded into the
+existing `operations` table — `kind ∈ {delivery.preflight,
+delivery.stage, delivery.promote, delivery.hermora}`,
+`idempotency_key` for the closed key, `request_hash` for
+revision-bound confirmation, `revision`, `build_status`,
+`run_status`, `container_identity` for the provider's terminal
+evidence, and `detail` (bounded to 4096 chars; credential-scrubbed
+through `policy::redact_credentials` before it lands).
+
+**Invoke** (`src/delivery/invoke.rs`). Thin wrapper around
+`publish::providers::invoke_provider` that derives the bounded
+queue ids `delivery-stage-<project>-<sha12>` and
+`delivery-production-<project>-<sha12>`, normalises the project
+folder, and wraps provider failures into `DeliveryUnavailable`.
+OpenPanel's `forge-publish-provider/0.1.0` contract is reused as-is;
+no new subprocess-adapter contract was added.
+
+**Hermora** (`src/delivery/hermora.rs`). New wire contract
+`forge-delivery-hermora/0.1.0`: bounded request envelope on
+stdin, bounded response envelope on stdout (16 KiB cap), and a
+60-second wall-clock timeout (configurable via
+`$FORGE_HERMORA_TIMEOUT_SECS`, clamped to `1..=600`). The adapter
+is resolved from `$FORGE_HERMORA_BIN` or the canonical
+`forge-hermora-adapter` on `PATH`. No credential ever crosses
+Forge: only the `secret_ref` name travels, never the token value.
+A credential-shaped `site_id` in the response is refused at the
+parser without echoing.
+
+**CLI** (`src/main.rs` — `Commands::Delivery { DeliveryCommands }`).
+`forge delivery status|preflight|stage|promote|hermora-retry
+<project>` with explicit `--confirm-revision <sha>` (promote) and
+`--confirm-operation-id <op_id>` (stage) flags. Refusals are typed
+`delivery-invalid` (missing/stale confirmation), `delivery-conflict`
+(operand mismatch), or `delivery-unavailable` (provider missing or
+refused); every refusal path prints 0 bytes to stdout, matching the
+`forge fleet online` and `forge portfolio share publish` gates.
+
+**Routes** (`src/api/mod.rs`). Five additive routes under
+`/v1/projects/{id}/delivery/*`:
+
+| Method | Path | Verb | Confirmation gate |
+| --- | --- | --- | --- |
+| `GET` | `/v1/projects/{id}/delivery` | `Route::DeliveryStatus` | none (admin-gated read) |
+| `POST` | `/v1/projects/{id}/delivery/preflight` | `Route::DeliveryPreflight` | none |
+| `POST` | `/v1/projects/{id}/delivery/stage` | `Route::DeliveryStage` | `confirm_operation_id` body field |
+| `POST` | `/v1/projects/{id}/delivery/promote` | `Route::DeliveryPromote` | `confirm_revision` body field |
+| `POST` | `/v1/projects/{id}/delivery/hermora/retry` | `Route::DeliveryHermoraRetry` | `deployment_url` + `secret_ref` body fields |
+
+`delivery-conflict` maps to `409`, `delivery-invalid` to `400`,
+`delivery-unavailable` to `503`.
+
+**UI** (`src/api/ui/data.rs` and `src/api/ui/render.rs`).
+`load_project_detail` gained an additive `DeliverySummaryView`
+block (phase, environment, revision, updated_at, and the four
+verb states). The renderer adds a `Delivery` section between the
+doctor summary and the portfolio block; the existing manifest,
+doctor, journal, share, interest and portfolio fields stay
+byte-identical.
+
+## Verification evidence (project-to-production-workflow, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/api/mod.rs`, `src/api/ui/{data,render}.rs`, `src/core/mod.rs`,
+  `src/lib.rs`, `src/main.rs`, `src/delivery/{mod,cli,handlers,
+  hermora,invoke,projection,state}.rs`, `tests/delivery_{contract,
+  cross_surface}.rs`). Pre-existing drift in `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`,
+  `src/api/ui/auth.rs`, and the `tests/{gate,publish_queue_status}_*`
+  files is preserved exactly as prior cycles left it; no incidental
+  reformat.
+- `cargo build`: PASS. `cargo clippy --all-targets`: identical to
+  the captured baseline — the same 12 pre-existing locations.
+  **Zero new clippy errors anywhere under `src/delivery/`**; one
+  `format!`-into-`String` was simplified, two `Default` impls were
+  derived, and one unused test helper was removed to land at
+  zero new lint findings.
+- `cargo test --lib -- delivery`: **20 passed, 0 failed**. New
+  coverage: closed phase enum, deterministic idempotency keys,
+  bounded detail redaction, queue-id shape, hermora envelope
+  parsing (connected / failed / wrong contract / unknown status /
+  oversized / credential-shaped), projection over empty journal
+  and after a terminal preflight.
+- `cargo test --test delivery_contract`: **17 passed, 0 failed**.
+  New coverage: CLI help, unknown-project typed refusal,
+  no-provider `delivery-unavailable` with empty stdout,
+  promote-without-`--confirm-revision` zero-stdout,
+  promote-with-stale-revision `delivery-conflict` naming the
+  project, preflight records a terminal journal row,
+  stage-without-`--confirm-operation-id` typed refusal,
+  hermora-retry without `env:` prefix typed refusal, registered
+  revision round-trips through `status`, hermora-retry without a
+  prior promote is `delivery-conflict` (not silently unavailable),
+  credential-shaped `secret-ref` value never echoed,
+  provider queue id is bounded to the `delivery-*` shape,
+  full promote sequence writes a terminal `delivery.promote`
+  row, idempotent replay reuses the same `op_id`, promote after an
+  unhealthy stage is `delivery-conflict`, JSON envelope matches
+  `forge-delivery-status/0.1.0`.
+- `cargo test --test delivery_cross_surface`: **9 passed, 0
+  failed**. New coverage: `delivery status` CLI/API parity for a
+  fresh project, 401 without a session, `delivery-invalid` typed
+  code identical on both transports with empty stdout, 409 on
+  stale `--confirm-revision`, no registry bytes change on
+  refused verbs, successful preflight visible on both transports
+  with the same `op_id`, credential-shaped hermora response
+  refused without echoing, unknown nested path is 404
+  `route-not-found`, admin sessions can read every project (same
+  posture as the readiness and share surfaces).
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: every
+  result group passes except the pre-existing
+  `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  failure, which reproduces on the stashed baseline with
+  `git stash push -u -- src tests` (sandbox listener restriction
+  on the `fleet online` path this change never touches).
+  Portfolio UI (20 tests) and portal UI (12 tests) stay green —
+  the additive `DeliverySummaryView` did not regress the
+  existing detail-page rendering.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 61 passed,
+  0 failed (61 items) pre-archive and post-archive with the
+  promoted `project-to-production-workflow` spec (+4
+  requirements); `git diff --check`: clean.
+- Live binary smoke (CLI): `forge --registry registry.db register .`
+  on a fresh git-initialised project captures a 40-hex SHA;
+  `forge delivery status <project>` returns the contract JSON
+  envelope with `phase=draft`, the registered revision, and the
+  per-verb journal block all empty; `forge delivery promote <project>`
+  prints 0 bytes to stdout and exits 1 with
+  `error[delivery-invalid]: delivery invalid: delivery promote:
+  --confirm-revision is required`. Live binary smoke (HTTP):
+  `forge api serve --bind 127.0.0.1 --port 18999` answers
+  `GET /v1/projects/<id>/delivery` with
+  `401 api-unauthorized` when the bearer is absent and
+  `401 api-unauthorized` when the bearer is non-hex;
+  `GET /healthz` stays byte-identical.
+- **Blocked, honestly recorded:** live 20/20 evidence against the
+  OpenPanel provider binary (OpenPanel-owned) and the Hermora
+  adapter (Hermora-owned) is **not claimed** by this change.
+  Contract tests substitute local shell-stub executables on a
+  controlled `PATH` and `<project>/.forge/providers.yaml`; the
+  live integration is gated on both producers shipping and is
+  recorded as `not run` until they do. `cargo deny check` could
+  not run (sandbox has no network); the change adds **zero** new
+  dependencies and `Cargo.toml`/`deny.toml` are unmodified.
+- Pointer state: `project-to-production-workflow` archived
+  (`12/12` tasks evidenced, `4/4` artifacts complete). The
+  canonical `openspec/specs/project-to-production-workflow/spec.md`
+  carries the four promoted requirements. `openspec list` now
+  shows three remaining active changes:
+  `github-cli-project-workflows` (0/12, planning-only,
+  declaration-only declared consumer of this package),
+  `site-studio-preview-refinement` (0/13, planning-only, also
+  declared consumer), and `fleet-live-rollout` (10/11, blocked on
+  Mac Docker engine recovery; the live 20/20 task is the only
+  unchecked item). The pointer advances to
+  **`github-cli-project-workflows`**, the next implementation
+  candidate in `openspec list`; the two other planning-only
+  packages remain equally eligible and await the explicit
+  operator choice that names the next cycle.
 
 `hypora-graduation-import` implemented, verified and archived on
 2026-09-29 as `2026-09-29-hypora-graduation-import`; its six

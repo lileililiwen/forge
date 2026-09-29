@@ -11,9 +11,9 @@ use maud::{html, Markup, PreEscaped, DOCTYPE};
 use crate::portfolio::{Confidence, EvidenceStatus, Lifecycle, PortfolioFilter};
 
 use super::data::{
-    EvidenceRowView, FleetRow, JournalRowView, OperationIdentity, PortfolioEdit,
-    PortfolioRelationView, ProjectIdentity, ProjectPortfolioView, PublishPlanStep, ReviewRowView,
-    SkippedRow,
+    DeliverySummaryView, EvidenceRowView, FleetRow, JournalRowView, OperationIdentity,
+    PortfolioEdit, PortfolioRelationView, ProjectIdentity, ProjectPortfolioView, PublishPlanStep,
+    ReviewRowView, SkippedRow,
 };
 
 // --- shared chrome ----------------------------------------------------
@@ -276,6 +276,7 @@ pub struct ProjectDetailArgs<'a> {
     pub inventory_subdomain: &'a str,
     pub journal: &'a [JournalRowView],
     pub portfolio: &'a ProjectPortfolioView,
+    pub delivery: &'a DeliverySummaryView,
     pub token: &'a str,
     pub origin: &'a str,
     pub contract: &'a str,
@@ -299,6 +300,7 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
     let inventory_subdomain = args.inventory_subdomain;
     let journal = args.journal;
     let portfolio = args.portfolio;
+    let delivery = args.delivery;
     let token = args.token;
     let origin = args.origin;
     html! {
@@ -311,6 +313,8 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
             @if !inventory_subdomain.is_empty() {
                 div class="field-row" { span class="field-label" { "Subdomain" } (inventory_subdomain) }
             }
+
+            (delivery_section(delivery))
 
             (portfolio_section(portfolio, identity, token, origin))
 
@@ -558,6 +562,32 @@ pub fn portfolio_saved(
         }
     };
     project_frame(title, project_id, contract, body).into_string()
+}
+
+fn delivery_section(delivery: &DeliverySummaryView) -> Markup {
+    html! {
+        h3 { "Delivery" }
+        div class="field-row" { span class="field-label" { "Phase" } (delivery.phase) }
+        @if let Some(env) = &delivery.environment {
+            div class="field-row" { span class="field-label" { "Environment" } (env) }
+        } @else {
+            div class="field-row" { span class="field-label" { "Environment" } span class="row-skip" { "—" } }
+        }
+        @if let Some(rev) = &delivery.revision {
+            div class="field-row" { span class="field-label" { "Revision" } code { (rev) } }
+        } @else {
+            div class="field-row" { span class="field-label" { "Revision" } span class="row-skip" { "—" } }
+        }
+        div class="field-row" { span class="field-label" { "Updated" } (delivery.updated_at) }
+        div class="field-row" { span class="field-label" { "Preflight" }
+            @if let Some(state) = &delivery.preflight_state { (state) } @else { span class="row-skip" { "—" } } }
+        div class="field-row" { span class="field-label" { "Stage" }
+            @if let Some(state) = &delivery.stage_state { (state) } @else { span class="row-skip" { "—" } } }
+        div class="field-row" { span class="field-label" { "Promote" }
+            @if let Some(state) = &delivery.promote_state { (state) } @else { span class="row-skip" { "—" } } }
+        div class="field-row" { span class="field-label" { "Hermora" }
+            @if let Some(state) = &delivery.hermora_state { (state) } @else { span class="row-skip" { "—" } } }
+    }
 }
 
 fn doctor_summary(summary: &DoctorSummary) -> Markup {

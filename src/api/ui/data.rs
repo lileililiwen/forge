@@ -197,6 +197,27 @@ pub struct ProjectDetailView {
     pub inventory_subdomain: String,
     pub journal: Vec<JournalRowView>,
     pub portfolio: ProjectPortfolioView,
+    /// One-line delivery summary block. The full projection is
+    /// served by `GET /v1/projects/{id}/delivery`; the UI keeps a
+    /// bounded mirror so the project page never round-trips the
+    /// API for the operator-visible summary.
+    pub delivery: DeliverySummaryView,
+}
+
+/// Bounded mirror of `DeliveryReport` for the in-process portal
+/// project page. `phase` is the only mandatory field; every other
+/// field is `Some`/`None` so a fresh project renders the
+/// `Draft` phase with no journal evidence.
+#[derive(Debug, Clone)]
+pub struct DeliverySummaryView {
+    pub phase: String,
+    pub environment: Option<String>,
+    pub revision: Option<String>,
+    pub updated_at: String,
+    pub preflight_state: Option<String>,
+    pub stage_state: Option<String>,
+    pub promote_state: Option<String>,
+    pub hermora_state: Option<String>,
 }
 
 /// The portfolio half of one project detail page: user-owned
@@ -277,12 +298,40 @@ pub fn load_project_detail(
         })
         .collect();
 
+    let delivery = match crate::delivery::projection::build_delivery_report(
+        &registry,
+        project_id,
+        chrono::Utc::now(),
+    ) {
+        Ok(report) => DeliverySummaryView {
+            phase: report.phase.to_string(),
+            environment: report.environment.map(|env| env.to_string()),
+            revision: report.revision.clone(),
+            updated_at: report.updated_at.clone(),
+            preflight_state: report.preflight.state.clone(),
+            stage_state: report.stage.state.clone(),
+            promote_state: report.promote.state.clone(),
+            hermora_state: report.hermora.state.clone(),
+        },
+        Err(_) => DeliverySummaryView {
+            phase: "draft".to_string(),
+            environment: None,
+            revision: None,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            preflight_state: None,
+            stage_state: None,
+            promote_state: None,
+            hermora_state: None,
+        },
+    };
+
     Ok(ProjectDetailView {
         identity,
         doctor,
         inventory_subdomain: String::new(),
         journal,
         portfolio: load_project_portfolio(db_path, project_id)?,
+        delivery,
     })
 }
 

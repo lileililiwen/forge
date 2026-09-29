@@ -348,6 +348,15 @@ pub enum ForgeError {
 
     #[error("graduation import conflict: {reason}; nothing was written")]
     GraduationConflict { reason: String },
+
+    #[error("delivery invalid: {reason}")]
+    DeliveryInvalid { reason: String },
+
+    #[error("delivery conflict: {reason}")]
+    DeliveryConflict { reason: String },
+
+    #[error("delivery unavailable: {reason}")]
+    DeliveryUnavailable { reason: String },
 }
 
 impl ForgeError {
@@ -465,6 +474,9 @@ impl ForgeError {
             ForgeError::SemanticConflict { .. } => "semantic-conflict",
             ForgeError::GraduationInvalid { .. } => "graduation-invalid",
             ForgeError::GraduationConflict { .. } => "graduation-conflict",
+            ForgeError::DeliveryInvalid { .. } => "delivery-invalid",
+            ForgeError::DeliveryConflict { .. } => "delivery-conflict",
+            ForgeError::DeliveryUnavailable { .. } => "delivery-unavailable",
         }
     }
 

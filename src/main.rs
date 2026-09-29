@@ -530,6 +530,63 @@ enum Commands {
         #[command(subcommand)]
         command: ClassifyCommands,
     },
+    /// Coordinate the staged delivery workflow (preflight → stage →
+    /// production) and the optional post-deploy Hermora onboarding.
+    Delivery {
+        #[command(subcommand)]
+        command: DeliveryCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DeliveryCommands {
+    /// Read the project's current delivery phase, revision, and
+    /// most-recent per-verb journal evidence.
+    Status {
+        /// Registered project id.
+        project: String,
+    },
+    /// Invoke the publish provider's `preflight` operation and
+    /// record the terminal evidence.
+    Preflight {
+        /// Registered project id.
+        project: String,
+    },
+    /// Invoke the publish provider's `publish` operation for the
+    /// stage environment. Requires `--confirm-operation-id` from a
+    /// healthy preflight row.
+    Stage {
+        /// Registered project id.
+        project: String,
+        /// Operation id from a terminal `delivery.preflight` row
+        /// for the same revision.
+        #[arg(long = "confirm-operation-id")]
+        confirm_operation_id: Option<i64>,
+    },
+    /// Invoke the publish provider's `publish` operation for the
+    /// production environment. Requires `--confirm-revision` matching
+    /// the project's registered source revision.
+    Promote {
+        /// Registered project id.
+        project: String,
+        /// 40-character source revision SHA the operator is
+        /// confirming for production promotion.
+        #[arg(long = "confirm-revision")]
+        confirm_revision: Option<String>,
+    },
+    /// Retry the optional Hermora site onboarding for a healthy
+    /// deployment. Independent child operation; never republishes.
+    HermoraRetry {
+        /// Registered project id.
+        project: String,
+        /// Public deployment URL to enroll (http/https).
+        #[arg(long = "deployment-url")]
+        deployment_url: Option<String>,
+        /// Environment-variable reference (e.g. `env:HERMORA_TOKEN_*`).
+        /// Only the variable name crosses Forge; the value never does.
+        #[arg(long = "secret-ref")]
+        secret_ref: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -2475,6 +2532,7 @@ fn main() -> ExitCode {
         Commands::Remediate { command } => cmd_remediate(&db_path, command, cli.format),
         Commands::Describe { command } => cmd_describe(command, cli.format),
         Commands::Classify { command } => cmd_classify(command, cli.format),
+        Commands::Delivery { command } => cmd_delivery(&db_path, command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -3292,6 +3350,163 @@ fn cmd_classify(command: &ClassifyCommands, format: Format) -> Result<Output, Fo
             semantic_decide_output(&outcome, format)
         }
     }
+}
+
+fn cmd_delivery(
+    db_path: &Path,
+    command: &DeliveryCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        DeliveryCommands::Status { project } => cmd_delivery_status(db_path, project, format),
+        DeliveryCommands::Preflight { project } => cmd_delivery_preflight(db_path, project, format),
+        DeliveryCommands::Stage {
+            project,
+            confirm_operation_id,
+        } => {
+            let Some(op_id) = *confirm_operation_id else {
+                return Err(ForgeError::DeliveryInvalid {
+                    reason: "delivery stage: --confirm-operation-id is required".to_string(),
+                });
+            };
+            cmd_delivery_stage(db_path, project, op_id, format)
+        }
+        DeliveryCommands::Promote {
+            project,
+            confirm_revision,
+        } => {
+            let Some(rev) = confirm_revision.as_deref() else {
+                return Err(ForgeError::DeliveryInvalid {
+                    reason: "delivery promote: --confirm-revision is required".to_string(),
+                });
+            };
+            cmd_delivery_promote(db_path, project, rev, format)
+        }
+        DeliveryCommands::HermoraRetry {
+            project,
+            deployment_url,
+            secret_ref,
+        } => {
+            let Some(url) = deployment_url.as_deref() else {
+                return Err(ForgeError::DeliveryInvalid {
+                    reason: "delivery hermora-retry: --deployment-url is required".to_string(),
+                });
+            };
+            let Some(ref_name) = secret_ref.as_deref() else {
+                return Err(ForgeError::DeliveryInvalid {
+                    reason: "delivery hermora-retry: --secret-ref is required".to_string(),
+                });
+            };
+            cmd_delivery_hermora_retry(db_path, project, url, ref_name, format)
+        }
+    }
+}
+
+fn cmd_delivery_status(
+    db_path: &Path,
+    project: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let (report, json) = forge::delivery::cli::cmd_delivery_status(db_path, project)?;
+    let human = forge::delivery::projection::render_report_human(&report);
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_delivery_preflight(
+    db_path: &Path,
+    project: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let outcome = forge::delivery::cli::cmd_delivery_preflight(db_path, project)?;
+    let json =
+        serde_json::to_value(&outcome.report).map_err(|err| ForgeError::DeliveryInvalid {
+            reason: format!("delivery preflight: cannot encode report: {err}"),
+        })?;
+    let provider_line = outcome
+        .provider_status
+        .as_deref()
+        .map(|s| format!("\nprovider_status: {s}"))
+        .unwrap_or_default();
+    let human = format!(
+        "delivery preflight recorded for `{project}`\nop_id: {}\nphase: {}{provider_line}",
+        outcome.op_id, outcome.report.phase
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_delivery_stage(
+    db_path: &Path,
+    project: &str,
+    confirm_operation_id: i64,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let outcome = forge::delivery::cli::cmd_delivery_stage(db_path, project, confirm_operation_id)?;
+    let json =
+        serde_json::to_value(&outcome.report).map_err(|err| ForgeError::DeliveryInvalid {
+            reason: format!("delivery stage: cannot encode report: {err}"),
+        })?;
+    let provider_line = outcome
+        .provider_status
+        .as_deref()
+        .map(|s| format!("\nprovider_status: {s}"))
+        .unwrap_or_default();
+    let human = format!(
+        "delivery stage recorded for `{project}`\nop_id: {}\nphase: {}{provider_line}",
+        outcome.op_id, outcome.report.phase
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_delivery_promote(
+    db_path: &Path,
+    project: &str,
+    confirm_revision: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let outcome = forge::delivery::cli::cmd_delivery_promote(db_path, project, confirm_revision)?;
+    let json =
+        serde_json::to_value(&outcome.report).map_err(|err| ForgeError::DeliveryInvalid {
+            reason: format!("delivery promote: cannot encode report: {err}"),
+        })?;
+    let provider_line = outcome
+        .provider_status
+        .as_deref()
+        .map(|s| format!("\nprovider_status: {s}"))
+        .unwrap_or_default();
+    let human = format!(
+        "delivery promote recorded for `{project}`\nop_id: {}\nphase: {}{provider_line}",
+        outcome.op_id, outcome.report.phase
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_delivery_hermora_retry(
+    db_path: &Path,
+    project: &str,
+    deployment_url: &str,
+    secret_ref: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let outcome = forge::delivery::cli::cmd_delivery_hermora_retry(
+        db_path,
+        project,
+        deployment_url,
+        secret_ref,
+    )?;
+    let json =
+        serde_json::to_value(&outcome.report).map_err(|err| ForgeError::DeliveryInvalid {
+            reason: format!("delivery hermora-retry: cannot encode report: {err}"),
+        })?;
+    let provider_line = outcome
+        .provider_status
+        .as_deref()
+        .map(|s| format!("\nhermora_status: {s}"))
+        .unwrap_or_default();
+    let human = format!(
+        "delivery hermora-retry recorded for `{project}`\nop_id: {}\nphase: {}{provider_line}",
+        outcome.op_id, outcome.report.phase
+    );
+    Ok(as_output(format, human, json))
 }
 
 fn build_suggest_request(

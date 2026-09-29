@@ -280,6 +280,9 @@ pub enum ForgeError {
     #[error("portfolio interest conflict: {reason}; no snapshot was stored")]
     PortfolioInterestConflict { reason: String },
 
+    #[error("activation readiness: {reason}")]
+    PortfolioActivationNotReady { reason: String },
+
     #[error("readiness invalid: {reason}")]
     ReadinessInvalid { reason: String },
 
@@ -409,6 +412,7 @@ impl ForgeError {
             ForgeError::PortfolioShareConflict { .. } => "portfolio-share-conflict",
             ForgeError::PortfolioInterestInvalid { .. } => "portfolio-interest-invalid",
             ForgeError::PortfolioInterestConflict { .. } => "portfolio-interest-conflict",
+            ForgeError::PortfolioActivationNotReady { .. } => "portfolio-activation-not-ready",
             ForgeError::ReadinessInvalid { .. } => "readiness-invalid",
             ForgeError::ReadinessNotReady { .. } => "readiness-not-ready",
             ForgeError::ProviderInvalid { .. } => "provider-invalid",

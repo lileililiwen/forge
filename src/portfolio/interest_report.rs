@@ -21,9 +21,10 @@ use serde::Serialize;
 
 use crate::core::ForgeError;
 use crate::portfolio::interest::{
-    self, bound_stale_after_days, build_comparison, build_trend, refusal, Comparison, Freshness,
-    InterestImport, InterestMetric, InterestRejection, InterestSnapshot, RawSnapshot, Trend,
-    DEFAULT_STALE_AFTER_DAYS, MAX_COMPARE_PROJECTS, MAX_SNAPSHOTS_PER_IMPORT, MAX_TREND_POINTS,
+    self, bound_stale_after_days, build_comparison, build_readiness, build_trend, refusal,
+    ActivationReport, Comparison, Freshness, InterestImport, InterestMetric, InterestRejection,
+    InterestSnapshot, RawSnapshot, RequestedWindow, Trend, DEFAULT_STALE_AFTER_DAYS,
+    MAX_COMPARE_PROJECTS, MAX_SNAPSHOTS_PER_IMPORT, MAX_TREND_POINTS,
 };
 use crate::registry::{Registry, SnapshotOutcome};
 
@@ -348,6 +349,72 @@ pub fn interest_trend(
         now,
         stale_after_days,
     ))
+}
+
+/// Read-only readiness verdicts for several projects on one metric.
+///
+/// The report is built from *current* snapshots only, carries no
+/// stored state, and writes no row: absence of evidence is a
+/// `not-ready` verdict, never an invented zero. Every id is resolved
+/// before any read so a typo cannot produce a silently narrowed
+/// report, and verdicts come back in project id order so repeated
+/// reads are byte-identical.
+#[allow(clippy::too_many_arguments)]
+pub fn activation_readiness(
+    registry: &Registry,
+    project_ids: &[String],
+    metric: InterestMetric,
+    threshold: Option<u64>,
+    source: Option<&str>,
+    requested_window: Option<(&str, &str)>,
+    stale_after_days: i64,
+    now: DateTime<Utc>,
+) -> Result<ActivationReport, ForgeError> {
+    let stale_after_days = bound_stale_after_days(stale_after_days)
+        .map_err(|reason| ForgeError::PortfolioInterestInvalid { reason })?;
+    if project_ids.is_empty() {
+        return Err(ForgeError::PortfolioInterestInvalid {
+            reason: "readiness needs at least one project to evaluate".to_string(),
+        });
+    }
+    let mut sorted = project_ids.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    for project_id in &sorted {
+        registry.require_project(project_id)?;
+    }
+    let source = source.map(str::to_string);
+    let mut verdicts = Vec::with_capacity(sorted.len());
+    for project_id in &sorted {
+        let counts = registry.interest_snapshot_counts(project_id)?;
+        let snapshots = registry.interest_current_snapshots(project_id)?;
+        verdicts.push(build_readiness(
+            project_id,
+            metric,
+            threshold,
+            source.as_deref(),
+            requested_window,
+            counts,
+            &snapshots,
+            now,
+            stale_after_days,
+        ));
+    }
+    let ready_count = verdicts.iter().filter(|v| v.readiness.is_ready()).count();
+    let not_ready_count = verdicts.len() - ready_count;
+    Ok(ActivationReport {
+        metric: metric.label().to_string(),
+        threshold,
+        stale_after_days,
+        requested_window: requested_window.map(|(start, end)| RequestedWindow {
+            start: start.to_string(),
+            end: end.to_string(),
+        }),
+        requested_source: source,
+        verdicts,
+        ready_count,
+        not_ready_count,
+    })
 }
 
 /// Bound an import document against the size an operator can send.

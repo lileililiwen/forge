@@ -1234,6 +1234,12 @@ enum PortfolioCommands {
         #[command(subcommand)]
         command: PortfolioInterestCommands,
     },
+    /// Read-only readiness verdict on whether aggregate evidence
+    /// justifies the product-owned activation follow-up. No billing.
+    Activation {
+        #[command(subcommand)]
+        command: PortfolioActivationCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -1304,6 +1310,35 @@ enum PortfolioInterestCommands {
         /// Maximum rows to read.
         #[arg(long, default_value_t = 50)]
         limit: usize,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PortfolioActivationCommands {
+    /// Read-only verdict on whether a project's aggregate interest
+    /// evidence justifies the product-owned activation follow-up.
+    /// Prints the report and exits non-zero when any evaluated
+    /// project is `not-ready`. Adds no billing of any kind.
+    Readiness {
+        /// Registered project id (omit for every registered project).
+        #[arg(default_value = "")]
+        project: String,
+        /// Aggregate metric the verdict rests on.
+        #[arg(long = "metric")]
+        metric: String,
+        /// Minimum value the operator declares; absent is the
+        /// `threshold-not-declared` verdict, not an error.
+        #[arg(long = "min-value")]
+        min_value: Option<u64>,
+        /// Narrow the verdict to one analytics source.
+        #[arg(long)]
+        source: Option<String>,
+        /// Narrow the verdict to one window `<START>..<END>`.
+        #[arg(long)]
+        window: Option<String>,
+        /// Days after which a window reads as `stale`.
+        #[arg(long, default_value_t = forge::portfolio::interest::DEFAULT_STALE_AFTER_DAYS)]
+        stale_after_days: i64,
     },
 }
 
@@ -7836,6 +7871,9 @@ fn cmd_portfolio(
         PortfolioCommands::Interest { command } => {
             cmd_portfolio_interest(&registry, command, format)
         }
+        PortfolioCommands::Activation { command } => {
+            cmd_portfolio_activation(&registry, command, format)
+        }
     }
 }
 
@@ -9041,6 +9079,173 @@ fn cmd_portfolio_interest(
             ))
         }
     }
+}
+
+/// The one CLI entry point for activation readiness. Mirrors
+/// `cmd_fleet_online` exactly: build the report, print it, then return
+/// the typed gate error when any evaluated project is `not-ready`.
+/// Input errors are typed `portfolio-interest-invalid` refusals with
+/// empty stdout; only a verdict report may print on stdout with a
+/// non-zero exit.
+fn cmd_portfolio_activation(
+    registry: &Registry,
+    command: &PortfolioActivationCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::portfolio::interest::{self as interest, InterestMetric};
+    use forge::portfolio::interest_report as report;
+    let now = chrono::Utc::now();
+    let contract = interest::ACTIVATION_CONTRACT_VERSION;
+    match command {
+        PortfolioActivationCommands::Readiness {
+            project,
+            metric,
+            min_value,
+            source,
+            window,
+            stale_after_days,
+        } => {
+            let metric = InterestMetric::parse(metric.trim()).map_err(interest_invalid)?;
+            let threshold = match min_value {
+                Some(value) => {
+                    Some(interest::validate_threshold(*value).map_err(interest_invalid)?)
+                }
+                None => None,
+            };
+            let source = match source {
+                Some(raw) if raw.trim().is_empty() => {
+                    return Err(interest_invalid("source must not be blank".to_string()));
+                }
+                Some(raw) => Some(raw.trim().to_string()),
+                None => None,
+            };
+            let parsed_window = match window {
+                Some(raw) => Some(interest::parse_window(raw.trim()).map_err(interest_invalid)?),
+                None => None,
+            };
+            let window_pair = parsed_window
+                .as_ref()
+                .map(|(start, end)| (start.as_str(), end.as_str()));
+            let projects: Vec<String> = if project.trim().is_empty() {
+                let records = registry.list()?;
+                if records.is_empty() {
+                    return Err(interest_invalid(
+                        "readiness needs at least one project to evaluate".to_string(),
+                    ));
+                }
+                records.into_iter().map(|record| record.id).collect()
+            } else {
+                vec![project.trim().to_string()]
+            };
+            let activation = report::activation_readiness(
+                registry,
+                &projects,
+                metric,
+                threshold,
+                source.as_deref(),
+                window_pair,
+                *stale_after_days,
+                now,
+            )?;
+            let human = render_activation(&activation);
+            let json = serde_json::json!({
+                "contract": contract,
+                "generated_at": now.to_rfc3339(),
+                "activation": {
+                    "metric": activation.metric,
+                    "threshold": activation.threshold,
+                    "stale_after_days": activation.stale_after_days,
+                    "requested_window": activation.requested_window,
+                    "requested_source": activation.requested_source,
+                    "ready": activation.is_ready(),
+                    "ready_count": activation.ready_count,
+                    "not_ready_count": activation.not_ready_count,
+                    "verdicts": activation.verdicts,
+                },
+            });
+            let output = as_output(format, human, json);
+            if !activation.is_ready() {
+                match &output {
+                    Output::Human(text) => println!("{text}"),
+                    Output::Json(value) => {
+                        println!("{}", serde_json::to_string_pretty(value).unwrap());
+                    }
+                }
+                return Err(ForgeError::PortfolioActivationNotReady {
+                    reason: format!(
+                        "{} of {} project(s) are not ready ({})",
+                        activation.not_ready_count,
+                        activation.verdicts.len(),
+                        activation.verdict_reason_labels().join(", "),
+                    ),
+                });
+            }
+            Ok(output)
+        }
+    }
+}
+
+/// Parse the `--window <START>..<END>` flag shared by the activation
+/// readiness command. Both sides normalize through the interest
+/// timestamp rule so an offset form matches stored UTC.
+#[allow(dead_code)]
+fn parse_activation_window(raw: &str) -> Result<(String, String), ForgeError> {
+    forge::portfolio::interest::parse_window(raw.trim()).map_err(interest_invalid)
+}
+
+/// Render a readiness report: one header line, one block per verdict
+/// in verdict order, then the summary.
+fn render_activation(activation: &forge::portfolio::interest::ActivationReport) -> String {
+    let mut out = String::new();
+    let threshold = activation
+        .threshold
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    out.push_str(&format!(
+        "activation readiness ({}): metric={} threshold={} stale_after_days={}\n",
+        forge::portfolio::interest::ACTIVATION_CONTRACT_VERSION,
+        activation.metric,
+        threshold,
+        activation.stale_after_days,
+    ));
+    for verdict in &activation.verdicts {
+        if let Some(evidence) = &verdict.evidence {
+            out.push_str(&format!(
+                "  {} {}      window={}..{} source={} revision={} privacy={} coverage={} freshness={} value={}\n",
+                verdict.project_id,
+                verdict.readiness.label(),
+                evidence.window_start,
+                evidence.window_end,
+                evidence.source,
+                evidence.source_revision,
+                evidence.privacy_mode,
+                evidence.coverage,
+                evidence.freshness,
+                evidence.value,
+            ));
+        } else {
+            out.push_str(&format!(
+                "  {} {}\n",
+                verdict.project_id,
+                verdict.readiness.label(),
+            ));
+        }
+        for reason in &verdict.reasons {
+            out.push_str(&format!(
+                "      {}: {}\n",
+                reason.reason.label(),
+                reason.detail
+            ));
+        }
+        for note in &verdict.notes {
+            out.push_str(&format!("    {note}\n"));
+        }
+    }
+    out.push_str(&format!(
+        "summary: ready={} not-ready={}\n",
+        activation.ready_count, activation.not_ready_count
+    ));
+    out
 }
 
 /// Summarize a fully refused batch into one refusal message.

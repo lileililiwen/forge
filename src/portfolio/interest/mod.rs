@@ -44,14 +44,23 @@
 //!   [`validate_snapshot`] gate every transport goes through.
 //! - [`compare`] — how evidence is read back: per-window rows, the
 //!   freshness label and the refusal to sum across windows.
+//! - [`activation`] — whether the evidence justifies the
+//!   product-owned activation follow-up: a read-only readiness
+//!   verdict with a refusal-first reason vocabulary.
 //!
 //! Orchestration — import and comparison — lives in
 //! [`crate::portfolio::interest_report`], the single door both the CLI
 //! and the JSON API enter.
 
+pub mod activation;
 pub mod compare;
 pub mod validation;
 
+pub use activation::{
+    build_readiness, parse_window, validate_threshold, ActivationReport, NotReadyReason, Readiness,
+    ReadinessEvidence, ReadinessReason, ReadinessVerdict, RequestedWindow,
+    ACTIVATION_CONTRACT_VERSION,
+};
 pub use compare::{
     bound_stale_after_days, build_comparison, build_trend, freshness_label, Comparison,
     ComparisonRow, Freshness, Trend, TrendPoint,

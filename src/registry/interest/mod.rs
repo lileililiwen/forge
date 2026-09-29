@@ -425,6 +425,26 @@ impl crate::registry::Registry {
         Ok(snapshots)
     }
 
+    /// How many snapshots one project holds: `(total, current)`.
+    ///
+    /// Two `COUNT(*)` queries so `no-evidence` (nothing stored) is
+    /// distinguishable from `superseded-only` (history but no live
+    /// evidence). Read-only: no row is written.
+    pub fn interest_snapshot_counts(&self, project_id: &str) -> Result<(usize, usize), ForgeError> {
+        let total: i64 = self.registry_conn().query_row(
+            "SELECT COUNT(*) FROM portfolio_interest_snapshots WHERE project_id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+        let current: i64 = self.registry_conn().query_row(
+            "SELECT COUNT(*) FROM portfolio_interest_snapshots
+              WHERE project_id = ?1 AND state = 'accepted'",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+        Ok((total.max(0) as usize, current.max(0) as usize))
+    }
+
     /// The stored metric values of one snapshot, in canonical metric
     /// order.
     pub fn interest_metrics(&self, snapshot_id: i64) -> Result<Vec<MetricValue>, ForgeError> {
@@ -962,6 +982,33 @@ mod tests {
             !findings[0].detail.contains("a@b.co"),
             "the value must not be echoed: {:?}",
             findings[0]
+        );
+    }
+
+    #[test]
+    fn snapshot_counts_distinguish_no_evidence_from_superseded_only() {
+        let dir = tmp();
+        let registry = registry_with_projects(&dir.path().join("registry.db"), &["alpha"]);
+        assert_eq!(
+            registry.interest_snapshot_counts("alpha").expect("counts"),
+            (0, 0)
+        );
+        registry
+            .interest_insert_snapshot(&write("alpha"), "ops-admin", STAMP)
+            .expect("write");
+        assert_eq!(
+            registry.interest_snapshot_counts("alpha").expect("counts"),
+            (1, 1)
+        );
+        let mut replacement = write("alpha");
+        replacement.source_revision = "b2c3d4".to_string();
+        replacement.replaces_source_revision = Some("a1b2c3".to_string());
+        registry
+            .interest_insert_snapshot(&replacement, "ops-admin", STAMP)
+            .expect("replacement");
+        assert_eq!(
+            registry.interest_snapshot_counts("alpha").expect("counts"),
+            (2, 1)
         );
     }
 

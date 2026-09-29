@@ -297,6 +297,10 @@ fn err_status(err: &ForgeError) -> u16 {
         | "deploy-health-failed"
         | "portfolio-share-conflict"
         | "portfolio-interest-conflict" => 409,
+        // The readiness route never constructs the CLI gate error —
+        // it answers `200` for both verdicts — but the row keeps a
+        // future caller from silently becoming a `500`.
+        "portfolio-activation-not-ready" => 409,
         "api-invalid"
         | "manifest-invalid"
         | "manifest-not-found"
@@ -433,6 +437,10 @@ pub enum Route {
     InterestTrend,
     /// `GET /v1/interest/audit` — the refusals this store recorded.
     InterestAudit,
+    /// `GET /v1/interest/readiness` — read-only verdict on whether
+    /// aggregate evidence justifies the product-owned activation
+    /// follow-up. Admin-gated; always answers `200`.
+    InterestReadiness,
 }
 
 pub fn route_request(method: &str, path: &str) -> Option<Route> {
@@ -525,6 +533,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("GET", ["v1", "interest", "compare"]) => Some(Route::InterestCompare),
         ("GET", ["v1", "interest", "trend"]) => Some(Route::InterestTrend),
         ("GET", ["v1", "interest", "audit"]) => Some(Route::InterestAudit),
+        ("GET", ["v1", "interest", "readiness"]) => Some(Route::InterestReadiness),
         _ => None,
     }
 }
@@ -611,7 +620,8 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::ImportInterest { .. }
         | Route::InterestCompare
         | Route::InterestTrend
-        | Route::InterestAudit => Some("admin:access"),
+        | Route::InterestAudit
+        | Route::InterestReadiness => Some("admin:access"),
     }
 }
 
@@ -743,6 +753,7 @@ pub fn handle(
         Route::InterestCompare => handle_interest_compare(db_path, request, now),
         Route::InterestTrend => handle_interest_trend(db_path, request, now),
         Route::InterestAudit => handle_interest_audit(db_path, request),
+        Route::InterestReadiness => handle_interest_readiness(db_path, request, now),
     }
 }
 
@@ -849,7 +860,8 @@ fn authorize(
         | Route::ShareAudit
         | Route::InterestCompare
         | Route::InterestTrend
-        | Route::InterestAudit => {
+        | Route::InterestAudit
+        | Route::InterestReadiness => {
             // Fleet routes: walk the registry to find
             // which project minted the session, then
             // validate the permission for the action.
@@ -2591,6 +2603,143 @@ fn handle_interest_audit(db_path: &Path, request: &ApiRequest) -> ApiResponse {
             serde_json::json!({
                 "interest": { "refusals": findings },
                 "contract": crate::portfolio::interest::INTEREST_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+/// `GET /v1/interest/readiness`
+/// Read-only verdict on whether aggregate evidence justifies the
+/// product-owned activation follow-up. Always answers `200` for both
+/// verdicts: the gate exit code is a CLI concept and an HTTP client
+/// reads the verdict from the body.
+fn handle_interest_readiness(
+    db_path: &Path,
+    request: &ApiRequest,
+    now: DateTime<Utc>,
+) -> ApiResponse {
+    use crate::portfolio::interest::{InterestMetric, ACTIVATION_CONTRACT_VERSION};
+    let query = request.query.as_deref().unwrap_or_default().to_string();
+    let mut project: Option<String> = None;
+    let mut projects: Option<Vec<String>> = None;
+    let mut metric: Option<String> = None;
+    let mut min_value: Option<u64> = None;
+    let mut source: Option<String> = None;
+    let mut window: Option<String> = None;
+    let mut stale_after_days = crate::portfolio::interest::DEFAULT_STALE_AFTER_DAYS;
+    for pair in query.split('&').filter(|part| !part.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let value = percent_decode(value);
+        match key.trim() {
+            "project" => project = Some(value),
+            "projects" => {
+                projects = Some(
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(str::to_string)
+                        .collect(),
+                );
+            }
+            "metric" => metric = Some(value),
+            "min_value" => match value.trim().parse::<u64>() {
+                Ok(parsed) => min_value = Some(parsed),
+                Err(_) => return bad_request("min_value must be an integer"),
+            },
+            "source" => source = Some(value),
+            "window" => window = Some(value),
+            "stale_after_days" => match value.trim().parse::<i64>() {
+                Ok(parsed) => stale_after_days = parsed,
+                Err(_) => return bad_request("stale_after_days must be an integer"),
+            },
+            other => {
+                return bad_request(&format!(
+                    "unknown interest readiness query parameter `{other}`"
+                ))
+            }
+        }
+    }
+    if project.is_some() && projects.is_some() {
+        return bad_request("interest readiness takes `project` or `projects`, not both");
+    }
+    let Some(raw_metric) = metric else {
+        return bad_request("interest readiness requires a `metric` parameter");
+    };
+    let metric = match InterestMetric::parse(raw_metric.trim()) {
+        Ok(metric) => metric,
+        Err(reason) => return bad_request(&reason),
+    };
+    let threshold = match min_value {
+        Some(value) => match crate::portfolio::interest::validate_threshold(value) {
+            Ok(bound) => Some(bound),
+            Err(reason) => return bad_request(&reason),
+        },
+        None => None,
+    };
+    let source = match source {
+        Some(raw) if raw.trim().is_empty() => {
+            return bad_request("source must not be blank");
+        }
+        Some(raw) => Some(raw.trim().to_string()),
+        None => None,
+    };
+    let parsed_window = match window {
+        Some(raw) => match crate::portfolio::interest::parse_window(raw.trim()) {
+            Ok((start, end)) => Some((start, end)),
+            Err(reason) => return bad_request(&reason),
+        },
+        None => None,
+    };
+    let window_pair = parsed_window
+        .as_ref()
+        .map(|(start, end)| (start.as_str(), end.as_str()));
+    if let Err(reason) = crate::portfolio::interest::bound_stale_after_days(stale_after_days) {
+        return bad_request(&reason);
+    }
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_ids: Vec<String> = match (project, projects) {
+        (Some(one), None) => vec![one.trim().to_string()],
+        (None, Some(many)) => many,
+        (None, None) => match registry.list() {
+            Ok(records) => records.into_iter().map(|record| record.id).collect(),
+            Err(err) => return ApiResponse::from_error(&err),
+        },
+        (Some(_), Some(_)) => {
+            return bad_request("interest readiness takes `project` or `projects`, not both");
+        }
+    };
+    match crate::portfolio::interest_report::activation_readiness(
+        &registry,
+        &project_ids,
+        metric,
+        threshold,
+        source.as_deref(),
+        window_pair,
+        stale_after_days,
+        now,
+    ) {
+        Ok(report) => ApiResponse::json(
+            200,
+            serde_json::json!({
+                "contract": ACTIVATION_CONTRACT_VERSION,
+                "interest": {
+                    "activation": {
+                        "metric": report.metric,
+                        "threshold": report.threshold,
+                        "stale_after_days": report.stale_after_days,
+                        "requested_window": report.requested_window,
+                        "requested_source": report.requested_source,
+                        "ready": report.is_ready(),
+                        "ready_count": report.ready_count,
+                        "not_ready_count": report.not_ready_count,
+                        "verdicts": report.verdicts,
+                    },
+                },
             }),
         ),
         Err(err) => ApiResponse::from_error(&err),

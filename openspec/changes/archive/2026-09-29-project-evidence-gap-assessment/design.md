@@ -1,27 +1,26 @@
 # Design: project-evidence-gap-assessment
 
-Status: implementation-ready planning package. No code is written by this
-change.
+Status: implemented and archived 2026-09-29.
 
 ## Implementation boundary
 
 Repository `forge`, Rust 1.87+, existing doctor/evidence stack.
 
-Files to **add**:
+Files added:
 
 - `src/doctor/gaps.rs` — the catalog-gap rule set and finding projection.
 - `tests/project_gaps_contract.rs`, `tests/project_gaps_cross_surface.rs`.
 
-Files to **change** (additive only):
+Files changed additively:
 
 | File | Change |
 |---|---|
 | `src/doctor/mod.rs` | register the catalog-gap inspector beside the existing inspectors |
 | `src/main.rs` | `Project` command gains `gaps [PROJECT]` with `--format table\|json\|ndjson` and `--category` / `--status` / `--remediation-class` filters |
-| `src/catalog/mod.rs` | consume the catalog record as the gap input (depends on `project-catalog-query-contract`) |
+| `src/catalog/mod.rs` | consumed the catalog record as the gap input through the existing public catalog module (depends on `project-catalog-query-contract`) |
 
-Do **not** touch: file writers, GitHub transport, semantic generation, CI
-execution or deployment. This package is read-only.
+Untouched by this change: file writers, GitHub transport, semantic generation,
+CI execution and deployment. This package is read-only.
 
 ## Language and runtime
 

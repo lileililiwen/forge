@@ -1789,6 +1789,24 @@ enum ProjectCommands {
         #[command(flatten)]
         filters: CatalogFilterArgs,
     },
+    /// Report evidence-backed project metadata gaps
+    /// (`forge-project-evidence/0.1.0`).
+    Gaps {
+        /// Project id to assess (default: every project in the catalog).
+        project: Option<String>,
+        #[command(flatten)]
+        filters: CatalogFilterArgs,
+        /// Category predicate (repeatable; values are OR within the predicate).
+        #[arg(long = "category", value_name = "CATEGORY")]
+        categories: Vec<String>,
+        /// Status predicate (repeatable; values are OR within the predicate).
+        #[arg(long = "status", value_name = "STATUS")]
+        statuses: Vec<String>,
+        /// Remediation-class predicate (repeatable; values are OR within
+        /// the predicate).
+        #[arg(long = "remediation-class", value_name = "CLASS")]
+        remediation_classes: Vec<String>,
+    },
 }
 
 /// Shared source selection and filter flags for the catalog commands.
@@ -9874,12 +9892,36 @@ fn cmd_project(
     command: &ProjectCommands,
     format: Format,
 ) -> Result<Output, ForgeError> {
-    let args = match command {
-        ProjectCommands::List { filters }
-        | ProjectCommands::Inspect { filters, .. }
-        | ProjectCommands::Tags { filters }
-        | ProjectCommands::Languages { filters } => filters,
-    };
+    match command {
+        ProjectCommands::Gaps {
+            project,
+            filters,
+            categories,
+            statuses,
+            remediation_classes,
+        } => cmd_project_gaps(
+            db_path,
+            project.as_deref(),
+            filters,
+            categories,
+            statuses,
+            remediation_classes,
+            format,
+        ),
+        ProjectCommands::List { filters } => cmd_project_list(db_path, filters, format),
+        ProjectCommands::Inspect { project, filters } => {
+            cmd_project_inspect(db_path, project, filters, format)
+        }
+        ProjectCommands::Tags { filters } => cmd_project_tags(db_path, filters, format),
+        ProjectCommands::Languages { filters } => cmd_project_languages(db_path, filters, format),
+    }
+}
+
+fn cmd_project_list(
+    db_path: &Path,
+    args: &CatalogFilterArgs,
+    format: Format,
+) -> Result<Output, ForgeError> {
     catalog::validate_max_age(args.max_age)?;
     let selection = catalog_selection(args)?;
     let bundle = catalog::collect(&CatalogRequest {
@@ -9890,27 +9932,199 @@ fn cmd_project(
     });
     let pairs = catalog_filter_pairs(args);
     let query = CatalogQuery::from_pairs(&pairs, args.limit, args.cursor.clone())?.normalize();
-    match command {
-        ProjectCommands::List { .. } => {
-            let mut page = catalog::apply(&bundle.records, &query, &bundle.observed_at)?;
-            page.sources = bundle.statuses.clone();
-            catalog_page_output(page, format)
-        }
-        ProjectCommands::Inspect { project, .. } => {
-            let records = catalog::inspect_records(&bundle, project)?;
-            catalog_records_output(project, &records, format)
-        }
-        ProjectCommands::Tags { .. } => {
-            let filtered = catalog::filter(&bundle.records, &query);
-            let counts = catalog::tag_counts(&filtered);
-            catalog_counts_output("tags", &counts, format)
-        }
-        ProjectCommands::Languages { .. } => {
-            let filtered = catalog::filter(&bundle.records, &query);
-            let counts = catalog::language_counts(&filtered);
-            catalog_counts_output("languages", &counts, format)
-        }
+    let mut page = catalog::apply(&bundle.records, &query, &bundle.observed_at)?;
+    page.sources = bundle.statuses.clone();
+    catalog_page_output(page, format)
+}
+
+fn cmd_project_inspect(
+    db_path: &Path,
+    project: &str,
+    args: &CatalogFilterArgs,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    catalog::validate_max_age(args.max_age)?;
+    let selection = catalog_selection(args)?;
+    let bundle = catalog::collect(&CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: args.max_age,
+        now: chrono::Utc::now(),
+    });
+    let records = catalog::inspect_records(&bundle, project)?;
+    catalog_records_output(project, &records, format)
+}
+
+fn cmd_project_tags(
+    db_path: &Path,
+    args: &CatalogFilterArgs,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    catalog::validate_max_age(args.max_age)?;
+    let selection = catalog_selection(args)?;
+    let bundle = catalog::collect(&CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: args.max_age,
+        now: chrono::Utc::now(),
+    });
+    let pairs = catalog_filter_pairs(args);
+    let query = CatalogQuery::from_pairs(&pairs, args.limit, args.cursor.clone())?.normalize();
+    let filtered = catalog::filter(&bundle.records, &query);
+    let counts = catalog::tag_counts(&filtered);
+    catalog_counts_output("tags", &counts, format)
+}
+
+fn cmd_project_languages(
+    db_path: &Path,
+    args: &CatalogFilterArgs,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    catalog::validate_max_age(args.max_age)?;
+    let selection = catalog_selection(args)?;
+    let bundle = catalog::collect(&CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: args.max_age,
+        now: chrono::Utc::now(),
+    });
+    let pairs = catalog_filter_pairs(args);
+    let query = CatalogQuery::from_pairs(&pairs, args.limit, args.cursor.clone())?.normalize();
+    let filtered = catalog::filter(&bundle.records, &query);
+    let counts = catalog::language_counts(&filtered);
+    catalog_counts_output("languages", &counts, format)
+}
+
+fn cmd_project_gaps(
+    db_path: &Path,
+    project: Option<&str>,
+    args: &CatalogFilterArgs,
+    categories: &[String],
+    statuses: &[String],
+    remediation_classes: &[String],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::doctor::gaps::{self, GapCategory, GapFilters, GapStatus, RemediationClass};
+
+    catalog::validate_max_age(args.max_age)?;
+    let selection = catalog_selection(args)?;
+    let bundle = catalog::collect(&CatalogRequest {
+        selection: &selection,
+        registry_path: db_path,
+        max_age_seconds: args.max_age,
+        now: chrono::Utc::now(),
+    });
+
+    // When a project id is supplied, scope the records to that id; an
+    // unknown project is an `unknown-project` refusal, matching
+    // `forge project inspect`.
+    let mut records: Vec<forge::catalog::CatalogRecord> = if let Some(id) = project {
+        catalog::inspect_records(&bundle, id)?
+    } else {
+        bundle.records.clone()
+    };
+    // Stable order: by (project_id, source), matching `forge project list`.
+    records.sort_by(|a, b| {
+        a.project_id
+            .cmp(&b.project_id)
+            .then_with(|| a.source.cmp(&b.source))
+    });
+
+    let parsed_categories: Vec<GapCategory> = categories
+        .iter()
+        .map(|raw| {
+            GapCategory::parse(raw).ok_or_else(|| {
+                catalog::catalog_invalid(format!(
+                    "unknown --category `{raw}`; expected one of \
+                     description|tags|ci|compose|manifest|docs|repository"
+                ))
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let parsed_statuses: Vec<GapStatus> = statuses
+        .iter()
+        .map(|raw| {
+            GapStatus::parse(raw).ok_or_else(|| {
+                catalog::catalog_invalid(format!(
+                    "unknown --status `{raw}`; expected one of \
+                     pass|warn|fail|unavailable|not_applicable"
+                ))
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let parsed_classes: Vec<RemediationClass> = remediation_classes
+        .iter()
+        .map(|raw| {
+            RemediationClass::parse(raw).ok_or_else(|| {
+                catalog::catalog_invalid(format!(
+                    "unknown --remediation-class `{raw}`; expected one of \
+                     automatic|semantic|manual"
+                ))
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let filters = GapFilters {
+        categories: parsed_categories,
+        statuses: parsed_statuses,
+        remediation_classes: parsed_classes,
+    };
+    let report = gaps::build_report(&records, &bundle.statuses, project);
+    gaps_output(&report, &filters, &bundle.statuses, format)
+}
+
+fn gaps_output(
+    report: &forge::doctor::gaps::GapReport,
+    filters: &forge::doctor::gaps::GapFilters,
+    sources: &[forge::catalog::SourceStatus],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let filtered: Vec<&forge::doctor::gaps::GapFinding> = report
+        .findings
+        .iter()
+        .filter(|f| filters.matches(f))
+        .collect();
+    let total = report.findings.len();
+    match format {
+        Format::Human | Format::Table => Ok(Output::Human(
+            forge::doctor::gaps::render_report_human(report, &filtered, sources, total, filters),
+        )),
+        Format::Json => Ok(Output::Json(serde_json::json!({
+            "gaps": {
+                "contract": report.contract,
+                "project_id": report.project_id,
+                "sources": sources,
+                "summary": {
+                    "total": total,
+                    "returned": filtered.len(),
+                    "filters": filters_summary(filters),
+                },
+                "findings": filtered,
+            }
+        }))),
+        Format::Ndjson => Ok(Output::Raw(gaps_ndjson(&filtered)?)),
     }
+}
+
+fn filters_summary(filters: &forge::doctor::gaps::GapFilters) -> serde_json::Value {
+    serde_json::json!({
+        "categories": filters.categories.iter().map(|c| c.id()).collect::<Vec<_>>(),
+        "statuses": filters.statuses.iter().map(|s| s.id()).collect::<Vec<_>>(),
+        "remediation_classes": filters.remediation_classes.iter().map(|r| r.id()).collect::<Vec<_>>(),
+    })
+}
+
+fn gaps_ndjson(findings: &[&forge::doctor::gaps::GapFinding]) -> Result<String, ForgeError> {
+    let mut out = String::new();
+    for finding in findings {
+        let value = serde_json::to_value(finding).map_err(|err| {
+            catalog::catalog_invalid(format!("gap finding failed to serialize: {err}"))
+        })?;
+        out.push_str(&serde_json::to_string(&value).map_err(|err| {
+            catalog::catalog_invalid(format!("gap finding failed to serialize: {err}"))
+        })?);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 /// Build the source selection from the flags, defaulting to the local

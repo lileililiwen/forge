@@ -14,6 +14,15 @@
 //! checks are reported explicitly and never converted to `PASS`.
 //! Configured maturity is an intent, not proof: only evidence grants a
 //! level, and stale observations are shown as stale.
+//!
+//! The [`gaps`](self::gaps) sub-module owns the catalog-projected
+//! evidence-gap findings (`project-evidence-gap-assessment`): it reuses
+//! the doctor [`Remediation`] enum so the spec router and any doctor
+//! consumer share one classification, and it adds the closed
+//! `not_applicable` verdict the package requires for inapplicable
+//! controls.
+
+pub mod gaps;
 
 use std::fs;
 use std::path::Path;

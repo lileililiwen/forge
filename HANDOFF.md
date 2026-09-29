@@ -4,6 +4,124 @@ current_spec: fleet-live-rollout
 
 ## Current state
 
+`fleet-live-rollout` code lane implemented and committed on 2026-09-29
+as `7ad8ab4` (Requirements 1–3: concurrent `--jobs`, 600s sync
+ceiling, `--fleet-registry` repair); Requirement 4 (live 20/20) is
+**blocked on Mac Docker engine recovery** and the change stays
+active with task 4.3 unchecked. `portfolio-activation-readiness`
+stays active as a planning-only change. This section is the current
+cycle; prior cycles follow below.
+
+**Implementation** (`src/main.rs`, `src/publish/`).
+`forge publish fleet --jobs N` (`1..=32`, default 4, bounded by
+`validate_fleet_jobs`): phased parallel execution preserving
+per-project Sync → Db → Prepare → Deploy order. Phase A runs
+Sync+Db concurrently (per-thread adapter + transport; `RefCell`
+state never shared, `registry=None` so no row escapes a worker),
+Phase B runs Prepare serially in roster order on the main thread
+(the shared `port-registry.json`/Caddyfile/index converge — each
+render sees every prior project), Phase C runs Deploy concurrently.
+The main thread replays every per-stage + summary journal row
+serially via `replay_publish_journal` (byte-identical shapes to
+`run_publish`'s own writes) plus one queue-tagged terminal row per
+project in roster order, and renders all output. `--jobs 1`,
+`--dry-run` and the external `--provider` branch all stay on the
+untouched sequential path. The phasing is a live-evidence
+refinement: the first attempt ran monolithic parallel All per
+worker and exposed Prepare as last-writer-wins on the shared
+registry (recorded in the change `design.md` D1/D5).
+
+**Sync ceiling** (`src/publish/mod.rs::PUBLISH_SYNC_TIMEOUT`,
+600s): applied to sync-stage rsync in both adapters
+(`remote_compose::plan_sync`, `jenkins::plan_sync`); probes keep
+60s, deploy keeps 1800s; the value never renders into dry-run
+plans (unit-pinned).
+
+**`--fleet-registry` repair** (`cmd_publish_fleet`): an explicit
+`--fleet-registry <path>` now routes through
+`legacy_inventory_snapshot` and wins over `--inventory`; the
+no-explicit-source fallback is unchanged. Baseline refused a
+valid `projects.json` with `inventory invalid: inventory contract
+must be ...`; the fix classifies its entries (`registry:` source
+label).
+
+**Tests.** 4 scheduler unit tests (`fleet_jobs_tests`: bounds,
+roster order, fail-fast stop, phased outcomes), 7
+`tests/fleet_live_rollout_contract.rs` (help, bounds refusals
+with empty stdout, `--jobs 1` dry-run byte-identical to default,
+`jobs` in summary, legacy-adapter routing, flag precedence,
+missing-file refusal), sync-ceiling pins in both adapter suites.
+
+**Verification evidence (fleet-live-rollout code lane, 2026-09-29).**
+
+- `cargo fmt --all -- --check`: PASS for every touched file; the
+  pre-change drift in `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`,
+  `tests/gate_contract.rs`, `tests/gate_cross_surface.rs` and
+  `tests/publish_queue_status_contract.rs` preserved (reverted
+  after fmt).
+- `cargo build`: PASS. `cargo clippy --all-targets -- -D
+  warnings`: identical to baseline — same 10 locations, zero new.
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: **81
+  result groups, 1808 tests, 0 failed**. One exclusion, honestly
+  recorded: `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  fails on the stashed baseline too (sandbox listener
+  restriction) — pre-existing, unrelated (untouched `fleet
+  online` path).
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 51 passed,
+  0 failed; `git diff --check` / `--cached --check`: PASS.
+- Proposal tasks 1.1–4.2 checked with evidence; 4.3 stays
+  unchecked (blocked, see ops log).
+
+**Live ops log (2026-09-29, queue
+`fleet-20260929T020916Z-c5365bdf`, `--jobs 4`, monolithic path).**
+
+- Result 4/20: `alethefy`, `cvunify`, `dharmatlas`, `hermexa`
+  healthy (all four stages `done`). Failure taxonomy: 6× `db`
+  `shared PostgreSQL unavailable` (engine dying), 3× deploy
+  `no space left on device`, 2× deploy 1800s build timeouts
+  (`hermora`, `lexora`), 2× deploy missing env values, 1× rsync
+  broken pipe, 4× prepare `mv ... No such file` (disk-full scp
+  fallout + the shared-registry race the phasing now fixes).
+- Remediations completed (keys/counts only, never values):
+  legacy `hermexa-api` container and `hermexa-postgres-data`
+  volume removed; secrets present for all 20 roster projects;
+  hermora Dockerfile `adduser` → portable `useradd` (slim Ubuntu
+  `aspnet:10.0` has no `adduser`; verified `useradd` present);
+  hestia-lab api Dockerfile `tdnf` → `apt-get install -y
+  --no-install-recommends wget` (image is Ubuntu 24.04, not
+  Mariner); both synced to the Mac checkout paths
+  (`hestia-lab` and `hestiaLab` spellings); hestia-lab web needs
+  nothing (nginx:alpine carries busybox wget).
+- **Blocker:** the Mac Docker engine died mid-rollout writing
+  its own `init.log: no space left on device` (host volume 100%
+  full, Docker.raw 466G sparse). Triage: cleared only
+  regenerable caches (`Mozilla.sccache`, `pip`, `Homebrew`,
+  `ms-playwright*`, `camoufox` — all rebuild on next use),
+  freeing 1.3 → 9.4Gi; quit + relaunched Docker Desktop (fresh
+  PID 95428). The engine never rebooted: no VM process, no new
+  backend log writes. VM recovery (possible image damage from
+  the disk-full crash) is an operator action with data-loss risk
+  to sibling workloads — not attempted over SSH.
+- **Exact next action:** operator recovers the Mac Docker engine
+  until `docker version` shows a Server; then re-run
+  `forge publish fleet --jobs 4` (phased path, journal shapes
+  unchanged, same queue semantics) and record 20/20 +
+  `deploy status --queue` all-`done` for task 4.3 → archive.
+  The phased code has no live evidence yet.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
+**Pointer state:** `fleet-live-rollout` stays active (code lane
+committed as `7ad8ab4`; tasks 1.1–4.2 evidenced, 4.3 blocked on
+the engine). `portfolio-activation-readiness` stays active as a
+planning-only change. The pointer remains `fleet-live-rollout`
+— the only implementation change — until 4.3 is evidenced and
+the change archives.
+
+## Current state
+
 `standard-pack-registry-and-snapshots` implemented, verified and archived on
 2026-09-29 as `2026-09-29-standard-pack-registry-and-snapshots`; its three
 requirements (versioned standard packs, standalone snapshot generation,

@@ -4,6 +4,121 @@ current_spec: fleet-live-rollout
 
 ## Current state
 
+`portfolio-activation-readiness` implemented, verified and archived on
+2026-09-29 as `2026-09-29-portfolio-activation-readiness`; its four
+requirements (read-only activation readiness verdict, the machine
+signal, absence-never-reads-as-readiness, and Forge gates activation
+without becoming a billing surface) were promoted into
+[openspec/specs/portfolio-activation-readiness/spec.md](openspec/specs/portfolio-activation-readiness/spec.md).
+
+**Domain** (`src/portfolio/interest/activation.rs`). Contract
+`forge-portfolio-activation/0.1.0`. `Readiness` (`ready|not-ready`) and
+the eight-reason `NotReadyReason` are closed; the reason declaration
+order **is** the report order
+(`threshold-not-declared`, `no-evidence`, `superseded-only`,
+`no-current-window`, `stale-window`, `inexact-privacy-mode`,
+`partial-coverage`, `below-threshold`). `build_readiness` evaluates the
+**latest reported window only** and never falls back — falling back
+would present older evidence as current readiness. A threshold of `0`
+is legal; an absent threshold is the `threshold-not-declared` verdict,
+not an error. Every held condition is reported, never collapsed into a
+score, percentage or ranking. `paid_interest_events` remains an
+aggregate signal that grants nothing.
+
+**Persistence** (`Registry::interest_snapshot_counts`, one read-only
+helper). Two `COUNT(*)` queries `(total, current)` so `no-evidence` is
+distinguishable from `superseded-only`. No table, column or migration
+was added; a registry written before this package reads as-is.
+
+**Orchestration** (`interest_report::activation_readiness`). Bounds
+staleness, resolves every project id before any read, refuses an empty
+set, reads counts then current snapshots, and orders verdicts by
+project id so repeated reads are byte-identical.
+
+**CLI** (`forge portfolio activation readiness [PROJECT] --metric <m>
+[--min-value] [--source] [--window] [--stale-after-days]`). Mirrors the
+`forge fleet online` print-then-error gate: the report is printed to
+stdout and a typed `portfolio-activation-not-ready` error is written to
+stderr with exit 1 when any evaluated project is `not-ready`; input
+errors are `portfolio-interest-invalid` refusals with empty stdout.
+
+**API** (`GET /v1/interest/readiness`). Admin-gated like every interest
+route; always answers `200` with `{"interest": {"activation": …}}` for
+both verdicts (the gate exit code is a CLI concept), `400` for a bad
+parameter and `401` without a session. One additive error code
+`portfolio-activation-not-ready` maps to `409` for a future caller even
+though this route never constructs it.
+
+**Six dependency-ordered planning packages completed in the same cycle
+at the operator's request** (all planning-only, tasks unchecked, strict
+validation passing): `project-catalog-query-contract`,
+`project-evidence-gap-assessment`, `project-local-remediation-plans`,
+`project-semantic-description-review`,
+`github-project-metadata-adapter`, `project-query-consumer-surfaces`.
+Each gained the missing `design.md`, tasks and spec deltas so
+`openspec validate --all --strict --no-interactive` passes; none is
+implemented, and none authorizes implementation.
+
+**Verification evidence (portfolio-activation-readiness, 2026-09-29).**
+
+- `cargo fmt --all -- --check`: the six pre-existing drift files
+  (`src/gate/evidence.rs`, `src/portfolio/share/validation.rs`,
+  `src/publish/fleet.rs`, `tests/gate_contract.rs`,
+  `tests/gate_cross_surface.rs`,
+  `tests/publish_queue_status_contract.rs`) were restored with `git
+  checkout --` after incidental `cargo fmt`; every touched file is
+  clean and the drift is preserved exactly.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: identical to the
+  captured baseline — the same 12 locations
+  (`src/api/ui/auth.rs:166-167`, `src/gate/evidence.rs` 229/425/826/827/862,
+  `src/portfolio/share/validation.rs` 13/392, `src/publish/fleet.rs:51`,
+  `src/publish/mod.rs` 642/644). **Zero new clippy errors** (one
+  `too_many_arguments` was accepted with the same `#[allow]` the
+  profile builders and `cmd_fleet_online` already use, and one
+  `useless_format` was fixed rather than suppressed).
+- `cargo test --workspace --all-targets -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: one
+  pre-existing failure `fleet_online_routes_to_local_listener_when_alethefy_is_up`
+  (sandbox listener restriction, recorded as failing on the stashed
+  baseline before this change); every other result group 0 failed. New
+  supervised suites: 20 `activation` unit tests + 1
+  `interest_snapshot_counts` test, 16
+  `tests/portfolio_activation_cli_contract.rs`, 6
+  `tests/portfolio_activation_cross_surface.rs`.
+- Live binary smoke (CLI): `ready` case exits 0 and prints the report
+  header/verdict/summary; `not-ready` prints the report on stdout with
+  `error[portfolio-activation-not-ready]: activation readiness: 1 of 1
+  project(s) are not ready (alethefy:below-threshold)` on stderr and
+  exit 1; a `--min-value 1000000001` refusal prints 0 bytes to stdout.
+- Live binary smoke (HTTP), `forge api serve --bind 127.0.0.1 --port
+  18977`: without a bearer `401 api-unauthorized`; with an admin session
+  `200` `ready:true` and `200` `ready:false` with
+  `below-threshold`; an unknown query parameter `400 api-invalid`
+  naming it.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 57 passed, 0
+  failed (57 items) — the six planning packages were completed to reach
+  this; `git diff --check` PASS.
+- **Blocked, honestly recorded:** no analytics provider was contacted,
+  no product was activated, and product conversion evidence stays
+  external. No billing, subscription, entitlement, checkout, CRM or
+  revenue-attribution field exists anywhere; Forge still declares no
+  such surface.
+- Pointer state: `portfolio-activation-readiness` archived (`23/23`
+  tasks evidenced, `4/4` artifacts complete). Active changes are
+  `fleet-live-rollout` (still blocked on Mac Docker engine recovery)
+  and the six planning-only packages. The pointer stays on
+  `fleet-live-rollout`, the only implementation change with work in
+  flight; the six planning packages are the next eligible selection in
+  dependency order (catalog contract first) and await an explicit
+  operator choice.
+- No shared Gate Runtime is configured; no Gate pass is claimed. No
+  PostgreSQL, multi-user, SSO or remote-synchronization readiness is
+  claimed.
+
+## Current state
+
 `fleet-live-rollout` code lane implemented and committed on 2026-09-29
 as `7ad8ab4` (Requirements 1–3: concurrent `--jobs`, 600s sync
 ceiling, `--fleet-registry` repair); Requirement 4 (live 20/20) is

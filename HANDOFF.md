@@ -1,6 +1,119 @@
-current_spec: hypora-graduation-import
+current_spec: project-to-production-workflow
 
 # Forge handoff
+
+## Current state
+
+`hypora-graduation-import` implemented, verified and archived on
+2026-09-29 as `2026-09-29-hypora-graduation-import`; its six
+requirements (validate-before-use, closed key sets and deny lists,
+bounded fields, the `validated: true` gate, read-only preview, and the
+minimal confirmed import) were promoted into
+[openspec/specs/hypora-graduation-import/spec.md](openspec/specs/hypora-graduation-import/spec.md).
+
+**Domain** (`src/graduation/mod.rs`). Forge's own contract is
+`forge-graduation-import/0.1.0`; the accepted input contract is
+`platform.idea-graduation/0.1.0` (major `0`), pinned by
+`IDEA_GRADUATION_CONTRACT`, `SUPPORTED_IDEA_GRADUATION_MAJOR` and
+`SUPPORTED_IDEA_GRADUATION_REVISIONS`. Four deny lists (identity, raw
+event, payment, credential) and five closed key sets (artifact, brief,
+metric, experiment, evidence) are exact; the `MAX_*` bounds are
+graduation-local and mirror the `semantic`/`interest` split. The record
+shapes are `GraduationSource`, `GraduationBrief`,
+`GraduationSuccessMetric`, `GraduationEvidence`, `GraduationExperiment`
+and `GraduationImport`.
+
+**Gate** (`src/graduation/validation.rs`). `read_artifact` bounds the
+source at 1 MiB before reading and distinguishes `path-unavailable` from
+`graduation-invalid` (oversized, non-UTF-8). `parse_artifact` decodes the
+JSON object and checks the contract family, major and revision before any
+content value. `validate_graduation` is the single gate: deny lists,
+closed key sets at every level, provenance, brief, experiment,
+`validated == true`, per-field bounds and scrubbing. A credential, email
+or query-URL value is refused without echoing it;
+`GraduationRefusal::new` redacts every detail.
+
+**Orchestration** (`src/graduation/import.rs`). `build_proposal` is
+read-only: `inspect_profile`, canonical destination resolution, a
+manifest-bearing destination is `graduation-conflict`, and the id comes
+from `--id`, then the kebab-cased brief title, then the destination
+basename. `adopt_graduation` reuses `crate::import::build_manifest_text`
+with a `Manifest::parse` self-check, pre-checks identity, writes the
+minimal `forge.yaml` and the closed `GraduationReceipt` at
+`.forge/graduation/<id>/import.json`, registers, and rolls both files
+back on any failure. The receipt carries the mapped brief, the
+allowlisted source, the evidence **count**, `imported_at` and `actor` —
+never an excerpt and never an extra key.
+
+**Transport** (`src/main.rs`). `forge graduation preview <ARTIFACT>` is
+read-only; `forge graduation import <ARTIFACT> --path <DIR> --profile
+<PROFILE> [--id] [--actor] [--confirm]` is a dry run without `--confirm`.
+`-` reads stdin. Two additive errors: `GraduationInvalid`
+(`graduation-invalid`) and `GraduationConflict` (`graduation-conflict`).
+No new dependency, no manifest field, no registry table or migration, no
+API route, no MCP tool, no portal change; `forge import` is untouched.
+
+## Verification evidence (hypora-graduation-import, 2026-09-29)
+
+- `cargo fmt --all -- --check`: PASS for every touched file
+  (`src/graduation/{mod,validation,import}.rs`, `src/core/mod.rs`,
+  `src/lib.rs`, `src/main.rs`, `tests/graduation_cli_contract.rs`,
+  `tests/graduation_cross_surface.rs`). The pre-change baseline carries
+  formatting drift in `src/gate/evidence.rs`,
+  `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`,
+  `src/github/{adapter,normalize,mod}.rs`, `src/api/ui/auth.rs`,
+  `tests/gate_*` and `tests/publish_queue_status_contract.rs`; it is
+  preserved exactly as prior cycles left it and no pre-existing file was
+  reformatted.
+- `cargo build`: PASS.
+- `cargo clippy --all-targets`: the recorded pre-change baseline
+  (`src/api/ui/auth.rs:166-167`, `src/gate/evidence.rs` 229/425/826/827/
+  862, `src/portfolio/share/validation.rs` 13/392,
+  `src/publish/fleet.rs:51`, `src/publish/mod.rs:642/644`) is unchanged;
+  **zero new locations** anywhere in `src/graduation/`.
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip
+  rust_scaffold_builds_and_tests_with_native_toolchain`: **96 result
+  groups, 2091 passed, 1 failed**. The one failure,
+  `fleet_online_routes_to_local_listener_when_alethefy_is_up`, is
+  pre-existing and unrelated: it reproduces on the untouched baseline
+  (stashed with `git stash push -u -- <changed files>`) on the
+  sandbox-restricted `fleet online` listener path this change never
+  touches. New: 30 `src/graduation` unit tests, 13
+  `tests/graduation_cli_contract.rs`, 7
+  `tests/graduation_cross_surface.rs`.
+- `node scripts/check-openspec-change-names.mjs`: PASS;
+  `openspec validate --all --strict --no-interactive`: 61 passed, 0
+  failed pre-archive and post-archive with the promoted
+  `hypora-graduation-import` spec (+6 requirements, 26 scenarios);
+  `git diff --check`: PASS.
+- **No Hypora endpoint was contacted and no credential was exchanged.**
+  The conformance oracle is the local fixture set; no
+  `platform.idea-graduation` schema is vendored in this repository and
+  none is required. A preview spawns no process at all; a confirmed
+  import's only child process is the registry's existing best-effort
+  `git` probe, shared with `forge import`. No project was scaffolded,
+  deployed or published and no gate was approved. A confirmed import
+  adds exactly one project and one `register` journal row.
+- **Blocked, honestly recorded:** end-to-end Hypora→Forge adoption waits
+  for the Hypora producer change and a future `contracts/` vendoring
+  package; both are external to this repository. This package's contract
+  is verified against its local fixtures only, and the revision allowlist
+  (`SUPPORTED_IDEA_GRADUATION_REVISIONS`) is the single pin a vendoring
+  follow-up would move. `cargo deny check` is not run (no network); no
+  dependency was added and `Cargo.toml` is unmodified, so the dependency
+  closure is unchanged.
+- Pointer state: `hypora-graduation-import` archived (`22/22` tasks
+  evidenced, `4/4` artifacts complete). `openspec list` now shows four
+  active changes: `fleet-live-rollout` (blocked on Mac Docker engine
+  recovery) plus three planning-only packages
+  (`project-to-production-workflow`, `github-cli-project-workflows`,
+  `site-studio-preview-refinement`). The pointer advances to
+  **`project-to-production-workflow`**, the next change in dependency
+  order with no unarchived prerequisite, whose declared consumer
+  (`site-studio-preview-refinement`) depends on it; it is still an
+  implementation-ready planning package and awaits an explicit operator
+  choice.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
 
 ## Current state
 

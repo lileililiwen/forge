@@ -41,10 +41,11 @@ now terminates the whole preview process tree.
   from `http://127.0.0.1:48200/`. Boundaries: an occupied port is refused
   (`Port ... already in use`, exit 1); a tree without installed dependencies
   fails (`vite: not found`, exit 127).
-- `cargo test --workspace --all-targets --no-fail-fast`: 103 targets pass; only
-  the pre-existing sandbox failure
-  `fleet_online_routes_to_local_listener_when_alethefy_is_up` (DOWN vs ONLINE
-  listener restriction) remains.
+- `cargo test --workspace --all-targets --no-fail-fast`: 104 targets pass, no
+  failures. The `fleet_online_contract` ONLINE round trip was previously
+  network-dependent and read `DOWN` offline; its HTTPS probe is now stubbed by
+  a fake `curl` on `PATH`, with an added 502 → `DOWN` round trip (test-only;
+  production and specs unchanged).
 - Pointer: `react-web-live-preview` archived. The only remaining active change
   is **`fleet-live-rollout`** (10/11, blocked on Mac Docker engine recovery).
   No shared Gate Runtime is configured; no Gate pass is claimed.

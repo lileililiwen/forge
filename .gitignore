@@ -46,5 +46,6 @@ Thumbs.db
 *.swp
 # Local agent runtime state (daemon sockets, logs, locks, conversation transcripts)
 /.ariadex/
+/.claude/
 /.commandcode/
 /templates/

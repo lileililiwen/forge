@@ -5,9 +5,9 @@
 //! binary. The SSH transport is stubbed via a tiny fake `ssh`
 //! script — set through `FORGE_PUBLISH_SSH_TARGET` — so the
 //! served-Caddyfile and `docker ps` probes answer from local
-//! fixture files. The HTTPS probe either runs against a tiny local
-//! listener (for the online round trip) or is skipped entirely
-//! (every test that doesn't need it sets `public_http: false`).
+//! fixture files. The HTTPS probe is stubbed by shadowing `curl`
+//! with a fake answer script placed first on `PATH`; entries with no
+//! served route are never probed at all.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -132,6 +132,38 @@ impl FakeSsh {
 impl Drop for FakeSsh {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Write a fake `curl` that answers every probe with the given body
+/// and HTTP status, mirroring the `-o - -w '\n%{http_code}'` shape the
+/// real probe parses: `<body>\n<status>` with no trailing newline.
+/// This is the design's "stubbed probe": deterministic and offline,
+/// with nothing on stderr so the probe is never read as `UNAVAILABLE`.
+struct FakeCurl {
+    dir: TempDir,
+}
+
+impl FakeCurl {
+    fn new(body: &str, status: u16) -> Self {
+        let dir = TempDir::new();
+        let script = format!("#!/bin/sh\nprintf '%s\\n%s' '{body}' '{status}'\n");
+        let path = dir.path().join("curl");
+        fs::write(&path, script).expect("write fake curl");
+        let mut perms = fs::metadata(&path).expect("curl metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms).expect("chmod fake curl");
+        Self { dir }
+    }
+
+    /// `PATH` with the fake `curl` first and the real `PATH` retained,
+    /// so the fake `ssh` script's `cat`/`grep` still resolve.
+    fn path_with_curl_first(&self) -> String {
+        format!(
+            "{}:{}",
+            self.dir.path().display(),
+            std::env::var("PATH").unwrap_or_default()
+        )
     }
 }
 
@@ -491,18 +523,19 @@ forge-alethefy-0123456789ab\tUp 5m password=abc123secretXYZ\n";
 }
 
 #[test]
-fn fleet_online_routes_to_local_listener_when_alethefy_is_up() {
+fn fleet_online_reports_online_when_route_and_container_are_up() {
     let tmp = tempdir();
     let db = bootstrap_registry(&tmp);
-    // A single compose-ready entry that does NOT route (no public
-    // HTTP) — the probe must skip the HTTPS round trip and verdict
-    // `NO-ROUTE`, never `ONLINE`. This protects against a regression
-    // where a missing route accidentally reads online.
+    // Compose-ready with a served Caddyfile route and a running
+    // container. The stubbed HTTPS probe answers 200, so the join is
+    // `ONLINE` and the run exits 0.
     let inventory = write_inventory_with_entries(
         tmp.path(),
         vec![compose_ready_entry_in(tmp.path(), "alethefy", false)],
     );
-    let fake = FakeSsh::new(SIMPLE_CADDYFILE, SIMPLE_DOCKER_PS);
+    let fake_ssh = FakeSsh::new(SIMPLE_CADDYFILE, SIMPLE_DOCKER_PS);
+    let fake_curl = FakeCurl::new("ok", 200);
+    let path = fake_curl.path_with_curl_first();
     let out = run_with_env(
         &db,
         &[
@@ -511,7 +544,13 @@ fn fleet_online_routes_to_local_listener_when_alethefy_is_up() {
             "--inventory",
             inventory.to_str().unwrap(),
         ],
-        &[("FORGE_PUBLISH_SSH_TARGET", fake.target().to_str().unwrap())],
+        &[
+            (
+                "FORGE_PUBLISH_SSH_TARGET",
+                fake_ssh.target().to_str().unwrap(),
+            ),
+            ("PATH", path.as_str()),
+        ],
     );
     let json = serde_json::from_slice::<Value>(&out.stdout)
         .unwrap_or_else(|_| panic!("invalid json: stdout={}", lossy(&out.stdout)));
@@ -520,15 +559,52 @@ fn fleet_online_routes_to_local_listener_when_alethefy_is_up() {
         .and_then(|v| v.as_array())
         .expect("entries array");
     assert_eq!(entries.len(), 1);
-    // alethefy is in the Caddyfile but `public_http: false` keeps
-    // the inventory entry from declaring a routed host; the verdict
-    // still answers from the served Caddyfile → ONLINE.
     assert_eq!(entries[0]["verdict"], "ONLINE");
+    assert_eq!(entries[0]["http_status"], 200);
     assert!(
         out.status.success(),
         "online must exit 0; stderr={}",
         lossy(&out.stderr)
     );
+}
+
+#[test]
+fn fleet_online_reports_down_on_gateway_error() {
+    let tmp = tempdir();
+    let db = bootstrap_registry(&tmp);
+    // Same routed, running entry, but the stubbed probe answers 502:
+    // the origin is unreachable behind the router, so the verdict is
+    // `DOWN` and the run exits non-zero.
+    let inventory = write_inventory_with_entries(
+        tmp.path(),
+        vec![compose_ready_entry_in(tmp.path(), "alethefy", false)],
+    );
+    let fake_ssh = FakeSsh::new(SIMPLE_CADDYFILE, SIMPLE_DOCKER_PS);
+    let fake_curl = FakeCurl::new("bad gateway", 502);
+    let path = fake_curl.path_with_curl_first();
+    let out = run_with_env(
+        &db,
+        &[
+            "fleet",
+            "online",
+            "--inventory",
+            inventory.to_str().unwrap(),
+        ],
+        &[
+            (
+                "FORGE_PUBLISH_SSH_TARGET",
+                fake_ssh.target().to_str().unwrap(),
+            ),
+            ("PATH", path.as_str()),
+        ],
+    );
+    let json = serde_json::from_slice::<Value>(&out.stdout)
+        .unwrap_or_else(|_| panic!("invalid json: stdout={}", lossy(&out.stdout)));
+    let entries = json["entries"].as_array().expect("entries array");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["verdict"], "DOWN");
+    assert_eq!(entries[0]["http_status"], 502);
+    assert!(!out.status.success(), "a DOWN host must exit non-zero");
 }
 
 fn tempdir() -> TempDir {

@@ -24,9 +24,11 @@
 //! - `forge-studio-session/0.1.0` (the persisted session record),
 //! - `forge-studio-preview/0.1.0` (the bounded preview envelope).
 //!
-//! The Studio page, the agent-adapter refinement hook, the same-origin
-//! preview proxy, and the live `react-web` smoke are recorded as
-//! explicit deferred work in `openspec/changes/site-studio-preview-refinement/tasks.md`.
+//! The Studio page, the agent-adapter refinement hook and the
+//! same-origin preview proxy remain recorded as explicit deferred
+//! work; the live `react-web` smoke is implemented by
+//! `react-web-live-preview` (`tests/react_web_native_preview.rs` and
+//! `tests/browser/render-check.mjs`).
 
 pub mod preview;
 pub mod spec;

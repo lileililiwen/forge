@@ -1,0 +1,13 @@
+{
+  "name": "forge-studio-browser-smoke",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Playwright DOM assertion for the react-web live preview (react-web-live-preview).",
+  "scripts": {
+    "smoke": "node render-check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

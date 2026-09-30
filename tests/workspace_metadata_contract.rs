@@ -119,7 +119,10 @@ const MATRIX: [(&str, &str, &str, &str); 6] = [
 
 /// Pre-change-release tree digests captured from the binary built at the
 /// archived `jenkins-deploy-adapter-consumption` HEAD, one per profile.
-/// `--no-workspace-metadata` output must equal these byte-for-byte.
+/// `--no-workspace-metadata` output must equal these byte-for-byte. The
+/// `rs-app` (react-web) digest was re-captured by `react-web-live-preview`
+/// when the scaffold gained its runnable Vite+React client; the other
+/// profiles are unchanged.
 const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     (
         "net-app",
@@ -139,7 +142,7 @@ const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     ),
     (
         "rs-app",
-        "250f7f4a4a95c93bf6c5805246bfb6d5589b097342a5dbbd6c53daadd5088ba4",
+        "653bdcecd95d4e5a40649a3d575c0a4e8ddbae8e2c71a357ac149fdbde256c29",
     ),
     (
         "rs-web-app",

@@ -26,6 +26,7 @@ tempfile = "3"
 sha2 = "0.10"
 rand = "0.8"
 maud = "0.27"
+libc = "0.2"
 
 [[bin]]
 name = "forge"
@@ -47,3 +48,4 @@ tempfile.workspace = true
 sha2.workspace = true
 rand.workspace = true
 maud.workspace = true
+libc.workspace = true

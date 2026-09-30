@@ -494,10 +494,14 @@ fn template_files(
             ));
         }
         "react-web" => {
+            // Runnable Vite + React client. `build`/`test` stay dependency-free
+            // (offline, no install) so the portable-project contract and
+            // `verify_native` are unchanged; `dev` needs the pinned toolchain
+            // installed and binds the Forge Studio-reserved port.
             files.push((
                 "package.json".to_string(),
                 format!(
-                    "{{\n  \"name\": \"{id}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"build\": \"node ./scripts/build.mjs\",\n    \"test\": \"node --test\"\n  }}\n}}\n"
+                    "{{\n  \"name\": \"{id}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"dev\": \"vite\",\n    \"build\": \"node ./scripts/build.mjs\",\n    \"test\": \"node --test\"\n  }},\n  \"dependencies\": {{\n    \"react\": \"18.3.1\",\n    \"react-dom\": \"18.3.1\"\n  }},\n  \"devDependencies\": {{\n    \"@vitejs/plugin-react\": \"4.3.4\",\n    \"vite\": \"5.4.11\"\n  }}\n}}\n"
                 ),
             ));
             files.push((
@@ -509,24 +513,26 @@ fn template_files(
             files.push((
                 "index.html".to_string(),
                 format!(
-                    "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <title>{id}</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"./src/main.js\"></script>\n  </body>\n</html>\n"
+                    "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <title>{id}</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.jsx\"></script>\n  </body>\n</html>\n"
                 ),
             ));
             files.push((
-                "src/main.js".to_string(),
-                format!(
-                    "export function greeting() {{\n  return \"hello from {id}\";\n}}\n\nexport function mount() {{\n  if (typeof document === \"undefined\") return;\n  const root = document.getElementById(\"root\");\n  if (root) root.textContent = greeting();\n}}\n\nif (typeof document !== \"undefined\") mount();\n"
-                ),
+                "src/greeting.mjs".to_string(),
+                format!("export function greeting() {{\n  return \"hello from {id}\";\n}}\n"),
+            ));
+            files.push((
+                "src/main.jsx".to_string(),
+                "import { createRoot } from \"react-dom/client\";\nimport { greeting } from \"./greeting.mjs\";\n\nfunction App() {\n  return <main data-testid=\"forge-app\">{greeting()}</main>;\n}\n\nconst root = document.getElementById(\"root\");\nif (root) {\n  createRoot(root).render(<App />);\n}\n".to_string(),
             ));
             files.push((
                 "src/app.test.mjs".to_string(),
                 format!(
-                    "import {{ describe, it }} from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport {{ greeting, mount }} from \"./main.js\";\n\ndescribe(\"react-web scaffold\", () => {{\n  it(\"returns the deterministic greeting\", () => {{\n    assert.equal(greeting(), \"hello from {id}\");\n  }});\n  it(\"mount is callable without a DOM\", () => {{\n    assert.doesNotThrow(() => mount());\n  }});\n}});\n"
+                    "import {{ describe, it }} from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport {{ greeting }} from \"./greeting.mjs\";\n\ndescribe(\"react-web scaffold\", () => {{\n  it(\"returns the deterministic greeting\", () => {{\n    assert.equal(greeting(), \"hello from {id}\");\n  }});\n}});\n"
                 ),
             ));
             files.push((
                 "vite.config.js".to_string(),
-                "/** Minimal portable config; add the `vite` and `react` dependencies for the full toolchain. */\nexport default {};\n".to_string(),
+                "/** Vite dev server bound to the Forge Studio-reserved port. */\nimport { defineConfig } from \"vite\";\nimport react from \"@vitejs/plugin-react\";\n\nconst reserved = Number.parseInt(process.env.FORGE_STUDIO_PORT ?? \"\", 10);\n\nexport default defineConfig({\n  plugins: [react()],\n  server: {\n    host: \"127.0.0.1\",\n    port: Number.isNaN(reserved) ? 5173 : reserved,\n    strictPort: true,\n  },\n});\n".to_string(),
             ));
             files.push((
                 "Dockerfile".to_string(),
@@ -542,10 +548,11 @@ fn template_files(
                     request,
                     &build,
                     &test,
-                    "React SPA scaffold; client-only rendering with no server-side runtime. \
-                     `npm run build` / `npm test` work offline (dependency-free); the \
-                     production toolchain needs the `react`, `react-dom`, `react-router-dom` \
-                     and `vite` packages from the profile descriptor.",
+                    "React SPA scaffold; client-only rendering with no server-side \
+                     runtime. `npm run build` / `npm test` run offline \
+                     (dependency-free); `npm run dev` needs the pinned React/Vite \
+                     toolchain installed with `npm install` and binds the port in \
+                     `$FORGE_STUDIO_PORT` for the Forge Studio preview.",
                 ),
             ));
         }
@@ -1351,10 +1358,30 @@ mod tests {
         assert!(paths.contains(&"forge.yaml"), "{paths:?}");
         assert!(paths.contains(&"README.md"), "{paths:?}");
         assert!(paths.contains(&"index.html"), "{paths:?}");
-        assert!(paths.contains(&"src/main.js"), "{paths:?}");
+        assert!(paths.contains(&"src/main.jsx"), "{paths:?}");
+        assert!(paths.contains(&"src/greeting.mjs"), "{paths:?}");
         assert!(paths.contains(&"src/app.test.mjs"), "{paths:?}");
         assert!(paths.contains(&"vite.config.js"), "{paths:?}");
         assert!(paths.contains(&"package.json"), "{paths:?}");
+        // The client is real and previewable: a Vite dev script exists and
+        // the dev server binds the Studio-reserved port.
+        let package_json = files
+            .iter()
+            .find(|(p, _)| p == "package.json")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        assert!(package_json.contains("\"dev\": \"vite\""), "{package_json}");
+        assert!(
+            package_json.contains("\"react\": \"18.3.1\""),
+            "{package_json}"
+        );
+        let vite_config = files
+            .iter()
+            .find(|(p, _)| p == "vite.config.js")
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        assert!(vite_config.contains("FORGE_STUDIO_PORT"), "{vite_config}");
+        assert!(vite_config.contains("strictPort: true"), "{vite_config}");
         // The generated manifest advertises react-web so doctor and
         // feature lifecycle contracts both agree.
         let manifest_text = files

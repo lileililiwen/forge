@@ -1,35 +1,4 @@
-# site-studio-preview-refinement Specification
-
-## Purpose
-TBD - created by archiving change site-studio-preview-refinement. Update Purpose after archive.
-## Requirements
-### Requirement: Versioned site specification
-
-Forge SHALL represent a supported site request as a validated, versioned
-`forge.app.yaml` artifact separate from the infrastructure `forge.yaml`
-manifest.
-
-#### Scenario: Review before save
-
-- **WHEN** a prompt produces a valid AppSpec proposal
-- **THEN** Forge shows the proposal and writes it only after explicit
-  owner confirmation that includes the current artifact revision
-
-#### Scenario: Invalid or unsupported AppSpec
-
-- **WHEN** a proposal contains an unsupported profile, duplicate route,
-  unknown schema major, command, secret, or path escape
-- **THEN** Forge returns a typed validation error
-  (`studio-invalid-spec`, `studio-unsupported-profile`, or
-  `studio-project-scope`) naming the exact field and does not write
-  project files
-
-#### Scenario: Project scope
-
-- **WHEN** the spec's `project_id` does not match the registered
-  project the route was scoped to
-- **THEN** Forge refuses with `studio-project-scope` and the path
-  the request resolved against
+## MODIFIED Requirements
 
 ### Requirement: Bounded live preview
 
@@ -103,32 +72,3 @@ process survives.
 - **THEN** Forge truncates with a marker, redacts credential-shaped
   strings, and never echoes the cap marker without the truncation
   suffix
-
-### Requirement: Scoped refinement
-
-Forge SHALL validate and journal a refinement request against the
-current `app_revision` and the project's registered file scope.
-
-#### Scenario: Refinement accepted
-
-- **WHEN** the request matches the expected revision, every
-  `selected_files` entry resolves inside the registered project root,
-  and no shell metacharacter or secret-shaped string is present
-- **THEN** Forge records a `studio.refine` journal row carrying the
-  new `app_revision`, the bounded and redacted detail, and the
-  bounded `selected_files` list
-
-#### Scenario: Stale refinement
-
-- **WHEN** the request's `expected_revision` does not match the
-  current `spec_revision` or `app_revision`
-- **THEN** Forge refuses with `studio-revision-conflict` and writes
-  nothing
-
-#### Scenario: Refinement path escape
-
-- **WHEN** any `selected_files` entry resolves outside the
-  registered project root or contains a secret-shaped string
-- **THEN** Forge refuses with `studio-project-scope` or
-  `studio-invalid-spec` and writes nothing
-

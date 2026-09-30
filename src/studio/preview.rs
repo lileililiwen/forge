@@ -185,6 +185,10 @@ pub struct PreviewSession {
 pub struct ChildHandle {
     child: Child,
     stdout_thread: Option<thread::JoinHandle<()>>,
+    /// Captures the runner's stderr into the bounded log buffer so a
+    /// verbose toolchain cannot fill the pipe and block, and so
+    /// failures are visible in the bounded, redacted log tail.
+    stderr_thread: Option<thread::JoinHandle<()>>,
     /// The bounded accept thread that owns the fake runner's
     /// TCP listener. Held here so `Drop` can join it.
     accept_thread: Option<thread::JoinHandle<()>>,
@@ -192,19 +196,42 @@ pub struct ChildHandle {
     /// non-blocking, so setting this lets `stop`/`Drop` join the
     /// thread instead of blocking until the listener is dropped.
     accept_stop: Option<Arc<AtomicBool>>,
+    /// True when the child was spawned as its own process-group
+    /// leader, so `shutdown` can signal the whole tree the runner
+    /// created (for example `npm` → `sh` → the dev server) rather than
+    /// only the direct child. Only read on Unix.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    process_group: bool,
 }
 
 impl ChildHandle {
-    /// Kill the child and join its capture threads. The accept flag is
-    /// set first so a non-blocking fake listener exits promptly rather
-    /// than blocking `stop`/`Drop` forever on `join`.
+    /// Kill the child's whole process tree and join its capture
+    /// threads. The group is signalled first because the direct child
+    /// is often a package manager whose dev server runs as a
+    /// grandchild; killing only the direct child would leak a
+    /// descendant that keeps the reserved port bound. The accept flag
+    /// is set first so a non-blocking fake listener exits promptly
+    /// rather than blocking `stop`/`Drop` forever on `join`.
     fn shutdown(&mut self) {
         if let Some(stop) = &self.accept_stop {
             stop.store(true, Ordering::SeqCst);
         }
+        #[cfg(unix)]
+        if self.process_group {
+            // The child is its own process-group leader, so its pgid
+            // equals its pid and a negative pid targets exactly the tree
+            // it created. The pid is an internal value; no user input
+            // reaches this call.
+            unsafe {
+                libc::kill(-(self.child.id() as i32), libc::SIGKILL);
+            }
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
         if let Some(thread) = self.stdout_thread.take() {
+            let _ = thread.join();
+        }
+        if let Some(thread) = self.stderr_thread.take() {
             let _ = thread.join();
         }
         if let Some(thread) = self.accept_thread.take() {
@@ -409,6 +436,13 @@ impl PreviewRunner for ProcessRunner {
             command.env(key, value);
         }
         command.env(RUNTIME_PORT_ENV, port.to_string());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Own process group so `shutdown` can signal the whole tree
+            // (npm → sh → dev server), not just the direct child.
+            command.process_group(0);
+        }
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = command
             .spawn()
@@ -416,11 +450,27 @@ impl PreviewRunner for ProcessRunner {
                 reason: format!("could not spawn profile runner '{}': {err}", self.binary),
             })?;
         let stdout = child.stdout.take();
+        let stdout_buf = Arc::clone(&log_buffer);
         let stdout_thread = stdout.map(|mut stdout| {
             thread::spawn(move || {
                 let mut local = Vec::new();
                 let _ = stdout.read_to_end(&mut local);
-                if let Ok(mut buf) = log_buffer.lock() {
+                if let Ok(mut buf) = stdout_buf.lock() {
+                    buf.extend_from_slice(&local);
+                }
+            })
+        });
+        let stderr = child.stderr.take();
+        let stderr_buf = Arc::clone(&log_buffer);
+        let stderr_thread = stderr.map(|mut stderr| {
+            thread::spawn(move || {
+                let mut local = Vec::new();
+                let _ = stderr.read_to_end(&mut local);
+                if local.is_empty() {
+                    return;
+                }
+                if let Ok(mut buf) = stderr_buf.lock() {
+                    buf.extend_from_slice(b"\n[stderr]\n");
                     buf.extend_from_slice(&local);
                 }
             })
@@ -428,8 +478,10 @@ impl PreviewRunner for ProcessRunner {
         Ok(ChildHandle {
             child,
             stdout_thread,
+            stderr_thread,
             accept_thread: None,
             accept_stop: None,
+            process_group: cfg!(unix),
         })
     }
 }
@@ -447,6 +499,11 @@ impl ProcessRunner {
         env.insert("LC_ALL".to_string(), "C".to_string());
         if let Ok(path) = std::env::var("PATH") {
             env.insert("PATH".to_string(), path);
+        }
+        // npm resolves its cache and user config beneath `$HOME`; inherit
+        // it explicitly rather than leaking the whole parent environment.
+        if let Ok(home) = std::env::var("HOME") {
+            env.insert("HOME".to_string(), home);
         }
         let binary = std::env::var(RUNTIME_BIN_ENV).unwrap_or_else(|_| "npm".to_string());
         Self {
@@ -511,6 +568,13 @@ impl PreviewRunner for FakeRunner {
             .env("FORGE_STUDIO_FAKE_PORT", port.to_string())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Own process group so `shutdown` reaps the whole fake tree
+            // (sh → sleep) exactly as it does for the real runner.
+            command.process_group(0);
+        }
         let mut child = command
             .spawn()
             .map_err(|err| ForgeError::StudioPortUnavailable {
@@ -529,14 +593,31 @@ impl PreviewRunner for FakeRunner {
                 }
             })
         });
+        let stderr = child.stderr.take();
+        let capture_stderr_thread = stderr.map(|mut stderr| {
+            let buf = Arc::clone(&log_buffer);
+            thread::spawn(move || {
+                let mut local = Vec::new();
+                let _ = stderr.read_to_end(&mut local);
+                if local.is_empty() {
+                    return;
+                }
+                if let Ok(mut buf) = buf.lock() {
+                    buf.extend_from_slice(b"\n[stderr]\n");
+                    buf.extend_from_slice(&local);
+                }
+            })
+        });
         if !self.bind_listener {
             // No listener: the bounded wait observes the child exit or
             // the timeout, proving the failure path without a toolchain.
             return Ok(ChildHandle {
                 child,
                 stdout_thread: capture_thread,
+                stderr_thread: capture_stderr_thread,
                 accept_thread: None,
                 accept_stop: None,
+                process_group: cfg!(unix),
             });
         }
         // Wait the controlled delay, then bind the reserved port with a
@@ -573,8 +654,10 @@ impl PreviewRunner for FakeRunner {
         Ok(ChildHandle {
             child,
             stdout_thread: capture_thread,
+            stderr_thread: capture_stderr_thread,
             accept_thread: Some(accept_thread),
             accept_stop: Some(accept_stop),
+            process_group: cfg!(unix),
         })
     }
 }

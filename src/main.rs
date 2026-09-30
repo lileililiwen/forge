@@ -536,6 +536,13 @@ enum Commands {
         #[command(subcommand)]
         command: DeliveryCommands,
     },
+    /// Site Studio: review an AppSpec, run a bounded preview,
+    /// and journal scoped refinement requests
+    /// (`forge-studio-preview-refinement`).
+    Studio {
+        #[command(subcommand)]
+        command: StudioCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -587,6 +594,74 @@ enum DeliveryCommands {
         #[arg(long = "secret-ref")]
         secret_ref: Option<String>,
     },
+}
+
+/// Site Studio subcommands
+/// (`forge-studio-preview-refinement`).
+#[derive(Debug, Subcommand)]
+enum StudioCommands {
+    /// Validate an AppSpec from a YAML file and print the
+    /// closed `forge-app-spec/0.1.0` envelope. Read-only —
+    /// the file is parsed, validated, and never written back.
+    Spec {
+        /// Registered project id the spec is scoped to.
+        project: String,
+        /// Path to the `forge.app.yaml` candidate (default:
+        /// `<project>/forge.app.yaml`).
+        #[arg(long)]
+        from: Option<PathBuf>,
+        /// Current revision to confirm against. Required with
+        /// `--confirm yes`; use `r0` for the first save.
+        #[arg(long = "expected-revision")]
+        expected_revision: Option<String>,
+        /// Persist the validated spec after explicit `--confirm yes`.
+        /// Without it the command stays read-only.
+        #[arg(long = "confirm")]
+        confirm: Option<String>,
+    },
+    /// Read the current Studio session record (preview state,
+    /// revisions, last journal row). Read-only.
+    Preview {
+        /// Registered project id.
+        project: String,
+        /// `--start` asks the bounded profile runner to bind the
+        /// reserved port; `--stop` is the idempotent kill. With
+        /// no flag the command prints the current state.
+        #[arg(long, value_enum, default_value = "status")]
+        action: StudioPreviewAction,
+        /// Confirmation token required for `--start` and `--stop`
+        /// so a refresh or a tab-restore cannot mutate state.
+        #[arg(long = "confirm")]
+        confirm: Option<String>,
+    },
+    /// Submit a refinement request. Validates the request,
+    /// journals a `studio.refine` row, and bumps `app_revision`.
+    /// Read-only at the file level — no editor patch is applied
+    /// in this cycle (the agent-adapter hook is a follow-up).
+    Refine {
+        /// Registered project id.
+        project: String,
+        /// Expected revision (current `spec_revision` or
+        /// `app_revision`). Mismatch is refused as a typed
+        /// `studio-revision-conflict`.
+        #[arg(long = "expected-revision")]
+        expected_revision: String,
+        /// Free-text refinement request (1..=2000 chars,
+        /// credential-redacted before journal).
+        #[arg(long = "request")]
+        request: String,
+        /// Comma-separated list of in-project file paths the
+        /// refinement touches.
+        #[arg(long = "selected-files", value_delimiter = ',')]
+        selected_files: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum StudioPreviewAction {
+    Status,
+    Start,
+    Stop,
 }
 
 #[derive(Debug, Subcommand)]
@@ -2603,6 +2678,7 @@ fn main() -> ExitCode {
         Commands::Describe { command } => cmd_describe(command, cli.format),
         Commands::Classify { command } => cmd_classify(command, cli.format),
         Commands::Delivery { command } => cmd_delivery(&db_path, command, cli.format),
+        Commands::Studio { command } => cmd_studio(&db_path, command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
@@ -3725,6 +3801,209 @@ fn semantic_show_output(
         ));
     }
     Ok(as_output(format, human, json))
+}
+
+fn cmd_studio(
+    db_path: &Path,
+    command: &StudioCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        StudioCommands::Spec {
+            project,
+            from,
+            expected_revision,
+            confirm,
+        } => cmd_studio_spec(
+            db_path,
+            project,
+            from.as_deref(),
+            expected_revision.as_deref(),
+            confirm.as_deref(),
+            format,
+        ),
+        StudioCommands::Preview {
+            project,
+            action,
+            confirm,
+        } => cmd_studio_preview(db_path, project, *action, confirm.as_deref(), format),
+        StudioCommands::Refine {
+            project,
+            expected_revision,
+            request,
+            selected_files,
+        } => cmd_studio_refine(
+            db_path,
+            project,
+            expected_revision,
+            request,
+            selected_files,
+            format,
+        ),
+    }
+}
+
+fn cmd_studio_spec(
+    db_path: &Path,
+    project: &str,
+    from: Option<&Path>,
+    expected_revision: Option<&str>,
+    confirm: Option<&str>,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = forge::registry::Registry::open(db_path)?;
+    let record = registry.inspect(project)?;
+    let path = match from {
+        Some(p) => p.to_path_buf(),
+        None => PathBuf::from(&record.path).join("forge.app.yaml"),
+    };
+    let spec = forge::studio::parse_spec_file(&path).map_err(|err| {
+        // Add the file path to the message so the operator can
+        // locate the broken proposal without a second pass.
+        ForgeError::StudioInvalidSpec {
+            reason: format!("{err} (path {})", path.display()),
+        }
+    })?;
+    if let Some(token) = confirm {
+        if token != "yes" {
+            return Err(ForgeError::StudioInvalidSpec {
+                reason: "studio spec save requires --confirm yes".to_string(),
+            });
+        }
+        let expected = expected_revision.ok_or_else(|| ForgeError::StudioInvalidSpec {
+            reason: "studio spec save requires --expected-revision (use r0 for the first save)"
+                .to_string(),
+        })?;
+        let project_root = PathBuf::from(&record.path);
+        let session = forge::studio::save_spec(&registry, project, &project_root, spec, expected)?;
+        let envelope = serde_json::json!({
+            "contract": forge::studio::STUDIO_SESSION_CONTRACT,
+            "project_id": session.project_id,
+            "spec_revision": session.spec_revision,
+            "app_revision": session.app_revision,
+        });
+        let human = format!(
+            "studio spec saved\nproject_id={}\nspec_revision={}\napp_revision={}",
+            session.project_id, session.spec_revision, session.app_revision
+        );
+        return Ok(as_output(format, human, envelope));
+    }
+    let envelope = serde_json::json!({
+        "contract": forge::studio::APP_SPEC_CONTRACT,
+        "project_id": spec.project_id,
+        "name": spec.name,
+        "profile": spec.profile,
+        "schema_version": spec.schema_version,
+        "pages": spec.pages,
+        "theme": spec.theme,
+        "acceptance_checks": spec.acceptance_checks,
+    });
+    let human = format!(
+        "studio spec ok\nproject_id={}\nprofile={}\npages={}\nschema_version={}",
+        spec.project_id,
+        spec.profile,
+        spec.pages.len(),
+        spec.schema_version
+    );
+    Ok(as_output(format, human, envelope))
+}
+
+fn cmd_studio_preview(
+    db_path: &Path,
+    project: &str,
+    action: StudioPreviewAction,
+    confirm: Option<&str>,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = forge::registry::Registry::open(db_path)?;
+    let record = registry.inspect(project)?;
+    let project_root = PathBuf::from(&record.path);
+    let session = forge::studio::load_session(&project_root)?;
+    let envelope = match session.as_ref() {
+        Some(session) => forge::studio::envelope_from_session(session),
+        None => forge::studio::PreviewEnvelope::from_session(
+            project,
+            "r0",
+            &forge::studio::state::SessionPreviewState::default(),
+        ),
+    };
+    match action {
+        StudioPreviewAction::Status => Ok(preview_output(&envelope, format)),
+        StudioPreviewAction::Start => {
+            if confirm != Some("yes") {
+                return Err(ForgeError::StudioInvalidSpec {
+                    reason: "studio preview start requires --confirm yes".to_string(),
+                });
+            }
+            // Bounded readiness probe: the CLI exits immediately, so
+            // it starts the profile runner, returns the `ready`
+            // envelope captured at readiness, then tears its own child
+            // down. The long-lived API host owns a live session
+            // instead (see `ApiConfig`). No detached process survives.
+            let runner = Box::new(forge::studio::ProcessRunner::react_web());
+            let (session, live) = forge::studio::start_preview(&registry, &project_root, runner)?;
+            let ready = forge::studio::envelope_from_session(&session);
+            forge::studio::stop_preview(&registry, &project_root, Some(live))?;
+            Ok(preview_output(&ready, format))
+        }
+        StudioPreviewAction::Stop => {
+            if confirm != Some("yes") {
+                return Err(ForgeError::StudioInvalidSpec {
+                    reason: "studio preview stop requires --confirm yes".to_string(),
+                });
+            }
+            let session = forge::studio::stop_preview(&registry, &project_root, None)?;
+            let envelope = forge::studio::envelope_from_session(&session);
+            Ok(preview_output(&envelope, format))
+        }
+    }
+}
+
+fn cmd_studio_refine(
+    db_path: &Path,
+    project: &str,
+    expected_revision: &str,
+    request: &str,
+    selected_files: &[String],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let registry = forge::registry::Registry::open(db_path)?;
+    let record = registry.inspect(project)?;
+    let project_root = PathBuf::from(&record.path);
+    let session = forge::studio::record_refinement(
+        &registry,
+        &project_root,
+        expected_revision,
+        request,
+        selected_files,
+    )?;
+    let envelope = forge::studio::envelope_from_session(&session);
+    let human = format!(
+        "studio refine accepted\nproject_id={}\nspec_revision={}\napp_revision={}\nselected_files={}",
+        session.project_id,
+        session.spec_revision,
+        session.app_revision,
+        selected_files.len()
+    );
+    Ok(as_output(
+        format,
+        human,
+        serde_json::to_value(&envelope).unwrap_or(serde_json::Value::Null),
+    ))
+}
+
+fn preview_output(envelope: &forge::studio::PreviewEnvelope, format: Format) -> Output {
+    let json = serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null);
+    let human = format!(
+        "studio preview\nstate={}\nport={}\npreview_url={}",
+        envelope.state.label(),
+        envelope
+            .port
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        envelope.preview_url.as_deref().unwrap_or("(none)"),
+    );
+    as_output(format, human, json)
 }
 
 fn semantic_decide_output(

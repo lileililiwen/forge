@@ -15,6 +15,8 @@ use super::data::{
     PortfolioEdit, PortfolioRelationView, ProjectIdentity, ProjectPortfolioView, PublishPlanStep,
     ReviewRowView, SkippedRow,
 };
+use crate::registry::OperationEntry;
+use crate::studio::{PreviewEnvelope, StudioSession};
 
 // --- shared chrome ----------------------------------------------------
 
@@ -616,6 +618,96 @@ fn journal_row(row: &JournalRowView) -> Markup {
             td { small { (row.detail) } }
         }
     }
+}
+
+/// Render the read-only Studio page. The page surfaces the
+/// saved AppSpec summary, the bounded preview envelope, and the
+/// most recent `studio.*` journal rows so the operator can audit
+/// what has been reviewed and what the next action is. Interactive
+/// controls (prompt form, refinement textarea) land in a follow-up
+/// cycle (`tasks.md` §5.2); the current page is intentionally
+/// honest about its read-only posture.
+pub fn studio_page(
+    project_id: &str,
+    session: Option<&StudioSession>,
+    envelope: &PreviewEnvelope,
+    journal_rows: &[OperationEntry],
+    contract: &str,
+) -> String {
+    let spec_summary = session
+        .map(|s| {
+            format!(
+                "name={} profile={} schema_version={} pages={} sections={}",
+                s.spec.name,
+                s.spec.profile,
+                s.spec.schema_version,
+                s.spec.pages.len(),
+                s.spec.pages.iter().map(|p| p.sections.len()).sum::<usize>(),
+            )
+        })
+        .unwrap_or_else(|| "no spec saved yet".to_string());
+    let revisions = session
+        .map(|s| {
+            format!(
+                "spec_revision={} app_revision={}",
+                s.spec_revision, s.app_revision
+            )
+        })
+        .unwrap_or_else(|| "spec_revision=- app_revision=-".to_string());
+    let preview_url = envelope
+        .preview_url
+        .clone()
+        .unwrap_or_else(|| "(none)".to_string());
+    let body = html! {
+        (project_frame("Forge studio", project_id, contract, html! {
+            section {
+                h2 { "AppSpec" }
+                p { (spec_summary) }
+                p { (revisions) }
+                @if let Some(session) = session {
+                    h3 { "Pages" }
+                    ul {
+                        @for page in &session.spec.pages {
+                            li { (page.route) " — " (page.title) }
+                        }
+                    }
+                }
+            }
+            section {
+                h2 { "Preview" }
+                p { "state=" (envelope.state.label()) }
+                p { "port=" (envelope.port.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string())) }
+                p { "preview_url=" (preview_url) }
+                @if let Some(code) = &envelope.last_error_code {
+                    p { "last_error_code=" (code) }
+                }
+                p { "Interactive preview controls land in a follow-up cycle." }
+            }
+            section {
+                h2 { "Journal" }
+                @if journal_rows.is_empty() {
+                    p { "No studio.* journal rows yet." }
+                } @else {
+                    table {
+                        thead {
+                            tr { th { "kind" } th { "state" } th { "started_at" } th { "detail" } }
+                        }
+                        tbody {
+                            @for row in journal_rows {
+                                tr {
+                                    td { (row.kind.clone()) }
+                                    td { (row.state.clone()) }
+                                    td { (row.started_at.clone()) }
+                                    td { (row.detail.clone().unwrap_or_else(|| "-".to_string())) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }))
+    };
+    body.into_string()
 }
 
 pub fn publish_plan(

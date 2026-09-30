@@ -1,0 +1,10 @@
+schema_version: "99"
+project_id: studio-fixture
+name: Unknown Major
+profile: react-web
+pages:
+  - route: /
+    title: Home
+    sections:
+      - id: hero-block
+        kind: hero

@@ -369,6 +369,24 @@ pub enum ForgeError {
 
     #[error("delivery unavailable: {reason}")]
     DeliveryUnavailable { reason: String },
+
+    #[error("studio invalid spec: {reason}")]
+    StudioInvalidSpec { reason: String },
+
+    #[error("studio unsupported profile: {reason}")]
+    StudioUnsupportedProfile { reason: String },
+
+    #[error("studio port unavailable: {reason}")]
+    StudioPortUnavailable { reason: String },
+
+    #[error("studio start timeout: {reason}")]
+    StudioStartTimeout { reason: String },
+
+    #[error("studio revision conflict: {reason}")]
+    StudioRevisionConflict { reason: String },
+
+    #[error("studio project scope: {reason}")]
+    StudioProjectScope { reason: String },
 }
 
 impl ForgeError {
@@ -493,6 +511,12 @@ impl ForgeError {
             ForgeError::DeliveryInvalid { .. } => "delivery-invalid",
             ForgeError::DeliveryConflict { .. } => "delivery-conflict",
             ForgeError::DeliveryUnavailable { .. } => "delivery-unavailable",
+            ForgeError::StudioInvalidSpec { .. } => "studio-invalid-spec",
+            ForgeError::StudioUnsupportedProfile { .. } => "studio-unsupported-profile",
+            ForgeError::StudioPortUnavailable { .. } => "studio-port-unavailable",
+            ForgeError::StudioStartTimeout { .. } => "studio-start-timeout",
+            ForgeError::StudioRevisionConflict { .. } => "studio-revision-conflict",
+            ForgeError::StudioProjectScope { .. } => "studio-project-scope",
         }
     }
 

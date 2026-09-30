@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://forge.local/schemas/app-spec-v1.json",
+  "title": "forge.app.yaml v1",
+  "description": "Versioned site specification owned by the project, separate from the infrastructure forge.yaml manifest. MVP supports the existing react-web profile for static, client-rendered sites only.",
+  "type": "object",
+  "required": ["schema_version", "project_id", "name", "profile", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Major schema version. Only \"1\" is accepted today."
+    },
+    "project_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Kebab-case project identifier that must match the registered project the route was scoped to."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Human-readable project name."
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["react-web"],
+      "description": "Closed set of supported profiles; only react-web is accepted today."
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/page" }
+    },
+    "theme": { "$ref": "#/$defs/theme" },
+    "acceptance_checks": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    }
+  },
+  "$defs": {
+    "page": {
+      "type": "object",
+      "required": ["route", "title", "sections"],
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9/_-]*$",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Absolute route beginning with '/'. Letters, digits, '_' and '-' only."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/section" }
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Kebab-case section identifier, unique within the spec."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["hero", "features", "pricing", "contact", "faq", "footer"],
+          "description": "Closed section kind vocabulary."
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "required": ["preset"],
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "type": "string",
+          "enum": ["default", "contrast", "mono"]
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "primary": { "type": "string", "pattern": "^#([0-9a-fA-F]{6})$" },
+            "background": { "type": "string", "pattern": "^#([0-9a-fA-F]{6})$" },
+            "text": { "type": "string", "pattern": "^#([0-9a-fA-F]{6})$" }
+          }
+        }
+      }
+    }
+  }
+}

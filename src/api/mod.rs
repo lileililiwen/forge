@@ -68,12 +68,12 @@
 //! surface and only returns `200 ok` plus the contract
 //! version.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
@@ -98,6 +98,7 @@ use crate::publish::providers::{
 };
 use crate::registry::{Registry, ReservationOutcome};
 use crate::spec::{ensure_single_project, generate_spec, FindingSource, SpecRequest};
+use crate::studio::PreviewSession;
 use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
 
 /// Sub-module that serves the in-process portal UI on the
@@ -154,11 +155,27 @@ pub const API_SYNTHETIC_PROJECT: &str = "__api__";
 /// fields the API surface depends on; the rest of the
 /// Forge environment is resolved through existing
 /// helpers (registry path, identity directory, …).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApiConfig {
     pub bind: IpAddr,
     pub port: u16,
     pub max_body_bytes: usize,
+    /// Live Studio preview sessions keyed by project id. Only the
+    /// long-lived `serve` loop can host a running preview, so the map
+    /// lives on the configuration and drops — killing each child —
+    /// when the server shuts down. The CLI is a bounded probe and
+    /// never stores here.
+    pub previews: Arc<Mutex<HashMap<String, PreviewSession>>>,
+}
+
+impl std::fmt::Debug for ApiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiConfig")
+            .field("bind", &self.bind)
+            .field("port", &self.port)
+            .field("max_body_bytes", &self.max_body_bytes)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for ApiConfig {
@@ -167,6 +184,7 @@ impl Default for ApiConfig {
             bind: DEFAULT_BIND_ADDR,
             port: DEFAULT_PORT,
             max_body_bytes: MAX_BODY_BYTES,
+            previews: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -303,6 +321,7 @@ fn err_status(err: &ForgeError) -> u16 {
         // it answers `200` for both verdicts — but the row keeps a
         // future caller from silently becoming a `500`.
         "portfolio-activation-not-ready" => 409,
+        "studio-revision-conflict" => 409,
         "api-invalid"
         | "manifest-invalid"
         | "manifest-not-found"
@@ -319,11 +338,13 @@ fn err_status(err: &ForgeError) -> u16 {
         | "deploy-invalid"
         | "release-invalid"
         | "catalog-invalid"
-        | "delivery-invalid" => 400,
+        | "delivery-invalid"
+        | "studio-invalid-spec" => 400,
         // Delivery provider / adapter availability is a transient
         // 503: the registry keeps the existing rows intact and the
         // operator can retry without re-running the stage.
         "delivery-unavailable" => 503,
+        "studio-port-unavailable" | "studio-start-timeout" => 503,
         _ => 500,
     }
 }
@@ -381,6 +402,30 @@ pub enum Route {
     },
     /// `POST /ui/projects/{id}/portfolio` — user-owned metadata write.
     UiProjectPortfolio {
+        id: String,
+    },
+    /// `GET /ui/studio/{id}` — read-only Studio page.
+    UiStudioProject {
+        id: String,
+    },
+    /// `GET /v1/studio/{id}/spec` — read the Studio session.
+    StudioSpec {
+        id: String,
+    },
+    /// `POST /v1/studio/{id}/spec` — save a validated AppSpec.
+    StudioSpecSave {
+        id: String,
+    },
+    /// `GET /v1/studio/{id}/preview` — read the preview state.
+    StudioPreviewGet {
+        id: String,
+    },
+    /// `POST /v1/studio/{id}/preview` — start/stop the bounded preview.
+    StudioPreviewPost {
+        id: String,
+    },
+    /// `POST /v1/studio/{id}/refine` — record a refinement.
+    StudioRefine {
         id: String,
     },
     /// `GET /v1/projects/{id}/portfolio` — read-only portfolio
@@ -606,6 +651,26 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        ("GET", ["ui", "projects", id, "studio"]) | ("GET", ["ui", "studio", id]) => {
+            Some(Route::UiStudioProject {
+                id: (*id).to_string(),
+            })
+        }
+        ("GET", ["v1", "projects", id, "studio", "spec"]) => Some(Route::StudioSpec {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "studio", "spec"]) => Some(Route::StudioSpecSave {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "projects", id, "studio", "preview"]) => Some(Route::StudioPreviewGet {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "studio", "preview"]) => Some(Route::StudioPreviewPost {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "projects", id, "studio", "refine"]) => Some(Route::StudioRefine {
+            id: (*id).to_string(),
+        }),
         _ => None,
     }
 }
@@ -659,7 +724,8 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::Doctor { .. }
         | Route::Governance { .. }
         | Route::UiFleet
-        | Route::UiProjectDetail { .. } => None,
+        | Route::UiProjectDetail { .. }
+        | Route::UiStudioProject { .. } => None,
         Route::PortfolioProject { .. } => None,
         Route::CreateProject
         | Route::AddFeature { .. }
@@ -707,6 +773,15 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::DeliveryStage { .. }
         | Route::DeliveryPromote { .. }
         | Route::DeliveryHermoraRetry { .. } => Some("admin:access"),
+        // Studio routes are project-scoped: a session for the
+        // matching project can read the spec/preview state and
+        // submit a refinement. The reads are deliberately as
+        // restricted as the writes.
+        | Route::StudioSpec { .. }
+        | Route::StudioSpecSave { .. }
+        | Route::StudioPreviewGet { .. }
+        | Route::StudioPreviewPost { .. }
+        | Route::StudioRefine { .. } => None,
     }
 }
 
@@ -820,6 +895,9 @@ pub fn handle(
         Route::UiProjectPortfolio { id } => {
             ui::routes::handle_project_portfolio(db_path, config, request, &id)
         }
+        Route::UiStudioProject { id } => {
+            ui::routes::handle_studio_project(db_path, config, request, &id)
+        }
         Route::PortfolioProject { id } => handle_portfolio_project(db_path, &id, now),
         Route::PortfolioTag { id } => handle_portfolio_tag(db_path, request, &id),
         Route::PortfolioRelation { id } => handle_portfolio_relation(db_path, request, &id),
@@ -847,6 +925,13 @@ pub fn handle(
         Route::DeliveryHermoraRetry { id } => {
             handle_delivery_hermora_retry(db_path, request, &id, now)
         }
+        Route::StudioSpec { id } => handle_studio_spec_get(db_path, &id),
+        Route::StudioSpecSave { id } => handle_studio_spec_save(db_path, request, &id, now),
+        Route::StudioPreviewGet { id } => handle_studio_preview_get(db_path, &id),
+        Route::StudioPreviewPost { id } => {
+            handle_studio_preview_post(config, db_path, request, &id, now)
+        }
+        Route::StudioRefine { id } => handle_studio_refine(db_path, request, &id, now),
     }
 }
 
@@ -910,7 +995,8 @@ fn authorize(
         Route::UiFleet
         | Route::UiProjectDetail { .. }
         | Route::UiProjectPublish { .. }
-        | Route::UiProjectPortfolio { .. } => Ok(String::new()),
+        | Route::UiProjectPortfolio { .. }
+        | Route::UiStudioProject { .. } => Ok(String::new()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known
@@ -1032,7 +1118,12 @@ fn authorize(
         | Route::RemoveShare { id }
         | Route::GetInterest { id }
         | Route::ImportInterest { id }
-        | Route::ApplyDeployment { id } => {
+        | Route::ApplyDeployment { id }
+        | Route::StudioSpec { id }
+        | Route::StudioSpecSave { id }
+        | Route::StudioPreviewGet { id }
+        | Route::StudioPreviewPost { id }
+        | Route::StudioRefine { id } => {
             // Project-scoped route: load the project,
             // locate the session in the project directory
             // (the common case) or in any other
@@ -1599,6 +1690,309 @@ fn handle_delivery_hermora_retry(
             200,
             serde_json::to_value(&outcome.report).unwrap_or(Value::Null),
         ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+// --- studio handlers ---------------------------------------------------
+
+fn handle_studio_spec_get(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(record) => record,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_root = PathBuf::from(&record.path);
+    match crate::studio::load_session(&project_root) {
+        Ok(Some(session)) => {
+            let envelope = crate::studio::state::session_envelope(&session);
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "studio": envelope,
+                    "contract": crate::studio::STUDIO_SESSION_CONTRACT,
+                }),
+            )
+        }
+        Ok(None) => ApiResponse::json(
+            404,
+            serde_json::json!({
+                "error": {
+                    "code": "studio-invalid-spec",
+                    "message": format!("no Studio session for project '{id}'; save a spec first"),
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        ),
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_studio_spec_save(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let spec_text = match body.get("spec").and_then(|v| v.as_str()) {
+        Some(value) => value.to_string(),
+        None => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "studio-invalid-spec",
+                        "message": "studio spec save requires a `spec` body field (YAML text)",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let expected_revision = match body.get("expected_revision").and_then(|v| v.as_str()) {
+        Some(value) => value.to_string(),
+        None => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "studio-revision-conflict",
+                        "message": "studio spec save requires `expected_revision` (use `r0` for the first save)",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let confirm = body.get("confirm").and_then(|v| v.as_str());
+    if confirm != Some("yes") {
+        return ApiResponse::json(
+            400,
+            serde_json::json!({
+                "error": {
+                    "code": "studio-invalid-spec",
+                    "message": "studio spec save requires `confirm: yes`",
+                },
+                "contract": API_CONTRACT_VERSION,
+            }),
+        );
+    }
+    let spec = match crate::studio::parse_spec_text(&spec_text) {
+        Ok(spec) => spec,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(record) => record,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_root = PathBuf::from(&record.path);
+    match crate::studio::save_spec(&registry, id, &project_root, spec, &expected_revision) {
+        Ok(session) => {
+            let envelope = crate::studio::state::session_envelope(&session);
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "studio": envelope,
+                    "contract": crate::studio::STUDIO_SESSION_CONTRACT,
+                }),
+            )
+        }
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_studio_preview_get(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(record) => record,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_root = PathBuf::from(&record.path);
+    match crate::studio::load_session(&project_root) {
+        Ok(Some(session)) => {
+            let envelope = crate::studio::envelope_from_session(&session);
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "preview": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+                    "contract": crate::studio::PREVIEW_CONTRACT,
+                }),
+            )
+        }
+        Ok(None) => {
+            let envelope = crate::studio::PreviewEnvelope::from_session(
+                id,
+                "r0",
+                &crate::studio::state::SessionPreviewState::default(),
+            );
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "preview": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+                    "contract": crate::studio::PREVIEW_CONTRACT,
+                }),
+            )
+        }
+        Err(err) => ApiResponse::from_error(&err),
+    }
+}
+
+fn handle_studio_preview_post(
+    config: &ApiConfig,
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let action = body.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    let confirm = body.get("confirm").and_then(|v| v.as_str());
+    if confirm != Some("yes") {
+        return ApiResponse::from_error(&ForgeError::StudioInvalidSpec {
+            reason: "studio preview requires `confirm: yes`".to_string(),
+        });
+    }
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(record) => record,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_root = PathBuf::from(&record.path);
+    match action {
+        "start" => {
+            // The API server is long-lived, so it owns the live
+            // session. Start the replacement first; only after it
+            // reports ready do we drop any previous session (whose
+            // drop kills only its own child).
+            let runner = Box::new(crate::studio::ProcessRunner::react_web());
+            let (session, live) =
+                match crate::studio::start_preview(&registry, &project_root, runner) {
+                    Ok(value) => value,
+                    Err(err) => return ApiResponse::from_error(&err),
+                };
+            let previous = config.previews.lock().unwrap().insert(id.to_string(), live);
+            drop(previous);
+            let envelope = crate::studio::envelope_from_session(&session);
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "preview": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+                    "contract": crate::studio::PREVIEW_CONTRACT,
+                }),
+            )
+        }
+        "stop" => {
+            // Remove the live session first so a concurrent stop cannot
+            // double-kill it, then let the Core record the idempotent
+            // journal row and persist `stopped` (with or without a
+            // held child).
+            let live = config.previews.lock().unwrap().remove(id);
+            match crate::studio::stop_preview(&registry, &project_root, live) {
+                Ok(session) => {
+                    let envelope = crate::studio::envelope_from_session(&session);
+                    ApiResponse::json(
+                        200,
+                        serde_json::json!({
+                            "preview": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+                            "contract": crate::studio::PREVIEW_CONTRACT,
+                        }),
+                    )
+                }
+                Err(err) => ApiResponse::from_error(&err),
+            }
+        }
+        _ => ApiResponse::from_error(&ForgeError::StudioInvalidSpec {
+            reason: "studio preview action must be `start` or `stop`".to_string(),
+        }),
+    }
+}
+
+fn handle_studio_refine(
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let expected_revision = match body.get("expected_revision").and_then(|v| v.as_str()) {
+        Some(value) => value.to_string(),
+        None => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "studio-revision-conflict",
+                        "message": "studio refine requires `expected_revision` (use the current spec_revision or app_revision)",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let request_text = match body.get("request").and_then(|v| v.as_str()) {
+        Some(value) => value.to_string(),
+        None => {
+            return ApiResponse::json(
+                400,
+                serde_json::json!({
+                    "error": {
+                        "code": "studio-invalid-spec",
+                        "message": "studio refine requires a `request` body field",
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            );
+        }
+    };
+    let selected_files: Vec<String> = body
+        .get("selected_files")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let record = match registry.inspect(id) {
+        Ok(record) => record,
+        Err(err) => return ApiResponse::from_error(&err),
+    };
+    let project_root = PathBuf::from(&record.path);
+    match crate::studio::record_refinement(
+        &registry,
+        &project_root,
+        &expected_revision,
+        &request_text,
+        &selected_files,
+    ) {
+        Ok(session) => {
+            let envelope = crate::studio::envelope_from_session(&session);
+            ApiResponse::json(
+                200,
+                serde_json::json!({
+                    "preview": serde_json::to_value(&envelope).unwrap_or(Value::Null),
+                    "contract": crate::studio::PREVIEW_CONTRACT,
+                }),
+            )
+        }
         Err(err) => ApiResponse::from_error(&err),
     }
 }

@@ -1,0 +1,16 @@
+schema_version: "1"
+project_id: studio-fixture
+name: Studio Fixture
+profile: react-web
+pages:
+  - route: /
+    title: Home
+    sections:
+      - id: hero-block
+        kind: hero
+        title: Welcome
+        body: Build a deterministic site preview with Forge Studio.
+acceptance_checks:
+  - hero-renders
+theme:
+  preset: default

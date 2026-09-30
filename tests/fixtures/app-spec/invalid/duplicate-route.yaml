@@ -1,0 +1,16 @@
+schema_version: "1"
+project_id: studio-fixture
+name: Duplicate Route Fixture
+profile: react-web
+pages:
+  - route: /
+    title: Home
+    sections:
+      - id: hero-block
+        kind: hero
+  - route: /
+    title: Home again
+    sections:
+      - id: hero-block-two
+        kind: hero
+acceptance_checks: []

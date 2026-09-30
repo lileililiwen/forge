@@ -44,6 +44,7 @@ pub mod remediation;
 pub mod semantic;
 pub mod spec;
 pub mod standard;
+pub mod studio;
 pub mod ui_pattern;
 pub mod upgrade;
 pub mod vocabulary;

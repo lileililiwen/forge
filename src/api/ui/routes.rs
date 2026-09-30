@@ -20,12 +20,13 @@ use std::path::Path;
 use crate::api::{ApiConfig, ApiRequest, ApiResponse, API_CONTRACT_VERSION};
 use crate::core::{validate_project_id, ForgeError};
 use crate::portfolio::parse_filter;
+use crate::registry::Registry;
 
 use super::auth::{check_origin, recheck_post_token, AuthDecision};
 use super::data::{self, PortfolioFormInput};
 use super::render::{
     error_page, fleet_list, operation_accepted, portfolio_saved, project_detail, publish_plan,
-    ErrorKind,
+    studio_page, ErrorKind,
 };
 
 const FLEET_TITLE: &str = "Forge fleet";
@@ -285,6 +286,78 @@ pub fn handle_project_detail(
         ),
         Err(err) => forge_error_to_html(err),
     }
+}
+
+/// `GET /ui/studio/{project_id}` — read-only Studio page that
+/// surfaces the saved AppSpec, the preview state, and the most
+/// recent `studio.*` journal rows. Interactive controls land in a
+/// follow-up cycle (`tasks.md` §5.2); this page renders the
+/// current state honestly without claiming a preview is ready.
+pub fn handle_studio_project(
+    db_path: &Path,
+    config: &ApiConfig,
+    request: &ApiRequest,
+    project_id: &str,
+) -> ApiResponse {
+    if !wants_html(request) {
+        return json_only_response();
+    }
+    if let Err(err) = validate_project_id(project_id) {
+        return render_error(
+            400,
+            "manifest-invalid",
+            &err.to_string(),
+            ErrorKind::Project,
+        );
+    }
+    let token = match extract_token(request) {
+        Some(t) => t,
+        None => return require_token(None).unwrap(),
+    };
+    if let Some(resp) = require_token(Some(&token)) {
+        return resp;
+    }
+    if let AuthDecision::Refuse { code, message } = check_origin(request.header("origin"), config) {
+        return render_error(403, code, message, ErrorKind::Project);
+    }
+    match crate::identity::load_session(db_path, project_id, &token) {
+        Ok(_) => {}
+        Err(err) => return forge_error_to_html(err),
+    }
+    let registry = match Registry::open(db_path) {
+        Ok(reg) => reg,
+        Err(err) => return forge_error_to_html(err),
+    };
+    let record = match registry.inspect(project_id) {
+        Ok(record) => record,
+        Err(err) => return forge_error_to_html(err),
+    };
+    let project_root = std::path::PathBuf::from(&record.path);
+    let session = crate::studio::load_session(&project_root).ok().flatten();
+    let preview_envelope = session
+        .as_ref()
+        .map(crate::studio::envelope_from_session)
+        .unwrap_or_else(|| {
+            crate::studio::PreviewEnvelope::from_session(
+                project_id,
+                "r0",
+                &crate::studio::state::SessionPreviewState::default(),
+            )
+        });
+    let journal_rows = registry
+        .operations_for_project(project_id, 16)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|row| row.kind.starts_with("studio."))
+        .collect::<Vec<_>>();
+    let body = studio_page(
+        project_id,
+        session.as_ref(),
+        &preview_envelope,
+        &journal_rows,
+        API_CONTRACT_VERSION,
+    );
+    html_response(200, body)
 }
 
 /// `POST /ui/projects/{id}/publish`

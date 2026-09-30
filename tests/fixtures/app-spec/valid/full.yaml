@@ -1,0 +1,40 @@
+schema_version: "1"
+project_id: studio-fixture-full
+name: Studio Fixture Full
+profile: react-web
+pages:
+  - route: /
+    title: Home
+    sections:
+      - id: hero-block
+        kind: hero
+        title: Welcome
+        body: Forge Studio spins a bounded preview on a reserved port.
+      - id: features-block
+        kind: features
+        title: Features
+        body: AppSpec, preview, refinement.
+  - route: /pricing
+    title: Pricing
+    sections:
+      - id: pricing-block
+        kind: pricing
+        title: Plans
+        body: Free, Standard, Managed.
+  - route: /contact
+    title: Contact
+    sections:
+      - id: contact-block
+        kind: contact
+        title: Get in touch
+        body: hello@example.invalid
+acceptance_checks:
+  - hero-renders
+  - pricing-renders
+  - contact-renders
+theme:
+  preset: contrast
+  tokens:
+    primary: "#3366cc"
+    background: "#fafafa"
+    text: "#1a1a1a"

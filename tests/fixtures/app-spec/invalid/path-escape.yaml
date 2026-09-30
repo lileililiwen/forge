@@ -1,0 +1,10 @@
+schema_version: "1"
+project_id: studio-fixture
+name: Path Escape
+profile: react-web
+pages:
+  - route: "/../etc/passwd"
+    title: Escape
+    sections:
+      - id: hero-block
+        kind: hero

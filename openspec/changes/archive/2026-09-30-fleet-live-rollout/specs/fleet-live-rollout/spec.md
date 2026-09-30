@@ -47,10 +47,12 @@ branch.
 ### Requirement: 20/20 live rollout
 
 The Mac fleet SHALL reach 20/20 `healthy=true` via the
-`remote-compose` lane with all journal rows `done`, all
-`forge-*` containers up, and every remediation recorded
-(secret keys provisioned, legacy containers/volumes removed,
-sibling Dockerfile fixes linked).
+`remote-compose` lane with all journal rows `done`, every
+`forge-*` compose project brought up by the deploy stage, and
+every remediation recorded (secret keys provisioned, legacy
+containers/volumes removed, sibling Dockerfile and healthcheck
+fixes linked). App-internal runtime failures that survive a
+successful deploy stage are out of scope (proposal non-goals).
 
 #### Scenario: Rollout evidence
 

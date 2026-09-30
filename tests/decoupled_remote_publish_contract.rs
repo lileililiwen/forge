@@ -122,7 +122,7 @@ fn decoupled_all_stages_render_ssh_rsync_and_compose() {
     let commands = commands_of(&report).join("\n");
     assert!(commands.contains("rsync -az"), "plan was: {commands}");
     assert!(
-        commands.contains("--exclude data/"),
+        commands.contains("--exclude appendonlydir/") && commands.contains("*.rdb"),
         "runtime volume state must never sync: {commands}"
     );
     assert!(commands.contains("docker compose"), "plan was: {commands}");

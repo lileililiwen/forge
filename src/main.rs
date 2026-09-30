@@ -6694,15 +6694,21 @@ fn cmd_publish_fleet(
         // index) from whatever the target currently holds: running
         // N Prepares concurrently is last-writer-wins on shared
         // files and each render misses the sibling projects. So:
-        // Phase A runs Sync+Db in parallel (per-project remote
-        // dirs; Db is idempotent), Phase B runs Prepare serially in
-        // roster order so the registry converges (each render sees
-        // every prior project), Phase C runs Deploy in parallel
-        // (per-project `forge-<id>` compose projects). Per-project
-        // order Sync -> Db -> Prepare -> Deploy is preserved; with
-        // fail-fast, later phases never start a project whose
-        // earlier phase failed, and Phase B/C stop scheduling new
-        // projects after the first failure they observe.
+        // Phase A runs Sync in parallel (per-project remote dirs),
+        // Phase B runs Db + Prepare serially in roster order — Db is
+        // the shared-Postgres ensure whose command is identical for
+        // every project, and recreating the single
+        // `production-postgres` container concurrently is a race
+        // (live evidence 2026-09-30: parallel Db produced `removal
+        // ... already in progress` / `Conflict ... name already in
+        // use`); Prepare runs serially so the registry converges
+        // (each render sees every prior project). Phase C runs
+        // Deploy in parallel (per-project `forge-<id>` compose
+        // projects). Per-project order Sync -> Db -> Prepare ->
+        // Deploy is preserved; with fail-fast, later phases never
+        // start a project whose earlier phase failed, and Phase B/C
+        // stop scheduling new projects after the first failure they
+        // observe.
         let legacy_lane = use_legacy_publish_adapter();
         let db_path_owned = db_path.to_path_buf();
         let phase_a = move |entry: forge::publish::inventory::InventoryFleetEntry| {
@@ -6711,7 +6717,7 @@ fn cmd_publish_fleet(
                 &db_path_owned,
                 legacy_lane,
                 dry_run,
-                &[PublishAction::Sync, PublishAction::Db],
+                &[PublishAction::Sync],
             )
         };
         let phase_a_outcomes = run_fleet_concurrent(&eligible, jobs, fail_fast, phase_a);
@@ -6773,7 +6779,7 @@ fn cmd_publish_fleet(
                 render_output(as_output(format, human, value));
             }
         }
-        // Phase B: serial Prepare in roster order. The shared
+        // Phase B: serial Db + Prepare in roster order. The shared
         // adapter/transport pair is main-thread owned, exactly like
         // the sequential path.
         let jenkins_adapter = JenkinsAdapter::from_env();
@@ -6797,49 +6803,54 @@ fn cmd_publish_fleet(
                 .as_deref()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let request = build_publish_request(
-                entry.id.clone(),
-                source_path,
-                PublishAction::Prepare,
-                dry_run,
-            );
-            match run_publish(&request, adapter, &transport, Some(&core_registry)) {
-                Ok(report) => {
-                    let human = render_publish_report_human(&report);
-                    let mut value = serde_json::to_value(&report).map_err(|err| {
-                        ForgeError::PublishInvalid {
-                            reason: format!("cannot encode report for {}: {err}", entry.id),
-                        }
-                    })?;
-                    if let Some(obj) = value.as_object_mut() {
-                        obj.insert(
-                            "contract".to_string(),
-                            serde_json::json!(PUBLISH_CONTRACT_VERSION),
-                        );
-                        if let Some(subdomain) = entry.subdomain.as_deref() {
+            // Db (shared-Postgres ensure) then Prepare, both serial
+            // and journaled through the main-thread registry. See
+            // the phase comment above for why Db cannot run in the
+            // parallel phase.
+            for action in [PublishAction::Db, PublishAction::Prepare] {
+                let request =
+                    build_publish_request(entry.id.clone(), source_path.clone(), action, dry_run);
+                match run_publish(&request, adapter, &transport, Some(&core_registry)) {
+                    Ok(report) => {
+                        let human = render_publish_report_human(&report);
+                        let mut value = serde_json::to_value(&report).map_err(|err| {
+                            ForgeError::PublishInvalid {
+                                reason: format!("cannot encode report for {}: {err}", entry.id),
+                            }
+                        })?;
+                        if let Some(obj) = value.as_object_mut() {
                             obj.insert(
-                                "inventory_subdomain".to_string(),
-                                serde_json::json!(subdomain),
+                                "contract".to_string(),
+                                serde_json::json!(PUBLISH_CONTRACT_VERSION),
                             );
+                            if let Some(subdomain) = entry.subdomain.as_deref() {
+                                obj.insert(
+                                    "inventory_subdomain".to_string(),
+                                    serde_json::json!(subdomain),
+                                );
+                            }
+                        }
+                        render_output(as_output(format, human, value));
+                        let healthy = report.healthy;
+                        prog.reports.push(report);
+                        if !healthy {
+                            prog.failed = true;
+                            prog.fail_error = Some(ForgeError::PublishDeployFailed {
+                                reason: format!("fleet prepare failed at `{}`", entry.id),
+                            });
+                            if fail_fast {
+                                phase_b_stopped = true;
+                            }
+                            break;
                         }
                     }
-                    render_output(as_output(format, human, value));
-                    if !report.healthy {
+                    Err(err) => {
                         prog.failed = true;
-                        prog.fail_error = Some(ForgeError::PublishDeployFailed {
-                            reason: format!("fleet prepare failed at `{}`", entry.id),
-                        });
+                        prog.fail_error = Some(err);
                         if fail_fast {
                             phase_b_stopped = true;
                         }
-                    }
-                    prog.reports.push(report);
-                }
-                Err(err) => {
-                    prog.failed = true;
-                    prog.fail_error = Some(err);
-                    if fail_fast {
-                        phase_b_stopped = true;
+                        break;
                     }
                 }
             }
@@ -7335,6 +7346,15 @@ enum FleetEntryOutcome {
     },
 }
 
+/// Whether a phase subset needs Prepare's materialised adapter state
+/// before it can run. Deploy builds its plan from the Compose file,
+/// profiles, shared-DB overlay and router documents that Prepare
+/// materialises; a subset that already runs Prepare (or never runs
+/// Deploy) needs nothing extra.
+fn deploy_needs_prepare_materialization(phases: &[PublishAction]) -> bool {
+    phases.contains(&PublishAction::Deploy) && !phases.contains(&PublishAction::Prepare)
+}
+
 /// Roster index of a project id. The phased fleet loop keeps worker
 /// results aligned to roster order through indices, not clones.
 fn entry_index(
@@ -7433,6 +7453,32 @@ fn run_fleet_entry_phases(
     };
     let transport = SubprocessTransport::default();
     let mut reports = Vec::with_capacity(phases.len());
+    // Deploy consumes state that Prepare materialises on the adapter:
+    // the resolved Compose file and its profiles, the shared-DB
+    // overlay flag, the env-file probes and the rendered router
+    // documents. The phased fleet loop runs Prepare (Phase B, serial)
+    // and Deploy (Phase C, parallel) on different adapter instances,
+    // so a Deploy-only call must materialise those inputs itself.
+    // `materialize` only reads the target and renders locally — the
+    // shared registry is written exclusively by Prepare's shipping
+    // step, which stays serial — so this is side-effect free on the
+    // target and safe across workers (`fleet-live-rollout` live
+    // evidence 2026-09-30: a Deploy-only worker previously failed
+    // with `publish did not resolve a Compose file`).
+    if deploy_needs_prepare_materialization(phases) {
+        let prepare_request = build_publish_request(
+            project_id.clone(),
+            source_path.clone(),
+            PublishAction::Prepare,
+            dry_run,
+        );
+        if let Err(err) = adapter.materialize(&prepare_request, &transport, dry_run) {
+            return FleetEntryOutcome::Phased {
+                reports,
+                error: Some(err),
+            };
+        }
+    }
     for action in phases {
         let request = build_publish_request(
             project_id.clone(),
@@ -7547,8 +7593,12 @@ where
 
 #[cfg(test)]
 mod fleet_jobs_tests {
-    use super::{run_fleet_concurrent, validate_fleet_jobs, FleetEntryOutcome};
+    use super::{
+        deploy_needs_prepare_materialization, run_fleet_concurrent, validate_fleet_jobs,
+        FleetEntryOutcome,
+    };
     use forge::core::ForgeError;
+    use forge::publish::PublishAction;
 
     #[test]
     fn jobs_flag_is_bounded() {
@@ -7672,6 +7722,34 @@ mod fleet_jobs_tests {
         // Tail slots were never scheduled: the scheduler fills them
         // with a typed skip rather than running them.
         assert!(matches!(outcomes[1], FleetEntryOutcome::Failed { .. }));
+    }
+
+    #[test]
+    fn deploy_only_phases_materialize_prepare_inputs() {
+        // Phase C runs Deploy alone on a fresh adapter, which must
+        // materialise Prepare's inputs first (`fleet-live-rollout`
+        // live evidence 2026-09-30).
+        assert!(deploy_needs_prepare_materialization(&[
+            PublishAction::Deploy
+        ]));
+        assert!(deploy_needs_prepare_materialization(&[
+            PublishAction::Sync,
+            PublishAction::Db,
+            PublishAction::Deploy,
+        ]));
+        // A subset that runs Prepare already has the state; Sync/Db
+        // never need it.
+        assert!(!deploy_needs_prepare_materialization(&[
+            PublishAction::Prepare
+        ]));
+        assert!(!deploy_needs_prepare_materialization(&[
+            PublishAction::Prepare,
+            PublishAction::Deploy,
+        ]));
+        assert!(!deploy_needs_prepare_materialization(&[
+            PublishAction::Sync,
+            PublishAction::Db,
+        ]));
     }
 }
 

@@ -341,6 +341,12 @@ pub struct CommandSpec {
     /// legitimately exceeds the interactive default (container
     /// builds). The timeout never renders into dry-run plans.
     pub timeout: Option<Duration>,
+    /// Serialise this command against every other exclusive command
+    /// in the process. Used for a shared single-container mutation
+    /// (the platform router reload) that two fleet workers must
+    /// never run at once (`fleet-live-rollout` live evidence
+    /// 2026-09-30). Never renders into dry-run plans.
+    pub exclusive: bool,
 }
 
 impl CommandSpec {
@@ -350,6 +356,7 @@ impl CommandSpec {
             args: Vec::new(),
             label: label.into(),
             timeout: None,
+            exclusive: false,
         }
     }
     pub fn arg(mut self, value: impl Into<OsString>) -> Self {
@@ -372,6 +379,13 @@ impl CommandSpec {
     /// dry-run output.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+    /// Mark the command exclusive: the transport runs at most one
+    /// exclusive command at a time across all threads in the
+    /// process. See [`CommandSpec::exclusive`].
+    pub fn with_exclusive(mut self) -> Self {
+        self.exclusive = true;
         self
     }
     pub fn render(&self) -> String {
@@ -415,7 +429,23 @@ impl Default for SubprocessTransport {
 
 impl SshTransport for SubprocessTransport {
     fn run(&self, spec: CommandSpec) -> Result<CommandResult, ForgeError> {
-        run_subprocess(&spec, spec.timeout.unwrap_or(self.timeout))
+        let timeout = spec.timeout.unwrap_or(self.timeout);
+        if !spec.exclusive {
+            return run_subprocess(&spec, timeout);
+        }
+        // Exclusive commands mutate a shared single resource (the
+        // platform router container), so fleet worker threads must
+        // run them one at a time: concurrent
+        // `docker compose up -d --force-recreate` calls race and one
+        // fails with `Conflict. The container name … is already in
+        // use` (`fleet-live-rollout` live evidence 2026-09-30). The
+        // lock is process-global and never held across a
+        // non-exclusive command, so parallel builds stay parallel.
+        static EXCLUSIVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = EXCLUSIVE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        run_subprocess(&spec, timeout)
     }
 }
 

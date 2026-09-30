@@ -528,12 +528,17 @@ impl RemoteComposeAdapter {
             .arg(REMOTE_MKDIR)
             .arg("-p")
             .arg(&remote_dir);
-        // `data/` holds mounted volume state (often root-owned on
-        // the dev host, e.g. database files): it is runtime state,
-        // never source, and syncing it fails closed with rsync
-        // exit 23. The legacy lane carries the same unreadable tree
-        // and fails identically, so excluding it here strictly
-        // advances the decoupled lane without hiding source.
+        // Runtime volume state must not sync: a root/dnsmasq-owned
+        // Redis AOF tree fails closed with rsync exit 23, and the
+        // legacy lane carries the same unreadable tree. Excluding the
+        // concrete runtime artefacts (`appendonlydir/`, `*.rdb`)
+        // rather than a whole `data/` directory keeps source that
+        // lives under `data/` — e.g. `rust-ecommerce`'s
+        // `data/admin_nav.json` (`include_str!` at build time) —
+        // in the transfer (`fleet-live-rollout` live evidence
+        // 2026-09-30). `obj/` is .NET intermediate output; shipping
+        // it overwrites the fresh restore inside the image and fails
+        // `--no-restore` builds with `NETSDK1064` (same evidence).
         let mut exclusions: Vec<String> = Vec::new();
         for exclusion in [
             ".git/",
@@ -541,7 +546,9 @@ impl RemoteComposeAdapter {
             "target/",
             "dist/",
             "build/",
-            "data/",
+            "obj/",
+            "appendonlydir/",
+            "*.rdb",
         ] {
             exclusions.push("--exclude".to_string());
             exclusions.push(exclusion.to_string());
@@ -692,7 +699,13 @@ impl RemoteComposeAdapter {
                     "-d",
                     "--force-recreate",
                 ])
-                .with_timeout(PUBLISH_DEPLOY_TIMEOUT),
+                .with_timeout(PUBLISH_DEPLOY_TIMEOUT)
+                // The platform router is one container shared by every
+                // project; two fleet workers recreating it at once
+                // collide (`fleet-live-rollout` live evidence
+                // 2026-09-30: `cvunify`, `hermexa`). The transport
+                // serialises exclusive commands.
+                .with_exclusive(),
         );
         Ok(StagePlan {
             stage: STAGE_DEPLOY.to_string(),
@@ -1391,6 +1404,9 @@ mod tests {
         let rendered = plan.render();
         assert!(rendered.contains("ssh mac /bin/mkdir -p /Users/allen/jenkins/projects/alethefy"));
         assert!(rendered.contains("rsync -az --human-readable --exclude .git/"));
+        assert!(rendered.contains("--exclude obj/"));
+        assert!(rendered.contains("--exclude appendonlydir/"));
+        assert!(rendered.contains("*.rdb"));
         assert!(rendered.contains("mac:/Users/allen/jenkins/projects/alethefy/"));
     }
 
@@ -1583,6 +1599,14 @@ mod tests {
             rendered.contains("--env-file /Users/allen/production/secrets/alethefy/.shared-db.env")
         );
         assert!(rendered.contains("-f /Users/allen/jenkins/runtime/alethefy/shared-db.compose.yml"));
+        // The shared single-container router reload must be marked
+        // exclusive so parallel fleet workers serialise it.
+        let reload = deploy
+            .commands
+            .iter()
+            .find(|command| command.label == "router reload")
+            .expect("deploy plan carries the platform router reload");
+        assert!(reload.exclusive);
         assert!(artifacts
             .iter()
             .any(|artifact| artifact.remote.ends_with("/shared-db.compose.yml")));

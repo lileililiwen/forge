@@ -1,7 +1,7 @@
 # project-query-consumer-surfaces Specification
 
 ## Purpose
-TBD - created by archiving change project-query-consumer-surfaces. Update Purpose after archive.
+One project-query service behind every transport, with stable machine output and equivalent authorization and typed failures across CLI, API and MCP.
 ## Requirements
 ### Requirement: One query service behind every transport
 

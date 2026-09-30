@@ -1,7 +1,7 @@
 # gate-evidence-export-consumption Specification
 
 ## Purpose
-TBD - created by archiving change gate-evidence-export-consumption. Update Purpose after archive.
+Forge consumes Driftwatchdog’s exported gate evidence as untrusted input, requiring attribution, evidence and revision agreement before any verdict and never granting deployment or publication.
 ## Requirements
 ### Requirement: Exported gate evidence is consumed as untrusted input
 

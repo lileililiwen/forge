@@ -1,7 +1,7 @@
 # site-studio-preview-refinement Specification
 
 ## Purpose
-TBD - created by archiving change site-studio-preview-refinement. Update Purpose after archive.
+A versioned site specification with a bounded live preview and scoped refinement.
 ## Requirements
 ### Requirement: Versioned site specification
 

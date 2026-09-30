@@ -1,7 +1,7 @@
 # standard-pack-registry-and-snapshots Specification
 
 ## Purpose
-TBD - created by archiving change standard-pack-registry-and-snapshots. Update Purpose after archive.
+Versioned standard packs plus standalone snapshot generation and explicit conflict-safe upgrades.
 ## Requirements
 ### Requirement: Versioned standard packs
 

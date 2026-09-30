@@ -1,7 +1,7 @@
 # portfolio-activation-readiness Specification
 
 ## Purpose
-TBD - created by archiving change portfolio-activation-readiness. Update Purpose after archive.
+A read-only activation-readiness verdict with a machine signal, where absence and doubt never read as readiness and Forge gates activation without becoming a billing surface.
 ## Requirements
 ### Requirement: Read-only activation readiness verdict
 

@@ -1,7 +1,7 @@
 # forge-publish-observability-revision-containers Specification
 
 ## Purpose
-TBD - created by archiving change forge-publish-observability-revision-containers. Update Purpose after archive.
+Phase-visible publish lifecycle events and revision-bound container identity, so an in-flight publish is observable and a container is attributable to the revision that produced it.
 ## Requirements
 ### Requirement: Phase-visible publish lifecycle
 

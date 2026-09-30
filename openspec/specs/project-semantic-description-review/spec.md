@@ -1,7 +1,7 @@
 # project-semantic-description-review Specification
 
 ## Purpose
-TBD - created by archiving change project-semantic-description-review. Update Purpose after archive.
+Traceable semantic-description proposals that require human approval before any write and surface conflicting or unavailable interpretation explicitly.
 ## Requirements
 ### Requirement: Traceable semantic proposals
 

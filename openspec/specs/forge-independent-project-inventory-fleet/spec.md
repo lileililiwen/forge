@@ -1,7 +1,7 @@
 # forge-independent-project-inventory-fleet Specification
 
 ## Purpose
-TBD - created by archiving change forge-independent-project-inventory-fleet. Update Purpose after archive.
+A portable `forge-project-inventory/0.1.0` source that lets `forge publish fleet` classify and publish a roster independently of the workspace-governance `projects.json`.
 ## Requirements
 ### Requirement: Portable inventory source
 

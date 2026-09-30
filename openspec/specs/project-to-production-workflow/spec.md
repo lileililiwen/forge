@@ -1,7 +1,7 @@
 # project-to-production-workflow Specification
 
 ## Purpose
-TBD - created by archiving change project-to-production-workflow. Update Purpose after archive.
+Evidence-gated staged delivery with explicit production promotion, optional post-publish Hermora onboarding, and read-only delivery status.
 ## Requirements
 ### Requirement: Evidence-gated staged delivery
 

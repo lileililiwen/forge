@@ -1,7 +1,7 @@
 # publish-commands Specification
 
 ## Purpose
-TBD - created by archiving change jenkins-publish-integration. Update Purpose after archive.
+Linux-controlled runtime deployment over an artifact-only Mac boundary, where builds happen locally and Mac-local secrets never leave the target.
 ## Requirements
 ### Requirement: Linux-controlled runtime deployment
 

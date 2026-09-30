@@ -1,7 +1,7 @@
 # fleet-liveness-status Specification
 
 ## Purpose
-TBD - created by archiving change fleet-liveness-status. Update Purpose after archive.
+Read-only `forge fleet online` verdicts that join the target’s running containers, served router rules and application answers into one typed online/offline status per roster project.
 ## Requirements
 ### Requirement: Read-only fleet online verdicts
 Forge SHALL provide `forge fleet online` which joins, per `compose_ready` roster entry, the target container state, the served router rules, and one bounded HTTPS probe into a typed verdict of `ONLINE`, `DOWN`, `NO-ROUTE`, or `NOT-DEPLOYED`, without writing the journal, registry, or target and without reading secret values.

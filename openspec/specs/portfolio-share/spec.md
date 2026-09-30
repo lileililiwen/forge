@@ -1,7 +1,7 @@
 # portfolio-share Specification
 
 ## Purpose
-TBD - created by archiving change portfolio-share-publish. Update Purpose after archive.
+An explicit, approval-gated public share record whose deterministic, idempotent publication excludes private data.
 ## Requirements
 ### Requirement: Admin can define an explicit public share record
 The system SHALL allow an authorized admin to create or update a share record

@@ -1,7 +1,7 @@
 # forge-publish-queue-status Specification
 
 ## Purpose
-TBD - created by archiving change forge-publish-queue-status. Update Purpose after archive.
+A durable, watchable `forge deploy status` over the per-stage journal, with sequential fleet execution and provider progress events.
 ## Requirements
 ### Requirement: Sequential fleet execution
 

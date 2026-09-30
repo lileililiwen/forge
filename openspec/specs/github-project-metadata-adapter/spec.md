@@ -1,7 +1,7 @@
 # github-project-metadata-adapter Specification
 
 ## Purpose
-TBD - created by archiving change github-project-metadata-adapter. Update Purpose after archive.
+An optional, versioned GitHub observation provider that reports explicit provider states, keeps mutation reviewable, and preserves credentials and namespaces.
 ## Requirements
 ### Requirement: Versioned, optional GitHub observation
 

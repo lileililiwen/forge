@@ -1,7 +1,7 @@
 # decoupled-remote-publish Specification
 
 ## Purpose
-TBD - created by archiving change decoupled-remote-publish. Update Purpose after archive.
+A Forge-owned `remote-compose` publish lane that allocates ports, renders the shared-DB overlay and Caddy hosts, and issues plain `docker compose`/`rsync` over SSH, so the target is a generic Docker host with no deployment scripts on it.
 ## Requirements
 ### Requirement: Remote-compose publish without target-hosted deployment scripts
 Forge SHALL publish the fleet (and bare `forge publish` via cwd discovery) to a generic Docker host without invoking any file under the target's `scripts/` directory; `Sync` SHALL remain `mkdir` + `rsync`, while `Prepare`/`Db`/`Deploy` SHALL be expressed as plain `ssh`/`rsync`/`scp` + `docker compose` commands issued from Linux.

@@ -1,7 +1,7 @@
 # project-local-remediation-plans Specification
 
 ## Purpose
-TBD - created by archiving change project-local-remediation-plans. Update Purpose after archive.
+Versioned, previewable remediation plans that apply idempotently and safely, bounded to local repair that never leaks or reaches out.
 ## Requirements
 ### Requirement: Versioned, previewable remediation plans
 

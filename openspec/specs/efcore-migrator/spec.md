@@ -1,7 +1,8 @@
 # efcore-migrator Specification
 
 ## Purpose
-TBD - created by archiving change platform-efcore-migrator-host. Update Purpose after archive.
+
+The platform exposes EF Core migration status and readiness helpers, but small consumers still need to write a separate migration executable. The starter kit demonstrates the operational value of keeping migrations outside API startup; that behavior should be available without adopting its tenant catalog, seed model, or host architecture.
 ## Requirements
 ### Requirement: Application-owned migration runner
 The migrator MUST execute against a `DbContext` and migration assembly supplied by the application and MUST NOT create platform-owned contexts, migrations, connection strings, or seed data.

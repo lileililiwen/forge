@@ -1,7 +1,8 @@
 # platform-identity-authorization Specification
 
 ## Purpose
-TBD - created by archiving change platform-identity-authorization. Update Purpose after archive.
+
+The portfolio repeats current-user access, password/login flows, external login seams, permission checks, role checks, and development identity providers. FullStackHero provides a strong reference, but product roles and user entities must not leak into the shared platform.
 ## Requirements
 ### Requirement: Current user SHALL be provider-neutral
 

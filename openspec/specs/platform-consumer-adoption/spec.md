@@ -1,7 +1,8 @@
 # platform-consumer-adoption Specification
 
 ## Purpose
-TBD - created by archiving change platform-consumer-adoption-conformance. Update Purpose after archive.
+
+The platform will be consumed by 26+ repositories with different SDK versions, persistence models, and deployment environments. Current conformance coverage exists inside the platform repository, but consumers need a repeatable pinned-package adoption, upgrade, rollback, and architecture-verification route.
 ## Requirements
 ### Requirement: Consumer conformance SHALL use packed artifacts
 

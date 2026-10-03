@@ -1,7 +1,8 @@
 # dotnet-template-pack Specification
 
 ## Purpose
-TBD - created by archiving change platform-dotnet-template-pack. Update Purpose after archive.
+
+The current platform scaffold is useful as reference material but cannot be installed with `dotnet new`. The starter kit's installable template is powerful but brings the complexity this platform is intended to avoid. A small detachable template would make incremental adoption practical for ordinary subprojects.
 ## Requirements
 ### Requirement: Installable template pack
 The repository MUST produce a valid `dotnet new` template package that can be installed from a local package and used to generate an application in a clean directory.

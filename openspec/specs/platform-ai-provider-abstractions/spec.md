@@ -1,7 +1,8 @@
 # platform-ai-provider-abstractions Specification
 
 ## Purpose
-TBD - created by archiving change platform-ai-provider-abstractions. Update Purpose after archive.
+
+Projects repeatedly implement OpenAI-compatible clients, Claude/Anthropic calls, deterministic development stubs, retries, timeouts, structured output, usage tracking, and provider-specific error handling.
 ## Requirements
 ### Requirement: AI calls SHALL use provider-neutral contracts
 

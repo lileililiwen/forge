@@ -1,7 +1,8 @@
 # dotnet10-platform-baseline Specification
 
 ## Purpose
-TBD - created by archiving change platform-dotnet10-baseline. Update Purpose after archive.
+
+The shared platform currently targets `net8.0` and pins SDK `8.0.424`, while the workspace is moving its C# projects to one reproducible .NET 10 baseline. A verified shared-library baseline must be established before consumer projects can migrate without mixing SDK, target-framework, Microsoft package, template, and test-tool generations.
 ## Requirements
 ### Requirement: The platform pins one reproducible .NET 10 toolchain
 

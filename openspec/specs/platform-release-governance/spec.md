@@ -1,7 +1,8 @@
 # platform-release-governance Specification
 
 ## Purpose
-TBD - created by archiving change platform-release-governance. Update Purpose after archive.
+
+The platform is intended for adoption by 26+ independent applications, but the repository currently has no CI workflow that proves packed artifacts, API compatibility, security scanning, or release quality. A shared library can therefore compile locally while still being unsafe or difficult to consume.
 ## Requirements
 ### Requirement: Pull requests SHALL validate repository quality
 

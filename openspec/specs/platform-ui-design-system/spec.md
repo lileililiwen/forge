@@ -1,7 +1,8 @@
 # platform-ui-design-system Specification
 
 ## Purpose
-TBD - created by archiving change platform-ui-design-system. Update Purpose after archive.
+
+The C# applications split between React, Razor Pages, and other clients, repeatedly creating buttons, forms, tables, shells, loading/error/empty states, themes, and admin layouts. The FullStackHero admin and dashboard already contain a useful design-token and component reference, but the two clients duplicate much of it.
 ## Requirements
 ### Requirement: UI tokens SHALL be the cross-client visual contract
 

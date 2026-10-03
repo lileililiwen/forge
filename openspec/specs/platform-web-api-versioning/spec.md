@@ -1,7 +1,8 @@
 # platform-web-api-versioning Specification
 
 ## Purpose
-TBD - created by archiving change platform-web-api-versioning. Update Purpose after archive.
+
+The starter kit has a small reusable API-versioning setup based on URL segments and API Explorer, while the platform has no equivalent package. Without a common contract, the 26+ applications will diverge in URL shape, default-version behavior, and generated API documentation.
 ## Requirements
 ### Requirement: API versioning SHALL be opt-in
 

@@ -1,7 +1,8 @@
 # platform-jobs Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-08-platform-extraction-jobs. Update Purpose after archive.
+
+Every consumer in the portfolio that ships recurring work needs a documented `IJobDispatcher`, an `IRecurringJobHandler`, an `IRecurringJobRegistry`, an `IJobTelemetry` surface, an attribute-based registration, and a `RecurringJobDescriptor` shape. VisualFlow has implemented exactly this in `src/BuildingBlocks/Jobs/`, including the `RecurringJobAttribute`, the `BackgroundJobsOptions`, and the documented opt-in registration. The type surface is framework-neutral; the only `Microsoft.Extensions.*` reference is `IOptions<>`. Promoting it gives the portfolio a shared, recurring-job contract that any consumer can adopt at its own pace.
 ## Requirements
 ### Requirement: Jobs SHALL expose a documented contract and registration surface
 

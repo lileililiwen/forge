@@ -1,7 +1,8 @@
 # platform-consumer-conformance Specification
 
 ## Purpose
-TBD - created by archiving change platform-consumer-conformance. Update Purpose after archive.
+
+The platform packages are independently adoptable, but there is no reusable consumer conformance suite proving that registrations, replacement seams, health behavior, isolation, and provider failures work together. The starter kit's architecture, integration, migration-smoke, and template-smoke tests expose the verification gap.
 ## Requirements
 ### Requirement: Package-feed consumer fixture
 

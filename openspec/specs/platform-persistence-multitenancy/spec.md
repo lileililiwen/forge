@@ -1,7 +1,8 @@
 # platform-persistence-multitenancy Specification
 
 ## Purpose
-TBD - created by archiving change platform-persistence-multitenancy. Update Purpose after archive.
+
+The starter kit enforces tenant isolation by default and supports tenant-specific database connections, while the platform persistence package currently requires consumers to configure filters and scopes manually. That gap makes incremental adoption error-prone and leaves a high-risk class of data leaks to application code.
 ## Requirements
 ### Requirement: Explicit tenant scope
 

@@ -1,7 +1,8 @@
 # platform-mailing-providers Specification
 
 ## Purpose
-TBD - created by archiving change platform-mailing-providers. Update Purpose after archive.
+
+`Platform.Mailing` already defines provider-neutral messages and outcomes, but the starter kit's SMTP and SendGrid implementations are not reusable through those contracts. Consumers must choose between duplicating provider code or depending on the starter's concrete request model.
 ## Requirements
 ### Requirement: SMTP adapter
 

@@ -1,7 +1,8 @@
 # platform-featureflags-resilience Specification
 
 ## Purpose
-TBD - created by archiving change platform-featureflags-resilience. Update Purpose after archive.
+
+The starter kit provides tenant-aware feature gates and a standard outbound HTTP resilience pipeline, but the platform does not expose either capability. These are reusable host concerns that should be adoptable without importing the starter's full web building block.
 ## Requirements
 ### Requirement: Application-owned feature evaluation
 

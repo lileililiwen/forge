@@ -1,7 +1,8 @@
 # platform-aspnetcore-foundation Specification
 
 ## Purpose
-TBD - created by archiving change platform-aspnetcore-foundation. Update Purpose after archive.
+
+Web applications repeat safe HTTP error mapping, request correlation, request context access, and health-check registration. These are suitable for an opt-in ASP.NET Core package after the framework-neutral core contracts exist.
 ## Requirements
 ### Requirement: ASP.NET integration SHALL map known core failures safely
 

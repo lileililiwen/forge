@@ -1,7 +1,8 @@
 # platform-observability Specification
 
 ## Purpose
-TBD - created by archiving change platform-observability. Update Purpose after archive.
+
+The starter kit has a reusable host observability stack, but the platform currently exposes only scattered telemetry hooks. Consumers otherwise reimplement correlation enrichment, OpenTelemetry registration, structured logging, and provider-safe diagnostics.
 ## Requirements
 ### Requirement: Host observability registration
 

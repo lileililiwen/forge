@@ -1,7 +1,8 @@
 # platform-repository-foundation Specification
 
 ## Purpose
-TBD - created by archiving change platform-repository-foundation. Update Purpose after archive.
+
+The shared platform needs an isolated repository with predictable build, package, test, and contribution conventions. Without this foundation, shared code will be copied into applications or coupled to one application's repository.
 ## Requirements
 ### Requirement: Repository SHALL expose focused platform projects
 

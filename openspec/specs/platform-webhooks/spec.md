@@ -1,7 +1,8 @@
 # platform-webhooks Specification
 
 ## Purpose
-TBD - created by archiving change platform-webhooks. Update Purpose after archive.
+
+Catchen, VisualFlow, and the billing adapters all need webhook signature checks, replay protection, durable processing, retries, and delivery visibility. These concerns are currently repeated or provider-specific, leaving no common boundary for sibling applications.
 ## Requirements
 ### Requirement: Inbound requests are verified before processing
 The platform SHALL expose an inbound verification contract that receives raw request bytes, headers, provider identity, and a secret resolver before an application handler processes the payload.

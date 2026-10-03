@@ -1,7 +1,8 @@
 # domain-primitives Specification
 
 ## Purpose
-TBD - created by archiving change platform-domain-primitives. Update Purpose after archive.
+
+Small applications currently need to recreate basic domain types that the starter kit provides, or pull in a large application framework. A minimal, framework-neutral set of primitives would make platform adoption useful without importing product models or a modular-monolith architecture.
 ## Requirements
 ### Requirement: Framework-neutral domain contracts
 The domain package MUST target the supported application framework without referencing ASP.NET Core, EF Core, Mediator, validation libraries, provider SDKs, or application projects.

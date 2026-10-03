@@ -1,7 +1,8 @@
 # platform-contract-conformance Specification
 
 ## Purpose
-TBD - created by archiving change platform-contract-conformance-and-adoption. Update Purpose after archive.
+
+`dotnet-platform-libs` already owns reusable identity, admin, audit, web-composition, testing, release, and operational contracts. It now needs a stable conformance boundary with the language-neutral platform contracts and a repeatable adoption path for existing .NET business projects.
 ## Requirements
 ### Requirement: Preserve application ownership
 

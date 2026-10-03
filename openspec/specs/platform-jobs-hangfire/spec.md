@@ -1,7 +1,8 @@
 # platform-jobs-hangfire Specification
 
 ## Purpose
-TBD - created by archiving change platform-jobs-hangfire. Update Purpose after archive.
+
+`Platform.Jobs` defines an engine-neutral scheduling contract, but starter-kit consumers still lack a supported Hangfire adapter with tenant/user propagation, dashboard authorization, health, and telemetry. Without it, adoption requires duplicating operationally sensitive job infrastructure.
 ## Requirements
 ### Requirement: Hangfire job dispatch
 

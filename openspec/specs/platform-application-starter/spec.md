@@ -1,7 +1,8 @@
 # platform-application-starter Specification
 
 ## Purpose
-TBD - created by archiving change platform-application-starter. Update Purpose after archive.
+
+Independent demo applications repeatedly recreate project structure, service registration, configuration, test hosting, frontend setup, and runtime middleware. The platform needs a Spring-Boot-like entry point while preserving small independently adoptable packages.
 ## Requirements
 ### Requirement: Starter composition SHALL preserve independent capability boundaries
 

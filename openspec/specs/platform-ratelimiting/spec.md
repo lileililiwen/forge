@@ -1,7 +1,8 @@
 # platform-ratelimiting Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-08-platform-extraction-ratelimiting. Update Purpose after archive.
+
+The platform already ships `Platform.Core`, `Platform.AspNetCore`, and `Platform.Billing.Contracts` for the cross-cutting concerns that recur across every application in the portfolio. Rate limiting is the same kind of concern — every consumer in the portfolio that exposes HTTP endpoints needs a documented `IRateLimiter`, named policies, an in-memory default backend, and a documented bypass contract — but the platform does not yet ship it. VisualFlow has already implemented exactly this in `src/BuildingBlocks/RateLimiting/`, and the type surface (`IRateLimiter`, `InMemoryRateLimiter`, `RateLimitPolicies`, `RateLimitDecision`, `RateLimitKey`, `IRateLimitBypassResolver`, `IRateLimiterBackendStatusProvider`, `HttpContextAbstraction`, `RateLimitingOptions`) is provider-neutral, framework-neutral, and free of EF Core. Promoting it into the platform proves the Phase 3 adoption hypothesis: a real consumer can adopt a shared contract without rewriting its host.
 ## Requirements
 ### Requirement: Rate limiting SHALL expose a documented contract
 

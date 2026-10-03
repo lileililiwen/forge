@@ -1,7 +1,8 @@
 # platform-billing-provider-adapters Specification
 
 ## Purpose
-TBD - created by archiving change platform-billing-provider-adapters. Update Purpose after archive.
+
+Applications need real provider integrations after the provider-neutral billing contracts exist. Stripe and Lemon Squeezy differ in webhook shape, checkout, portal, subscription, and merchant-of-record behavior.
 ## Requirements
 ### Requirement: Provider adapters SHALL verify webhook authenticity
 

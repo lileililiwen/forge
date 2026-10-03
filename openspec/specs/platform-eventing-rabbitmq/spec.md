@@ -1,7 +1,8 @@
 # platform-eventing-rabbitmq Specification
 
 ## Purpose
-TBD - created by archiving change platform-eventing-rabbitmq. Update Purpose after archive.
+
+The platform now has durable outbox/inbox contracts and an EF Core adapter, but a starter-kit consumer still needs to write its own RabbitMQ publisher and delivery integration. The missing adapter prevents a low-risk migration from the starter's working RabbitMQ event bus.
 ## Requirements
 ### Requirement: RabbitMQ durable publisher
 

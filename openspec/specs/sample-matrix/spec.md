@@ -1,7 +1,8 @@
 # sample-matrix Specification
 
 ## Purpose
-TBD - created by archiving change platform-application-sample-matrix. Update Purpose after archive.
+
+The current sample proves the composite starter path, but it does not show the incremental adoption decisions that distinguish this platform from the complex starter kit. A small matrix of focused samples would make package boundaries, ownership, and rollback behavior executable and reviewable.
 ## Requirements
 ### Requirement: Focused adoption samples
 The repository MUST provide independently buildable samples for minimal web, EF Core persistence, identity, tenant scope, and one provider adapter adoption stages.

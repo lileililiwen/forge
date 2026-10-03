@@ -1,7 +1,8 @@
 # platform-tenant-lifecycle Specification
 
 ## Purpose
-TBD - created by archiving change platform-tenant-lifecycle-contracts. Update Purpose after archive.
+
+The platform already provides ambient tenant scope, EF isolation, connection routing, and readiness checks. The starter kit additionally implements tenant provisioning, retries, migrations, seeding, expiry notices, and lifecycle jobs. These workflows recur across applications but their entities, connection policies, migrations, and seed data must remain application-owned.
 ## Requirements
 ### Requirement: Tenant lifecycle SHALL be application-owned
 

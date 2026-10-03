@@ -1,7 +1,8 @@
 # platform-quota-aspnetcore Specification
 
 ## Purpose
-TBD - created by archiving change platform-quota-aspnetcore. Update Purpose after archive.
+
+`Platform.Quota` provides provider-neutral atomic reservation contracts, but consumers still need to rebuild HTTP enforcement, RFC 9457 responses, `Retry-After`, exemptions, and current-subject mapping. The starter kit demonstrates this missing ASP.NET Core boundary.
 ## Requirements
 ### Requirement: HTTP quota enforcement
 

@@ -1,7 +1,8 @@
 # platform-idempotency Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-08-platform-extraction-idempotency. Update Purpose after archive.
+
+Every consumer in the portfolio that accepts payment provider callbacks, refund triggers, payout requests, or upload finalize endpoints must deduplicate replays. The pattern is identical across consumers: an `Idempotency-Key` header, a documented fingerprint, an `IdempotencyRecord` shape, an `IIdempotencyStore` contract, and a retention policy. VisualFlow has implemented exactly this in `src/BuildingBlocks/Idempotency/`, including the request fingerprint, the in-memory default store, the documented metrics surface, and the opt-in registration. The type surface is framework-neutral (no ASP.NET Core, no EF Core, no provider) and depends only on `Microsoft.Extensions.Options` and `Microsoft.Extensions.DependencyInjection.Abstractions`. Promoting it proves the second Phase 3 adoption hypothesis and gives the portfolio a shared, auditable idempotency contract.
 ## Requirements
 ### Requirement: Idempotency SHALL expose a documented record and fingerprint
 

@@ -1,7 +1,8 @@
 # platform-consumer-bootstrap Specification
 
 ## Purpose
-TBD - created by archiving change platform-consumer-bootstrap. Update Purpose after archive.
+
+Consumers adopt the platform through inconsistent paths, and the documented switch does not work: - `build/Platform.Consumer.props` injects only a `ProjectReference` to `Platform.Core`, and only when `TargetFramework` is exactly `net10.0`. - `PlatformAsSource` is computed in the workspace `Directory.Build.props` and documented as the source/package switch, but `Platform.Consumer.props` never reads it, so the Maven-style source/package model is documentation only. - The workspace root default target is `net8.0` while the platform is `net10.0`-only, so a default-target consumer silently receives nothing; `mewo` (a consumer) targets `net8.0`. - Consumer defaults (`Nullable`, language version, analyzers, warnings policy, central package management) are not propagated; each consumer re-derives them and two consumers hand-copy them. - No `dotnet nuget push` exists anywhere: the GitHub Packages feed is declared in the workspace `nuget.config` but never published to. - Seven repositories adopt via `PackageReference` across four different feed paths with hand-written pack scripts; seven more are documented starting points.
 ## Requirements
 ### Requirement: The source/package switch SHALL be honoured
 

@@ -1,7 +1,8 @@
 # platform-entitlement-contracts Specification
 
 ## Purpose
-TBD - created by archiving change platform-entitlement-contracts. Update Purpose after archive.
+
+Multiple applications implement subscription status, feature access, quotas, and usage limits, but their persistence and payment workflows differ. A shared contract can remove repeated integration assumptions without forcing a shared billing database.
 ## Requirements
 ### Requirement: Entitlements SHALL be provider-neutral
 

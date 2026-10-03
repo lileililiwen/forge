@@ -1,7 +1,8 @@
 # platform-identity-lifecycle Specification
 
 ## Purpose
-TBD - created by archiving change platform-identity-lifecycle-contracts. Update Purpose after archive.
+
+The starter kit implements refresh tokens, sessions, password lifecycle, two-factor authentication, impersonation grants, groups, and user lifecycle events. The platform currently provides authentication and authorization seams but not normalized contracts for these repeated identity workflows.
 ## Requirements
 ### Requirement: Identity lifecycle contracts SHALL be provider-neutral
 

@@ -1,7 +1,8 @@
 # adoption-tooling Specification
 
 ## Purpose
-TBD - created by archiving change platform-adoption-tooling. Update Purpose after archive.
+
+Independent subprojects need a fast way to discover whether their SDK, package versions, project references, and local services are compatible with the platform. The starter kit's `doctor` and update workflows demonstrate the need, but a platform consumer tool must remain small and must target an explicit project directory.
 ## Requirements
 ### Requirement: Explicit target selection
 The tool MUST require or clearly resolve an explicit absolute project/repository directory and MUST report the resolved target before running checks.

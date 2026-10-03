@@ -1,7 +1,8 @@
 # web-composition Specification
 
 ## Purpose
-TBD - created by archiving change platform-web-composition-contracts. Update Purpose after archive.
+
+The starter kit makes adding a module convenient, but its loader couples consumers to Mediator, FluentValidation, static process-global state, and a fixed module architecture. Small projects need an explicit composition seam that can register only what they own.
 ## Requirements
 ### Requirement: Explicit module contract
 The web composition package MUST expose a module contract with a stable name, deterministic order, service-registration hook, middleware hook, and endpoint-mapping hook.

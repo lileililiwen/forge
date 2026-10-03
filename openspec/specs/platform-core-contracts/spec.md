@@ -1,7 +1,8 @@
 # platform-core-contracts Specification
 
 ## Purpose
-TBD - created by archiving change platform-core-contracts. Update Purpose after archive.
+
+The applications repeat technical concepts such as time access, operation results, audit metadata, and caller identity. These concepts can be shared without sharing application domain entities.
 ## Requirements
 ### Requirement: Core SHALL provide testable time access
 

@@ -1,7 +1,8 @@
 # platform-hangfire-reliability Specification
 
 ## Purpose
-TBD - created by archiving change platform-hangfire-reliability. Update Purpose after archive.
+
+The current platform test run exposed a real reliability gap: `Platform.Jobs.Hangfire.Tests.EndToEndTests.Dispatched_jobs_run_context_free_without_an_ambient_context` failed because the Hangfire in-memory dispatcher was already disposed. Job infrastructure must be verified for lifecycle isolation before it is adopted by many applications.
 ## Requirements
 ### Requirement: End-to-end Hangfire tests SHALL own their lifecycle
 

@@ -1,7 +1,8 @@
 # platform-notifications-sms Specification
 
 ## Purpose
-TBD - created by archiving change platform-notifications-sms. Update Purpose after archive.
+
+The projects repeat email senders, console fakes, SMS seams, notification scheduling, retry behavior, and provider failure handling. `Platform.Mailing` provides the email contract but not the broader notification intent or SMS boundary.
 ## Requirements
 ### Requirement: Notification delivery SHALL be channel-neutral
 

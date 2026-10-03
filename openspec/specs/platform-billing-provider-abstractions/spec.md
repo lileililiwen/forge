@@ -1,7 +1,8 @@
 # platform-billing-provider-abstractions Specification
 
 ## Purpose
-TBD - created by archiving change platform-billing-provider-abstractions. Update Purpose after archive.
+
+The portfolio needs subscriptions, checkout, customer portals, webhook processing, entitlements, usage limits, and provider-independent admin visibility. Stripe and Lemon Squeezy have different models and must not leak into application business code.
 ## Requirements
 ### Requirement: Billing SHALL normalize provider behavior
 

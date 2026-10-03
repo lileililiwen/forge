@@ -1,7 +1,8 @@
 # platform-site-user-auth-starter Specification
 
 ## Purpose
-TBD - created by archiving change platform-site-user-auth-starter. Update Purpose after archive.
+
+The platform already has identity lifecycle, authorization, and test contracts, but it intentionally leaves each application to create its own user store and login surface. New ASP.NET Core projects still repeat the login UI, cookie setup, initial-user bootstrap, role/permission wiring, and test setup.
 ## Requirements
 ### Requirement: Optional site-local authentication template
 

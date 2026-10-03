@@ -1,7 +1,8 @@
 # platform-auditing Specification
 
 ## Purpose
-TBD - created by archiving change platform-auditing. Update Purpose after archive.
+
+The starter kit treats auditing as a first-class capability across HTTP, security, exceptions, entity changes, masking, retention, and durable sinks. The platform currently exposes only audit primitives and identity hooks, leaving every consumer to rebuild compliance-sensitive behavior.
 ## Requirements
 ### Requirement: Normalized audit events
 

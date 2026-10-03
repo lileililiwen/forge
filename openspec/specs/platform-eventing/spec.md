@@ -1,7 +1,8 @@
 # platform-eventing Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-08-platform-extraction-eventing. Update Purpose after archive.
+
+Every consumer in the portfolio that wants decoupled modules ships an event bus with the same shape: an `IEventBus` contract, an `IntegrationEvent` marker, an envelope that carries the payload type and JSON body, a deserializer that turns the envelope back into a typed event, a consumer handler with a `ConsumerName` and an `HandleAsync`, and an in-process default adapter for tests and single-host deployments. VisualFlow has implemented this in `src/BuildingBlocks/Eventing/` (contracts) and `src/BuildingBlocks/Eventing.InProcess/` (in-memory adapter), and both projects are framework-neutral. Promoting them gives the portfolio a shared, transport-agnostic event contract that any consumer can adopt at its own pace, and proves that the platform can host a richer surface (contracts + an in-process adapter in one package) without leaking implementation.
 ## Requirements
 ### Requirement: Eventing SHALL expose a documented contract
 

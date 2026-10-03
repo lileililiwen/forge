@@ -1,7 +1,8 @@
 # platform-persistence-efcore Specification
 
 ## Purpose
-TBD - created by archiving change platform-persistence-efcore. Update Purpose after archive.
+
+The C# products repeatedly implement EF Core registration, audit/soft-delete behavior, pagination, specifications, migration checks, and database readiness. FullStackHero is a useful reference, but its persistence building block is coupled to Finbuckle, SQL Server, PostgreSQL, and application tenant types.
 ## Requirements
 ### Requirement: Persistence conventions SHALL be explicit
 

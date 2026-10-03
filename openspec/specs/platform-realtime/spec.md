@@ -1,7 +1,8 @@
 # platform-realtime Specification
 
 ## Purpose
-TBD - created by archiving change platform-realtime. Update Purpose after archive.
+
+The starter kit includes SignalR and SSE infrastructure with tenant-aware connection/token handling, while the platform has no reusable realtime adapter. This forces each application to rebuild transport lifecycle, authorization, and provider health behavior.
 ## Requirements
 ### Requirement: Opt-in realtime transports
 

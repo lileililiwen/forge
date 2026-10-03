@@ -1,7 +1,8 @@
 # platform-mailing Specification
 
 ## Purpose
-TBD - created by archiving change 2026-09-08-platform-extraction-mailing. Update Purpose after archive.
+
+Every consumer in the portfolio that sends transactional email needs a documented `IMailService` contract, a `MailMessage` value type, a template renderer abstraction, a structured `MailSendResult`, and a configurable `MailingOptions`. VisualFlow has implemented exactly this in `src/BuildingBlocks/Mailing/`, including the `MailTemplateId` opaque identifier, the `IMailTemplateRenderer` contract, the `RenderedMailTemplate` shape, and the documented `MailSendOutcome` enum. The type surface is framework-neutral and provider-neutral. Promoting it gives the portfolio a shared, audited mailing contract and proves that the platform can host a domain-flavored abstraction (transactional email) without leaking provider details.
 ## Requirements
 ### Requirement: Mailing SHALL expose a documented contract and value types
 

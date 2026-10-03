@@ -1,7 +1,8 @@
 # platform-testing-toolkit Specification
 
 ## Purpose
-TBD - created by archiving change platform-testing-toolkit. Update Purpose after archive.
+
+The platform-testing-toolkit specification covers test doubles SHALL be deterministic and the related scenarios that govern this capability across the platform.
 ## Requirements
 ### Requirement: Test doubles SHALL be deterministic
 

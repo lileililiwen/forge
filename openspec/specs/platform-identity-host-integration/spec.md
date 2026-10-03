@@ -1,7 +1,8 @@
 # platform-identity-host-integration Specification
 
 ## Purpose
-TBD - created by archiving change platform-identity-host-integration. Update Purpose after archive.
+
+The platform has provider-neutral identity and authorization contracts, while the starter kit provides a complete JWT/ASP.NET Identity host integration with current-user propagation, sessions, permissions, and tenant claims. Consumers need an optional host adapter without importing the starter's product identity module.
 ## Requirements
 ### Requirement: Current-user claim projection
 

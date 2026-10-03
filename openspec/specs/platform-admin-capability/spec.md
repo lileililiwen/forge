@@ -1,7 +1,8 @@
 # platform-admin-capability Specification
 
 ## Purpose
-TBD - created by archiving change platform-admin-capability. Update Purpose after archive.
+
+Most products need a consistent operator surface for users, roles, permissions, sessions, audit, health, provider status, and sometimes subscriptions. FullStackHero has a substantial admin module and React dashboard, but those features are currently tied to its identity and module model.
 ## Requirements
 ### Requirement: Administration endpoints SHALL be permission-protected
 

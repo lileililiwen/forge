@@ -1,7 +1,8 @@
 # readiness Specification
 
 ## Purpose
-TBD - created by archiving change post-mvp-readiness. Update Purpose after archive.
+
+The platform is complete (52 archived changes, 75 `src/` packages, 1,386 passing tests) but its front door does not let a consumer adopt it: - `README.md` (156 lines) lists only a subset of the packages with a one-line purpose each, then jumps to repository layout and `dotnet` commands. It is not an authoritative per-package matrix and its relationship to `docs/packages.md` is unclear. - There is no inline versioning/consumer guide: SemVer policy, `VersionPrefix`, source-vs-package mode, central package management, upgrade/rollback, and the .NET 10 baseline live across several documents, none summarized where a consumer starts. - There are no usage examples. A consumer sees a package list but no minimal "reference this, call this" snippet per concern. - There is no `LICENSE` file and no README license section; the only terms are the `PackageLicenseExpression=MIT` metadata in `Directory.Build.props`. - Adoption guidance is scattered (`docs/platform-product-adoption.md`, the adoption tool, `samples/`) with no single entry point. Post-MVP readiness is the documentation front door, not new packages or API.
 ## Requirements
 ### Requirement: The README SHALL present an authoritative per-package matrix
 

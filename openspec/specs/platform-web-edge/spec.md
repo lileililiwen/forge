@@ -1,7 +1,8 @@
 # platform-web-edge Specification
 
 ## Purpose
-TBD - created by archiving change platform-web-edge. Update Purpose after archive.
+
+The starter kit repeatedly supplies web-edge capabilities—CORS, HTTP resilience, OpenAPI, validation, versioning, and richer observability—that are absent from the current `Platform.Web` runtime. These should be added as small opt-in extensions rather than turning the runtime package into another monolith.
 ## Requirements
 ### Requirement: Web-edge integrations are opt-in
 The platform SHALL expose CORS, resilience, OpenAPI, and observability integrations independently so a consumer can adopt one without enabling the others.

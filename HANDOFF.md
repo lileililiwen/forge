@@ -1,5 +1,120 @@
 # Handoff
 
+## Current: platform-build-policy-package (part 1 of 3, implemented)
+
+The workspace MSBuild baseline is now a versioned, packed artifact. Part 1 ships
+`Platform.Build`, a build-only package whose `buildTransitive/Platform.Build.props`
+carries the platform's shared policy, and makes
+[`docs/platform-consumer-adoption.md`](docs/platform-consumer-adoption.md) the
+document that names it the supported route. Parts 2 (`forge`'s confirmed set)
+and 3 (the consumer migration and root-file retirement) are **not** done; this
+change stays active and unarchived.
+
+**What the package asserts:** `EnforceCodeStyleInBuild`, `Deterministic`,
+`CentralPackageTransitivePinningEnabled`, and `ContinuousIntegrationBuild`
+under `'$(CI)' == 'true'` — each `== ''` guarded, so a consumer's own value
+wins. No assembly: `IncludeBuildOutput=false`, and the archive is asserted to
+carry no `lib/` or `ref/` entry.
+
+**Single ownership is enforced, not documented.** The package asserts **none** of
+`Nullable`, `LangVersion`, `AnalysisLevel`, `TreatWarningsAsErrors`,
+`ManagePackageVersionsCentrally` — `build/Platform.Consumer.props` owns those —
+and neither `TargetFramework` nor `RootNamespace`. Two `== ''`-guarded files
+claiming one property resolve it by import order with the loser silent, so
+`Packed_props_asserts_exactly_the_properties_the_package_owns` reads the *packed*
+props and fails on any overlap.
+
+**The import-order property is now measured, not inherited.** The
+`ConsumerOverride` fixture sets `EnforceCodeStyleInBuild=false` and
+`Deterministic=false` in its own body and keeps both, which a props file imported
+after the body could not produce. The `SharedOwnership` fixture reproduces the
+workspace arrangement (a `buildTransitive` props file plus a trailing
+`Platform.Consumer.props` import where `Directory.Build.targets` puts it) and the
+bootstrap's `Nullable=enable` / `LangVersion=latest` / `AnalysisLevel=latest-recommended`
+still land, proving the package did not claim them. The workspace targets file
+excludes projects inside this repository, so that import is reproduced explicitly
+rather than inherited.
+
+`dotnet test Platform.sln -c Release` 48 assemblies, **1450 passed / 0 failed**,
+identical to the pre-change baseline · `scripts/conformance.sh` passes end to
+end, conformance suite **139 passed** (121 before, 18 new) · architecture guards
+367 cases unchanged · `check-public-api.sh` no diff,
+`eng/public-api-baseline.txt` untouched · `openspec validate
+platform-build-policy-package --strict` valid, 37/39 tasks ·
+`git diff --check` clean.
+
+**Two things in the change's own spec did not survive contact with the
+repository, and were resolved against measurement rather than papered over:**
+
+- The proposal's "the count is 49, not 48… `forge` is itself a .NET repository
+  that also inherits the root file" is **wrong**. `forge` is a Rust project:
+  `Cargo.toml`, no `global.json`, no solution, and no `*.csproj` outside its own
+  `target/portability/origin/net-app/`, which is generated output. The measured
+  workspace is **48 .NET Git repositories: 25 inheriting, 23 shadowing**. The
+  structural point survives — `forge`'s generator emits no
+  `Directory.Build.props`, so new scaffolds inherit the baseline — but that is a
+  property of its output, not of `forge` itself.
+- Design §4 and the proposal both list `TreatWarningsAsErrors` as package
+  content, while design §3 assigns it to `Platform.Consumer.props` and tasks
+  0.1/2.2 forbid it. §3 wins: it is absent from the package, and
+  `forge`'s `CONSUMER_BAR = 2` rule was re-measured to confirm the package is
+  `Provisional` with no fixture entry.
+
+**Three items are knowingly open, two of them pre-existing problems this part
+measured rather than inherited:**
+
+- **The `NoWarn` list (2.3).** The rejection half is implemented — the packed
+  props is checked against a justification allow-list — but the list ships
+  **empty**, because the replaced baseline had no `NoWarn` set and the only
+  candidate in the workspace is `smotoox/Directory.Build.props`'s 22 entries,
+  which is one repository's deviation rather than platform policy. Shipping no
+  list is strictly safer than shipping an inherited one. Next action: agree the
+  justification set, then add entries to `JustifiedSuppressions` in the same
+  commit.
+- **`scripts/consumer-upgrade-rollback.sh` (4.3).** The rehearsal task cannot be
+  ticked, and **the script has never run**: it dies three ways, each isolated
+  and recorded in `tasks.md`. `tar` extracts into `$temp_dir/fixture`, which is
+  never created; `../../eng/package-manifest.json` then resolves to `/tmp/eng`;
+  and with both worked around, 10 path-dependent tests fail because the suite
+  finds the platform root by walking up for `build/Platform.Consumer.props` in a
+  temp tree that has no `build/` and no `.local-feed/`. Left unfixed on purpose:
+  making it pass means parameterising the suite's root/feed lookup, which is a
+  test-harness change outside part 1's edit surface, and a half-fixed script
+  would still exit non-zero with the real blocker hidden. The new package is not
+  otherwise unrehearsed — `Policy_package_is_pinned_to_an_exact_version` and
+  `..._ships_at_the_platform_version_alongside_the_others` assert exactly the two
+  properties the rehearsal would check.
+- **The `AGENTS.md` one-active-change rule (0.8).** Three changes are now active.
+  A coordination decision for the change owner; part 1 paid one concrete price
+  for it — see below.
+
+**One cross-change edit, disclosed.** `Platform.Build` is a real shipped
+`Platform.*` package, so it lives in `src/`, which regenerates
+`eng/package-manifest.json` (76 packages, all at `0.1.0`). The
+`ui-shared-layer-reachability` tripwire
+`UiDistributionTests.The_package_manifest_and_razor_package_version_are_untouched_by_this_capability`
+pins the manifest package count, so it moved 75 → 76 with a comment naming which
+capability moved it. Its `Platform.UI.Razor` assertions are unchanged. No test
+was weakened to go green.
+
+**Two findings worth carrying to part 2.** NuGet resolves a packed item's target
+as `PackagePath` **plus** the item's `%(RecursiveDir)`, so a props file authored
+in a `buildTransitive/` sub-folder packs as
+`buildTransitive/buildTransitive/…` and fails the pack with NU5129 while leaving
+no `.nupkg` behind — the source props sits at the project root for that reason.
+And MSBuild imports the *extracted* package copy, so replacing a `.nupkg` in the
+feed is not enough: a missing extracted props file is imported as a silent
+no-op. That is why `conformance.sh` restores each fixture before the tests
+evaluate it.
+
+**Next:** part 2 adds `Platform.Build` to `forge`'s kit descriptor — which
+requires real adoptions first, because `classify_package` scores an unlisted
+package 0 against a bar of 2, and its own comment says the completeness test
+*names* the gap. Part 3 migrates the 25 inheriting repositories per
+[`docs/platform-build-policy-migration.md`](docs/platform-build-policy-migration.md)
+and only then retires the root file. Do not archive this change until all three
+parts land.
+
 ## Current: ui-shared-layer-reachability (active change, implemented)
 
 The token generator now walks the DTCG tree instead of writing out 27 paths,

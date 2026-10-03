@@ -69,10 +69,7 @@ fn lossy(bytes: &[u8]) -> String {
 /// pass `--format json` so the result is on stdout.
 fn forge_cmd_human(bins: &Path, db: &Path, args: &[&str]) -> Command {
     let mut cmd = clean_cmd(bins);
-    cmd.arg("--format")
-        .arg("human")
-        .arg("--registry")
-        .arg(db);
+    cmd.arg("--format").arg("human").arg("--registry").arg(db);
     for arg in args {
         cmd.arg(arg);
     }
@@ -81,10 +78,7 @@ fn forge_cmd_human(bins: &Path, db: &Path, args: &[&str]) -> Command {
 
 fn forge_cmd_json(bins: &Path, db: &Path, args: &[&str]) -> Command {
     let mut cmd = clean_cmd(bins);
-    cmd.arg("--format")
-        .arg("json")
-        .arg("--registry")
-        .arg(db);
+    cmd.arg("--format").arg("json").arg("--registry").arg(db);
     for arg in args {
         cmd.arg(arg);
     }
@@ -117,12 +111,11 @@ fn missing_binary_is_typed_unavailable_with_0_bytes_of_stdout() {
     let empty = tmp.path().join("emptybin");
     fs::create_dir_all(&empty).unwrap();
     let db = tmp.path().join("registry.db");
-    let out = forge_cmd_human(&empty, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ])
+    let out = forge_cmd_human(
+        &empty,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    )
     .output()
     .expect("run forge");
     assert_eq!(out.status.code(), Some(1), "{}", lossy(&out.stderr));
@@ -146,15 +139,21 @@ fn missing_token_is_typed_invalid_with_0_bytes_of_stdout() {
     let reply = format!(
         r#"{{"contract":"{CONTRACT}","host":"github.com","repository":"octocat/hello-world","source_revision":"abc","observed_at":"2026-09-29T11:00:00Z","state":"current","topics":[],"languages":[],"workflows":[],"releases":[],"custom_properties":[],"archived":false,"note":""}}"#
     );
-    write_stub(&bins, "forge-github-metadata-adapter", &observe_stub(&reply));
+    write_stub(
+        &bins,
+        "forge-github-metadata-adapter",
+        &observe_stub(&reply),
+    );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_human(&bins, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"));
+    let mut cmd = forge_cmd_human(
+        &bins,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    );
     let out = cmd.output().expect("run forge");
     assert_eq!(out.status.code(), Some(1), "{}", lossy(&out.stderr));
     assert_eq!(lossy(&out.stdout), "");
@@ -171,16 +170,22 @@ fn a_credential_in_an_adapter_response_is_redacted() {
     let reply = format!(
         r#"{{"contract":"{CONTRACT}","host":"github.com","repository":"octocat/hello-world","source_revision":"abc","observed_at":"2026-09-29T11:00:00Z","state":"current","description":"hello ghp_abcdefghijklmnopqrstuvwxyz0123456789 world","topics":["rust","ci"],"languages":["Rust"],"workflows":["ci.yml"],"releases":["v1.0.0"],"custom_properties":[],"archived":false,"note":""}}"#
     );
-    write_stub(&bins, "forge-github-metadata-adapter", &observe_stub(&reply));
+    write_stub(
+        &bins,
+        "forge-github-metadata-adapter",
+        &observe_stub(&reply),
+    );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_json(
+        &bins,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
     let stdout = lossy(&out.stdout);
@@ -202,16 +207,22 @@ fn rate_limited_state_is_reported_with_reset_and_no_partial_payload() {
     let reply = format!(
         r#"{{"contract":"{CONTRACT}","host":"github.com","repository":"octocat/hello-world","source_revision":"abc","observed_at":"2026-09-29T11:00:00Z","state":"rate-limited","rate_limit_reset_at":"2026-09-29T12:00:00Z","topics":[],"languages":[],"workflows":[],"releases":[],"custom_properties":[],"archived":false,"note":"please retry"}}"#
     );
-    write_stub(&bins, "forge-github-metadata-adapter", &observe_stub(&reply));
+    write_stub(
+        &bins,
+        "forge-github-metadata-adapter",
+        &observe_stub(&reply),
+    );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_json(
+        &bins,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
     let observation = &value["observations"][0];
@@ -234,16 +245,22 @@ fn unauthorized_state_is_unverified_evidence() {
     let reply = format!(
         r#"{{"contract":"{CONTRACT}","host":"github.com","repository":"octocat/hello-world","source_revision":"abc","observed_at":"2026-09-29T11:00:00Z","state":"unauthorized","topics":[],"languages":[],"workflows":[],"releases":[],"custom_properties":[],"archived":false,"note":"missing token"}}"#
     );
-    write_stub(&bins, "forge-github-metadata-adapter", &observe_stub(&reply));
+    write_stub(
+        &bins,
+        "forge-github-metadata-adapter",
+        &observe_stub(&reply),
+    );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_json(
+        &bins,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
     // `unauthorized` is a unit variant; it serializes as the literal
@@ -269,16 +286,23 @@ fn pull_request_mode_is_the_default_and_does_not_need_a_confirm() {
         &propose_stub(&reply),
     );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "propose",
-        "octocat/hello-world",
-        "--set",
-        "description=A new description",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_json(
+        &bins,
+        &db,
+        &[
+            "project",
+            "github",
+            "propose",
+            "octocat/hello-world",
+            "--set",
+            "description=A new description",
+        ],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
@@ -304,18 +328,25 @@ fn direct_mode_refuses_without_an_explicit_confirmation() {
         &propose_stub(&reply),
     );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_human(&bins, &db, &[
-        "project",
-        "github",
-        "propose",
-        "octocat/hello-world",
-        "--mode",
-        "direct",
-        "--set",
-        "description=A new description",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_human(
+        &bins,
+        &db,
+        &[
+            "project",
+            "github",
+            "propose",
+            "octocat/hello-world",
+            "--mode",
+            "direct",
+            "--set",
+            "description=A new description",
+        ],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert_eq!(out.status.code(), Some(1), "stderr={}", lossy(&out.stderr));
     assert_eq!(lossy(&out.stdout), "");
@@ -339,20 +370,27 @@ fn direct_mode_refuses_when_the_adapter_does_not_echo_the_confirmation() {
         &propose_stub(&reply),
     );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "propose",
-        "octocat/hello-world",
-        "--mode",
-        "direct",
-        "--confirm",
-        "the-token",
-        "--set",
-        "description=A new description",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_json(
+        &bins,
+        &db,
+        &[
+            "project",
+            "github",
+            "propose",
+            "octocat/hello-world",
+            "--mode",
+            "direct",
+            "--confirm",
+            "the-token",
+            "--set",
+            "description=A new description",
+        ],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
     let state = &value["outcome"]["state"];
@@ -388,16 +426,23 @@ fn an_unknown_proposed_field_is_github_invalid() {
         &propose_stub(&reply),
     );
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_human(&bins, &db, &[
-        "project",
-        "github",
-        "propose",
-        "octocat/hello-world",
-        "--set",
-        "settings=delete branch protection",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_human(
+        &bins,
+        &db,
+        &[
+            "project",
+            "github",
+            "propose",
+            "octocat/hello-world",
+            "--set",
+            "settings=delete branch protection",
+        ],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert_eq!(out.status.code(), Some(1), "stderr={}", lossy(&out.stderr));
     let stderr = lossy(&out.stderr);
@@ -411,12 +456,7 @@ fn catalog_github_source_reports_unavailable_with_no_binary_and_no_token() {
     let empty = tmp.path().join("emptybin");
     fs::create_dir_all(&empty).unwrap();
     let db = tmp.path().join("registry.db");
-    let mut cmd = forge_cmd_json(&empty, &db, &[
-        "project",
-        "list",
-        "--source",
-        "github",
-    ]);
+    let mut cmd = forge_cmd_json(&empty, &db, &["project", "list", "--source", "github"]);
     let out = cmd.output().expect("run forge");
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
     let sources = value["catalog"]["sources"].as_array().unwrap();
@@ -441,7 +481,11 @@ fn catalog_github_source_observe_invokes_the_adapter_for_each_requested_repo() {
     let reply = format!(
         r#"{{"contract":"{CONTRACT}","host":"github.com","repository":"octocat/hello-world","source_revision":"abc","observed_at":"2026-09-29T11:00:00Z","state":"current","topics":["rust","ci"],"languages":["Rust"],"workflows":["ci.yml"],"releases":["v1.0.0"],"custom_properties":[],"archived":false,"note":""}}"#
     );
-    write_stub(&bins, "forge-github-metadata-adapter", &observe_stub(&reply));
+    write_stub(
+        &bins,
+        "forge-github-metadata-adapter",
+        &observe_stub(&reply),
+    );
     let db = tmp.path().join("registry.db");
     // A registry that contains one unrelated local project; the
     // catalog still respects the explicit `--github-repository` list
@@ -458,7 +502,10 @@ fn catalog_github_source_observe_invokes_the_adapter_for_each_requested_repo() {
     register
         .arg("--registry")
         .arg(&db)
-        .env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
+        .env(
+            "FORGE_GITHUB_BIN",
+            bins.join("forge-github-metadata-adapter"),
+        )
         .arg("register")
         .arg(&proj);
     let reg_out = register.output().expect("register");
@@ -467,18 +514,25 @@ fn catalog_github_source_observe_invokes_the_adapter_for_each_requested_repo() {
         "register failed: {}",
         lossy(&reg_out.stderr)
     );
-    let mut cmd = forge_cmd_json(&bins, &db, &[
-        "project",
-        "list",
-        "--source",
-        "local",
-        "--source",
-        "github",
-        "--github-repository",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = forge_cmd_json(
+        &bins,
+        &db,
+        &[
+            "project",
+            "list",
+            "--source",
+            "local",
+            "--source",
+            "github",
+            "--github-repository",
+            "octocat/hello-world",
+        ],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
@@ -507,8 +561,5 @@ fn catalog_github_source_observe_invokes_the_adapter_for_each_requested_repo() {
     // payload, not in the record (the record field set is closed).
     assert_eq!(github["languages"][0], "rust");
     // Source label carries host and repository.
-    assert_eq!(
-        github["source"],
-        "github:github.com/octocat/hello-world"
-    );
+    assert_eq!(github["source"], "github:github.com/octocat/hello-world");
 }

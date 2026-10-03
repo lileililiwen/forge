@@ -32,7 +32,9 @@ use std::collections::BTreeSet;
 
 use chrono::{DateTime, Utc};
 
-use crate::catalog::record::{clean_field, normalize_timestamp, CatalogRecord, EvidenceState, Freshness};
+use crate::catalog::record::{
+    clean_field, normalize_timestamp, CatalogRecord, EvidenceState, Freshness,
+};
 use crate::catalog::SourceKind;
 
 use super::adapter::{GithubObservation, GithubState};
@@ -227,20 +229,28 @@ mod tests {
 
     #[test]
     fn project_id_collapses_the_slash() {
-        assert_eq!(project_id_from_repository("octocat/hello-world"), "octocat__hello-world");
+        assert_eq!(
+            project_id_from_repository("octocat/hello-world"),
+            "octocat__hello-world"
+        );
         assert_eq!(project_id_from_repository("octocat"), "octocat");
-        assert_eq!(project_id_from_repository("/octocat/hello-world/"), "octocat__hello-world");
+        assert_eq!(
+            project_id_from_repository("/octocat/hello-world/"),
+            "octocat__hello-world"
+        );
     }
 
     #[test]
     fn the_portfolio_tag_list_is_always_empty() {
-        let record = normalize_observation(&sample_observation(GithubState::Current), 86_400, now());
+        let record =
+            normalize_observation(&sample_observation(GithubState::Current), 86_400, now());
         assert!(record.tags.is_empty());
     }
 
     #[test]
     fn evidence_follows_the_state() {
-        let record = normalize_observation(&sample_observation(GithubState::Current), 86_400, now());
+        let record =
+            normalize_observation(&sample_observation(GithubState::Current), 86_400, now());
         assert_eq!(record.evidence, EvidenceState::Present);
         let record = normalize_observation(&sample_observation(GithubState::Stale), 86_400, now());
         assert_eq!(record.evidence, EvidenceState::Stale);
@@ -252,34 +262,38 @@ mod tests {
             now(),
         );
         assert_eq!(record.evidence, EvidenceState::Unavailable);
-        let record = normalize_observation(&sample_observation(GithubState::Unauthorized), 86_400, now());
+        let record = normalize_observation(
+            &sample_observation(GithubState::Unauthorized),
+            86_400,
+            now(),
+        );
         assert_eq!(record.evidence, EvidenceState::Unverified);
     }
 
     #[test]
     fn source_label_carries_host_and_repository() {
-        let record = normalize_observation(&sample_observation(GithubState::Current), 86_400, now());
-        assert!(record.source.starts_with("github:github.com/octocat/hello-world"), "{}", record.source);
+        let record =
+            normalize_observation(&sample_observation(GithubState::Current), 86_400, now());
+        assert!(
+            record
+                .source
+                .starts_with("github:github.com/octocat/hello-world"),
+            "{}",
+            record.source
+        );
         assert_eq!(record.source_kind, SourceKind::Github);
     }
 
     #[test]
     fn languages_are_lowercased_and_deduped() {
-        let languages = normalize_languages(&[
-            "Rust".to_string(),
-            "rust".to_string(),
-            "TOML".to_string(),
-        ]);
+        let languages =
+            normalize_languages(&["Rust".to_string(), "rust".to_string(), "TOML".to_string()]);
         assert_eq!(languages, vec!["rust".to_string(), "toml".to_string()]);
     }
 
     #[test]
     fn topics_are_sorted_and_deduped() {
-        let topics = normalize_topics(&[
-            "ci".to_string(),
-            "rust".to_string(),
-            "ci".to_string(),
-        ]);
+        let topics = normalize_topics(&["ci".to_string(), "rust".to_string(), "ci".to_string()]);
         assert_eq!(topics, vec!["ci".to_string(), "rust".to_string()]);
     }
 
@@ -294,7 +308,8 @@ mod tests {
     #[test]
     fn credential_in_description_is_redacted() {
         let mut observation = sample_observation(GithubState::Current);
-        observation.description = Some("a token ghp_abcdefghijklmnopqrstuvwxyz0123456789".to_string());
+        observation.description =
+            Some("a token ghp_abcdefghijklmnopqrstuvwxyz0123456789".to_string());
         let record = normalize_observation(&observation, 86_400, now());
         let name = record.name.unwrap();
         assert!(!name.contains("ghp_abcdef"), "{name}");

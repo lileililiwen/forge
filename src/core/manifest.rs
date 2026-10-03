@@ -474,6 +474,59 @@ fn default_portal_enabled() -> bool {
     true
 }
 
+/// The shared-layer kit a project pinned at generation time.
+///
+/// Pinned at generation and never rewritten by a later kit version: moving a
+/// project forward is an explicit upgrade, never an implicit one. A
+/// `minimum_packages: 0` entry is a **declared zero** — the ecosystem has no
+/// registered kit and `zero_reason` names the missing evidence — and is never
+/// conflated with a floor failure.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KitMeta {
+    pub id: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    pub ecosystem: String,
+    #[serde(default)]
+    pub tfm: Option<String>,
+    #[serde(default)]
+    pub minimum_packages: usize,
+    #[serde(default)]
+    pub confirmed_packages: Vec<String>,
+    #[serde(default)]
+    pub provisional_packages: Vec<String>,
+    #[serde(default)]
+    pub feed: Option<KitFeedMeta>,
+    #[serde(default)]
+    pub assets: Vec<String>,
+    #[serde(default)]
+    pub zero_reason: Option<String>,
+    /// Present only when a floor was actually bypassed by an explicit,
+    /// operator-written reason.
+    #[serde(default)]
+    pub exception: Option<KitExceptionMeta>,
+}
+
+/// The named feed a scaffold resolves at restore time. Carries a path
+/// **relative to the generated project**, never a machine path and never an
+/// environment variable: the feed's bytes are committed at that path, so a
+/// fresh clone restores wherever it is checked out.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KitFeedMeta {
+    pub name: String,
+    pub kind: String,
+    pub path: String,
+}
+
+/// A recorded, dated floor exception.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KitExceptionMeta {
+    pub reason: String,
+    pub floor: usize,
+    pub declared: usize,
+    pub recorded_at: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct RawManifest {
     schema: serde_yaml::Value,
@@ -500,6 +553,8 @@ struct RawManifest {
     analytics: Option<AnalyticsMeta>,
     #[serde(default)]
     portal: Option<PortalMeta>,
+    #[serde(default)]
+    kit: Option<KitMeta>,
 }
 
 /// Validated, normalized project manifest.
@@ -518,6 +573,11 @@ pub struct Manifest {
     pub identity: Option<IdentityMeta>,
     pub analytics: Option<AnalyticsMeta>,
     pub portal: Option<PortalMeta>,
+    /// The shared-layer kit this project pinned at generation time
+    /// (`scaffold-prewires-shared-layer`). Additive and optional: a manifest
+    /// written before kits existed carries no block, and a project is never
+    /// rewritten by a later kit version.
+    pub kit: Option<KitMeta>,
 }
 
 impl Manifest {
@@ -581,6 +641,7 @@ impl Manifest {
             identity: raw.identity,
             analytics: raw.analytics,
             portal: raw.portal,
+            kit: raw.kit,
         })
     }
 

@@ -117,36 +117,53 @@ const MATRIX: [(&str, &str, &str, &str); 6] = [
     ("rust-web", "rust-product", "cargo test", "rs-web-app"),
 ];
 
-/// Pre-change-release tree digests captured from the binary built at the
-/// archived `jenkins-deploy-adapter-consumption` HEAD, one per profile.
-/// `--no-workspace-metadata` output must equal these byte-for-byte. The
-/// `rs-app` (react-web) digest was re-captured by `react-web-live-preview`
-/// when the scaffold gained its runnable Vite+React client; the other
-/// profiles are unchanged.
+/// Tree digests for `--no-workspace-metadata` output, one per profile. The
+/// guard's purpose is that opting out of the metadata declaration changes
+/// *nothing else*: these pin the exact bytes the opt-out path produces, so
+/// any unintended future drift fails here.
+///
+/// Re-captured, every profile, by `scaffold-prewires-shared-layer`, which
+/// changed what a scaffold contains by design: the `kit` block in
+/// `forge.yaml`, the README shared-layer section, the `aspnet-web` TFM and
+/// pre-wired package references, and the vendored `.platform/` token subtree.
+/// `net-app` re-captured a second time by the same change's amendment, when
+/// the owner rejected the environment-variable feed: the `NuGet.config` now
+/// names a repo-relative source, the `RestoreAdditionalProjectSources` block
+/// and the Dockerfile build argument are gone, and the committed
+/// `packages/platform-feed/` tree is new.
+/// `net-app` re-captured a third time, after the owner's .NET 10 ruling
+/// (2026-10-02) removed SDK 8 from the machine: the `aspnet-web` profile's
+/// `net8.0` fallback became `net10.0`, and the generated README now names the
+/// pinned kit version. Only `net-app` moved — the other five profiles are
+/// language-agnostic and re-captured unchanged, which is itself the evidence
+/// that the drift is the intended TFM change and not a general rendering
+/// regression.
+/// Earlier re-captures: `rs-app` by `react-web-live-preview` for the runnable
+/// Vite+React client, the first set by `jenkins-deploy-adapter-consumption`.
 const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     (
         "net-app",
-        "feb10b3daf031514a68e3666128d6a4fc1879f792fe8a6088670b02c502649cb",
+        "1337ef1c4e17114610938e908c98f3470d423bf2bbc4e78904894608f4c10ab8",
     ),
     (
         "mbl-app",
-        "37af951d047e22d01fe7ff8682233e99d8b3ec17ee7990e09dde9fd7656f4554",
+        "aaa0eb726917fe371022a61fb0ebcded40d9b185043bda6e6ad66fe5a4f710a8",
     ),
     (
         "node-app",
-        "9f1011947d98f66f08b9380660cc9e86b0636008c51fca1626afe87251b62e14",
+        "9b58ced791c2ae8da9316740e9794d13b2f441305240d5e6c2da31d247724759",
     ),
     (
         "py-app",
-        "5f34cb82c4b7988931b31e672bdf99da86d5f218229e53ac2825b22590f69a64",
+        "bed945af018867d0bc04740649f7868a5e5e142f0ee53f9e5e05658c953e5380",
     ),
     (
         "rs-app",
-        "653bdcecd95d4e5a40649a3d575c0a4e8ddbae8e2c71a357ac149fdbde256c29",
+        "a5cf216c6306c43ff7384b64cdf3052b55c205728150d72e93a2390c8446fb42",
     ),
     (
         "rs-web-app",
-        "59489d95cd813add026662a1279232a0ceb144a6263fcc96fa1f03fa65cd260b",
+        "548fd195ecf7005372d9c4b00305498d9170a504eb8d5fb99b83ee916ea864f5",
     ),
 ];
 

@@ -27,6 +27,7 @@ pub mod governance;
 pub mod graduation;
 pub mod identity;
 pub mod import;
+pub mod kit;
 pub mod mcp;
 pub mod planner;
 pub mod policy;

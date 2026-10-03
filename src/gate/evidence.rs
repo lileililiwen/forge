@@ -75,12 +75,8 @@ pub const GOVERNANCE_RELEASE_FIELDS: &[&str] = &[
 
 /// The four non-blocked release evidence states from the governance vocabulary.
 /// `blocked` is reserved for capability declarations and is refused here.
-pub const GOVERNANCE_RELEASE_STATES: &[&str] = &[
-    "declared",
-    "configured",
-    "verified",
-    "unverified",
-];
+pub const GOVERNANCE_RELEASE_STATES: &[&str] =
+    &["declared", "configured", "verified", "unverified"];
 
 /// Path component for the consumed release-evidence record.
 pub const RELEASE_EVIDENCE_FILE: &str = "release-evidence.json";
@@ -233,7 +229,10 @@ pub enum EvidenceOutcome {
     Absent { reason: String },
     /// Export was produced but was refused by vocabulary, revision, attribution
     /// or contradiction gate; prior record untouched.
-    Refused { reason: String, refusal_reasons: Vec<String> },
+    Refused {
+        reason: String,
+        refusal_reasons: Vec<String>,
+    },
     /// Export was produced but could not be parsed or exceeded size bounds;
     /// prior record untouched.
     Unavailable { reason: String },
@@ -361,11 +360,7 @@ fn run_evidence_bounded(
 /// `captured_revision` is Forge's current git HEAD bound at consumption time.
 /// A mismatch with the export's `revision` field makes every field `unverified`
 /// and the record `stale`.
-pub fn consume_export(
-    dir: &Path,
-    project_id: &str,
-    config: &GateConfig,
-) -> EvidenceOutcome {
+pub fn consume_export(dir: &Path, project_id: &str, config: &GateConfig) -> EvidenceOutcome {
     let raw = match run_evidence_export(dir, project_id, config) {
         Ok(Some(text)) => text,
         Ok(None) => {
@@ -408,8 +403,7 @@ pub fn consume_export(
         if !GOVERNANCE_RELEASE_FIELDS.contains(&entry.field.as_str()) {
             refusal_reasons.push(format!(
                 "unknown field name `{}`; expected one of {:?}",
-                field_name,
-                GOVERNANCE_RELEASE_FIELDS
+                field_name, GOVERNANCE_RELEASE_FIELDS
             ));
             fields.push(ReleaseEvidenceField {
                 name: entry.field.clone(),
@@ -439,9 +433,7 @@ pub fn consume_export(
             None => {
                 refusal_reasons.push(format!(
                     "unknown state `{}` for field `{}`; expected one of {:?}",
-                    state_raw,
-                    field_name,
-                    GOVERNANCE_RELEASE_STATES
+                    state_raw, field_name, GOVERNANCE_RELEASE_STATES
                 ));
                 fields.push(ReleaseEvidenceField {
                     name: entry.field.clone(),
@@ -473,9 +465,7 @@ pub fn consume_export(
 
         // Contradiction rule: `verified` publication with no digest.
         // A verified publication requires artifacts/digests to be verified too.
-        if entry.field == "publication"
-            && state == ReleaseEvidenceState::Verified
-        {
+        if entry.field == "publication" && state == ReleaseEvidenceState::Verified {
             let has_digest = export
                 .fields
                 .iter()
@@ -641,10 +631,7 @@ pub fn save_release_evidence(
     })?;
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, &bytes).map_err(|err| ForgeError::GateInvalid {
-        reason: format!(
-            "cannot write release-evidence tmp {}: {err}",
-            tmp.display()
-        ),
+        reason: format!("cannot write release-evidence tmp {}: {err}", tmp.display()),
     })?;
     fs::rename(&tmp, &path).map_err(|err| ForgeError::GateInvalid {
         reason: format!("cannot persist release-evidence {}: {err}", path.display()),
@@ -662,10 +649,9 @@ pub fn load_latest_release_evidence(
         return Ok(None);
     }
     let mut candidates: Vec<PathBuf> = Vec::new();
-    let entries =
-        fs::read_dir(&base).map_err(|err| ForgeError::GateInvalid {
-            reason: format!("cannot read {}: {err}", base.display()),
-        })?;
+    let entries = fs::read_dir(&base).map_err(|err| ForgeError::GateInvalid {
+        reason: format!("cannot read {}: {err}", base.display()),
+    })?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -686,7 +672,7 @@ pub fn load_latest_release_evidence(
                 } else {
                     current
                 }
-            },
+            }
         });
     }
     Ok(best)
@@ -694,10 +680,7 @@ pub fn load_latest_release_evidence(
 
 fn read_release_evidence_file(path: &Path) -> Result<ReleaseEvidenceRecord, ForgeError> {
     let bytes = fs::read(path).map_err(|err| ForgeError::GateInvalid {
-        reason: format!(
-            "cannot read release-evidence {}: {err}",
-            path.display()
-        ),
+        reason: format!("cannot read release-evidence {}: {err}", path.display()),
     })?;
     serde_json::from_slice(&bytes).map_err(|err| ForgeError::GateInvalid {
         reason: format!(
@@ -764,9 +747,7 @@ pub fn render_release_evidence_human(
 
 /// Render `absent` status for `forge gate evidence`.
 pub fn render_absent_human(project_id: &str, reason: &str) -> String {
-    format!(
-        "project: {project_id}\nfreshness: absent\ndetail: {reason}"
-    )
+    format!("project: {project_id}\nfreshness: absent\ndetail: {reason}")
 }
 
 #[cfg(test)]
@@ -798,10 +779,7 @@ mod tests {
         assert_eq!(export.schema_version, 1);
         assert_eq!(export.project_id, "forge");
         assert_eq!(export.fields.len(), 9);
-        assert!(export
-            .fields
-            .iter()
-            .all(|f| f.state == "unverified"));
+        assert!(export.fields.iter().all(|f| f.state == "unverified"));
         assert!(export.fields.iter().all(|f| f.evidence_ref.is_none()));
     }
 
@@ -826,9 +804,10 @@ mod tests {
         let json = serde_json::to_string(&bad_field).unwrap();
         let tmp = temp_project();
         // Simulate: check only the fields we have.
-        let unknown = bad_field.fields.iter().find(|f| {
-            !GOVERNANCE_RELEASE_FIELDS.contains(&f.field.as_str())
-        });
+        let unknown = bad_field
+            .fields
+            .iter()
+            .find(|f| !GOVERNANCE_RELEASE_FIELDS.contains(&f.field.as_str()));
         assert!(unknown.is_some());
         assert_eq!(unknown.unwrap().field, "unknown-field");
     }
@@ -872,8 +851,12 @@ mod tests {
             },
         ];
         // publication verified, digests not verified → contradiction.
-        let pub_verified = fields.iter().any(|f| f.field == "publication" && f.state == "verified");
-        let digest_verified = fields.iter().any(|f| f.field == "digests" && f.state == "verified");
+        let pub_verified = fields
+            .iter()
+            .any(|f| f.field == "publication" && f.state == "verified");
+        let digest_verified = fields
+            .iter()
+            .any(|f| f.field == "digests" && f.state == "verified");
         assert!(pub_verified);
         assert!(!digest_verified);
         // This would be refused per the contradiction rule.
@@ -957,9 +940,7 @@ mod tests {
         };
         let relative = save_release_evidence(tmp.path(), &record).unwrap();
         assert_eq!(relative, release_evidence_path("test"));
-        let loaded = load_latest_release_evidence(tmp.path())
-            .unwrap()
-            .unwrap();
+        let loaded = load_latest_release_evidence(tmp.path()).unwrap().unwrap();
         assert_eq!(loaded.project_id, "test");
         assert_eq!(loaded.freshness, EvidenceFreshness::Fresh);
         assert_eq!(loaded.fields.len(), 9);
@@ -1003,7 +984,8 @@ mod tests {
             manifest_digest: None,
             rule_pack_version: None,
         };
-        let human = render_release_evidence_human(&record, Some(".forge/gate/test/release-evidence.json"));
+        let human =
+            render_release_evidence_human(&record, Some(".forge/gate/test/release-evidence.json"));
         assert!(human.contains("project: test"));
         assert!(human.contains("freshness: fresh"));
         assert!(human.contains("toolchain: driftwatchdog"));

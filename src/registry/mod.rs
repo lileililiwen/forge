@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS projects (
     quality_status   TEXT,
     agent_status     TEXT,
     docs_status      TEXT,
+    kit_id           TEXT,
+    kit_version      TEXT,
     observed_at      TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
@@ -102,6 +104,12 @@ fn apply_migrations(conn: &Connection) -> Result<(), ForgeError> {
         "ALTER TABLE operations ADD COLUMN build_status TEXT",
         "ALTER TABLE operations ADD COLUMN run_status TEXT",
         "ALTER TABLE operations ADD COLUMN container_identity TEXT",
+        // Pinned shared-layer kit, observed additively. No new table: the
+        // pinned id and version are two more observed scalars on the existing
+        // project record, and a registry created before kits existed reads
+        // them as NULL ("this project predates kits").
+        "ALTER TABLE projects ADD COLUMN kit_id TEXT",
+        "ALTER TABLE projects ADD COLUMN kit_version TEXT",
     ];
     for stmt in migrations {
         if let Err(err) = conn.execute(stmt, []) {
@@ -279,6 +287,13 @@ pub struct ProjectRecord {
     pub quality_status: Option<String>,
     pub agent_status: Option<String>,
     pub docs_status: Option<String>,
+    /// Shared-layer kit pinned at generation time
+    /// (`scaffold-prewires-shared-layer`). `None` means the project's
+    /// manifest declares no kit — a pre-kit project, or one whose profile
+    /// predates the contract. Observed additively and never rewritten: a new
+    /// kit version does not touch an existing project.
+    pub kit_id: Option<String>,
+    pub kit_version: Option<String>,
     pub observed_at: String,
     pub available: bool,
 }
@@ -1005,9 +1020,10 @@ impl Registry {
              (id, name, path, git_remote, mirror_remotes, stack, profile,
               maturity, target_maturity, schema_version, platform_version,
               features, deployment_target, runtime, last_commit,
-              quality_status, agent_status, docs_status, observed_at)
+              quality_status, agent_status, docs_status, kit_id, kit_version,
+              observed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                     ?13, ?14, ?15, NULL, NULL, NULL, ?16)
+                     ?13, ?14, ?15, NULL, NULL, NULL, ?16, ?17, ?18)
              ON CONFLICT(id) DO UPDATE SET
                name = excluded.name, path = excluded.path,
                git_remote = excluded.git_remote,
@@ -1019,6 +1035,7 @@ impl Registry {
                features = excluded.features,
                deployment_target = excluded.deployment_target,
                runtime = excluded.runtime, last_commit = excluded.last_commit,
+               kit_id = excluded.kit_id, kit_version = excluded.kit_version,
                observed_at = excluded.observed_at",
             params![
                 id,
@@ -1036,6 +1053,8 @@ impl Registry {
                 manifest.deployment.as_ref().and_then(|d| d.target.clone()),
                 runtime,
                 last_commit,
+                manifest.kit.as_ref().map(|k| k.id.clone()),
+                manifest.kit.as_ref().and_then(|k| k.version.clone()),
                 now,
             ],
         )?;
@@ -1086,7 +1105,8 @@ impl Registry {
                 "SELECT id, name, path, git_remote, mirror_remotes, stack, profile,
                         maturity, target_maturity, schema_version, platform_version,
                         features, deployment_target, runtime, last_commit,
-                        quality_status, agent_status, docs_status, observed_at
+                        quality_status, agent_status, docs_status, kit_id, kit_version,
+                        observed_at
                  FROM projects WHERE id = ?1",
                 params![id],
                 read_record,
@@ -1101,7 +1121,8 @@ impl Registry {
                 "SELECT id, name, path, git_remote, mirror_remotes, stack, profile,
                         maturity, target_maturity, schema_version, platform_version,
                         features, deployment_target, runtime, last_commit,
-                        quality_status, agent_status, docs_status, observed_at
+                        quality_status, agent_status, docs_status, kit_id, kit_version,
+                        observed_at
                  FROM projects WHERE path = ?1",
                 params![path],
                 read_record,
@@ -1135,7 +1156,9 @@ fn read_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
         quality_status: row.get(15)?,
         agent_status: row.get(16)?,
         docs_status: row.get(17)?,
-        observed_at: row.get(18)?,
+        kit_id: row.get(18)?,
+        kit_version: row.get(19)?,
+        observed_at: row.get(20)?,
         available,
     })
 }

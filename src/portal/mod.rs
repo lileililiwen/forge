@@ -1848,6 +1848,8 @@ portal:
             quality_status: None,
             agent_status: None,
             docs_status: None,
+            kit_id: None,
+            kit_version: None,
             observed_at: "2026-01-15T12:00:00Z".to_string(),
             available: false,
         };
@@ -1905,6 +1907,8 @@ portal:
             quality_status: Some("warn".to_string()),
             agent_status: None,
             docs_status: None,
+            kit_id: None,
+            kit_version: None,
             observed_at: "2026-01-15T12:00:00Z".to_string(),
             available: true,
         };
@@ -1973,6 +1977,8 @@ portal:
             quality_status: None,
             agent_status: None,
             docs_status: None,
+            kit_id: None,
+            kit_version: None,
             observed_at: "2026-01-15T12:00:00Z".to_string(),
             available: true,
         };

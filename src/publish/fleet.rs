@@ -65,10 +65,7 @@ pub fn load_registry(path: &Path) -> Result<Registry, ForgeError> {
         reason: format!("cannot read registry {}: {err}", path.display()),
     })?;
     serde_json::from_slice::<Registry>(&bytes).map_err(|err| ForgeError::PublishInvalid {
-        reason: format!(
-            "registry {} is not valid JSON: {err}",
-            path.display()
-        ),
+        reason: format!("registry {} is not valid JSON: {err}", path.display()),
     })
 }
 
@@ -84,7 +81,11 @@ pub fn default_registry_path(workspace_root: Option<&Path>) -> PathBuf {
     }
     let root = workspace_root
         .map(|p| p.to_path_buf())
-        .or_else(|| std::env::var("FORGE_WORKSPACE_ROOT").ok().map(PathBuf::from))
+        .or_else(|| {
+            std::env::var("FORGE_WORKSPACE_ROOT")
+                .ok()
+                .map(PathBuf::from)
+        })
         .unwrap_or_else(|| PathBuf::from("/home/paul/code"));
     root.join("workspace-governance/projects.json")
 }
@@ -217,7 +218,11 @@ mod tests {
             ),
             (
                 "nocompose-proj",
-                no_compose.strip_prefix(tmp.path()).unwrap().to_str().unwrap(),
+                no_compose
+                    .strip_prefix(tmp.path())
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
                 "active",
             ),
         ]);

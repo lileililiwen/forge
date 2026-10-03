@@ -292,8 +292,7 @@ fn a_github_read_writes_no_registry_byte_table_column_index_or_journal_row() {
     let observation = format!(
         r#"{{"contract":"{CONTRACT}","host":"github.com","repository":"octocat/hello-world","source_revision":"abc","observed_at":"2026-09-29T11:00:00Z","state":"current","topics":["rust","ci"],"languages":["Rust"],"workflows":["ci.yml"],"releases":["v1.0.0"],"custom_properties":[],"archived":false,"note":""}}"#
     );
-    let proposal =
-        r#"{"contract":"forge-github-metadata/0.1.0","mode":"pull-request","repository":"octocat/hello-world","pr_url":"https://github.com/octocat/hello-world/pull/1"}"#;
+    let proposal = r#"{"contract":"forge-github-metadata/0.1.0","mode":"pull-request","repository":"octocat/hello-world","pr_url":"https://github.com/octocat/hello-world/pull/1"}"#;
     github_stubs(&bins, &observation, proposal);
     let (db, _alpha) = fixture(tmp.path());
     let before_bytes = fs::read(&db).expect("registry bytes");
@@ -305,15 +304,10 @@ fn a_github_read_writes_no_registry_byte_table_column_index_or_journal_row() {
     assert!(before_operations > 0, "registration journalled a row");
     for args in [
         vec!["project", "list", "--source", "github"],
+        vec!["project", "list", "--source", "local", "--source", "github"],
         vec![
-            "project",
-            "list",
-            "--source",
-            "local",
-            "--source",
-            "github",
+            "project", "list", "--source", "github", "--format", "ndjson",
         ],
-        vec!["project", "list", "--source", "github", "--format", "ndjson"],
         vec![
             "project",
             "list",
@@ -324,8 +318,14 @@ fn a_github_read_writes_no_registry_byte_table_column_index_or_journal_row() {
         ],
     ] {
         let mut cmd = cmd_json(&bins, &db, &args);
-        cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-            .env("FORGE_GITHUB_TOKEN", "ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+        cmd.env(
+            "FORGE_GITHUB_BIN",
+            bins.join("forge-github-metadata-adapter"),
+        )
+        .env(
+            "FORGE_GITHUB_TOKEN",
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        );
         let output = cmd.output().expect("run forge");
         assert!(
             output.status.success(),
@@ -335,14 +335,19 @@ fn a_github_read_writes_no_registry_byte_table_column_index_or_journal_row() {
     }
     // The read also has to be safe through the dedicated
     // `forge project github observe` surface.
-    let mut cmd = cmd_human(&bins, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    let mut cmd = cmd_human(
+        &bins,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env(
+        "FORGE_GITHUB_TOKEN",
+        "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    );
     let out = cmd.output().expect("run forge");
     assert!(
         out.status.success(),
@@ -350,16 +355,26 @@ fn a_github_read_writes_no_registry_byte_table_column_index_or_journal_row() {
         lossy(&out.stderr)
     );
     // And a propose that runs in PR mode must not mutate either.
-    let mut cmd = cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "propose",
-        "octocat/hello-world",
-        "--set",
-        "topic=rust",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    let mut cmd = cmd_json(
+        &bins,
+        &db,
+        &[
+            "project",
+            "github",
+            "propose",
+            "octocat/hello-world",
+            "--set",
+            "topic=rust",
+        ],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env(
+        "FORGE_GITHUB_TOKEN",
+        "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    );
     let out = cmd.output().expect("run forge");
     assert!(
         out.status.success(),
@@ -370,7 +385,10 @@ fn a_github_read_writes_no_registry_byte_table_column_index_or_journal_row() {
     assert_eq!(table_names(&db), before_tables);
     assert_eq!(project_columns(&db), before_columns);
     assert_eq!(index_names(&db), before_indexes);
-    assert_eq!(scalar(&db, "SELECT COUNT(*) FROM projects"), before_projects);
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) FROM projects"),
+        before_projects
+    );
     assert_eq!(
         scalar(&db, "SELECT COUNT(*) FROM operations"),
         before_operations
@@ -406,7 +424,9 @@ fn a_github_token_never_reaches_stdout_stderr_or_a_human_report() {
         ),
         (
             "ndjson list",
-            &["project", "list", "--source", "github", "--format", "ndjson"],
+            &[
+                "project", "list", "--source", "github", "--format", "ndjson",
+            ],
         ),
         (
             "inspect",
@@ -461,26 +481,28 @@ fn a_github_token_never_reaches_stdout_stderr_or_a_human_report() {
         ),
     ];
     for (label, args) in cases {
-        let (program_args, format): (Vec<String>, &str) = if label.contains("json")
-            || label.contains("ndjson")
-        {
-            let mut a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-            if !a.iter().any(|arg| arg == "--format") {
-                a.push("--format".to_string());
-                a.push("json".to_string());
-            }
-            (a, "json")
-        } else {
-            (args.iter().map(|s| s.to_string()).collect(), "human")
-        };
+        let (program_args, format): (Vec<String>, &str) =
+            if label.contains("json") || label.contains("ndjson") {
+                let mut a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+                if !a.iter().any(|arg| arg == "--format") {
+                    a.push("--format".to_string());
+                    a.push("json".to_string());
+                }
+                (a, "json")
+            } else {
+                (args.iter().map(|s| s.to_string()).collect(), "human")
+            };
         let program_args_ref: Vec<&str> = program_args.iter().map(String::as_str).collect();
         let mut cmd = if format == "json" {
             cmd_json(&bins, &db, &program_args_ref)
         } else {
             cmd_human(&bins, &db, &program_args_ref)
         };
-        cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-            .env("FORGE_GITHUB_TOKEN", token);
+        cmd.env(
+            "FORGE_GITHUB_BIN",
+            bins.join("forge-github-metadata-adapter"),
+        )
+        .env("FORGE_GITHUB_TOKEN", token);
         let out = cmd.output().expect("run forge");
         assert!(
             out.status.success(),
@@ -538,16 +560,16 @@ fn github_records_never_gain_topics_or_releases_on_the_record_field() {
     let proposal = r#"{"contract":"forge-github-metadata/0.1.0","mode":"pull-request","repository":"octocat/hello-world","pr_url":"https://github.com/octocat/hello-world/pull/1"}"#;
     github_stubs(&bins, &observation, proposal);
     let (db, _alpha) = fixture(tmp.path());
-    let mut cmd = cmd_json(&bins, &db, &[
-        "project",
-        "list",
-        "--source",
-        "local",
-        "--source",
-        "github",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = cmd_json(
+        &bins,
+        &db,
+        &["project", "list", "--source", "local", "--source", "github"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
@@ -623,14 +645,16 @@ fn github_records_never_gain_topics_or_releases_on_the_record_field() {
     // The `forge project github observe` JSON page must keep the
     // namespaces separate too: the observation carries `topics` and
     // `releases`; the record is the closed projection.
-    let mut cmd = cmd_json(&bins, &db, &[
-        "project",
-        "github",
-        "observe",
-        "octocat/hello-world",
-    ]);
-    cmd.env("FORGE_GITHUB_BIN", bins.join("forge-github-metadata-adapter"))
-        .env("FORGE_GITHUB_TOKEN", "ignored");
+    let mut cmd = cmd_json(
+        &bins,
+        &db,
+        &["project", "github", "observe", "octocat/hello-world"],
+    );
+    cmd.env(
+        "FORGE_GITHUB_BIN",
+        bins.join("forge-github-metadata-adapter"),
+    )
+    .env("FORGE_GITHUB_TOKEN", "ignored");
     let out = cmd.output().expect("run forge");
     assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");

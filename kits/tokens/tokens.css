@@ -1,0 +1,21 @@
+/* Generated from ui/tokens/tokens.json. Do not edit. */
+:root {
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-300: #cbd5e1;
+  --color-slate-500: #64748b;
+  --color-slate-700: #334155;
+  --color-slate-900: #0f172a;
+  --color-blue-600: #1d4ed8;
+  --color-blue-700: #1e40af;
+  --color-red-700: #b91c1c;
+  --color-green-700: #15803d;
+  --color-amber-700: #b45309;
+  --color-white: #ffffff;
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-6: 1.5rem; --space-8: 2rem;
+  --radius-sm: 0.25rem; --radius-md: 0.5rem; --radius-lg: 0.75rem; --radius-full: 9999px;
+  --font-sans: system-ui, sans-serif; --font-body: 1rem; --font-small: 0.875rem; --font-large: 1.125rem; --font-title: 1.5rem;
+  --color-background: var(--color-slate-50); --color-surface: var(--color-white); --color-foreground: var(--color-slate-900); --color-muted: var(--color-slate-100); --color-muted-foreground: var(--color-slate-700); --color-primary: var(--color-blue-600); --color-primary-hover: var(--color-blue-700); --color-danger: var(--color-red-700); --color-success: var(--color-green-700); --color-warning: var(--color-amber-700); --focus-ring: var(--color-blue-600);
+}
+[data-theme="dark"], .theme-dark { --color-background: var(--color-slate-900); --color-surface: var(--color-slate-700); --color-foreground: var(--color-slate-50); --color-muted: var(--color-slate-700); --color-muted-foreground: var(--color-slate-100); --color-primary: #93c5fd; --color-primary-hover: #bfdbfe; --color-danger: #fca5a5; --color-success: #86efac; --color-warning: #fcd34d; --focus-ring: #bfdbfe; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }

@@ -231,6 +231,11 @@ enum Commands {
         #[command(subcommand)]
         command: ProfileCommands,
     },
+    /// Repack or verify the committed shared-layer kit feed.
+    Kit {
+        #[command(subcommand)]
+        command: KitCommands,
+    },
     /// Create a new project deterministically from pinned profile assets.
     New {
         /// Destination directory for the new project.
@@ -260,6 +265,12 @@ enum Commands {
         /// selected implicitly.
         #[arg(long, value_name = "PACK@VERSION")]
         standard_pack: Option<String>,
+        /// Bypass an unmet shared-layer consumption floor, recording the
+        /// reason visibly and dated in the generated `forge.yaml` and
+        /// README. The reason is mandatory: an empty reason refuses.
+        /// Never inferred, and never applied to a floor that was met.
+        #[arg(long, value_name = "REASON")]
+        kit_exception: Option<String>,
     },
     /// Inspect project health and evidence-based maturity without changing files.
     Doctor {
@@ -685,6 +696,32 @@ enum ProfileCommands {
     Preflight {
         /// Profile id (e.g. `rust-web`).
         id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum KitCommands {
+    /// Repack the committed feed from a checked-out sibling library.
+    ///
+    /// The feed is committed, so it is regenerated rather than hand-copied.
+    /// The sibling is only ever read: nothing outside this repository is
+    /// written, and nothing is published or signed.
+    Pack {
+        /// Path to the sibling library checkout
+        /// (default: `$FORGE_PLATFORM_LIBS`, then the workspace convention).
+        #[arg(long = "platform-libs")]
+        platform_libs: Option<PathBuf>,
+    },
+    /// Check a committed feed against the kit version a project declares.
+    ///
+    /// Fails on a version mismatch, a missing package, an undeclared package,
+    /// or a tampered byte. This is the drift gate: a check only a human runs is
+    /// a check CI does not run.
+    Verify {
+        /// Project directory to check against its own `forge.yaml`
+        /// (default: check Forge's committed feed against the compiled-in kit).
+        #[arg(default_value = "")]
+        path: String,
     },
 }
 
@@ -2558,6 +2595,7 @@ fn main() -> ExitCode {
         ),
         Commands::Graduation { command } => cmd_graduation(&db_path, command, cli.format),
         Commands::Profile { command } => cmd_profile(command, cli.format),
+        Commands::Kit { command } => cmd_kit(command, cli.format),
         Commands::New {
             path,
             profile,
@@ -2567,6 +2605,7 @@ fn main() -> ExitCode {
             verify_native,
             no_workspace_metadata,
             standard_pack,
+            kit_exception,
         } => cmd_new(
             &db_path,
             path,
@@ -2577,6 +2616,7 @@ fn main() -> ExitCode {
             *verify_native,
             !no_workspace_metadata,
             standard_pack.as_deref(),
+            kit_exception.as_deref(),
             cli.format,
         ),
         Commands::Doctor { path, target } => {
@@ -2962,6 +3002,7 @@ fn cmd_new(
     verify_native_flag: bool,
     workspace_metadata: bool,
     standard_pack: Option<&str>,
+    kit_exception: Option<&str>,
     format: Format,
 ) -> Result<Output, ForgeError> {
     let mut request = if profile.is_some() {
@@ -2982,6 +3023,11 @@ fn cmd_new(
         )?
     };
     request.workspace_metadata = workspace_metadata;
+    // An explicit `--kit-exception` is explicit input on both paths, so the
+    // interactive path carries it too and stays byte-equivalent to the
+    // flag-driven one. It is never prompted for: an exception is never
+    // inferred, defaulted or generated.
+    request.kit_exception = kit_exception.map(str::to_string);
     let mut registry = open_registry(db_path)?;
     let mut generated = generate(&mut registry, &request)?;
     if verify_native_flag {
@@ -3004,6 +3050,9 @@ fn cmd_new(
     for note in &generated.notes {
         human.push_str(&format!("\n{note}"));
     }
+    if let Some(warning) = &generated.kit_warning {
+        human.push_str(&format!("\n{warning}"));
+    }
     let mut json = serde_json::json!({
         "created": generated.record,
         "profile": request.profile,
@@ -3014,6 +3063,9 @@ fn cmd_new(
     });
     if !generated.notes.is_empty() {
         json["notes"] = serde_json::json!(generated.notes);
+    }
+    if let Some(warning) = &generated.kit_warning {
+        json["kit_warning"] = serde_json::json!(warning);
     }
     Ok(as_output(format, human, json))
 }
@@ -3118,6 +3170,137 @@ fn cmd_check(
         max_alerts as usize,
     );
     Ok(Output::Human(checker::render_document(&document)?))
+}
+
+/// Repack or verify the committed shared-layer feed.
+///
+/// Both commands are deliberately local-only. `pack` reads a sibling checkout
+/// and writes only inside this repository; `verify` reads a manifest and the
+/// feed it names. Neither touches the network.
+fn cmd_kit(command: &KitCommands, format: Format) -> Result<Output, ForgeError> {
+    match command {
+        KitCommands::Pack { platform_libs } => {
+            let report = forge::kit::pack_platform_feed(platform_libs.as_deref())?;
+            let mut human = format!(
+                "packed {} package(s) for kit {}@{} from {}\n",
+                report.packed.len(),
+                report.kit,
+                report.version,
+                report.sibling
+            );
+            for package in &report.packed {
+                human.push_str(&format!("  packed  {package}\n"));
+            }
+            for package in &report.skipped {
+                // A skipped package is reported, never counted as packed: a
+                // feed missing a member of the closure does not restore.
+                human.push_str(&format!(
+                    "  SKIPPED {package} (no project in the sibling)\n"
+                ));
+            }
+            human.push_str(&format!(
+                "recorded {} digest(s) in kits/manifest.json\n",
+                report.digest_entries
+            ));
+            for file in &report.removed {
+                human.push_str(&format!("  removed {file} (not in the declared set)\n"));
+            }
+            human.push_str("verify with `forge kit verify`\n");
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+        KitCommands::Verify { path } => {
+            let descriptor = forge::kit::inspect_kit("platform-dotnet", None)?;
+            let trimmed = path.trim();
+            let (declared_version, declared_by, feed_dir) = if trimmed.is_empty() {
+                // No project given: check Forge's own committed feed against
+                // the version the compiled-in descriptor pins — the same value
+                // that lands in a generated `forge.yaml` `kit.version`.
+                let version = descriptor
+                    .reference
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string());
+                (
+                    version,
+                    "the compiled-in kit descriptor".to_string(),
+                    forge::kit::assets::kits_dir().join(forge::kit::KITS_FEED_DIR),
+                )
+            } else {
+                let dir = std::path::Path::new(trimmed);
+                let manifest_path = dir.join("forge.yaml");
+                let bytes =
+                    std::fs::read(&manifest_path).map_err(|err| ForgeError::KitFeedIncomplete {
+                        reason: format!(
+                            "cannot read {}: {err}. A project's own `kit.version` is the declared \
+                         version this check must use",
+                            manifest_path.display()
+                        ),
+                    })?;
+                let manifest: serde_yaml::Value =
+                    serde_yaml::from_slice(&bytes).map_err(|err| {
+                        ForgeError::KitFeedIncomplete {
+                            reason: format!("{} is not valid YAML: {err}", manifest_path.display()),
+                        }
+                    })?;
+                let (version, feed_path) =
+                    forge::kit::declared_kit_version(&manifest).ok_or_else(|| {
+                        ForgeError::KitFeedIncomplete {
+                            reason: format!(
+                            "{} declares no `kit` block, so there is no `kit.version` to check the \
+                             committed feed against",
+                            manifest_path.display()
+                        ),
+                        }
+                    })?;
+                let version = version.ok_or_else(|| ForgeError::KitFeedIncomplete {
+                    reason: format!(
+                        "{} declares a kit with no `kit.version`; a declared zero has no feed to \
+                         check",
+                        manifest_path.display()
+                    ),
+                })?;
+                let feed_path = feed_path.ok_or_else(|| ForgeError::KitFeedIncomplete {
+                    reason: format!(
+                        "{} declares no `kit.feed.path`, so the committed feed's location is \
+                         unknown",
+                        manifest_path.display()
+                    ),
+                })?;
+                (
+                    version,
+                    manifest_path.display().to_string(),
+                    dir.join(feed_path),
+                )
+            };
+            let report = forge::kit::verify_committed_feed(
+                &descriptor,
+                &declared_version,
+                &declared_by,
+                &feed_dir,
+            )?;
+            let mut human = format!(
+                "verified {} feed at {}\nkit: {}@{} (declared by {})\n",
+                report.packages.len(),
+                report.feed_path,
+                report.kit,
+                report.declared_version,
+                report.declared_by
+            );
+            for entry in &report.packages {
+                human.push_str(&format!(
+                    "  {} {} {} ({})\n",
+                    entry.state, entry.package, entry.version, entry.role
+                ));
+            }
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+    }
 }
 
 fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<Output, ForgeError> {
@@ -4527,6 +4710,16 @@ fn render_feature_human(f: &forge::feature::FeatureDescriptor) -> String {
     .join("\n")
 }
 
+/// Render an empty set as an explicit `none` so a reader never has to guess
+/// whether a blank means "absent" or "omitted".
+fn join_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
+}
+
 fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {
     let mut lines = vec![
         format!(
@@ -4571,6 +4764,83 @@ fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {
     ];
     if let Some(desc) = &p.description {
         lines.push(format!("description: {desc}"));
+    }
+    // Shared-layer kit: the declared reference, its floor and — for a declared
+    // zero — the reason the absence is recorded rather than implicit. Resolved
+    // against the compiled-in registry so an unresolvable declaration is
+    // visible here too, not only at generation time.
+    match &p.kit {
+        None => {
+            lines.push("kit: none (profile predates the shared-layer kit contract)".to_string())
+        }
+        Some(reference) => {
+            lines.push(format!(
+                "kit: {}{}",
+                reference.id,
+                reference
+                    .version
+                    .as_deref()
+                    .map(|v| format!("@{v}"))
+                    .unwrap_or_else(|| " (declared zero, no version)".to_string())
+            ));
+            lines.push(format!("kit ecosystem: {}", reference.ecosystem.as_str()));
+            if let Some(tfm) = &reference.tfm {
+                lines.push(format!("kit tfm: {tfm}"));
+            }
+            if let Some(feed) = &reference.feed {
+                lines.push(format!(
+                    "kit feed: {} ({}) at {}",
+                    feed.name,
+                    feed.kind.as_str(),
+                    feed.path
+                ));
+            }
+            lines.push(format!(
+                "kit minimum_packages: {}{}",
+                reference.minimum_packages,
+                if reference.is_declared_zero() {
+                    " (declared zero, not a met floor)"
+                } else {
+                    ""
+                }
+            ));
+            match forge::kit::inspect_kit(&reference.id, reference.version.as_deref()) {
+                Ok(descriptor) => {
+                    lines.push(format!(
+                        "kit confirmed: {}",
+                        join_or_none(&descriptor.confirmed_names())
+                    ));
+                    lines.push(format!(
+                        "kit provisional: {}",
+                        join_or_none(&descriptor.provisional_names())
+                    ));
+                    if !descriptor.assets.is_empty() {
+                        lines.push(format!(
+                            "kit assets: {}",
+                            descriptor
+                                .assets
+                                .iter()
+                                .map(|a| a.target.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ));
+                    }
+                }
+                // A declared zero is a *recorded* state, not a missing
+                // registry row: its id is the `none` sentinel by design, so
+                // saying it is unregistered would be actively misleading.
+                Err(_) if reference.is_declared_zero() => {
+                    lines.push("kit confirmed: none (declared zero)".to_string());
+                    lines.push("kit provisional: none (declared zero)".to_string());
+                }
+                Err(_) => lines.push(
+                    "kit: declared reference is not in the compiled-in kit registry".to_string(),
+                ),
+            }
+            if let Some(reason) = &reference.zero_reason {
+                lines.push(format!("kit zero_reason: {reason}"));
+            }
+        }
     }
     lines.join("\n")
 }

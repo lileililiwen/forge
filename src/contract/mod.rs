@@ -182,6 +182,34 @@ pub const CONTRACTS: &[ContractSpec] = &[
         platform_family: None,
         doc: "openspec/specs/central-admin-identity/spec.md",
     },
+    // The shared-layer kit registry is a versioned surface: its descriptor
+    // contract, the .NET kit version it pins and the vendored token kit
+    // version are all registered here, so none can be bumped without the
+    // inventory noticing.
+    ContractSpec {
+        module: "kit",
+        constant: "KIT_CONTRACT_VERSION",
+        discriminator: "",
+        version: "0.1.0",
+        platform_family: None,
+        doc: "openspec/specs/scaffold-prewires-shared-layer/spec.md",
+    },
+    ContractSpec {
+        module: "kit",
+        constant: "PLATFORM_PACKAGE_VERSION",
+        discriminator: "",
+        version: "0.1.0",
+        platform_family: None,
+        doc: "openspec/specs/scaffold-prewires-shared-layer/spec.md",
+    },
+    ContractSpec {
+        module: "kit",
+        constant: "PLATFORM_UI_KIT_VERSION",
+        discriminator: "",
+        version: "0.1.0",
+        platform_family: None,
+        doc: "openspec/specs/scaffold-prewires-shared-layer/spec.md",
+    },
     ContractSpec {
         module: "mcp",
         constant: "MCP_CONTRACT_VERSION",

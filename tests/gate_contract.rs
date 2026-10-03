@@ -17,8 +17,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use forge::registry::Registry;
 use forge::gate::GATE_CONTRACT_VERSION;
+use forge::registry::Registry;
 
 fn forge_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_forge"))
@@ -895,7 +895,11 @@ fn evidence_status_reads_persisted_record() {
     assert_eq!(run.status, 0, "{}", run.stderr);
 
     // Second run: read.
-    let run = gate_evidence_cmd(&db, &["evidence", "status", &proj.display().to_string()], Some(&stub));
+    let run = gate_evidence_cmd(
+        &db,
+        &["evidence", "status", &proj.display().to_string()],
+        Some(&stub),
+    );
     assert_eq!(run.status, 0, "{}", run.stderr);
     let value = evidence_json(&run);
     assert_eq!(value["contract"], "release-evidence/0.1.0");
@@ -909,7 +913,11 @@ fn evidence_status_absent_without_prior_run() {
     let proj = project(tmp.path(), "evid-absent");
 
     let stub = evidence_unavailable_stub(tmp.path(), "gate-evid.sh");
-    let run = gate_evidence_cmd(&db, &["evidence", "status", &proj.display().to_string()], Some(&stub));
+    let run = gate_evidence_cmd(
+        &db,
+        &["evidence", "status", &proj.display().to_string()],
+        Some(&stub),
+    );
     eprintln!("DEBUG status={} stdout={}", run.status, run.stdout);
     assert_eq!(run.status, 1, "{}", run.stderr);
     let value = evidence_json(&run);
@@ -956,7 +964,8 @@ fn evidence_export_refused_on_publication_contradiction() {
     let db = tmp.path().join("registry.db");
     let proj = project(tmp.path(), "evid-contradict");
 
-    let stub = evidence_publication_contradiction_stub(tmp.path(), "gate-evid.sh", "evid-contradict");
+    let stub =
+        evidence_publication_contradiction_stub(tmp.path(), "gate-evid.sh", "evid-contradict");
     let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
     assert_ne!(run.status, 0, "{}", run.stderr);
     assert!(
@@ -999,11 +1008,7 @@ exit 1
     };
     let run = gate_evidence_cmd(&db, &["evidence", &proj.display().to_string()], Some(&stub));
     assert_ne!(run.status, 0, "{}", run.stderr);
-    assert!(
-        run.stderr.contains("blocked"),
-        "{}",
-        run.stderr
-    );
+    assert!(run.stderr.contains("blocked"), "{}", run.stderr);
 }
 
 #[test]
@@ -1013,9 +1018,10 @@ fn evidence_refused_count_in_record() {
     let proj = project(tmp.path(), "evid-counts");
 
     // Export with mixed states: some verified, some configured, some refused.
-    let base: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(evidence_fixture("forge-all-unverified.json")).unwrap())
-            .unwrap();
+    let base: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(evidence_fixture("forge-all-unverified.json")).unwrap(),
+    )
+    .unwrap();
     let mut doc = base;
     doc["project_id"] = serde_json::json!("evid-counts");
     doc["fields"][0] = serde_json::json!({
@@ -1091,7 +1097,12 @@ fn evidence_dry_run_and_timeout_flags_refused() {
 
     let run = gate_evidence_cmd(
         &db,
-        &["evidence", "--timeout-secs", "300", &proj.display().to_string()],
+        &[
+            "evidence",
+            "--timeout-secs",
+            "300",
+            &proj.display().to_string(),
+        ],
         Some(&stub),
     );
     assert!(run.stderr.contains("--timeout-secs"), "{}", run.stderr);

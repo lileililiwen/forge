@@ -42,14 +42,8 @@ fn deploy_status_help_advertises_queue_and_watch() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("--queue"), "stdout was: {stdout}");
     assert!(stdout.contains("--watch"), "stdout was: {stdout}");
-    assert!(
-        stdout.contains("--interval-secs"),
-        "stdout was: {stdout}"
-    );
-    assert!(
-        stdout.contains("--deadline-secs"),
-        "stdout was: {stdout}"
-    );
+    assert!(stdout.contains("--interval-secs"), "stdout was: {stdout}");
+    assert!(stdout.contains("--deadline-secs"), "stdout was: {stdout}");
 }
 
 #[test]
@@ -60,10 +54,7 @@ fn deploy_status_rejects_watch_without_queue() {
         &db,
         &["deploy", "status", "--watch", "--interval-secs", "1"],
     );
-    assert!(
-        !output.status.success(),
-        "watch without --queue must fail"
-    );
+    assert!(!output.status.success(), "watch without --queue must fail");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("--watch requires --queue"),
@@ -75,12 +66,7 @@ fn deploy_status_rejects_watch_without_queue() {
 fn deploy_status_rejects_malformed_queue_id() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
-    let output = run(
-        &db,
-        &[
-            "deploy", "status", "--queue", "fleet 1",
-        ],
-    );
+    let output = run(&db, &["deploy", "status", "--queue", "fleet 1"]);
     assert!(
         !output.status.success(),
         "queue id with space must be refused"
@@ -108,10 +94,7 @@ fn deploy_status_rejects_interval_secs_out_of_bounds() {
             "0",
         ],
     );
-    assert!(
-        !output.status.success(),
-        "interval-secs=0 must be refused"
-    );
+    assert!(!output.status.success(), "interval-secs=0 must be refused");
     let output = run(
         &db,
         &[
@@ -124,10 +107,7 @@ fn deploy_status_rejects_interval_secs_out_of_bounds() {
             "61",
         ],
     );
-    assert!(
-        !output.status.success(),
-        "interval-secs=61 must be refused"
-    );
+    assert!(!output.status.success(), "interval-secs=61 must be refused");
 }
 
 #[test]
@@ -146,10 +126,7 @@ fn deploy_status_rejects_deadline_secs_out_of_bounds() {
             "0",
         ],
     );
-    assert!(
-        !output.status.success(),
-        "deadline-secs=0 must be refused"
-    );
+    assert!(!output.status.success(), "deadline-secs=0 must be refused");
 }
 
 #[test]
@@ -175,10 +152,7 @@ fn deploy_status_queue_returns_empty_history_cleanly() {
         value.get("contract").and_then(Value::as_str),
         Some("forge-deploy-status/0.2.0")
     );
-    assert_eq!(
-        value.get("read_only").and_then(Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(value.get("read_only").and_then(Value::as_bool), Some(true));
     let entries = value
         .get("entries")
         .and_then(Value::as_array)
@@ -193,7 +167,12 @@ fn deploy_status_rejects_both_project_and_queue() {
     let output = run(
         &db,
         &[
-            "deploy", "status", "--project", "alpha", "--queue", "fleet-1",
+            "deploy",
+            "status",
+            "--project",
+            "alpha",
+            "--queue",
+            "fleet-1",
         ],
     );
     assert!(
@@ -201,8 +180,5 @@ fn deploy_status_rejects_both_project_and_queue() {
         "must refuse --project and --queue together"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("not both"),
-        "stderr was: {stderr}"
-    );
+    assert!(stderr.contains("not both"), "stderr was: {stderr}");
 }

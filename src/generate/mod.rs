@@ -50,6 +50,11 @@ pub struct CreationRequest {
     /// rendered alongside the project (`--standard-pack`). `None` renders
     /// exactly the prior output: no pack is ever selected implicitly.
     pub standard_pack: Option<String>,
+    /// Operator-written reason for bypassing an unmet shared-layer
+    /// consumption floor (`--kit-exception <reason>`). The reason is
+    /// mandatory and is recorded visibly and dated; Forge never infers,
+    /// defaults or generates one.
+    pub kit_exception: Option<String>,
 }
 
 /// Outcome of [`generate`]: the registered record plus what was rendered.
@@ -64,6 +69,15 @@ pub struct GeneratedProject {
     /// byte-identical to pre-change releases.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// Shared-layer floor outcome that an operator must see: a declared
+    /// zero or a recorded exception.
+    ///
+    /// Deliberately a *separate* field from `notes`. `notes` is documented as
+    /// omission notes and is asserted empty for a fully mapped profile, so a
+    /// kit warning there would change an established transport contract. This
+    /// is additive and skipped when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kit_warning: Option<String>,
 }
 
 /// Native verification outcome. Rendering alone never yields `verified`.
@@ -174,6 +188,9 @@ pub fn normalize_explicit(
         destination: dest.to_path_buf(),
         workspace_metadata: true,
         standard_pack,
+        // A floor exception is set explicitly by the transport that owns the
+        // operator's flag. It is never prompted for and never inferred.
+        kit_exception: None,
     })
 }
 
@@ -295,6 +312,9 @@ pub fn parse_interactive(
         destination: dest.to_path_buf(),
         workspace_metadata: true,
         standard_pack,
+        // The interactive path has no floor-exception prompt: an exception is
+        // never inferred, so it is only ever carried from an explicit flag.
+        kit_exception: None,
     })
 }
 
@@ -320,7 +340,7 @@ fn dotnet_namespace(id: &str) -> String {
     out
 }
 
-fn manifest_text(request: &CreationRequest, language: &str) -> String {
+fn manifest_text(request: &CreationRequest, language: &str, kit: Option<&KitContext>) -> String {
     let mut text = format!(
         "schema: 1\nproject:\n  id: {}\n  name: {}\n  profile: {}\n  maturity: L1\n  target_maturity: L1\n",
         request.id, request.name, request.profile
@@ -334,6 +354,9 @@ fn manifest_text(request: &CreationRequest, language: &str) -> String {
             text.push_str(&format!("  {feature}: \"0.1.0\"\n"));
         }
     }
+    if let Some(kit) = kit {
+        text.push_str(&kit_manifest_block(kit));
+    }
     text
 }
 
@@ -344,9 +367,234 @@ fn readme_text(request: &CreationRequest, build: &str, test: &str, notes: &str) 
     )
 }
 
+/// A profile's shared-layer kit, resolved and gated.
+///
+/// Resolution, the ecosystem check, the floor decision and the digest
+/// verification all happen here — before a single file is staged — so a
+/// refusal never leaves a half-wired directory or a registered project row.
+struct KitContext {
+    descriptor: crate::kit::registry::KitDescriptor,
+    decision: crate::kit::floor::FloorDecision,
+}
+
+impl KitContext {
+    /// Resolve the kit a profile declares.
+    ///
+    /// `None` means the profile predates kits: generation renders exactly the
+    /// prior output and never guesses a kit.
+    fn resolve(
+        request: &CreationRequest,
+        profile: &crate::profile::ProfileDescriptor,
+        generated_at: &str,
+    ) -> Result<Option<Self>, ForgeError> {
+        let Some(reference) = profile.kit.as_ref() else {
+            return Ok(None);
+        };
+        let descriptor =
+            crate::kit::registry::kit_for_profile(&request.profile, reference, &profile.toolchain)?;
+        let decision = crate::kit::floor::check_floor(
+            &request.profile,
+            &descriptor,
+            request.kit_exception.as_deref(),
+            generated_at,
+        )?;
+        Ok(Some(Self {
+            descriptor,
+            decision,
+        }))
+    }
+
+    fn reference(&self) -> &crate::kit::registry::KitReference {
+        &self.descriptor.reference
+    }
+
+    /// The `WARN` line to surface, if this state warrants one.
+    fn warning(&self, profile: &str) -> Option<String> {
+        self.decision.warning(profile)
+    }
+}
+
+/// The recorded exception, when a floor was actually bypassed.
+fn kit_exception(kit: Option<&KitContext>) -> Option<&crate::kit::floor::FloorException> {
+    match kit.map(|k| &k.decision) {
+        Some(crate::kit::floor::FloorDecision::Exception { exception, .. }) => Some(exception),
+        _ => None,
+    }
+}
+
+/// Emit a YAML scalar as a double-quoted string.
+///
+/// A recorded reason or zero_reason is operator- and evidence-derived free
+/// text: it routinely contains `: ` (as in `1 consumer: trailCrew`), which
+/// makes an unquoted mapping value fail to parse. Quoting unconditionally
+/// keeps the block valid whatever the recorded text says.
+fn yaml_scalar(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The `kit:` block in the generated `forge.yaml`.
+///
+/// Records the pinned id, version, ecosystem and target framework, the
+/// confirmed and provisional sets, the named feed, the declared floor, any
+/// recorded exception, and — for a declared zero — the reason the absence is
+/// honest rather than implicit. Purely additive: a profile that predates kits
+/// emits no block at all.
+fn kit_manifest_block(kit: &KitContext) -> String {
+    let reference = kit.reference();
+    let mut text = String::from("kit:\n");
+    text.push_str(&format!("  id: {}\n", yaml_scalar(&reference.id)));
+    match &reference.version {
+        Some(version) => text.push_str(&format!("  version: {}\n", yaml_scalar(version))),
+        // A declared zero pins no version: there is nothing to pin.
+        None => text.push_str("  version: null\n"),
+    }
+    text.push_str(&format!(
+        "  ecosystem: {}\n",
+        yaml_scalar(reference.ecosystem.as_str())
+    ));
+    if let Some(tfm) = &reference.tfm {
+        text.push_str(&format!("  tfm: {}\n", yaml_scalar(tfm)));
+    }
+    text.push_str(&format!(
+        "  minimum_packages: {}\n",
+        reference.minimum_packages
+    ));
+    let confirmed = kit.descriptor.confirmed_names();
+    let provisional = kit.descriptor.provisional_names();
+    if !confirmed.is_empty() {
+        text.push_str("  confirmed_packages:\n");
+        for name in &confirmed {
+            text.push_str(&format!("    - {}\n", yaml_scalar(name)));
+        }
+    }
+    if !provisional.is_empty() {
+        text.push_str("  provisional_packages:\n");
+        for name in &provisional {
+            text.push_str(&format!("    - {}\n", yaml_scalar(name)));
+        }
+    }
+    if let Some(feed) = &reference.feed {
+        text.push_str("  feed:\n");
+        text.push_str(&format!("    name: {}\n", yaml_scalar(&feed.name)));
+        text.push_str(&format!("    kind: {}\n", yaml_scalar(feed.kind.as_str())));
+        // The value is a path relative to this project, and the bytes live in
+        // it. There is no environment variable: a variable a CI runner does
+        // not carry is the same failure class as a hard-coded absolute path.
+        text.push_str(&format!("    path: {}\n", yaml_scalar(&feed.path)));
+    }
+    if !kit.descriptor.assets.is_empty() {
+        text.push_str("  assets:\n");
+        for asset in &kit.descriptor.assets {
+            text.push_str(&format!("    - {}\n", yaml_scalar(&asset.target)));
+        }
+    }
+    if let Some(reason) = &reference.zero_reason {
+        text.push_str(&format!("  zero_reason: {}\n", yaml_scalar(reason)));
+    }
+    if let Some(exception) = kit_exception(Some(kit)) {
+        text.push_str("  exception:\n");
+        text.push_str(&format!("    reason: {}\n", yaml_scalar(&exception.reason)));
+        text.push_str(&format!("    floor: {}\n", exception.floor));
+        text.push_str(&format!("    declared: {}\n", exception.declared));
+        text.push_str(&format!(
+            "    recorded_at: {}\n",
+            yaml_scalar(&exception.recorded_at)
+        ));
+    }
+    text
+}
+
+/// The shared-layer section appended to the generated README.
+///
+/// States the floor outcome in the same vocabulary as the manifest so a
+/// met floor, a recorded exception and a declared zero are always
+/// distinguishable on the page, and records the exception visibly with the
+/// floor it bypassed.
+fn kit_readme_section(kit: &KitContext, profile: &str) -> String {
+    let reference = kit.reference();
+    let mut out = format!(
+        "\n## Shared layer\n\nKit `{}` ({}) on the `{}` ecosystem",
+        reference.id,
+        reference.version.as_deref().unwrap_or("no version"),
+        reference.ecosystem.as_str()
+    );
+    if let Some(tfm) = &reference.tfm {
+        out.push_str(&format!(", target framework `{tfm}`"));
+    }
+    out.push_str(".\n");
+
+    match &kit.decision {
+        crate::kit::floor::FloorDecision::Met { declared, floor } => {
+            out.push_str(&format!(
+                "\nDeclared minimum consumption: {floor}. Confirmed: {declared}. Floor met.\n"
+            ));
+        }
+        crate::kit::floor::FloorDecision::DeclaredZero { reason } => {
+            out.push_str(&format!(
+                "\nDeclared minimum consumption: 0 (a declared zero, not a met floor). \
+                 Reason: {reason}\n"
+            ));
+        }
+        crate::kit::floor::FloorDecision::Exception { exception, .. } => {
+            out.push_str(&format!(
+                "\n> **Recorded floor exception.** The declared minimum of {} was not met; \
+                 this project was scaffolded anyway.\n>\n> Reason: {}\n> Declared: {} confirmed unit(s).\n> Recorded at: {}.\n\n\
+                 This exception is visible on purpose. It is never inferred, and Forge will not \
+                 re-apply it to a later generation.\n",
+                exception.floor,
+                exception.reason,
+                exception.declared,
+                exception.recorded_at
+            ));
+        }
+    }
+
+    if let Some(feed) = &reference.feed {
+        out.push_str(&format!(
+            "\nThe shared layer resolves from the named `{name}` feed, committed at `{path}` inside \
+             this project. The path is relative, so `dotnet restore` works from a fresh clone at \
+             any path, with no sibling `dotnet-platform-libs` checkout, no environment variable \
+             and no secret. Regenerate the feed with `forge kit pack` and check it against the \
+             `kit.version` this project pins with `forge kit verify .`.\n",
+            name = feed.name,
+            path = feed.path
+        ));
+    }
+    if !kit.descriptor.assets.is_empty() {
+        out.push_str(&format!(
+            "\nDesign tokens are vendored from the single registered token source into `{dir}/` \
+             and recorded in `{receipt}`. Run `node .platform/tokens/verify-tokens.mjs` to verify \
+             them offline. This is the only palette, spacing scale and typography definition in \
+             the project.\n",
+            dir = crate::kit::assets::PLATFORM_TOKENS_DIR,
+            receipt = crate::kit::assets::PLATFORM_RECEIPT_PATH
+        ));
+    }
+    out.push_str(&format!(
+        "\nReferencing a kit package never grants the capability it implements. Infrastructure \
+         (identity, persistence, tenancy, caching, jobs, billing, mailing, storage, AI) is behind \
+         an explicit `--feature` request on profile `{profile}`.\n"
+    ));
+    out
+}
+
 fn template_files(
     request: &CreationRequest,
     generated_at: &str,
+    kit: Option<&KitContext>,
 ) -> Result<Vec<(String, String)>, ForgeError> {
     let descriptor = inspect_profile(&request.profile)?;
     if descriptor.support_status == crate::profile::ProfileSupportStatus::Planned {
@@ -363,7 +611,7 @@ fn template_files(
     let test = descriptor.test_command.clone();
     let id = request.id.as_str();
     let snake_id = snake(id);
-    let manifest = manifest_text(request, &descriptor.language);
+    let manifest = manifest_text(request, &descriptor.language, kit);
     let mut files: Vec<(String, String)> = Vec::new();
     match request.profile.as_str() {
         "rust-web" => {
@@ -404,7 +652,11 @@ fn template_files(
                     request,
                     &build,
                     &test,
-                    "Axum/sqlx dependencies from the profile descriptor are resolved per-service; this scaffold ships dependency-free so `cargo build` works offline.",
+                    &format!(
+                        "Axum/sqlx dependencies from the profile descriptor are resolved per-service; this scaffold ships dependency-free so `cargo build` works offline.{}",
+                        kit.as_ref().map(|k| kit_readme_section(k, &request.profile))
+                            .unwrap_or_default()
+                    ),
                 ),
             ));
         }
@@ -446,7 +698,11 @@ fn template_files(
                     request,
                     &build,
                     &test,
-                    "FastAPI/SQLAlchemy dependencies from the profile descriptor are resolved per-service; this scaffold ships dependency-free so native commands run without network.",
+                    &format!(
+                        "FastAPI/SQLAlchemy dependencies from the profile descriptor are resolved per-service; this scaffold ships dependency-free so native commands run without network.{}",
+                        kit.as_ref().map(|k| kit_readme_section(k, &request.profile))
+                            .unwrap_or_default()
+                    ),
                 ),
             ));
         }
@@ -489,7 +745,11 @@ fn template_files(
                     request,
                     &build,
                     &test,
-                    "This scaffold is dependency-free so `npm run build` / `npm test` work offline. Add the `next` dependency for full Next.js (requires network install).",
+                    &format!(
+                        "This scaffold is dependency-free so `npm run build` / `npm test` work offline. Add the `next` dependency for full Next.js (requires network install).{}",
+                        kit.as_ref().map(|k| kit_readme_section(k, &request.profile))
+                            .unwrap_or_default()
+                    ),
                 ),
             ));
         }
@@ -548,20 +808,40 @@ fn template_files(
                     request,
                     &build,
                     &test,
-                    "React SPA scaffold; client-only rendering with no server-side \
-                     runtime. `npm run build` / `npm test` run offline \
-                     (dependency-free); `npm run dev` needs the pinned React/Vite \
-                     toolchain installed with `npm install` and binds the port in \
-                     `$FORGE_STUDIO_PORT` for the Forge Studio preview.",
+                    &format!(
+                        "React SPA scaffold; client-only rendering with no server-side \
+                         runtime. `npm run build` / `npm test` run offline \
+                         (dependency-free); `npm run dev` needs the pinned React/Vite \
+                         toolchain installed with `npm install` and binds the port in \
+                         `$FORGE_STUDIO_PORT` for the Forge Studio preview. The design \
+                         tokens are vendored as ordinary source, so the kit adds no registry \
+                         dependency and the offline build contract is unchanged.{}",
+                        kit.as_ref()
+                            .map(|k| kit_readme_section(k, &request.profile))
+                            .unwrap_or_default()
+                    ),
                 ),
             ));
         }
         "aspnet-web" => {
             let namespace = dotnet_namespace(&snake_id);
+            // The TFM comes from the kit descriptor, not from a hard-coded
+            // profile default: a net8.0 project cannot reference a net10.0
+            // package, and the workspace baseline is net10.0.
+            let tfm = kit
+                .and_then(|k| k.reference().tfm.clone())
+                .unwrap_or_else(|| "net10.0".to_string());
+            let confirmed = kit
+                .map(|k| k.descriptor.confirmed_names())
+                .unwrap_or_default();
+            let mut package_refs = String::new();
+            for name in &confirmed {
+                package_refs.push_str(&format!("    <PackageReference Include=\"{name}\" />\n"));
+            }
             files.push((
                 format!("{id}.csproj"),
                 format!(
-                    "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <RootNamespace>{namespace}</RootNamespace>\n    <AssemblyName>{namespace}</AssemblyName>\n  </PropertyGroup>\n\n</Project>\n"
+                    "<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n\n  <PropertyGroup>\n    <TargetFramework>{tfm}</TargetFramework>\n    <Nullable>enable</Nullable>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <RootNamespace>{namespace}</RootNamespace>\n    <AssemblyName>{namespace}</AssemblyName>\n  </PropertyGroup>\n\n  <ItemGroup>\n{package_refs}  </ItemGroup>\n\n</Project>\n"
                 ),
             ));
             files.push((
@@ -576,16 +856,60 @@ fn template_files(
             ));
             files.push((
                 "Dockerfile".to_string(),
-                "FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /app\nCOPY . .\nRUN dotnet build\n".to_string(),
+                // No build argument and no environment variable: the feed is
+                // committed inside the build context, so the image builds from
+                // a plain checkout with no machine state.
+                "FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build\nWORKDIR /app\nCOPY . .\nRUN dotnet build\n".to_string(),
             ));
             files.push((".gitignore".to_string(), "bin/\nobj/\n".to_string()));
+            // Central version pinning plus the named feed. Every kit package
+            // gets one `PackageVersion`: the confirmed set restores, and the
+            // provisional set is present only as a comment naming the
+            // evidence it is missing, so it neither restores nor counts
+            // toward the floor.
+            if let Some(kit) = kit {
+                let mut versions = String::new();
+                for name in kit.descriptor.confirmed_names() {
+                    let version = kit.descriptor.version_of(&name).unwrap_or("0.0.0");
+                    versions.push_str(&format!(
+                        "    <PackageVersion Include=\"{name}\" Version=\"{version}\" />\n"
+                    ));
+                }
+                for package in kit.descriptor.provisional() {
+                    versions.push_str(&format!("    <!-- {} -->\n", package.reason));
+                }
+                let rendered_feed = crate::kit::feed::render_feed_config(&kit.descriptor)?;
+                // The feed is declared in `NuGet.config` with a value relative
+                // to the generated project, so no restore-time source
+                // override, build argument or environment variable is needed.
+                // `Directory.Packages.props` keeps only the central version
+                // pinning.
+                if let Some(feed) = rendered_feed {
+                    files.push(("NuGet.config".to_string(), feed.nuget_config));
+                }
+                files.push((
+                    "Directory.Packages.props".to_string(),
+                    format!(
+                        "<Project>\n  <PropertyGroup>\n    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>\n  </PropertyGroup>\n  <ItemGroup>\n    <!-- Shared-layer confirmed set: two or more distinct external consumer\n         repositories and no database, broker, cache or provider account. -->\n{versions}  </ItemGroup>\n</Project>\n"
+                    ),
+                ));
+            }
             files.push((
                 "README.md".to_string(),
                 readme_text(
                     request,
                     &build,
                     &test,
-                    "`dotnet build` works offline (no PackageReference). `dotnet test` needs a test project (network restore); only rendering is verified for tests here.",
+                    &format!(
+                        "{}The shared layer resolves from the committed local feed in `{}`, whose path is relative to this project, so `dotnet restore` works from a fresh clone with no sibling `dotnet-platform-libs` checkout, no environment variable and no secret. Regenerate it with `forge kit pack`; check it against the `kit.version` this project pins with `forge kit verify .`. `dotnet test` needs a test project; only rendering is verified for tests here. The pinned kit version is `{}`.",
+                        kit.as_ref()
+                            .map(|k| kit_readme_section(k, &request.profile))
+                            .unwrap_or_default(),
+                        crate::kit::registry::PLATFORM_FEED_PATH,
+                        kit.as_ref()
+                            .and_then(|k| k.reference().version.clone())
+                            .unwrap_or_else(|| "none".to_string())
+                    ),
                 ),
             ));
         }
@@ -622,7 +946,11 @@ fn template_files(
                     request,
                     &build,
                     &test,
-                    "Verified with `flutter analyze` + `flutter test` (no platform host or Android SDK needed). The app bundle is a release-stage command that requires `android/` and the Android SDK.",
+                    &format!(
+                        "Verified with `flutter analyze` + `flutter test` (no platform host or Android SDK needed). The app bundle is a release-stage command that requires `android/` and the Android SDK.{}",
+                        kit.as_ref().map(|k| kit_readme_section(k, &request.profile))
+                            .unwrap_or_default()
+                    ),
                 ),
             ));
         }
@@ -652,6 +980,30 @@ fn template_files(
     if request.workspace_metadata {
         files.extend(workspace::staged_files(&request.id, &descriptor));
     }
+    // Kit-owned subtree: the digest-pinned vendored token source plus the
+    // ownership receipt recording one digest per owned file. Reading the
+    // assets verifies every digest, so a drifted byte fails here — still
+    // before anything is staged. Staged as ordinary template files so the
+    // promotion and cleanup guarantees cover them identically, and so a
+    // later user edit of an owned file is visible as a conflict rather than
+    // an overwrite.
+    if let Some(kit) = kit {
+        let owned = crate::kit::assets::read_verified_assets(&kit.descriptor)?;
+        if !owned.is_empty() {
+            let receipt = crate::kit::assets::render_receipt(
+                &request.id,
+                &request.profile,
+                &kit.descriptor,
+                &owned,
+            );
+            let mut staged = owned;
+            staged.push((
+                crate::kit::assets::PLATFORM_RECEIPT_PATH.to_string(),
+                crate::kit::assets::receipt_text(&receipt)?,
+            ));
+            files.extend(staged);
+        }
+    }
     files.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(files)
 }
@@ -662,7 +1014,17 @@ fn template_files(
 /// wall clock; `generate` substitutes the real emission time.
 pub fn render_files(request: &CreationRequest) -> Result<Vec<(String, String)>, ForgeError> {
     let _ = check_request(&request.profile, &request.id, &request.features)?;
-    template_files(request, crate::standard::DETERMINISTIC_TIMESTAMP)
+    let descriptor = inspect_profile(&request.profile)?;
+    let kit = KitContext::resolve(
+        request,
+        &descriptor,
+        crate::standard::DETERMINISTIC_TIMESTAMP,
+    )?;
+    template_files(
+        request,
+        crate::standard::DETERMINISTIC_TIMESTAMP,
+        kit.as_ref(),
+    )
 }
 
 fn ensure_relative_inside(rel: &str) -> Result<(), ForgeError> {
@@ -740,8 +1102,25 @@ pub fn generate(
     request: &CreationRequest,
 ) -> Result<GeneratedProject, ForgeError> {
     let _ = check_request(&request.profile, &request.id, &request.features)?;
-    let files = template_files(request, &chrono::Utc::now().to_rfc3339())?;
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    // Resolve the declared kit, check its ecosystem and evaluate the floor
+    // before a single file is staged. A refusal here leaves the destination,
+    // the staging area and the registry byte- and row-identical.
+    let profile = inspect_profile(&request.profile)?;
+    let kit = KitContext::resolve(request, &profile, &generated_at)?;
+    let files = template_files(request, &generated_at, kit.as_ref())?;
     check_files_inside(&files)?;
+    // The committed feed bytes. They are binary — a `.nupkg` is a ZIP archive —
+    // so they cannot travel through the text `template_files` vector without
+    // corrupting them. Reading them verifies every digest, so a tampered
+    // package fails here, still before anything is staged, and they are staged
+    // and promoted through the same path as the text files so the cleanup
+    // guarantee covers them identically.
+    let feed_files = kit
+        .as_ref()
+        .map(|k| crate::kit::assets::read_verified_feed_assets(&k.descriptor))
+        .transpose()?
+        .unwrap_or_default();
     let mut notes = Vec::new();
     if request.workspace_metadata {
         if let Ok(descriptor) = inspect_profile(&request.profile) {
@@ -757,6 +1136,10 @@ pub fn generate(
             STANDARD_DIR = crate::standard::STANDARD_DIR
         ));
     }
+    // A declared zero and a recorded exception are surfaced as `WARN` on their
+    // own, in the same vocabulary the manifest uses, so the console output and
+    // the `forge.yaml` can never disagree about the floor outcome.
+    let kit_warning = kit.as_ref().and_then(|k| k.warning(&request.profile));
 
     if request.destination.is_file() {
         return Err(ForgeError::GenerationConflict {
@@ -792,6 +1175,17 @@ pub fn generate(
             reason: format!("cannot stage '{rel}': {err}"),
         })?;
     }
+    for (rel, bytes) in &feed_files {
+        let target = staging.path().join(rel);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|err| ForgeError::GenerationFailed {
+                reason: format!("cannot stage '{rel}': {err}"),
+            })?;
+        }
+        fs::write(&target, bytes).map_err(|err| ForgeError::GenerationFailed {
+            reason: format!("cannot stage '{rel}': {err}"),
+        })?;
+    }
     // The staged manifest must always validate; a failure here is a bug.
     let staged_manifest = staging.path().join("forge.yaml");
     let staged_bytes = fs::read(&staged_manifest).map_err(|err| ForgeError::GenerationFailed {
@@ -808,7 +1202,11 @@ pub fn generate(
     })?;
     let mut promoted: Vec<PathBuf> = Vec::new();
     let promote_result: Result<(), ForgeError> = (|| {
-        for (rel, _) in &files {
+        let staged_paths = files
+            .iter()
+            .map(|(rel, _)| rel.as_str())
+            .chain(feed_files.iter().map(|(rel, _)| rel.as_str()));
+        for rel in staged_paths {
             let src = staging.path().join(rel);
             let dst = request.destination.join(rel);
             if let Some(parent) = dst.parent() {
@@ -852,6 +1250,7 @@ pub fn generate(
                     request.profile
                 ),
                 notes,
+                kit_warning,
             })
         }
         Err(err) => {

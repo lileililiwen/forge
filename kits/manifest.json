@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "source": "dotnet-platform-libs",
+  "revision": "c740bd9d625f004978f058578e61ffcdf14bf8c2",
+  "synced_at": "2026-10-02T13:20:00.000Z",
+  "files": [
+    {
+      "path": "feed/Platform.AspNetCore.0.1.0.nupkg",
+      "sha256": "4980c688408e9fe8260746fee5d0b4409870481cbf5a39dddca6538c4b23407f",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Billing.Contracts.0.1.0.nupkg",
+      "sha256": "72603765ffdcb0ba307708ec9f3de179df88ae1bd43c0463a494d9c74e4a64f6",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Core.0.1.0.nupkg",
+      "sha256": "acb3a3f2c10e572d32464e77b0728a31f275002b9c043a910fc725d034c66e1b",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Eventing.0.1.0.nupkg",
+      "sha256": "9665853ff9842fd892a646c681ad6f21129f202468b9563823833f0c2b42f913",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Idempotency.0.1.0.nupkg",
+      "sha256": "fb7729a3d1edb9e55a47cf1a550e87f4f229b94ea1437f146ed187ca247a27d2",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Observability.0.1.0.nupkg",
+      "sha256": "33a7954345183b490bca6815232563a86cb8d0d6e7a85a4488ca0d84183ecadc",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.RateLimiting.0.1.0.nupkg",
+      "sha256": "4503d2e65da7681d58c5cbebeae21200e67c1956b025d91ed5e8c49ffae05241",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Testing.0.1.0.nupkg",
+      "sha256": "a84f35a55008246b0becdd5efd9d54c6f149a33ce1295b18d90bf0e8bbdf6fb7",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "feed/Platform.Web.Telemetry.0.1.0.nupkg",
+      "sha256": "eaefa6ed2eebb2358de26d28685dba989e4034f738ea2b602878862ae7fd05d9",
+      "source": "/home/paul/code/dotnet-platform-libs",
+      "revision": null
+    },
+    {
+      "path": "scripts/verify-tokens.mjs",
+      "sha256": "29c7f0bfb531141d8747ab4c58aacf7f90e776a1d0af1a33a2e397f9fd37ed82",
+      "source": "dotnet-platform-libs/ui/scripts",
+      "revision": "c740bd9d625f004978f058578e61ffcdf14bf8c2"
+    },
+    {
+      "path": "tokens/tokens.css",
+      "sha256": "720d0bc7afa7a8e3d1936e6109fd1ec42b2c5dc2268bb863dc68df6c8382b191",
+      "source": "dotnet-platform-libs/ui/packages/design-tokens/dist",
+      "revision": "c740bd9d625f004978f058578e61ffcdf14bf8c2"
+    },
+    {
+      "path": "tokens/tokens.ts",
+      "sha256": "98dfd642d02a194485cc58b4948a4110319d706cf6bd7b35be4ed4472a614f38",
+      "source": "dotnet-platform-libs/ui/packages/design-tokens/dist",
+      "revision": "c740bd9d625f004978f058578e61ffcdf14bf8c2"
+    }
+  ]
+}

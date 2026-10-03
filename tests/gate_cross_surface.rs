@@ -609,12 +609,7 @@ fn release_gate_check_cites_fresh_passing_evidence_only() {
 // ─── gate evidence-export cross-surface tests ─────────────────────────────────
 
 /// Stub that emits evidence-export JSON for a specific project id.
-fn evidence_export_stub(
-    dir: &Path,
-    name: &str,
-    project_id: &str,
-    exit_code: &str,
-) -> PathBuf {
+fn evidence_export_stub(dir: &Path, name: &str, project_id: &str, exit_code: &str) -> PathBuf {
     let doc = format!(
         r#"{{"schema_version": 1, "project_id": "{project_id}", "revision": "deadbeef12345678", "toolchain": "driftwatchdog@0.1.0", "fields": [{{"field": "revision", "state": "unverified"}}, {{"field": "version", "state": "unverified"}}, {{"field": "toolchain", "state": "unverified"}}, {{"field": "artifacts", "state": "unverified"}}, {{"field": "digests", "state": "unverified"}}, {{"field": "sbom", "state": "unverified"}}, {{"field": "provenance", "state": "unverified"}}, {{"field": "checks", "state": "unverified"}}, {{"field": "publication", "state": "unverified"}}], "gate_run_id": 99}}
 "#
@@ -651,7 +646,18 @@ fn evidence_command_reads_nothing_without_prior_run() {
     let proj = project(tmp.path(), "evid-cross-absent");
 
     let stub = evidence_export_stub(tmp.path(), "gate-evid.sh", "evid-cross-absent", "0");
-    let out = run(&db, &["--format", "json", "gate", "evidence", "status", &proj.display().to_string()], Some(&stub));
+    let out = run(
+        &db,
+        &[
+            "--format",
+            "json",
+            "gate",
+            "evidence",
+            "status",
+            &proj.display().to_string(),
+        ],
+        Some(&stub),
+    );
     assert_eq!(out.status.code(), Some(1));
     let value = serde_json::from_str::<serde_json::Value>(&lossy(&out.stdout)).unwrap();
     assert!(value["release_evidence"].is_null());
@@ -670,7 +676,13 @@ fn evidence_command_produces_unchanged_gate_verdict_surface() {
     // Run evidence export against the project by path.
     let out = run(
         &db,
-        &["--format", "json", "gate", "evidence", &proj.display().to_string()],
+        &[
+            "--format",
+            "json",
+            "gate",
+            "evidence",
+            &proj.display().to_string(),
+        ],
         Some(&stub),
     );
     assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
@@ -680,14 +692,24 @@ fn evidence_command_produces_unchanged_gate_verdict_surface() {
     // Gate verdict surface is unchanged: read absent gate verdict.
     let out2 = run(
         &db,
-        &["--format", "json", "gate", "status", &proj.display().to_string()],
+        &[
+            "--format",
+            "json",
+            "gate",
+            "status",
+            &proj.display().to_string(),
+        ],
         Some(&stub),
     );
     assert_eq!(out2.status.code(), Some(1), "{}", lossy(&out2.stderr)); // absent gate verdict
 
     // Now run gate verdict (not evidence) with a passing stub.
     let stub2 = passing_stub(&proj);
-    let out3 = run(&db, &["--format", "json", "gate", &proj.display().to_string()], Some(&stub2));
+    let out3 = run(
+        &db,
+        &["--format", "json", "gate", &proj.display().to_string()],
+        Some(&stub2),
+    );
     assert_eq!(out3.status.code(), Some(0), "{}", lossy(&out3.stderr));
     let value3 = serde_json::from_str::<serde_json::Value>(&lossy(&out3.stdout)).unwrap();
     // Gate verdict surface unchanged.
@@ -706,7 +728,13 @@ fn consumed_evidence_cannot_become_deployable() {
     let stub = evidence_export_stub(tmp.path(), "gate-evid.sh", "deploy-evid", "0");
     let out = run(
         &db,
-        &["--format", "json", "gate", "evidence", &proj.display().to_string()],
+        &[
+            "--format",
+            "json",
+            "gate",
+            "evidence",
+            &proj.display().to_string(),
+        ],
         Some(&stub),
     );
     assert_eq!(out.status.code(), Some(0));
@@ -724,7 +752,11 @@ fn doctor_release_evidence_finding_does_not_gate_health() {
     let db = tmp.path().join("registry.db");
     let proj = project(tmp.path(), "dr-evid");
 
-    let out = run(&db, &["--format", "json", "doctor", &proj.display().to_string()], None);
+    let out = run(
+        &db,
+        &["--format", "json", "doctor", &proj.display().to_string()],
+        None,
+    );
     let value = serde_json::from_str::<serde_json::Value>(&lossy(&out.stdout)).unwrap();
 
     // Doctor should run without error.

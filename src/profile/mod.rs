@@ -82,6 +82,13 @@ pub struct ProfileDescriptor {
     /// prints a note, and never guesses a governance profile.
     #[serde(default)]
     pub workspace: Option<WorkspaceMapping>,
+    /// Shared-layer kit reference (`scaffold-prewires-shared-layer`).
+    /// `None` is the pre-kit sentinel: the profile predates kits and renders
+    /// exactly the prior output. A profile with no registered kit for its
+    /// ecosystem still declares a **zero** reference, so the absence is
+    /// recorded with its reason rather than left implicit.
+    #[serde(default)]
+    pub kit: Option<crate::kit::registry::KitReference>,
 }
 
 /// Explicit per-profile Workspace Governance mapping used by generation to
@@ -229,6 +236,7 @@ fn descriptor_with_status(
         requires_database,
         description: Some(description.to_string()),
         workspace: None,
+        kit: None,
     }
 }
 
@@ -247,6 +255,81 @@ fn with_governance(
         capabilities: Vec::new(),
     });
     profile
+}
+
+/// Attach a compiled-in shared-layer kit reference to a descriptor.
+///
+/// Generation resolves the reference against the compiled-in kit registry,
+/// checks its ecosystem against the profile's own toolchain, evaluates the
+/// declared consumption floor, and renders the pre-wired manifest block.
+fn with_kit(
+    mut profile: ProfileDescriptor,
+    reference: crate::kit::registry::KitReference,
+) -> ProfileDescriptor {
+    profile.kit = Some(reference);
+    profile
+}
+
+/// The shared-layer kit each supported profile declares.
+///
+/// Three states are represented and never conflated: a registered kit with a
+/// confirmed set and a floor (`aspnet-web`), a registered kit whose single
+/// confirmed unit is the vendored token source (`react-web`, `nextjs-web`),
+/// and a **declared zero** naming the missing evidence (`flutter-app`,
+/// `rust-web`, `python-service`). The zero is recorded rather than left
+/// implicit, and is never reported as a met floor.
+fn kit_reference_for(profile: &str) -> crate::kit::registry::KitReference {
+    use crate::kit::registry::{
+        declared_zero, Ecosystem, FeedKind, FeedRef, KitReference, PLATFORM_FEED_PATH,
+        PLATFORM_PACKAGE_VERSION, PLATFORM_TFM, PLATFORM_UI_KIT_VERSION,
+    };
+    match profile {
+        "aspnet-web" => KitReference {
+            id: "platform-dotnet".to_string(),
+            version: Some(PLATFORM_PACKAGE_VERSION.to_string()),
+            ecosystem: Ecosystem::Dotnet,
+            feed: Some(FeedRef {
+                name: "platform".to_string(),
+                kind: FeedKind::Nuget,
+                // Relative to the generated project: the feed travels with the
+                // repository, so a fresh clone restores at any path with no
+                // sibling library and no environment variable.
+                path: PLATFORM_FEED_PATH.to_string(),
+            }),
+            // A net8.0 project cannot reference a net10.0 package. The owner
+            // ruled that the workspace baseline is net10.0 and SDK 8 is
+            // removed, so the profile renders the TFM its kit requires rather
+            // than multi-targeting the library down.
+            tfm: Some(PLATFORM_TFM.to_string()),
+            minimum_packages: crate::kit::floor::DEFAULT_MINIMUM_PACKAGES,
+            zero_reason: None,
+        },
+        "react-web" | "nextjs-web" => KitReference {
+            id: "platform-ui-web".to_string(),
+            version: Some(PLATFORM_UI_KIT_VERSION.to_string()),
+            ecosystem: Ecosystem::Npm,
+            // The token artifacts are vendored as ordinary source, not added
+            // as registry dependencies, so the offline `npm run build` /
+            // `npm test` contract is preserved and no scaffold acquires a new
+            // network requirement to build.
+            feed: None,
+            tfm: None,
+            // One confirmed unit: the digest-pinned vendored token pair.
+            minimum_packages: 1,
+            zero_reason: None,
+        },
+        "flutter-app" => declared_zero(
+            Ecosystem::Pub,
+            "no registered token kit for pub; the flutter-app ui_pattern adapter remains the \
+             behaviour layer and no Dart tokens are synthesized",
+        ),
+        "rust-web" => declared_zero(
+            Ecosystem::Cargo,
+            "no crate in rust-platform-libs has two external consumers (1 consumer: trailCrew); \
+             the 8 crates stay commented-out Cargo.toml entries",
+        ),
+        _ => declared_zero(Ecosystem::None, "no registered kit for this ecosystem"),
+    }
 }
 
 /// All supported profile descriptors in stable ID order. Resolvers,
@@ -442,6 +525,7 @@ pub fn planned_profiles() -> Vec<ProfileDescriptor> {
 /// in stable ID order. [`mvp_profiles`] is the public alias.
 fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
     vec![
+        with_kit(
         with_governance(
             descriptor(
                 "aspnet-web",
@@ -449,7 +533,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "adapter-dotnet",
             "csharp",
             "dotnet",
-            Some("8.0"),
+            // Raised with the kit: a net8.0 project cannot reference a
+            // net10.0 package, and the workspace baseline is net10.0.
+            Some("10.0"),
             &[
                 "auth",
                 "admin",
@@ -488,6 +574,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "dotnet-product",
             "product",
         ),
+        kit_reference_for("aspnet-web"),
+        ),
+        with_kit(
         with_governance(
             descriptor(
                 "flutter-app",
@@ -520,6 +609,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "flutter-product",
             "product",
         ),
+        kit_reference_for("flutter-app"),
+        ),
+        with_kit(
         with_governance(
             descriptor(
                 "nextjs-web",
@@ -561,6 +653,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "typescript-product",
             "product",
         ),
+        kit_reference_for("nextjs-web"),
+        ),
+        with_kit(
         with_governance(
             descriptor(
                 "python-service",
@@ -606,6 +701,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "python-product",
             "product",
         ),
+        kit_reference_for("python-service"),
+        ),
+        with_kit(
         with_governance(
             descriptor(
                 "react-web",
@@ -650,6 +748,9 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "typescript-product",
             "product",
         ),
+        kit_reference_for("react-web"),
+        ),
+        with_kit(
         with_governance(
             descriptor(
                 "rust-web",
@@ -691,6 +792,8 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             ),
             "rust-product",
             "product",
+        ),
+        kit_reference_for("rust-web"),
         ),
     ]
 }

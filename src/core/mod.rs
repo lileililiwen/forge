@@ -387,6 +387,35 @@ pub enum ForgeError {
 
     #[error("studio project scope: {reason}")]
     StudioProjectScope { reason: String },
+
+    #[error("kit unknown: {reason}; no files were staged and no project was registered")]
+    KitUnknown { reason: String },
+
+    #[error(
+        "kit ecosystem mismatch: {reason}; no files were staged and no project was registered"
+    )]
+    KitEcosystemMismatch { reason: String },
+
+    #[error("kit feed invalid: {reason}; no files were staged and no project was registered")]
+    KitFeedInvalid { reason: String },
+
+    #[error("kit floor not met: {reason}; no files were staged and no project was registered")]
+    KitFloorNotMet { reason: String },
+
+    #[error("kit exception reason required: {reason}; no files were staged and no project was registered")]
+    KitExceptionReasonRequired { reason: String },
+
+    #[error("kit digest mismatch: {reason}; no files were staged and no project was registered")]
+    KitDigestMismatch { reason: String },
+
+    #[error("kit feed version mismatch: {reason}; the committed feed was not accepted")]
+    KitFeedVersionMismatch { reason: String },
+
+    #[error("kit feed incomplete: {reason}; the committed feed was not accepted")]
+    KitFeedIncomplete { reason: String },
+
+    #[error("kit pack unavailable: {reason}; no vendored file was changed")]
+    KitPackUnavailable { reason: String },
 }
 
 impl ForgeError {
@@ -517,6 +546,15 @@ impl ForgeError {
             ForgeError::StudioStartTimeout { .. } => "studio-start-timeout",
             ForgeError::StudioRevisionConflict { .. } => "studio-revision-conflict",
             ForgeError::StudioProjectScope { .. } => "studio-project-scope",
+            ForgeError::KitUnknown { .. } => "kit-unknown",
+            ForgeError::KitEcosystemMismatch { .. } => "kit-ecosystem-mismatch",
+            ForgeError::KitFeedInvalid { .. } => "kit-feed-invalid",
+            ForgeError::KitFloorNotMet { .. } => "kit-floor-not-met",
+            ForgeError::KitExceptionReasonRequired { .. } => "kit-exception-reason-required",
+            ForgeError::KitDigestMismatch { .. } => "kit-digest-mismatch",
+            ForgeError::KitFeedVersionMismatch { .. } => "kit-feed-version-mismatch",
+            ForgeError::KitFeedIncomplete { .. } => "kit-feed-incomplete",
+            ForgeError::KitPackUnavailable { .. } => "kit-pack-unavailable",
         }
     }
 

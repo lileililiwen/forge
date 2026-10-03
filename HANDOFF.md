@@ -5,7 +5,15 @@
 `scaffold-prewires-shared-layer` is implemented, verified and archived. Its
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
-No active change remains, so there is no `current_spec` pointer.
+
+`contract-parity-gate-real-digests` is active and implemented but **not
+archived**. It makes `scripts/contract-parity.sh` actually compare the vendored
+contract bytes against the resolved `platform-contracts` source: the previous
+version performed zero comparisons and printed an unconditional
+`contract-parity: OK`. It also re-syncs three drifted mirror files. The change is
+not archived and no commit has been made for it.
+
+current_spec: contract-parity-gate-real-digests
 
 The work landed on `main`. It was originally committed on a
 `feat/scaffold-prewires-shared-layer` branch; `main` was fast-forwarded onto it

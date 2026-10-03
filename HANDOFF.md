@@ -2,254 +2,247 @@
 
 ## Current state
 
-`fleet-live-rollout` implemented, verified and archived on 2026-09-30 as
-`2026-09-30-fleet-live-rollout`. Its requirements were promoted into
-[openspec/specs/fleet-live-rollout/spec.md](openspec/specs/fleet-live-rollout/spec.md).
-`scaffold-prewires-shared-layer` is implemented and awaiting archive; the
-`current_spec` pointer is deliberately still unset because archive is the
-owner's call.
+`scaffold-prewires-shared-layer` is implemented, verified and archived. Its
+requirements were promoted into
+[openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
+No active change remains, so there is no `current_spec` pointer.
 
-- `forge publish fleet --jobs N` (default 4, `--jobs 1` sequential) now runs a
-  phased scheduler: Phase A parallel `Sync`, Phase B serial `Db` + `Prepare`
-  in roster order (the shared `production-postgres` and the global
-  port-registry/Caddyfile renders converge), Phase C parallel `Deploy`; the
-  shared platform-router reload is serialized by a new
-  `CommandSpec::exclusive` flag in the transport. `--provider` stays
-  sequential; journal rows and rendering stay on the main thread
-  (`src/main.rs`, `src/publish/mod.rs`, `src/publish/remote_compose.rs`).
-- Sync-stage transfers carry a 600s ceiling (`PUBLISH_SYNC_TIMEOUT`); probes
-  keep 60s, deploy builds 1800s. `--fleet-registry <path>` routes through the
-  legacy `projects.json` adapter instead of the inventory branch. The
-  source-sync exclusion set is `.git/ node_modules/ target/ dist/ build/
-  obj/ appendonlydir/ *.rdb` (was a wholesale `data/`, which dropped
-  `rust-ecommerce` source).
-- Target ops (recorded in the archived `design.md` D4 and `tasks.md` 2.4):
-  secret provisioning, legacy container/volume removal, orphaned-network
-  reclamation, and sibling build/healthcheck fixes (`hermora`, `hestia-lab`,
-  `lexora`, `lore-mix`, `alltools-platform`, `opendockify`, `openaccounting`,
-  `orphevia`, `reelio`, `rust-ecommerce`, `somodanote`, `trippify`).
+The work landed on `main`. It was originally committed on a
+`feat/scaffold-prewires-shared-layer` branch; `main` was fast-forwarded onto it
+and the branch deleted, per owner direction that Forge work goes straight to
+`main`. See "Why a branch appeared" below.
 
-## Verification (2026-09-30)
+## What this change does
 
-- Live: `forge publish fleet --jobs 4 --fleet-registry
-  /home/paul/code/workspace-governance/projects.json` reached **20/20**
-  (`fleet publish: 20/20 compose_ready succeeded`, `EXIT=0`); queue
-  `fleet-20260930T102354Z-34c37313` and `forge deploy status --queue` shows
-  all 20 rows `done`, each `fleet stages=4 healthy=true`. Run 6
-  (`fleet-20260930T100950Z-c3e34795`) was 19/20 — the sole failure
-  `alltools-platform` `prometheus` unhealthy (BusyBox `wget` behind the
-  injected proxy; fixed with `-Y off`). The 2026-09-29 attempt had reached
-  4/20 before the disk-full Docker engine death.
-- `rustfmt --check` clean on the four touched files; `cargo clippy
-  --workspace --all-targets` has no warning on any added line; `cargo test
-  --workspace --all-targets --no-fail-fast` 2233 passed / 0 failed (`EXIT=0`);
-  `git diff --check` PASS; `node scripts/check-openspec-change-names.mjs` PASS;
-  `openspec validate --all --strict --no-interactive` 62 passed / 0 failed.
-- App-internal crash loops that survive a successful deploy stage
-  (`somodanote` EF migration, `orphevia` DI registration, `trippify` payment
-  provider, `lore-mix` `DATABASE_URL`) are out of scope per the change's
-  proposal non-goals and recorded in the archived `design.md` D4.
-- No shared Gate Runtime is configured; no Gate pass is claimed.
+- A profile may declare a **versioned shared-layer kit** as a compiled-in
+  descriptor resolved offline. `forge new` renders that reference into the
+  generated project's own native manifest — the `kit` block in `forge.yaml` —
+  with no feed access, no sibling checkout and no network (`src/kit/`,
+  `src/profile/mod.rs`, `src/generate/mod.rs`).
+- A profile declares a **minimum consumption floor**. Unmet is a typed refusal
+  before anything is written; there is no warn-and-continue path. An operator
+  can override with `--kit-exception <reason>`, which is recorded visibly in
+  `forge.yaml` and the README. A profile with no registered kit records a
+  **declared zero** with a `zero_reason`, which is a distinct state from a floor
+  failure (`src/kit/floor.rs`).
+- The `aspnet-web`, `react-web` and `nextjs-web` scaffolds **pre-wire** the
+  shared layer. .NET restores from a **committed, project-relative feed** — a
+  `NuGet.config` with `<clear />` and one named source at
+  `packages/platform-feed` — so a fresh clone restores with no sibling checkout,
+  no environment variable and no secret. The Node profiles get digest-pinned
+  vendored tokens under an owned `.platform/` subtree with an ownership receipt
+  (`src/kit/feed.rs`, `src/kit/assets.rs`, `kits/`).
+- `forge kit` is the one new top-level verb: `pack` regenerates the feed,
+  `verify` catches drift, `upgrade` is the single sanctioned way a pinned
+  project moves between kit versions.
+- The pinned kit id and version are observed additively on the existing project
+  row. No new SQLite table (`src/registry/mod.rs`).
 
----
+## The floor, and the evidence it came from
 
-## Active change: `scaffold-prewires-shared-layer` (implemented, not archived)
+`6` for `aspnet-web`, `1` for the two Node profiles, `0`-with-reason elsewhere.
+Derived from per-package distinct external consumer counts, frozen in
+`kit::PLATFORM_PACKAGE_EVIDENCE`; a test fails when a classification disagrees
+with the fixture.
 
-`scaffold-prewires-shared-layer` implemented on owner direction. The change
-lives in
-[openspec/changes/scaffold-prewires-shared-layer/](openspec/changes/scaffold-prewires-shared-layer/)
-and is **not archived**: `openspec archive` was not run, no git operation was
-performed, and the `current_spec` pointer is deliberately still unset because
-archive is the owner's call.
-
-- New module `src/kit/` (`mod.rs`, `registry.rs`, `floor.rs`, `feed.rs`,
-  `assets.rs`) and a new checked-in `kits/` tree holding the digest-pinned
-  vendored token artifacts plus `kits/manifest.json`.
-- `src/profile/mod.rs` gains one additive `#[serde(default)] kit` field; every
-  supported profile declares a kit — `platform-dotnet`, `platform-ui-web`, or a
-  **recorded zero** with a `zero_reason`.
-- `src/generate/mod.rs` pre-wires the shared layer into the `aspnet-web`,
-  `react-web` and `nextjs-web` scaffolds, renders the `kit` block into
-  `forge.yaml`, writes the `README` shared-layer section, and stages the
-  `.platform/` owned subtree with its ownership receipt.
-- `src/registry/mod.rs` observes the pinned kit id and version additively on the
-  existing project row (no new table).
-- `src/core/mod.rs` gains nine typed errors and their `code()` arms:
-  `kit-unknown`, `kit-ecosystem-mismatch`, `kit-feed-invalid`,
-  `kit-floor-not-met`, `kit-exception-reason-required`, `kit-digest-mismatch`,
-  `kit-feed-version-mismatch`, `kit-feed-incomplete`, `kit-pack-unavailable`.
-- `src/main.rs` gains `--kit-exception <reason>` on `forge new`, a kit block in
-  `forge profile inspect`, and the `forge kit pack` / `forge kit verify` verb
-  (a recorded exception — see resolved decision 6). No new MCP tool, API route
-  or portal section.
-
-## Resolved open decisions
-
-1. **Kit distribution** — **owner-ruled twice.** The first implementation named
-   the feed and resolved it at restore time through `NUGET_PLATFORM_FEED`; the
-   owner **rejected** it, because a variable a CI runner does not carry is the
-   same failure class as a hard-coded absolute path. The ruling now in force: a
-   `NuGet.config` with `<clear />`, one named source whose value is a path
-   **relative to the generated project** (`packages/platform-feed`), and
-   nuget.org — with the `.nupkg` bytes committed inside the project. This is the
-   shape `therapist-commons` and `citylens` already use. The rejected mechanism,
-   its constant, its MSBuild block and the comments justifying it were removed,
-   not left dormant; `design.md` §5 records the full statement so the option is
-   not silently re-proposed.
-2. **Minimum-consumption floor** — `6` for `aspnet-web` (exactly the confirmed
-   set), `1` for the two Node profiles (the vendored token pair), `0`-with-reason
-   elsewhere. One declared field per descriptor.
-3. **Target framework** — owner-ruled. Forge raises `aspnet-web` to `net10.0`;
-   `dotnet-platform-libs` is not multi-targeted down. Blocker discharged.
-4. **Receipt** — a contained `.platform/receipt.json`, because reuse of the
-   `.standard/` machinery needs a sibling-side standard-pack descriptor that is
-   outside this repository's write boundary. Shapes, diff vocabulary and the
-   ownership-conflict refusal match the standard receipt exactly.
-5. **The restore closure is 9 packages, not 6** — the confirmed set plus
-   `Platform.Billing.Contracts`, `Platform.Eventing` and
-   `Platform.Web.Telemetry`, which arrive as project references of
-   `Platform.Testing` and `Platform.Observability`. The feed carries all nine;
-   the floor still counts only the six, and the three transitive members stay
-   below the bar and rendered commented.
-6. **`forge kit` is a recorded exception to "no new top-level CLI verb"** — the
-   committed feed needs `forge kit pack` to regenerate and `forge kit verify` to
-   catch drift, and both are `cargo test`-covered where a shell script beside
-   `kits/` would be neither.
-
-## The evidence the floor was derived from
-
-Measured by sweeping every `Platform.*` package reference outside
-`dotnet-platform-libs` itself, and frozen in `kit::PLATFORM_PACKAGE_EVIDENCE`:
-a test fails when a package's classification disagrees with that fixture.
-
-- Confirmed (>= 2 distinct external consumers, no infrastructure weight, 6 total):
-  `Platform.Core` (7), `Platform.AspNetCore` (6), `Platform.Testing` (4),
-  `Platform.RateLimiting` (2), `Platform.Idempotency` (2), `Platform.Observability` (2).
+- Confirmed (6): `Platform.Core` (7), `Platform.AspNetCore` (6),
+  `Platform.Testing` (4), `Platform.RateLimiting` (2), `Platform.Idempotency`
+  (2), `Platform.Observability` (2).
 - Withheld despite clearing the bar, because they need a store:
   `Platform.Persistence.EfCore` (4), `Platform.Identity.AspNetCore` (3),
   `Platform.Tenant.Lifecycle.AspNetCore` (0).
 - Provisional (below the bar, rendered commented, never restoring): everything
   else, each comment naming its own consumer count.
 
-## Verification
+The **restore closure is 9 packages, not 6**. `Platform.Billing.Contracts`,
+`Platform.Eventing` and `Platform.Web.Telemetry` arrive as project references of
+the confirmed set, so the feed carries all nine. The floor still counts only the
+six; the three transitive members are never counted and never directly
+referenced.
 
-- `cargo build`: clean.
-- `cargo test --workspace --all-targets`: recorded in the run log; the totals
-  are reported to the owner verbatim. `tests/kit_contract.rs` adds 45 tests,
-  all passing.
-- `cargo fmt --all -- --check`: **fails, on files this change does not touch.**
-  The baseline already reports diffs across `src/gate/evidence.rs`,
-  `src/github/normalize.rs`, `src/portfolio/share/validation.rs`,
-  `src/publish/fleet.rs` and five `tests/*` files. Every file this change
-  touches is rustfmt-clean; the unrelated files were deliberately left alone
-  rather than reformatted inside a scoped change.
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`:
-  **fails with the same 12 pre-existing findings as the baseline**, in the
-  same untouched files (`src/gate/evidence.rs`,
-  `src/portfolio/share/validation.rs`, `src/publish/fleet.rs`,
-  `src/publish/mod.rs`, `src/api/ui/auth.rs`). Zero findings in any file this
-  change touches.
-- `scripts/release-check.sh`: **blocks at its first gate**, which is
-  `cargo fmt --check` — the pre-existing failure above. It never reaches the
-  test, clippy, audit, readiness or contract-parity stages. `cargo-deny` and
-  `cargo-audit` are both installed, so those gates would have been available.
-- `openspec validate scaffold-prewires-shared-layer --strict`: valid.
-- `openspec validate --all --strict --no-interactive`: 63 passed, 0 failed.
+## Verification (2026-10-03)
+
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain`:
+  **2291 passed / 0 failed**. The one skipped test is discussed under
+  "Pre-existing conditions".
+- `cargo test --test kit_contract`: **60 passed / 0 failed**, stable across
+  three consecutive parallel runs.
+- `cargo clippy --workspace --all-targets`: **zero findings in any file this
+  change touches** (`src/kit/*`, `src/generate/mod.rs`, `src/main.rs`,
+  `tests/kit_contract.rs`). Three findings my own code introduced during review
+  were fixed rather than recorded.
+- `rustfmt --check`: clean on every file this change touches.
 - `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate --all --strict --no-interactive`: 63 passed / 0 failed.
+- `git diff --check`: PASS.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
+## The sibling is now provably read-only
+
+This was the most serious defect found on review, and it is worth stating
+plainly because the code *claimed* the opposite.
+
+The spec says no file in the sibling checkout is written, moved or removed, and
+`feed.rs` repeated the claim in its own doc comment. It was false.
+`dotnet pack -o <dir>` redirects only the final `.nupkg`; it also wrote restore
+assets into `<project>/obj/` and build output into `<project>/bin/`, inside the
+checkout. Those paths are gitignored, so `git status` stayed clean and the
+mutation was invisible to every check that looks at version control.
+
+Proved by running it: the original invocation rewrote **6 file entries** under
+`dotnet-platform-libs/src/*/obj/`.
+
+The fix packs from a **scratch copy** of the sibling — `src/` without any
+build-output directory, plus every regular file at the root — so the requirement
+is true by construction. Redirecting MSBuild's output roots was implemented
+first and **rejected on evidence**: it does not work, because the default
+`**/*.cs` glob still reads the sibling's own `obj/`, and on a sibling carrying a
+stale `net8.0` output the build compiles two copies of the same generated
+assembly attributes and fails.
+
+After the fix, a full pack of all nine packages leaves the sibling
+**byte-identical across all 10,051 files** under `src/`.
+
+## Defects found and fixed on review
+
+The package's 25 tasks were all ticked before this review. Four of them were
+ticked against something that did not hold up:
+
+1. **The explicit kit upgrade had no operator entry point.** `diff_kit_snapshot`
+   and `upgrade_kit_snapshot` existed and were tested, but `forge kit`
+   implemented only `pack` and `verify`. The spec scenario is "*when an
+   operator runs* the explicit kit upgrade"; its only caller was `#[cfg(test)]`.
+   A capability nobody can invoke is not an explicit path. Now `forge kit
+   upgrade <path> --to <kit@version>`, review-only by default, applied on
+   `--confirm`.
+2. **The upgrade did not move the declared pin.** It rewrote the owned files
+   and the receipt but not `kit.version` in the project's `forge.yaml` — and
+   `forge kit verify <path>` deliberately reads what the project *says* it pins.
+   A successful upgrade therefore produced a project that failed its own drift
+   gate. Now recorded as a targeted line edit, never a YAML round-trip, reusing
+   the generator's own `yaml_scalar` so the escaping cannot drift.
+3. **The source-mode refusal was dead code.** `refuse_source_reference` existed
+   and `FeedRejection::SourceReference` was never constructed outside a test;
+   `validate_feed_value` could not produce it. "Forge SHALL refuse a source-mode
+   project reference" was unimplemented while looking implemented. Now
+   `find_source_reference` scans every rendered manifest before anything is
+   staged. A reference that stays *inside* the generated project is deliberately
+   allowed — a solution with its own test project is portable.
+4. **Two tests asserted nothing.** The pattern-catalog colour check searched
+   for the literal string `#[0-9a-fA-F]{6}`, which no hex colour contains. The
+   completeness check asserted `matches!(class, Confirmed | Provisional)` against
+   a two-variant enum, so "every package is classified" could never fail. Both
+   now parse and compare for real.
+
+A fifth, smaller one: the feed's byte-level digest check was gated on
+`feed_dir.starts_with(kits_dir())` with no reporting, so a generated project's
+own committed feed was version-checked and the byte check was **silently
+skipped** — a green result that never ran the check. `FeedVerificationReport`
+now carries `digests_verified`, the digest record is a parameter
+(`verify_committed_feed_with_digests`), and the CLI prints a note when the check
+did not run.
+
+## Pre-existing conditions (not regressions)
+
+- `cargo fmt --all -- --check` fails on five files this change does not own.
+  **Verified pre-existing**: the parent-commit versions of
+  `src/gate/evidence.rs`, `src/github/normalize.rs`,
+  `src/portfolio/share/validation.rs` and `src/publish/fleet.rs` are already
+  rustfmt-dirty, so this is not drift from this change. Note that the change's
+  commit *does* touch four of those five files, so the earlier claim that they
+  were "untouched" was imprecise; the substantive claim, that the formatting
+  failure predates it, holds.
+- `scripts/release-check.sh` blocks at its first gate, `cargo fmt --check`, for
+  the reason above. It never reaches its test, clippy, audit or readiness
+  stages. `cargo-deny` and `cargo-audit` are both installed.
+- `generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain`
+  **hangs indefinitely** in this environment, at 0% CPU, blocked on the cargo
+  package-cache lock taken by the outer `cargo test`. **Verified pre-existing**:
+  it hangs identically with this change stashed, in isolation, and was killed by
+  a 240s timeout both times. It is the only test excluded from the run above.
+
+## Verification gaps left open
+
+- `packing_leaves_the_sibling_checkout_byte_identical` is `#[ignore]`d, and the
+  reason is measured rather than guessed. A real pack is ~15 seconds of heavy
+  parallel CPU; in a whole-suite run that load pushed
+  `governance_contract::valid_external_response_is_normalized_and_redacted` past
+  its 5-second external-adapter timeout (`left: Unavailable, right: Pass`) and
+  turned an unrelated green suite red. The control run — same tree, that test
+  skipped — is 2291 passed / 0 failed, and the pack test passes on its own, so
+  the assertion is sound and the interference is real. Run it explicitly:
+
+  ```sh
+  cargo test --test kit_contract packing_leaves_the_sibling_checkout_byte_identical -- --ignored
+  ```
+
+  Last explicit run: **passed**.
+- The floor-refusal scenario ("WHEN a floor refusal occurs … the destination
+  directory, the staging area and the project registry are byte-identical") is
+  proven for a real pre-staging refusal through the CLI, but **no shipped
+  profile has an unmet floor**, so that exact trigger is unreachable from the
+  command line. The typed refusal itself is covered. Closing it properly needs a
+  way to induce an unmet floor end to end, which is a product decision.
+- `tests/workspace_metadata_contract.rs::opt_out_is_byte_identical_to_pre_release`
+  pins the exact bytes `--no-workspace-metadata` produces, per profile. All six
+  digests were re-captured because this change alters what a scaffold contains
+  by design. The guard's intent is unchanged and it still fails on future drift.
+- `forge new`'s `notes` field was already asserted empty for a fully mapped
+  profile. A declared-zero warning is not an omission note, so it moved to a new
+  additive `kit_warning` field rather than overloading `notes`.
+- `tests/generate_contract.rs::dotnet_scaffold_builds_offline_without_forge`
+  asserted that an `aspnet-web` scaffold builds with **no** `PackageReference` at
+  all. That was true before and is false now, by design. The test is left intact
+  and still asserts a successful `dotnet build`; it now needs a resolvable feed,
+  which the default test environment does not provide. The equivalent assertion
+  added by this change, `the_generated_dotnet_project_operates_without_forge`,
+  reports `unverified` rather than a pass when no feed is configured.
+
+## Why a branch appeared
+
+The work was committed on `feat/scaffold-prewires-shared-layer` rather than
+straight onto `main`, contrary to the owner's standing direction.
+
+**AGENTS.md has never contained any branch instruction.** Its full history is
+three commits (`5a2d272`, `d069d59`, `290832f`), and neither AGENTS.md nor
+`.ai-rules/` nor README.md mentions "branch" or "main" anywhere — a
+repository-wide search of those files returns nothing. So the rule the owner
+believes was written down is not in the repository, and the previous agent was
+not working from a written instruction to override.
+
+The most likely driver is the agent harness rather than the repository: the
+default commit guidance in this environment is "if on the default branch, branch
+first", which fires even when a project says nothing. The reflog shows the
+branch created at `2420e2c` and the single commit landing on it, with `main`
+left at `2420e2c`.
+
+Corrective action taken: `main` was fast-forwarded to the commit, the branch
+deleted, and all subsequent work committed on `main`. Nothing was lost — the
+branch tip and `main` are the same commit.
+
+**To make the owner's rule durable, it needs to be written down.** It is not
+currently in any file this repository reads. The one-line addition belongs in
+`AGENTS.md` under "Required workflow", something like "Commit to `main`
+directly; do not create topic branches unless the owner asks for one."
 
 ## Native evidence (real, not claimed)
 
-Each scaffold was generated and then built/tested with its own toolchain and
-`FORGE_REGISTRY` unset:
-
 | Profile | Result |
 |---|---|
-| `aspnet-web` | `dotnet restore` + `dotnet build` on `net10.0` succeeded, 0 warnings / 0 errors, at a path the project was not generated at, with `NUGET_PLATFORM_FEED` unset and no sibling `dotnet-platform-libs` present — the feed bytes are committed in the project |
+| `aspnet-web` | `dotnet restore` + `dotnet build` on `net10.0` succeeded, 0 warnings / 0 errors, at a path the project was not generated at, with `NUGET_PLATFORM_FEED` unset and no sibling present — the feed bytes are committed in the project |
 | `react-web` | `npm run build` and `npm test` offline succeeded; vendored `node .platform/tokens/verify-tokens.mjs` passed |
 | `nextjs-web` | `npm run build` and `npm test` offline succeeded |
 | `rust-web` | `cargo build --offline` succeeded |
 | `flutter-app` | `flutter analyze` — "No issues found!"; `flutter test` — all tests passed |
-| `python-service` | rendered; not built in this run |
+| `python-service` | rendered; not built |
 
-## The portability proof (the oracle for the owner's requirement)
-
-The owner's requirement is that a project must build when it does not reside on
-the machine that generated it. This is the evidence for it, and the previous
-"honest caveat" that recorded the .NET restore as unverified is **superseded**.
-
-The global NuGet package cache was emptied of all 59 `Platform.*` entries first,
-so nothing could be served from a warm cache.
-
-```sh
-# 1. render a fresh aspnet-web scaffold
-cd /home/paul/code/forge
-env -u NUGET_PLATFORM_FEED ./target/debug/forge new \
-  target/portability/origin/net-app --profile aspnet-web --id net-app
-
-# 2. copy it to a different path
-mkdir -p /tmp/forge-portability-proof
-cp -a target/portability/origin/net-app /tmp/forge-portability-proof/relocated-net-app
-
-# 3. restore at the new path, with the rejected mechanism unset
-cd /tmp/forge-portability-proof/relocated-net-app
-env -u NUGET_PLATFORM_FEED dotnet restore --nologo
-#   已还原 /tmp/forge-portability-proof/relocated-net-app/net-app.csproj (用时 164 毫秒)。
-
-# 4. build at the new path, with Forge absent from the environment
-env -u NUGET_PLATFORM_FEED -u FORGE_REGISTRY dotnet build --nologo
-#   net-app -> /tmp/forge-portability-proof/relocated-net-app/bin/Debug/net10.0/net_app.dll
-#   已成功生成。  0 个警告  0 个错误
-```
-
-All six pre-wired packages and all three transitive closure members resolved
-into the emptied cache, and `obj/project.assets.json` lists exactly 9
-`Platform.*` libraries at `0.1.0`. No sibling library existed at
-`/tmp/forge-portability-proof/dotnet-platform-libs` or `/tmp/dotnet-platform-libs`.
-
-**Control experiment**, so the result is not merely "the machine already had
-them": the same project with its committed `packages/` directory deleted fails
-to restore, naming the relative feed as the missing local source —
-
-```sh
-cp -a target/portability/origin/net-app /tmp/forge-portability-proof/control/net-app
-rm -rf /tmp/forge-portability-proof/control/net-app/packages
-cd /tmp/forge-portability-proof/control/net-app
-env -u NUGET_PLATFORM_FEED dotnet restore --nologo
-#   error NU1301: 本地源"/tmp/forge-portability-proof/control/net-app/packages/platform-feed"不存在。
-#   未能还原 …  → exit 1
-```
-
-So the committed bytes are what supply the packages, not the cache, not a
-sibling, and not an environment variable.
-
-## Verification gaps left open
-
-- Two existing tests encoded pre-change behaviour and were updated rather than
-  deleted, with the reason recorded in each file:
-  - `tests/workspace_metadata_contract.rs::opt_out_is_byte_identical_to_pre_release`
-    pins the exact bytes `--no-workspace-metadata` produces, per profile. All
-    six pinned digests were re-captured, because this change alters what a
-    scaffold *contains* by design (the `kit` block, the README section, the
-    `aspnet-web` TFM and package references, the vendored `.platform/` tree).
-    The guard's intent — opting out changes nothing else — is unchanged, and
-    the assertion still fails on any future unintended drift.
-  - `forge new`'s `notes` field was already asserted empty for a fully mapped
-    profile. A declared-zero warning is not an omission note, so it moved to a
-    new additive `kit_warning` field rather than overloading `notes`. The
-    existing `notes` contract is untouched.
-- `tests/generate_contract.rs::dotnet_scaffold_builds_offline_without_forge`
-  asserted that an `aspnet-web` scaffold builds with **no** `PackageReference`
-  at all. That was true before this change and is false now, by design: the
-  profile pre-wires the confirmed set. The test is left intact and still
-  asserts a successful `dotnet build`; it now depends on a resolvable feed
-  being available, which the test environment does not provide by default. Run
-  it with `FORGE_TEST_PLATFORM_FEED` pointed at a feed to get a real pass.
-  The equivalent assertion added by this change,
-  `the_generated_dotnet_project_operates_without_forge` in
-  `tests/kit_contract.rs`, reports `unverified` rather than a pass when no feed
-  is configured, matching the repository's existing convention.
-- `kit::diff_kit_snapshot` / `kit::upgrade_kit_snapshot` are library
-  capabilities only; no CLI verb is wired, per `design.md` section 1.
-- `scripts/release-check.sh` was not able to run past its first gate, for the
-  `cargo fmt` reason above; that is a pre-existing repo condition, not a
-  regression from this change.
+The portability proof, which is the oracle for the owner's requirement: the
+global NuGet package cache was emptied of all 59 `Platform.*` entries first, a
+fresh `aspnet-web` scaffold was rendered, copied to an unrelated path, and
+restored and built there with the feed variable removed and no sibling library
+present. All nine `Platform.*` libraries resolved at `0.1.0` into the emptied
+cache, and `obj/project.assets.json` lists exactly 9. The control experiment —
+the same project with its committed `packages/` deleted — fails with
+`error NU1301`, naming the relative feed as the missing local source. So the
+committed bytes are what supply the packages: not the cache, not a sibling, not
+an environment variable.

@@ -1,5 +1,33 @@
 # Handoff
 
+## Current: ui-shared-layer-reachability (active change, implemented)
+
+The token generator now walks the DTCG tree instead of writing out 27 paths,
+one walk is shared by the generator and the verifier, and the npm kit is
+reachable through `ui/feed/`. The missing `.visually-hidden` primitive — the
+cause of 15 divergent fleet copies — is now canonical.
+
+Rulings verified individually: `eng/public-api-baseline.txt` byte-identical to
+HEAD (D14); all three UI `package.json` report `0.1.0` and the 75-package
+manifest is byte-identical (D15); `ui/legacy-divergent.json` is a data file no
+script writes (D16); `arivio` is `migrationOrder: 1` / `severity: a11y-defect`
+(D17); `verify-ui.mjs` plus its self-test run first in `quality-gate.sh` (D18).
+
+**NOT enforced:** nothing in a consumer repository blocks today.
+`check-ui-conformance.sh` needs the workspace and is called only by
+`test-ui-distribution.sh`, so a consumer carrying a divergent copy is reported,
+not gated. Flutter repositories are reported, never failed.
+
+`dotnet build -c Release` 0 errors · `dotnet test -c Release` 48 assemblies,
+0 failures · architecture guards 367 cases / 149 methods, up from 355 / 137
+with none removed · `openspec validate --all --strict` 51/51 ·
+`git diff --check` clean · `pack-ui` twice gives identical sha256 ·
+`check-ui-conformance.sh` scans 82 repositories and reports the 15 known
+divergences with 0 diagnostics.
+
+The proposal's evidence totals did **not** reproduce and were not rewritten to
+match; the load-bearing 15 divergent copies did.
+
 ## Current: shared-test-web-factory (active change, implemented)
 
 `Platform.Testing.AspNetCore` now ships `PlatformTestWebApplicationFactory<TEntryPoint>`,

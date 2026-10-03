@@ -1,10 +1,18 @@
 # Tasks: Shared MSBuild policy as a packed `Platform.Build` package
 
-Phases are BFS → DFS → BFS. Part 1 only: the package, its conformance coverage
-and its documentation. Parts 2 (`forge`'s confirmed set) and 3 (the consumer
-migration and the root-file retirement) are not implemented here; the
-cross-repo work is recorded in
-[`docs/platform-build-policy-migration.md`](../../../docs/platform-build-policy-migration.md).
+Phases are BFS → DFS → BFS.
+
+- **Part 1** — the package, its conformance coverage and its documentation.
+  Implemented and committed (`58b6e97`).
+- **Part 2** — `forge`'s confirmed set. **Not implemented.** Nothing here
+  depends on it and it was not started.
+- **Part 3** — the consumer migration. **Implemented for the migration half
+  only:** all 25 inheriting repositories now carry a pinned `Platform.Build`
+  reference, one commit each on `main`. The **root-file retirement is not
+  performed**; two of the five deletion clauses are still unmet. The
+  cross-repo work, the rollback manifest and the per-clause status are recorded
+  in
+  [`docs/platform-build-policy-migration.md`](../../../docs/platform-build-policy-migration.md).
 
 ## 0. Caveats and confirmations
 

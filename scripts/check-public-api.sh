@@ -10,6 +10,7 @@ projects=(
   "$root_dir/src/Platform.Identity.Contracts/Platform.Identity.Contracts.csproj"
   "$root_dir/src/Platform.Admin.Contracts/Platform.Admin.Contracts.csproj"
   "$root_dir/src/Platform.Eventing.Contracts/Platform.Eventing.Contracts.csproj"
+  "$root_dir/src/Platform.Testing.AspNetCore/Platform.Testing.AspNetCore.csproj"
 )
 
 tmp_file="$(mktemp)"

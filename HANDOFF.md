@@ -1,5 +1,52 @@
 # Handoff
 
+## Current: shared-test-web-factory (active change, implemented)
+
+`Platform.Testing.AspNetCore` now ships `PlatformTestWebApplicationFactory<TEntryPoint>`,
+a real `WebApplicationFactory<TEntryPoint>` that boots the **consumer's own**
+application over `TestServer` from a named entry point. The previous
+implementation was a 98-line non-generic class that built its own empty
+`WebApplication` with a single `app.MapGet("/")`; zero of the 63 local
+`WebApplicationFactory` subclasses across 24 workspace repositories did that, so
+the class could not be adopted. The empty-application path is removed entirely and
+there is no fallback: an entry point the factory cannot boot raises a named
+diagnostic naming the type, its declaring assembly, and the `InternalsVisibleTo` /
+public-marker remedy.
+
+Two tests that asserted the old empty-app `"/"` -> `"ok"` round-trip were
+**rewritten**, not preserved, to assert the new contract: a request reaches a route
+declared by the application itself, and no factory-added route exists.
+
+Surface added: `WithEnvironment`, `ReplaceService<T>` / `ReplaceService<T, TImpl>`,
+`DecorateService`, `WithClock(IClock)` / `WithClock(TimeProvider)`, `OnDispose` x2,
+`UseTemporaryDirectory` + `TemporaryDirectory`, plus the inherited
+`ConfigureWebHost` / `WithWebHostBuilder` / `CreateClient` / `Services` / `Server`.
+
+**One host per instance.** Measured this session: 79
+`protected override void ConfigureWebHost` declarations (69 files) and 118
+`WithWebHostBuilder(` call sites (106 files, 17 repos). Every `WithWebHostBuilder`
+call derives a new factory, so each of those sites also pays for a second host
+build. The shared factory therefore configures in place and rejects configuration
+after the first host access instead of deriving a second host, which also makes a
+configuration permutation one factory configured per scenario rather than one
+derived class per key. The discipline was adopted after reading
+`fullstackhero/dotnet-starter-kit` (MIT) as a design reference; **no code was
+imported or vendored**, and its Postgres/MinIO container-pair and migration-lock
+patterns are deferred with the rest of the Postgres work.
+
+Two pre-existing guard gaps were closed because this change would otherwise ship
+unguarded: `Platform.Testing.AspNetCore` was missing from the architecture suite's
+`ProductionProjects` list (so the EF-forbidden rule did not cover it), and
+`eng/public-api-baseline.txt` covered only five projects, not this one.
+
+Deferred by decision, and deliberately absent: EF Core helpers
+(`ReplaceDbContext`, `MigrateOnStartup`, `EnsureCreatedAsync`,
+`ResetDatabaseAsync`), `IAsyncLifetime`, `CaptureLogs`,
+`WithDefaultRequestHeader`, fake-auth and startup-failure helpers, and the shared
+Postgres fixture. See `openspec/changes/shared-test-web-factory/design.md` §10 for
+the decision ledger. Earlier sections below are the historical log and describe
+the superseded factory as it was at the time.
+
 ## Completed queue: starter-kit complexity gap reduction
 
 This queue was based on a source comparison with `/home/paul/code/dotnet-starter-kit`.

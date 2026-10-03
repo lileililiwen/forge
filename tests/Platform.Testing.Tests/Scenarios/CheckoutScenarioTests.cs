@@ -9,6 +9,7 @@ using Platform.Eventing;
 using Platform.Testing.AspNetCore;
 using Platform.Testing.Eventing;
 using Platform.Testing.FailureInjection;
+using Platform.Testing.TestApplication;
 
 namespace Platform.Testing.Tests.Scenarios;
 
@@ -27,8 +28,8 @@ public sealed class CheckoutScenarioTests
         var injector = new TransientFailureInjector()
             .WithTransient("checkout.publish", new TimeoutException("transient"));
 
-        await using var factory = new PlatformTestWebApplicationFactory()
-            .ConfigureTestServices((services, configuration) =>
+        await using var factory = new PlatformTestWebApplicationFactory<PlatformTestApplicationEntryPoint>()
+            .ConfigureTestServices((services, _) =>
             {
                 services.AddSingleton(bus);
                 services.AddSingleton(injector);

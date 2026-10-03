@@ -260,7 +260,147 @@ drift gate that the `global.json`-versus-CI defect showed was missing.
   there with the feed variable removed and no sibling library present. Verbatim
   commands and output are in `HANDOFF.md`.
 
-## 6. Notes on completion
+## 7. Amendment: the explicit upgrade must be reachable, and must move the pin
+
+Found on owner-directed review of this package against its own spec, after
+implementation. Two defects, both in the "Kit version upgrade is explicit and
+never implicit" requirement.
+
+1. `kit::diff_kit_snapshot` and `kit::upgrade_kit_snapshot` existed and were
+   tested, but `forge kit` implemented only `pack` and `verify`. The scenario
+   "an operator runs the explicit kit upgrade" had no operator: the only caller
+   was `#[cfg(test)]`. Task 2.11 was ticked against a library capability and
+   read as if it were a feature.
+2. `upgrade_kit_snapshot` rewrote the owned files and `.platform/receipt.json`
+   but not the `kit.version` line in the project's own `forge.yaml`.
+   `forge kit verify <path>` reads the version the project *says* it pins, so a
+   successful upgrade left behind a project that failed its own drift gate.
+
+- [x] 7.1 Add `forge kit upgrade <path> --to <kit@version>` as a subcommand of
+  the already-recorded `forge kit` verb — not a new top-level verb, so §1's
+  exception is unchanged in kind. Review is the default and writes nothing; it
+  prints the per-file diff and the command that applies it.
+- [x] 7.2 Apply on `--confirm` only. `--force` is the sole way past the
+  existing ownership-conflict refusal, and it is reported per file.
+- [x] 7.3 Report an unavailable upgrade path (a declared zero, or a target this
+  build does not register) as a refusal with its reason and a non-zero exit,
+  never as "already current".
+- [x] 7.4 Record the new pin in the project's `forge.yaml` as a targeted line
+  edit, reusing the generator's own `yaml_scalar` so the escaping cannot drift.
+  A YAML round-trip was rejected: the manifest is a deterministic render and
+  re-serializing it to change one field would reorder everything else.
+- [x] 7.5 Extend the rollback set in `upgrade_kit_snapshot` to the receipt and
+  the manifest. It previously covered only the owned files, so a failed write
+  could leave a rewritten receipt behind — the same half-wired state the spec
+  forbids.
+- [x] 7.6 Record in `design.md` §1 and §5 that `forge kit` has three
+  subcommands and why an operator-invokable upgrade is required for the
+  requirement to mean anything.
+- [x] 7.7 Cover it: `an_upgrade_records_the_version_the_project_pins` (a
+  tampered manifest is reconciled, and the rewritten file is byte-identical to
+  the original — proving only that one line moved),
+  `the_explicit_upgrade_is_operator_reachable_and_reviews_before_it_writes`,
+  and `an_unavailable_upgrade_is_refused_with_a_reason_and_changes_nothing`.
+
+`src/registry/mod.rs` gained no writer. Its `kit_id`/`kit_version` columns are
+an observation of the manifest, and the existing `observe` path reads the new
+value up; adding a second writer for a derived value would create the
+two-writers problem this change exists to avoid.
+
+## 8. Amendment: the sibling must actually be read-only, and two checks that could not fail
+
+Found on owner-directed review of this package against its own spec, after
+implementation. Unlike §7, these are not missing entry points — two of them are
+places where the code **contradicts a requirement the spec states in the
+present tense**, and one is a test that asserts nothing.
+
+1. **The pack wrote into the sibling.** `spec.md` says "no file in the sibling
+   checkout is written, moved or removed", and `feed.rs` repeated the claim in
+   its own doc comment. `dotnet pack -o <dir>` redirects only the final
+   `.nupkg`; it also wrote restore assets into `<project>/obj/` and build
+   output into `<project>/bin/`, inside the checkout. Those paths are
+   gitignored, so `git status` stayed clean and the mutation was invisible to
+   every check that looks at version control. **Proved by running it:** the
+   original invocation rewrote 6 file entries under
+   `dotnet-platform-libs/src/*/obj/`.
+2. **The source-mode refusal had no production caller.**
+   `refuse_source_reference` existed, `FeedRejection::SourceReference` was
+   never constructed outside a test, and `validate_feed_value` could not produce
+   it. "Forge SHALL refuse a source-mode project reference" was unimplemented
+   while looking implemented.
+3. **Two tests asserted nothing.** The pattern-catalog colour check searched
+   for the literal string `#[0-9a-fA-F]{6}`, which no hex colour contains. The
+   completeness check asserted
+   `matches!(class, Confirmed | Provisional)` against a two-variant enum, so
+   "every package is classified" could never fail.
+
+- [x] 8.1 Pack from a scratch copy of the sibling, not from the sibling.
+  `stage_scratch_copy` copies `src/` without any build-output directory plus
+  every regular file at the sibling's root, and `dotnet pack` runs against the
+  copy. Redirecting MSBuild's output roots was tried first and **rejected**: it
+  fails, because the default `**/*.cs` glob still reaches into the sibling's
+  own `obj/` and compiles a stale `net8.0` generated-assembly file alongside
+  the new one. Packing a copy makes the requirement true by construction. The
+  scratch tree is removed on success and on refusal.
+- [x] 8.2 Copy root files wholesale rather than naming them. The sibling's own
+  `Directory.Build.props` sets `PackageReadmeFile`, so a copy without the root
+  `README.md` fails to pack with `NU5039` — a hand-maintained list of root files
+  is a list that goes stale silently.
+- [x] 8.3 Report the real sibling path as provenance while building from the
+  copy, so `kits/manifest.json` still names the library it packed from.
+- [x] 8.4 Add `feed::find_source_reference` and
+  `refuse_manifest_source_reference`, and call them over every rendered
+  manifest in `template_files` before anything is staged. Covers a
+  `ProjectReference` that is absolute, `~`-rooted, Windows-absolute or `..`-
+  escaping, and an npm/pnpm `file:`/`link:`/`portal:` dependency. A reference
+  that stays inside the generated project is deliberately allowed: a solution
+  with its own test project is portable.
+- [x] 8.5 Repair both vacuous assertions. The colour check now parses for a `#`
+  followed by three or six hex digits. The completeness check is bidirectional
+  against `PLATFORM_PACKAGE_EVIDENCE`: every declared package must be carried
+  by the frozen fixture, and for the .NET kit every fixture package must reach
+  a descriptor. A package in one list and not the other now fails.
+- [x] 8.6 Make the feed's byte check honest about itself. The digest branch was
+  gated on `feed_dir.starts_with(kits_dir())`, so a generated project's own
+  committed feed was version-checked and the byte check was **silently
+  skipped** — a pass that never ran. `verify_committed_feed_with_digests` takes
+  the digest record as a parameter, and `FeedVerificationReport` now carries
+  `digests_verified` so a skipped check cannot read as a clean result. The CLI
+  prints a note when it is false.
+- [x] 8.7 Cover it: `packing_leaves_the_sibling_checkout_byte_identical`
+  snapshots all 10,051 files under the sibling's `src/` before and after a real
+  pack and fails naming the entries that differ; it restores `kits/` through a
+  `Drop` guard so an assertion panic cannot leave the repository carrying an
+  unreviewed feed. `a_source_mode_reference_is_detected_in_a_rendered_manifest`
+  and `a_tampered_committed_feed_package_fails_naming_the_file_and_both_digests`
+  cover the other two.
+
+**The pack test is `#[ignore]`d, and the reason is measured.** A real pack runs
+nine `dotnet pack` invocations, about 15 seconds of heavy parallel CPU. In a
+whole-suite run that load pushed
+`governance_contract::valid_external_response_is_normalized_and_redacted` past
+its 5-second external-adapter timeout (`left: Unavailable, right: Pass`),
+turning an unrelated green suite red. The control run — same tree, that one
+test skipped — is **2291 passed / 0 failed**, and the pack test passes on its
+own, so the assertion is sound and the interference is real. A test that
+destabilises its neighbours is a defect even when it passes, so it runs
+explicitly:
+
+```sh
+cargo test --test kit_contract packing_leaves_the_sibling_checkout_byte_identical -- --ignored
+```
+
+Last explicit run: **passed**, sibling byte-identical across all 10,051 files.
+
+**Not closed, and recorded rather than papered over.** The floor-refusal
+scenario ("WHEN a floor refusal occurs … the destination directory, the staging
+area and the project registry are byte-identical") is proven for a real
+pre-staging refusal through the CLI, but no *shipped* profile has an unmet
+floor, so that exact trigger is unreachable from the command line. The typed
+refusal itself is covered. Closing it properly needs a way to induce an unmet
+floor end to end, which is a product decision, not a test.
+
+## 9. Notes on completion
 
 Every checkbox is now checked. Points are recorded here so a later reader is
 not misled by the tick marks.
@@ -278,13 +418,17 @@ verb".** The feed is committed, so it needs a reproducible way to regenerate
 a `scripts/pack-platform.sh` beside `kits/` would be neither. `design.md` §1
 records the exception and its reason.
 
-**2.11 has no CLI verb, on purpose.** The reviewable per-file diff, the
-ownership-conflict refusal and the explicit "upgrade unavailable, with a
-reason" state are implemented and tested as `kit::diff_kit_snapshot` and
-`kit::upgrade_kit_snapshot`. They are not exposed under a new top-level verb,
-because `design.md` section 1 fixes the extension points and states "**No new
-MCP tool, API route, portal section or top-level CLI verb**". Wiring a verb is a
-one-line follow-up once the owner wants one.
+**2.11 originally had no CLI verb. That was wrong, and §7 fixed it.** An
+earlier draft of this file recorded the absence as deliberate: the per-file
+diff, the ownership-conflict refusal and the "upgrade unavailable, with a
+reason" state were implemented and tested as `kit::diff_kit_snapshot` and
+`kit::upgrade_kit_snapshot`, and not exposed, because §1 fixed the extension
+points and said "no new top-level CLI verb". That reasoning did not survive
+contact with the requirement. The spec scenario is "*when an operator runs* the
+explicit kit upgrade" — a capability whose only caller is `#[cfg(test)]` is not
+an explicit path, it is an implicit one reachable only by whoever edits the
+test. `forge kit` had already been recorded as the one exception, so
+`forge kit upgrade` needed no new exception at all. See §7.
 
 **4.2 and 5.13 native evidence is real, and the feed is committed.**
 `aspnet-web` restores and builds clean on `net10.0` (0 warnings, 0 errors) with

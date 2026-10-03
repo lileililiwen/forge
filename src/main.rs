@@ -723,6 +723,28 @@ enum KitCommands {
         #[arg(default_value = "")]
         path: String,
     },
+    /// Show, and on confirmation apply, an explicit shared-layer kit upgrade.
+    ///
+    /// The one sanctioned way a pinned project moves between kit versions.
+    /// Without `--confirm` this writes nothing and only prints the reviewable
+    /// per-file diff. Nothing else can move a pinned project: `forge new`,
+    /// `forge doctor`, `forge list`, a CI run and a background process all
+    /// leave an existing project's tree byte-identical.
+    Upgrade {
+        /// Project directory holding the pinned kit.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Target kit version to move to, e.g. `platform-ui-web@0.2.0`.
+        #[arg(long = "to")]
+        to: String,
+        /// Apply the upgrade. Without it the command is a read-only review.
+        #[arg(long)]
+        confirm: bool,
+        /// Replace an owned file the operator edited. The default refuses and
+        /// leaves the edited file exactly as it was.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -3295,11 +3317,96 @@ fn cmd_kit(command: &KitCommands, format: Format) -> Result<Output, ForgeError> 
                     entry.state, entry.package, entry.version, entry.role
                 ));
             }
+            if !report.digests_verified {
+                human.push_str(
+                    "note: no digest is recorded for this feed's packages, so the check above is \
+                     a version check only and not a byte-level verification\n",
+                );
+            }
             let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
             Ok(as_output(format, human, json))
         }
+        KitCommands::Upgrade {
+            path,
+            to,
+            confirm,
+            force,
+        } => {
+            let dir = path.as_path();
+            if !confirm {
+                // Review mode. Read-only, and it is the default: an upgrade is
+                // never applied because someone ran a command that looks like
+                // it might apply one.
+                let plan = forge::kit::diff_kit_snapshot(dir, Some(to))?.map_err(unavailable)?;
+                let json = serde_json::to_value(&plan).map_err(|err| ForgeError::Registry {
+                    reason: err.to_string(),
+                })?;
+                let mut human = format!(
+                    "kit upgrade plan for {} ({} -> {}); nothing was written\n",
+                    plan.path, plan.from, plan.against
+                );
+                for entry in &plan.entries {
+                    let change = serde_json::to_value(entry.change)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    human.push_str(&format!("  {change:<10} {}\n", entry.path));
+                }
+                if !plan.conflicts.is_empty() {
+                    human.push_str(&format!(
+                        "refused: {} owned file(s) were edited; re-run with --force to replace \
+                         them\n",
+                        plan.conflicts.len()
+                    ));
+                }
+                human.push_str("apply with `forge kit upgrade --confirm`\n");
+                return Ok(as_output(format, human, json));
+            }
+            let report = forge::kit::upgrade_kit_snapshot(
+                dir,
+                to,
+                true,
+                *force,
+                &chrono::Utc::now().to_rfc3339(),
+            )?
+            .map_err(unavailable)?;
+            let mut human = format!("upgraded {} to {}\n", report.path, report.to);
+            for path in &report.written {
+                human.push_str(&format!("  wrote    {path}\n"));
+            }
+            for path in &report.forced {
+                human.push_str(&format!("  REPLACED {path} (edited owned file, --force)\n"));
+            }
+            for path in &report.orphaned {
+                human.push_str(&format!("  preserved {path} (not in the target kit)\n"));
+            }
+            human.push_str(&format!(
+                "recorded the new pin in {}/forge.yaml; check it with `forge kit verify .`\n",
+                report.path
+            ));
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
+    }
+}
+
+/// An unavailable upgrade path is a refusal, not a success.
+///
+/// The library returns it as a value so a caller can choose its own
+/// presentation; on the command line the honest presentation is a non-zero
+/// exit. Reporting "nothing to do, already current" would be the one thing
+/// this state must never become.
+fn unavailable(err: forge::kit::KitUnavailable) -> ForgeError {
+    ForgeError::KitUnknown {
+        reason: format!(
+            "kit upgrade unavailable: {}. The project still reports its previously pinned kit \
+             version and was not reported as current",
+            err.reason
+        ),
     }
 }
 

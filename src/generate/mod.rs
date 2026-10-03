@@ -428,7 +428,34 @@ fn kit_exception(kit: Option<&KitContext>) -> Option<&crate::kit::floor::FloorEx
 /// text: it routinely contains `: ` (as in `1 consumer: trailCrew`), which
 /// makes an unquoted mapping value fail to parse. Quoting unconditionally
 /// keeps the block valid whatever the recorded text says.
-fn yaml_scalar(value: &str) -> String {
+/// The rendered files whose contents can carry a dependency reference.
+///
+/// Only manifests are scanned: a README mentioning a path is documentation, and
+/// refusing it would make the generator's own explanation of the committed feed
+/// impossible to render.
+fn is_manifest_path(path: &str) -> bool {
+    matches!(
+        path,
+        "forge.yaml"
+            | "package.json"
+            | "Directory.Packages.props"
+            | "Directory.Build.props"
+            | "NuGet.config"
+            | "pubspec.yaml"
+            | "pyproject.toml"
+            | "requirements.txt"
+    ) || path.ends_with(".csproj")
+        || path.ends_with(".fsproj")
+        || path.ends_with(".vbproj")
+}
+
+/// Render one YAML scalar the way the generator renders it.///
+/// `pub(crate)` so a second writer of the same field — the explicit kit
+/// upgrade, which rewrites the `kit.version` line in an existing
+/// `forge.yaml` — escapes identically. Two escaping implementations would
+/// drift, and the drift would only show up as a manifest that no longer
+/// round-trips.
+pub(crate) fn yaml_scalar(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     for ch in value.chars() {
@@ -979,6 +1006,17 @@ fn template_files(
     // guarantees cover them identically. Unmapped profiles stage nothing.
     if request.workspace_metadata {
         files.extend(workspace::staged_files(&request.id, &descriptor));
+    }
+    // A scaffold must reach the shared layer through the committed feed, never
+    // through source. A `ProjectReference` or path dependency that escapes the
+    // project resolves on the machine that generated the scaffold and nowhere
+    // else — the same failure class as the absolute restore path this change
+    // removed. Checked over every rendered manifest, and still before anything
+    // is staged, so a refusal leaves no directory and no registered project.
+    for (path, content) in &files {
+        if is_manifest_path(path) {
+            crate::kit::feed::refuse_manifest_source_reference(content, path)?;
+        }
     }
     // Kit-owned subtree: the digest-pinned vendored token source plus the
     // ownership receipt recording one digest per owned file. Reading the

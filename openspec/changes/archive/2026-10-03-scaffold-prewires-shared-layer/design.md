@@ -43,7 +43,12 @@ Repository `/home/paul/code/forge`, Rust 2021, MSRV 1.87.
   beside `kits/` is not, and a drift caught only by hand is a drift CI misses —
   which is exactly how the `global.json`-versus-CI defect reached production.
   `forge kit` reads and writes nothing outside this repository and touches no
-  network.
+  network. Its subcommands are `pack`, `verify` and `upgrade`; all three are
+  subcommands of that one verb, not three new top-level verbs, and `upgrade`
+  exists because the "explicit kit upgrade" requirement is unsatisfiable while
+  the only caller is a `#[test]`. A capability no operator can invoke is not an
+  explicit path — it is an implicit one, reachable only by whoever edits the
+  test.
 
 ## 2. Language and runtime
 
@@ -173,6 +178,17 @@ What the ruling means concretely per ecosystem:
 - **Cargo** — `[workspace.dependencies]` pins `=` exact versions. A path
   dependency into `rust-platform-libs` is refused by the same feed validator:
   that is the `kairovia` failure mode in a different language.
+
+**Source-mode references are checked where they are rendered, not only where
+they are described.** The feed-value validator classifies a *feed value*; it
+cannot see a `ProjectReference` or a `file:` dependency, which is why the
+original shape left `refuse_source_reference` with no production caller and the
+requirement unimplemented while it looked done. `find_source_reference` scans
+every rendered manifest in `template_files` before anything is staged, and
+refuses a reference that is absolute, `~`-rooted, Windows-absolute, or escapes
+the project through `..`. A reference that stays **inside** the generated
+project is allowed: a solution with its own test project is portable, and
+refusing it would make the profile unscaffoldable.
 - **pub** — no kit; `flutter-app` declares a recorded zero.
 
 Forge performs no restore. `dotnet restore`, `npm install` and `cargo fetch`
@@ -212,6 +228,30 @@ shell script cannot be covered by `cargo test`, and the drift this package must
 catch is exactly the drift a test catches. The command is a deliberate
 exception to `design.md` §1's "no new top-level CLI verb", recorded there.
 
+### The explicit upgrade, and where the pin lives
+
+`forge kit upgrade <path> --to <kit@version>` is the one sanctioned way a pinned
+project moves between kit versions. Without `--confirm` it writes nothing and
+prints the reviewable per-file diff, so the default is review and applying is
+the explicit act. `--force` is the only way to replace an owned file the
+operator edited; without it the upgrade reuses the existing ownership-conflict
+refusal and leaves the edited file exactly as written. A project with no kit to
+move — a declared zero, or a target this build does not register — is reported
+as **unavailable with a reason** and exits non-zero, because "nothing to do,
+already current" is the single outcome that state must never produce.
+
+Three files carry the pin and all three move together: the owned asset files,
+`.platform/receipt.json`, and the `kit.version` line in the project's own
+`forge.yaml`. The manifest line is rewritten as a **targeted line edit**, never
+a YAML round-trip — the manifest is a deterministic render, and re-serializing
+it to change one field would reorder and reformat everything else. It matters
+because `forge kit verify <path>` deliberately reads the version the project
+*says* it pins: an upgrade that moved the bytes and the receipt but left the
+declared line behind would hand back a project that fails its own drift gate.
+`src/registry/mod.rs` is not a fourth writer — its `kit_id`/`kit_version`
+columns are an observation of the manifest, and the existing `observe` path
+picks the new value up.
+
 ### The drift check
 
 `forge kit verify` is the anti-drift gate, and `tests/kit_contract.rs` runs it,
@@ -220,6 +260,39 @@ which is precisely how the `global.json`-versus-CI defect reached production. It
 fails when a committed package's version differs from the declared `kit.version`,
 when a needed package is missing, when an undeclared package is present, or when
 a committed byte differs from its recorded digest.
+
+The digest arm is the one that needed care. It only runs where a digest is
+actually **recorded**, which is the vendored `kits/` tree: a generated project
+commits its own `.nupkg` bytes and records no digest for them. The original
+shape — an `if feed_dir.starts_with(kits_dir())` guard with no reporting — meant
+a project feed was version-checked and the byte check was skipped in silence, so
+a green result said nothing about whether the bytes had been verified. The
+record is now a parameter (`verify_committed_feed_with_digests`) and the report
+carries `digests_verified`, so a skipped check is visible instead of implied.
+
+### The sibling is read-only, by construction
+
+`forge kit pack` does not build in the sibling. It copies the sibling's `src/`
+tree — without any `obj/`, `bin/` or other build-output directory — plus every
+regular file at the sibling's root, into a scratch tree outside both
+checkouts, and runs `dotnet pack` there. The scratch tree is removed on success
+and on refusal.
+
+Redirecting MSBuild's output roots
+(`BaseIntermediateOutputPath`, `MSBuildProjectExtensionsPath`, `BaseOutputPath`)
+was implemented first and **rejected on evidence**: it does not work, because
+the default `**/*.cs` item glob still reads the sibling's own `obj/`. On a
+sibling carrying a stale `net8.0` output the build then compiles two copies of
+the same generated assembly attributes and fails with duplicate-attribute
+errors. Copying the tree removes the problem rather than working around it, and
+makes "no file in the sibling is written, moved or removed" true by
+construction instead of by remembering enough flags.
+
+Root files are copied wholesale rather than named. The sibling's
+`Directory.Build.props` sets `PackageReadmeFile`, so a copy without the root
+`README.md` fails with `NU5039`; a hand-kept list of required root files is a
+list that goes stale silently. The reported sibling path stays the real one, so
+provenance in `kits/manifest.json` still names the library that was packed.
 
 
 ## 6. The floor and its enforcement

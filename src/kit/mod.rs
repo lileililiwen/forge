@@ -29,15 +29,16 @@ pub mod floor;
 pub mod registry;
 
 pub use assets::{
-    declared_kit_version, diff_kit_snapshot, kits_dir, manifest_digest, read_verified_feed_assets,
-    receipt_text, render_receipt, upgrade_kit_snapshot, verify_committed_feed, verify_kit_digests,
-    AssetState, FeedVerificationEntry, FeedVerificationReport, KitAssetReport, KitDiffChange,
-    KitDiffEntry, KitDiffReport, KitReceipt, KitReceiptFile, KitUnavailable, KitUpgradeReport,
+    committed_feed_digests, declared_kit_version, diff_kit_snapshot, kits_dir, manifest_digest,
+    read_verified_feed_assets, receipt_text, render_receipt, upgrade_kit_snapshot,
+    verify_committed_feed, verify_committed_feed_with_digests, verify_kit_digests, AssetState,
+    FeedVerificationEntry, FeedVerificationReport, KitAssetReport, KitDiffChange, KitDiffEntry,
+    KitDiffReport, KitReceipt, KitReceiptFile, KitUnavailable, KitUpgradeReport,
     PLATFORM_RECEIPT_PATH, PLATFORM_TOKENS_DIR,
 };
 pub use feed::{
-    pack_platform_feed, refuse_source_reference, render_feed_config, validate_feed_value,
-    FeedRejection, PackReport, RenderedFeed,
+    pack_platform_feed, refuse_manifest_source_reference, refuse_source_reference,
+    render_feed_config, validate_feed_value, FeedRejection, PackReport, RenderedFeed,
 };
 pub use floor::{
     check_floor, confirmed_count, FloorDecision, FloorException, KitExceptionRequired,

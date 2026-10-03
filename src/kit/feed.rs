@@ -141,6 +141,74 @@ pub fn refuse_source_reference(reference: &str) -> ForgeError {
     }
 }
 
+/// Find a source-mode reference in a rendered manifest.
+///
+/// A `ProjectReference` or a path dependency that escapes the generated project
+/// resolves only where the sibling happens to sit, which is the same failure
+/// class as the absolute restore path this package removed — it works on the
+/// machine that generated the scaffold and on no other. The committed feed is
+/// the only sanctioned way to reach the shared layer.
+///
+/// A reference that stays inside the project tree, such as a sibling test
+/// project, is portable and is deliberately left alone. Only escaping shapes
+/// are reported, and the offending reference is returned so the refusal can
+/// name it.
+pub fn find_source_reference(manifest: &str) -> Option<String> {
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("<ProjectReference") {
+            if let Some(include) = attribute_value(trimmed, "Include") {
+                if escapes_project(&include) {
+                    return Some(include);
+                }
+            }
+            continue;
+        }
+        // npm, yarn and pnpm path dependencies: `"name": "file:../shared"`.
+        for scheme in ["file:", "link:", "portal:"] {
+            let needle = format!("\"{scheme}");
+            if let Some(at) = trimmed.find(&needle) {
+                let rest = &trimmed[at + scheme.len() + 1..];
+                let value = rest.trim_end_matches(['"', ',']).trim();
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Refuse a rendered manifest that reaches the shared layer by source.
+pub fn refuse_manifest_source_reference(manifest: &str, kind: &str) -> Result<(), ForgeError> {
+    match find_source_reference(manifest) {
+        Some(reference) => Err(refuse_source_reference(&format!("{kind} '{reference}'"))),
+        None => Ok(()),
+    }
+}
+
+fn attribute_value(tag: &str, name: &str) -> Option<String> {
+    let key = format!("{name}=\"");
+    let start = tag.find(&key)? + key.len();
+    let rest = &tag[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+/// True when a reference cannot resolve from inside the generated project.
+fn escapes_project(reference: &str) -> bool {
+    if reference.contains("://") || reference.starts_with('~') {
+        return true;
+    }
+    if reference.starts_with('/')
+        || reference.starts_with('\\')
+        || looks_like_windows_absolute(reference)
+    {
+        return true;
+    }
+    reference.split(['/', '\\']).any(|segment| segment == "..")
+}
+
 /// A secret-shaped value: an inline credential in a URL, or a token-shaped
 /// bare string. Checked before the value could ever reach a generated tree.
 fn looks_secret_shaped(value: &str) -> bool {
@@ -258,9 +326,6 @@ pub fn render_feed_config(descriptor: &KitDescriptor) -> Result<Option<RenderedF
 /// source of truth. Not fetched: a checked-out sibling is read, nothing else.
 const SIBLING_MANIFEST: &str = "eng/package-manifest.json";
 
-/// The sibling library's documented pack step, as its README states it.
-const SIBLING_SOLUTION: &str = "Platform.sln";
-
 /// Default sibling location, matching the convention the existing consumers'
 /// pack scripts already use. Overridable, and never required: a project must
 /// build from its committed feed regardless of where the sibling lives.
@@ -301,10 +366,10 @@ pub struct PackReport {
 ///
 /// The version comes from the sibling's own package manifest, never from a
 /// Forge constant, so the committed bytes are pinned to what the library
-/// actually packs. The sibling is only ever **read**: `dotnet pack` is given an
-/// output directory inside this repository and an argument array, never an
-/// interpolated shell string, and no file in the sibling is written, moved or
-/// removed.
+/// actually packs. The sibling is only ever **read**: its sources are copied
+/// into a scratch tree outside the checkout, `dotnet pack` runs against that
+/// copy with an argument array rather than an interpolated shell string, and no
+/// file in the sibling is written, moved or removed.
 ///
 /// Refuses — changing nothing — when the sibling or its manifest is absent, or
 /// when the toolchain is missing. A refusal here is a refusal to guess.
@@ -391,29 +456,41 @@ pub fn pack_platform_feed(explicit_sibling: Option<&Path>) -> Result<PackReport,
         ),
     })?;
 
-    let mut packed = Vec::new();
     let mut skipped = Vec::new();
-    for entry in descriptor.feed() {
-        let project = format!("src/{0}/{0}.csproj", entry.package);
-        let project_path = root.join(&project);
-        if !project_path.is_file() {
-            skipped.push(entry.package.clone());
-            continue;
+    // Pack from a copy. Everything below this line resolves against `scratch`,
+    // never against the sibling: the projects it names are the copies, and the
+    // working directory of every `dotnet pack` is the copied tree.
+    let scratch = stage_scratch_copy(&root)?;
+    let packed = (|| -> Result<Vec<String>, ForgeError> {
+        let mut packed = Vec::new();
+        for entry in descriptor.feed() {
+            let project = format!("src/{0}/{0}.csproj", entry.package);
+            if !root.join(&project).is_file() {
+                skipped.push(entry.package.clone());
+                continue;
+            }
+            let project_path = scratch.join(&project);
+            run_dotnet_pack(&scratch, &project_path, &out_dir, &version)?;
+            let produced = out_dir.join(&entry.file);
+            if !produced.is_file() {
+                return Err(ForgeError::KitPackUnavailable {
+                    reason: format!(
+                        "dotnet pack reported success but {} was not produced for package '{}'. \
+                         The feed is left as it was rather than recorded as complete",
+                        produced.display(),
+                        entry.package
+                    ),
+                });
+            }
+            packed.push(format!("{}@{}", entry.package, version));
         }
-        run_dotnet_pack(&root, &project_path, &out_dir, &version)?;
-        let produced = out_dir.join(&entry.file);
-        if !produced.is_file() {
-            return Err(ForgeError::KitPackUnavailable {
-                reason: format!(
-                    "dotnet pack reported success but {} was not produced for package '{}'. The \
-                     feed is left as it was rather than recorded as complete",
-                    produced.display(),
-                    entry.package
-                ),
-            });
-        }
-        packed.push(format!("{}@{}", entry.package, version));
-    }
+        Ok(packed)
+    })();
+    // The scratch tree goes either way. A refusal that leaves a full copy of a
+    // sibling library in the temp directory is litter, just litter Forge admits
+    // to.
+    let _ = std::fs::remove_dir_all(&scratch);
+    let packed = packed?;
     if packed.is_empty() {
         return Err(ForgeError::KitPackUnavailable {
             reason: format!(
@@ -492,52 +569,138 @@ fn sibling_version(manifest: &serde_json::Value, package: &str) -> Option<String
 /// metacharacter in it cannot become a command. The toolchain's absence is a
 /// refusal, never a silent skip: a feed that was not packed is a feed that was
 /// not verified.
+/// Build-output directories never copied into the scratch tree.
+///
+/// They are generated output, and `dotnet pack` already produced some of them
+/// in the sibling. Copying a stale one is how an out-of-tree pack ends up
+/// compiling two copies of the same generated assembly attributes, which fails
+/// with duplicate-attribute errors that look nothing like a path problem.
+const SKIP_DIRS: &[&str] = &["obj", "bin", ".git", ".vs", "node_modules", ".idea"];
+
+/// Copy the sibling's buildable sources into a scratch tree.
+///
+/// `forge kit pack` runs `dotnet pack` over a copy, never over the sibling
+/// itself. Redirecting MSBuild's output roots is not enough on its own: the
+/// default `**/*.cs` glob still reaches into the sibling's own `obj/`, so a
+/// build that keeps its output out of the checkout can still *read* stale
+/// generated sources from it and fail. Packing a copy makes "no file in the
+/// sibling is written, moved or removed" true by construction rather than by
+/// remembering to pass enough flags.
+///
+/// What is copied is the `src/` tree without any build output, plus every
+/// regular file at the sibling's root. The root files are copied wholesale
+/// rather than named one by one because the sibling's own
+/// `Directory.Build.props` reaches for them — `PackageReadmeFile` alone is
+/// enough to fail a pack that stages sources without the root `README.md` —
+/// and a list maintained by hand is a list that silently goes stale. A project
+/// outside `src/` is not copied; the pack then fails naming the missing
+/// project rather than packing something unintended.
+///
+/// The reported sibling path stays the real one, so provenance still names the
+/// library it packed from.
+fn stage_scratch_copy(root: &Path) -> Result<PathBuf, ForgeError> {
+    let scratch = std::env::temp_dir()
+        .join("forge-kit-pack")
+        .join(format!("libs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let fail = |what: &str, err: std::io::Error| ForgeError::KitPackUnavailable {
+        reason: format!(
+            "cannot prepare the out-of-tree pack copy ({what}): {err}. No vendored file was \
+             changed and the sibling at {} was not touched",
+            root.display()
+        ),
+    };
+    copy_tree(&root.join("src"), &scratch.join("src"), &fail)?;
+    let root_entries = std::fs::read_dir(root)
+        .map_err(|err| fail(&format!("cannot read {}", root.display()), err))?;
+    for entry in root_entries.flatten() {
+        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            std::fs::copy(entry.path(), scratch.join(entry.file_name()))
+                .map_err(|err| fail(&entry.path().display().to_string(), err))?;
+        }
+    }
+    Ok(scratch)
+}
+
+fn copy_tree(
+    from: &Path,
+    to: &Path,
+    fail: &dyn Fn(&str, std::io::Error) -> ForgeError,
+) -> Result<(), ForgeError> {
+    let entries = std::fs::read_dir(from)
+        .map_err(|err| fail(&format!("cannot read {}", from.display()), err))?;
+    std::fs::create_dir_all(to).map_err(|err| fail(&to.display().to_string(), err))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            if SKIP_DIRS
+                .iter()
+                .any(|skip| name.to_string_lossy().eq_ignore_ascii_case(skip))
+            {
+                continue;
+            }
+            copy_tree(&entry.path(), &to.join(&name), fail)?;
+        } else if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            std::fs::copy(entry.path(), to.join(&name))
+                .map_err(|err| fail(&entry.path().display().to_string(), err))?;
+        }
+    }
+    Ok(())
+}
+
+/// Run the sibling's pack step against the scratch copy.
+///
+/// The argument array is never an interpolated shell string, and the working
+/// directory is the scratch tree, so nothing resolves to a path inside the
+/// sibling.
 fn run_dotnet_pack(
     root: &Path,
     project: &Path,
     out_dir: &Path,
     version: &str,
 ) -> Result<(), ForgeError> {
-    let output = std::process::Command::new("dotnet")
-        .arg("pack")
-        .arg(project)
-        .arg("-c")
-        .arg("Release")
-        .arg("-o")
-        .arg(out_dir)
-        .arg(format!("-p:Version={version}"))
-        .arg(format!("-p:VersionPrefix={version}"))
-        // Symbol packages are not needed to restore, and the feed's declared
-        // set is exactly the packages the confirmed set resolves. Producing
-        // `.snupkg` files the descriptor does not declare would put bytes in
-        // the committed feed that no check accounts for.
-        .arg("-p:IncludeSymbols=false")
-        .arg("--nologo")
-        .arg("-v")
-        .arg("q")
-        .current_dir(root)
-        .output()
-        .map_err(|err| ForgeError::KitPackUnavailable {
-            reason: format!(
-                "cannot run the sibling's documented pack step for {}: {err}. `dotnet` is not on \
-                 PATH, or the solution {} is not present. No vendored file was changed",
-                project.display(),
-                root.join(SIBLING_SOLUTION).display()
-            ),
-        })?;
-    if !output.status.success() {
-        return Err(ForgeError::KitPackUnavailable {
-            reason: format!(
-                "the sibling's pack step failed for {} ({}): {}. No vendored file was changed",
-                project.display(),
-                output
-                    .status
-                    .code()
-                    .map(|c| format!("exit {c}"))
-                    .unwrap_or_else(|| "no exit code".to_string()),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-        });
-    }
-    Ok(())
+    let result = (|| {
+        let output = std::process::Command::new("dotnet")
+            .arg("pack")
+            .arg(project)
+            .arg("-c")
+            .arg("Release")
+            .arg("-o")
+            .arg(out_dir)
+            .arg(format!("-p:Version={version}"))
+            .arg(format!("-p:VersionPrefix={version}"))
+            // Symbol packages are not needed to restore, and the feed's declared
+            // set is exactly the packages the confirmed set resolves. Producing
+            // `.snupkg` files the descriptor does not declare would put bytes in
+            // the committed feed that no check accounts for.
+            .arg("-p:IncludeSymbols=false")
+            .arg("--nologo")
+            .arg("-v")
+            .arg("q")
+            .current_dir(root)
+            .output()
+            .map_err(|err| ForgeError::KitPackUnavailable {
+                reason: format!(
+                    "cannot run the sibling's documented pack step for {}: {err}. `dotnet` is not \
+                     on PATH. No vendored file was changed",
+                    project.display()
+                ),
+            })?;
+        if !output.status.success() {
+            return Err(ForgeError::KitPackUnavailable {
+                reason: format!(
+                    "the sibling's pack step failed for {} ({}): {}. No vendored file was changed",
+                    project.display(),
+                    output
+                        .status
+                        .code()
+                        .map(|c| format!("exit {c}"))
+                        .unwrap_or_else(|| "no exit code".to_string()),
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            });
+        }
+        Ok(())
+    })();
+    result
 }

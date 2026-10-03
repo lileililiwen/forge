@@ -249,6 +249,19 @@ pub fn manifest_digest(path: &str) -> Result<Option<String>, ForgeError> {
         .map(|f| f.sha256.clone()))
 }
 
+/// Every digest recorded in `kits/manifest.json`, as `vendored path -> sha256`.
+///
+/// Exposed so a caller can verify a feed against an explicit digest record
+/// rather than against ambient process state, which is what makes the check
+/// testable without repointing the whole loader at a temporary tree.
+pub fn committed_feed_digests() -> Result<BTreeMap<String, String>, ForgeError> {
+    Ok(load_manifest()?
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.sha256.clone()))
+        .collect())
+}
+
 /// Read every committed feed package a descriptor declares, verifying each
 /// against the digest recorded in `kits/manifest.json`.
 ///
@@ -615,13 +628,21 @@ pub fn upgrade_kit_snapshot(
         .collect();
 
     // Capture prior bytes so a failed write can be rolled back and the
-    // destination is never left half-wired.
+    // destination is never left half-wired. The receipt and the manifest are
+    // in the rollback set alongside the owned files: they are the two other
+    // files this function writes, and a rollback that left either behind
+    // would produce exactly the half-wired state the spec forbids.
+    let receipt_path = dir.join(PLATFORM_RECEIPT_PATH);
+    let manifest_path = dir.join("forge.yaml");
     let mut prior: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
     for (path, _) in &owned {
         let full = dir.join(path);
         let before = fs::read(&full).ok();
         prior.push((full, before));
     }
+    prior.push((receipt_path.clone(), fs::read(&receipt_path).ok()));
+    let manifest_before = fs::read(&manifest_path).ok();
+    prior.push((manifest_path.clone(), manifest_before));
     let mut written = Vec::new();
     let mut apply = || -> Result<(), ForgeError> {
         for (path, content) in &owned {
@@ -636,7 +657,6 @@ pub fn upgrade_kit_snapshot(
             })?;
         }
         let new_receipt = render_receipt(&receipt.project, &receipt.profile, &descriptor, &owned);
-        let receipt_path = dir.join(PLATFORM_RECEIPT_PATH);
         if let Some(parent) = receipt_path.parent() {
             fs::create_dir_all(parent).ok();
         }
@@ -645,8 +665,22 @@ pub fn upgrade_kit_snapshot(
                 reason: format!("cannot write '{}': {err}", receipt_path.display()),
             }
         })?;
+        // The declared pin moves with the bytes. This is the last write, so a
+        // manifest that cannot record the new version fails the whole upgrade
+        // and the rollback below restores the owned files and the receipt.
+        let target_version = descriptor
+            .reference
+            .version
+            .clone()
+            .unwrap_or_else(|| "none".to_string());
+        let manifest_updated = record_declared_kit_version(dir, &target_version)?;
         written = owned.iter().map(|(p, _)| p.clone()).collect();
         written.push(PLATFORM_RECEIPT_PATH.to_string());
+        if manifest_updated {
+            written.push("forge.yaml".to_string());
+        }
+        written.sort();
+        written.dedup();
         Ok(())
     };
     if let Err(err) = apply() {
@@ -694,6 +728,10 @@ pub struct FeedVerificationReport {
     pub declared_by: String,
     pub feed_path: String,
     pub packages: Vec<FeedVerificationEntry>,
+    /// Whether every committed package's bytes were checked against a recorded
+    /// digest. `false` means the feed was version-checked only, and the report
+    /// must not be read as byte-verified.
+    pub digests_verified: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -727,6 +765,44 @@ pub fn verify_committed_feed(
     declared_version: &str,
     declared_by: &str,
     feed_dir: &Path,
+) -> Result<FeedVerificationReport, ForgeError> {
+    // The vendored `kits/` tree is the one place a digest is recorded per
+    // packed file, so that is the one feed whose bytes can be verified. A
+    // generated project commits its own `.nupkg` bytes and records no digest
+    // for them; its feed is version-checked, and the report says so rather than
+    // implying a byte-level check that did not run.
+    let digests = if feed_dir.starts_with(kits_dir()) {
+        Some(committed_feed_digests()?)
+    } else {
+        None
+    };
+    let report = verify_committed_feed_with_digests(
+        descriptor,
+        declared_version,
+        declared_by,
+        feed_dir,
+        digests.as_ref(),
+    )?;
+    if digests.is_some() {
+        // The whole vendored tree, not just the feed: the token artifacts ship
+        // from the same manifest and drift there is the same defect.
+        verify_kit_digests()?;
+    }
+    Ok(report)
+}
+
+/// [`verify_committed_feed`] against an explicit digest record.
+///
+/// The record is a parameter rather than ambient process state so the check can
+/// be pointed at a temporary feed without repointing the whole vendored-asset
+/// loader at it. `None` means no digest is recorded for this feed, and the
+/// returned report carries `digests_verified: false`.
+pub fn verify_committed_feed_with_digests(
+    descriptor: &crate::kit::registry::KitDescriptor,
+    declared_version: &str,
+    declared_by: &str,
+    feed_dir: &Path,
+    digests: Option<&BTreeMap<String, String>>,
 ) -> Result<FeedVerificationReport, ForgeError> {
     let kit_id = descriptor.reference.id.as_str();
     let declared: BTreeMap<&str, &crate::kit::registry::FeedPackage> = descriptor
@@ -839,19 +915,21 @@ pub fn verify_committed_feed(
         }
     }
 
-    // 4. Tampered or unrecorded bytes. Only meaningful for the vendored feed,
-    //    whose digests are recorded in `kits/manifest.json`. Every *declared*
-    //    package must have a recorded digest, so a file that was dropped in
-    //    without being recorded cannot pass as verified.
-    if feed_dir.starts_with(kits_dir()) {
+    // 4. Tampered or unrecorded bytes, checked only where a digest is actually
+    //    recorded for the package. `digests_verified` records which happened,
+    //    so a skipped byte check can never read as a clean bill of health.
+    let mut digests_verified = false;
+    if let Some(record) = digests {
+        digests_verified = true;
         for (package, entry) in &declared {
             let relative = entry.kits_path();
-            let expected =
-                manifest_digest(&relative)?.ok_or_else(|| ForgeError::KitDigestMismatch {
+            let expected = record
+                .get(&relative)
+                .ok_or_else(|| ForgeError::KitDigestMismatch {
                     reason: format!(
-                        "committed feed package '{relative}' has no digest in kits/manifest.json, \
-                         so its bytes cannot be verified; run `forge kit pack` to record it. \
-                         Nothing was staged and no project was registered"
+                        "committed feed package '{relative}' has no recorded digest, so its bytes \
+                     cannot be verified; run `forge kit pack` to record it. Nothing was staged \
+                     and no project was registered"
                     ),
                 })?;
             let bytes = fs::read(feed_dir.join(&entry.file)).map_err(|err| {
@@ -865,7 +943,7 @@ pub fn verify_committed_feed(
                 }
             })?;
             let actual = digest_of(&bytes);
-            if actual != expected {
+            if &actual != expected {
                 return Err(ForgeError::KitDigestMismatch {
                     reason: format!(
                         "committed feed package '{relative}' has drifted: expected {expected} got \
@@ -875,16 +953,90 @@ pub fn verify_committed_feed(
             }
             let _ = package;
         }
-        verify_kit_digests()?;
     }
 
     Ok(FeedVerificationReport {
         kit: kit_id.to_string(),
         declared_version: declared_version.to_string(),
         declared_by: declared_by.to_string(),
+        digests_verified,
         feed_path: feed_dir.display().to_string(),
         packages,
     })
+}
+
+/// Rewrite the `version:` line inside a `forge.yaml` `kit:` block, leaving
+/// every other byte of the file untouched.
+///
+/// A targeted line edit, never a YAML round-trip. The manifest is a
+/// deterministic render, and its key order, comments and layout are part of
+/// the byte-identical contract; re-serializing it would silently rewrite all
+/// of that to satisfy a one-field change. Returns `None` when the document
+/// declares no `kit.version` to rewrite.
+fn rewrite_declared_version(text: &str, version: &str) -> Option<String> {
+    let rendered = format!("  version: {}\n", crate::generate::yaml_scalar(version));
+    let mut out = String::with_capacity(text.len() + rendered.len());
+    let mut in_kit = false;
+    let mut replaced = false;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        // A top-level key closes the previous top-level block. `kit:` opens
+        // this one; a key merely starting with the same letters, such as
+        // `kits:`, does not.
+        if !trimmed.is_empty() && !trimmed.starts_with(' ') {
+            in_kit = trimmed.starts_with("kit:");
+        }
+        if in_kit && !replaced && trimmed.starts_with("  version:") {
+            out.push_str(&rendered);
+            replaced = true;
+            continue;
+        }
+        out.push_str(line);
+    }
+    replaced.then_some(out)
+}
+
+/// Record a new pinned kit version in a generated project's own `forge.yaml`.
+///
+/// The project's declared pin and the bytes committed inside it have to move
+/// together. Rewriting the owned files and the receipt while leaving
+/// `kit.version` behind would make the project claim a version its own
+/// committed feed is not, and `forge kit verify <path>` — which deliberately
+/// reads what the project *says* it pins — would then fail on a project that
+/// was just successfully upgraded.
+///
+/// Returns `true` when the declared version actually changed.
+pub fn record_declared_kit_version(dir: &Path, version: &str) -> Result<bool, ForgeError> {
+    let path = dir.join("forge.yaml");
+    let text = fs::read_to_string(&path).map_err(|err| ForgeError::KitFeedIncomplete {
+        reason: format!(
+            "cannot read {} to record the pinned kit version: {err}. The upgrade is refused, \
+             because a project whose owned files and receipt moved to '{version}' while its \
+             manifest still declares the old pin can no longer pass `forge kit verify`",
+            path.display()
+        ),
+    })?;
+    let Some(next) = rewrite_declared_version(&text, version) else {
+        return Err(ForgeError::KitFeedIncomplete {
+            reason: format!(
+                "{} declares no `kit:` block `version:` line, so the upgrade cannot record the \
+                 version it pins. The owned files and the receipt were left untouched and the \
+                 project still reports its previous kit version",
+                path.display()
+            ),
+        });
+    };
+    if next == text {
+        return Ok(false);
+    }
+    fs::write(&path, &next).map_err(|err| ForgeError::KitFeedIncomplete {
+        reason: format!(
+            "cannot write {}: {err}. The upgrade is refused rather than leaving a project whose \
+             manifest disagrees with its own committed feed",
+            path.display()
+        ),
+    })?;
+    Ok(true)
 }
 
 /// Read a generated project's own `forge.yaml` `kit.version` and

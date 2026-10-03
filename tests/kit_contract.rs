@@ -8,7 +8,7 @@
 //! deterministic, digest drift is caught, and the generated project operates
 //! through its own toolchain with Forge absent.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1123,10 +1123,32 @@ fn the_pattern_catalog_defines_no_token_value() {
             "the pattern catalog defines a token value: {trimmed}"
         );
         assert!(
-            !trimmed.contains("#[0-9a-fA-F]{6}"),
+            !has_literal_hex_colour(trimmed),
             "the pattern catalog defines a literal colour: {trimmed}"
         );
     }
+}
+
+/// A `#` followed by three or six hex digits is a literal colour.
+///
+/// This has to parse the text. A substring search for the *string*
+/// `#[0-9a-fA-F]{6}` matches nothing ever, because it is a literal and not a
+/// pattern — the check it replaced could not have failed.
+fn has_literal_hex_colour(text: &str) -> bool {
+    for (index, byte) in text.bytes().enumerate() {
+        if byte != b'#' {
+            continue;
+        }
+        let rest = &text[index + 1..];
+        for width in [3usize, 6] {
+            if let Some(candidate) = rest.get(..width) {
+                if candidate.chars().all(|c| c.is_ascii_hexdigit()) && candidate.len() == width {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 #[test]
@@ -1371,6 +1393,270 @@ fn copy_dir(from: &Path, to: &Path) {
 }
 
 #[test]
+fn a_tampered_committed_feed_package_fails_naming_the_file_and_both_digests() {
+    // The committed `.nupkg` bytes are the supply chain. A tampered one is the
+    // same class of defect as a drifted token asset, and it has to fail the
+    // same way: naming the file, the expected digest and the actual digest.
+    //
+    // The digest record is passed explicitly rather than repointing
+    // `FORGE_KITS_DIR` at a temporary tree: that variable is process-global, and
+    // a test that sets it races every other test in the same binary.
+    let tmp = tempfile::tempdir().unwrap();
+    let kits = tmp.path().join("kits");
+    copy_dir(&kit::assets::kits_dir(), &kits);
+    // The same record `kits/manifest.json` carries, read from the copy.
+    let recorded: serde_json::Value =
+        serde_json::from_slice(&fs::read(kits.join("manifest.json")).unwrap()).unwrap();
+    let digests: BTreeMap<String, String> = recorded["files"]
+        .as_array()
+        .expect("the kit manifest records files")
+        .iter()
+        .map(|f| {
+            (
+                f["path"].as_str().expect("path").to_string(),
+                f["sha256"].as_str().expect("sha256").to_string(),
+            )
+        })
+        .collect();
+
+    let descriptor = kit::inspect_kit("platform-dotnet", None).expect("the .NET kit is registered");
+    let feed = kits.join(kit::registry::KITS_FEED_DIR);
+    let entry = descriptor
+        .feed()
+        .first()
+        .expect("the .NET kit declares a feed package")
+        .clone();
+    let target = feed.join(&entry.file);
+
+    // Untampered first, so a later failure is the tamper and not the fixture.
+    let clean = kit::verify_committed_feed_with_digests(
+        &descriptor,
+        descriptor.reference.version.as_deref().unwrap(),
+        "the compiled-in kit descriptor",
+        &feed,
+        Some(&digests),
+    )
+    .expect("the committed feed verifies before it is tampered with");
+    assert!(
+        clean.digests_verified,
+        "a digest record was supplied but the report claims no byte verification"
+    );
+    assert!(
+        !clean.packages.is_empty(),
+        "the untampered feed verified nothing, so the tamper would prove nothing"
+    );
+
+    let mut tampered_bytes = fs::read(&target).unwrap();
+    tampered_bytes.push(0);
+    fs::write(&target, &tampered_bytes).unwrap();
+
+    let err = kit::verify_committed_feed_with_digests(
+        &descriptor,
+        descriptor.reference.version.as_deref().unwrap(),
+        "the compiled-in kit descriptor",
+        &feed,
+        Some(&digests),
+    )
+    .expect_err("a tampered committed package must fail");
+    let message = err.to_string();
+    assert!(
+        message.contains(&entry.file),
+        "the failure names the file: {message}"
+    );
+    assert!(message.contains("expected "), "{message}");
+    assert!(message.contains("got "), "{message}");
+
+    // And with no record at all the check is honest about what it did not do,
+    // rather than reporting a clean result it cannot support.
+    let unchecked = kit::verify_committed_feed_with_digests(
+        &descriptor,
+        descriptor.reference.version.as_deref().unwrap(),
+        "the compiled-in kit descriptor",
+        &feed,
+        None,
+    )
+    .expect("a version check still succeeds without a digest record");
+    assert!(
+        !unchecked.digests_verified,
+        "a feed with no digest record was reported as byte-verified"
+    );
+}
+
+#[test]
+fn a_source_mode_reference_is_detected_in_a_rendered_manifest() {
+    // Each of these reaches the shared layer only where the sibling happens to
+    // sit, which is the failure class the committed feed exists to remove.
+    let escaping = [
+        "<ItemGroup>\n  <ProjectReference Include=\"..\\dotnet-platform-libs\\src\\Platform.Core\\Platform.Core.csproj\" />\n</ItemGroup>",
+        "<ItemGroup>\n  <ProjectReference Include=\"/home/paul/code/dotnet-platform-libs/src/Platform.Core/Platform.Core.csproj\" />\n</ItemGroup>",
+        "<ItemGroup>\n  <ProjectReference Include=\"C:\\src\\dotnet-platform-libs\\Platform.Core.csproj\" />\n</ItemGroup>",
+        "  \"@platform/core\": \"file:../dotnet-platform-libs/src/Platform.Core\"",
+        "  \"@platform/core\": \"link:../dotnet-platform-libs/src/Platform.Core\"",
+    ];
+    for manifest in escaping {
+        let found = kit::feed::find_source_reference(manifest)
+            .unwrap_or_else(|| panic!("no source reference found in: {manifest}"));
+        assert!(
+            found.contains("Platform.Core") || found.contains("dotnet-platform-libs"),
+            "the detected reference names the offending target: {found}"
+        );
+        let err = kit::feed::refuse_manifest_source_reference(manifest, "net-app.csproj")
+            .expect_err("an escaping source reference is refused");
+        assert_eq!(err.code(), "kit-feed-invalid");
+        assert!(
+            err.to_string().contains("source-mode"),
+            "the refusal names the shape: {err}"
+        );
+    }
+
+    // A reference that stays inside the project is portable and must be left
+    // alone. Refusing it would make a generated solution with its own test
+    // project impossible to scaffold.
+    let in_project = [
+        "<ItemGroup>\n  <ProjectReference Include=\"MyApp.Tests.csproj\" />\n</ItemGroup>",
+        "  \"@platform/core\": \"0.1.0\"",
+        "  \"@platform/core\": \"^0.1.0\"",
+    ];
+    for manifest in in_project {
+        assert_eq!(
+            kit::feed::find_source_reference(manifest),
+            None,
+            "an in-project or pinned reference was misread as a source reference: {manifest}"
+        );
+    }
+}
+
+/// Restores the committed feed when a pack test ends, however it ends.
+///
+/// `forge kit pack` rewrites `kits/` by design, so a test that repacks has to
+/// put the reviewed bytes back. A plain trailing statement is not enough: an
+/// assertion panic would leave the repository carrying a feed nobody reviewed.
+struct FeedRestore {
+    backup: PathBuf,
+}
+
+impl Drop for FeedRestore {
+    fn drop(&mut self) {
+        let kits = kit::assets::kits_dir();
+        let _ = fs::remove_dir_all(&kits);
+        copy_dir(&self.backup, &kits);
+    }
+}
+
+/// Proves `forge kit pack` leaves the sibling checkout byte-identical.
+///
+/// `#[ignore]` on purpose, and the reason is load, not doubt. A real pack runs
+/// nine `dotnet pack` invocations — roughly 15 seconds of heavy parallel CPU.
+/// `cargo test` runs test binaries concurrently, and that load was measured to
+/// push `governance_contract::valid_external_response_is_normalized_and_redacted`
+/// past its 5-second external-adapter timeout, turning an unrelated green suite
+/// red. A test that destabilises its neighbours is a defect even when its own
+/// assertion is sound, and this repository's convention for a check that needs
+/// a real toolchain and a real sibling is to run it explicitly rather than let
+/// it destabilise the default run.
+///
+/// Run it with:
+///
+/// ```sh
+/// cargo test --test kit_contract packing_leaves_the_sibling_checkout_byte_identical -- --ignored
+/// ```
+///
+/// Last run: passed. It reported the sibling byte-identical across all 10,051
+/// files under `src/`, having first been shown to fail against the previous
+/// implementation, which rewrote 6 entries under `src/*/obj/`.
+#[test]
+#[ignore = "needs a real sibling checkout and dotnet, and its load destabilises the parallel suite"]
+fn packing_leaves_the_sibling_checkout_byte_identical() {
+    let sibling = PathBuf::from("/home/paul/code/dotnet-platform-libs");
+    let manifest = sibling.join("eng/package-manifest.json");
+    if !manifest.is_file() || which("dotnet").is_none() {
+        // Reported, not passed. The repository's convention is that a missing
+        // toolchain is `unverified`, never a green result.
+        eprintln!(
+            "UNVERIFIED: no sibling library at {} or no dotnet on PATH; the sibling is not \
+             modified by the pack was not proved on this host",
+            sibling.display()
+        );
+        return;
+    }
+
+    // Everything the pack may touch, snapshotted first: the sibling's own
+    // sources including its build-output directories, and Forge's committed
+    // feed.
+    let before = tree_snapshot(&sibling.join("src"));
+    assert!(
+        before.len() > 100,
+        "the sibling snapshot is implausibly small"
+    );
+    let _restore = {
+        let backup = std::env::temp_dir().join(format!("forge-kits-backup-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&backup);
+        copy_dir(&kit::assets::kits_dir(), &backup);
+        FeedRestore { backup }
+    };
+
+    let out = Command::new(forge_bin())
+        .arg("kit")
+        .arg("pack")
+        .arg("--platform-libs")
+        .arg(&sibling)
+        .output()
+        .expect("run forge kit pack");
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+
+    let after = tree_snapshot(&sibling.join("src"));
+    if before != after {
+        let changed: Vec<&String> = before
+            .iter()
+            .filter(|(path, bytes)| after.get(*path) != Some(*bytes))
+            .map(|(path, _)| path)
+            .take(10)
+            .collect();
+        panic!(
+            "forge kit pack modified the sibling checkout. {} entr(y|ies) differ, including {:?}. \
+             A gitignored build-output path is not a read: the requirement is that no file in \
+             the sibling is written",
+            before.len().min(after.len()),
+            changed
+        );
+    }
+}
+
+/// Every file under a directory as `relative path -> bytes`.
+fn tree_snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.is_file() {
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if let Ok(bytes) = fs::read(&path) {
+                    out.insert(rel, bytes);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn which(program: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|candidate| candidate.is_file())
+}
+
+#[test]
 fn every_profile_kit_has_a_registry_row_and_every_package_is_classified() {
     for profile in forge::profile::mvp_profiles() {
         let reference = profile
@@ -1421,15 +1707,26 @@ fn every_profile_kit_has_a_registry_row_and_every_package_is_classified() {
 
         // Every package the kit declares is classified, and every confirmed
         // member is pinned at the kit version.
+        //
+        // The classification arm used to be `matches!(class, Confirmed |
+        // Provisional)`, which is a tautology against a two-variant enum and
+        // could never fail. What can actually go wrong is a package that is in
+        // one place and not the other, so the check is bidirectional against
+        // the frozen evidence fixture. The fixture measures .NET packages, so
+        // it applies to the .NET kit; a kit with no packages at all (the Node
+        // and Dart kits carry vendored assets, not a package set) is exempt
+        // rather than trivially satisfied.
+        let fixture: BTreeMap<&str, u32> = kit::PLATFORM_PACKAGE_EVIDENCE.iter().copied().collect();
+        let mut declared: BTreeSet<&str> = BTreeSet::new();
         for package in &descriptor.packages {
             assert!(
-                matches!(
-                    package.class,
-                    kit::PackageClass::Confirmed | kit::PackageClass::Provisional
-                ),
-                "{} is unclassified",
+                fixture.contains_key(package.name.as_str()),
+                "kit '{}' declares package '{}', which the frozen evidence fixture does not \
+                 carry; a package with no measured consumer count is unclassified by definition",
+                profile.id,
                 package.name
             );
+            declared.insert(package.name.as_str());
             if package.class == kit::PackageClass::Confirmed {
                 assert!(
                     descriptor.version_of(&package.name).is_some(),
@@ -1437,6 +1734,21 @@ fn every_profile_kit_has_a_registry_row_and_every_package_is_classified() {
                     package.name
                 );
             }
+        }
+        if descriptor.reference.id == "platform-dotnet" {
+            let unreached: Vec<&str> = fixture
+                .keys()
+                .copied()
+                .filter(|name| !declared.contains(name))
+                .collect();
+            assert!(
+                unreached.is_empty(),
+                "kit '{}' leaves {} evidence-fixture package(s) unaccounted for: {:?}. A package \
+                 neither confirmed nor provisional is a surface nothing accounts for",
+                profile.id,
+                unreached.len(),
+                unreached
+            );
         }
         // Nothing is both confirmed and provisional.
         let confirmed = descriptor.confirmed_names();
@@ -1544,7 +1856,7 @@ fn a_provisional_reason_states_the_count_exactly_once_and_reads_cleanly() {
 
     // An infrastructure reason states only the obstacle, never a count, so the
     // two sources of the number cannot disagree.
-    for (package, reason) in &*kit::PLATFORM_REQUIRES_INFRA {
+    for (package, reason) in kit::PLATFORM_REQUIRES_INFRA {
         let digits = reason.chars().filter(char::is_ascii_digit).count();
         assert_eq!(
             digits,
@@ -1704,6 +2016,146 @@ fn an_upgrade_path_that_does_not_exist_is_reported_with_a_reason() {
         unavailable.reason.contains("unavailable"),
         "{}",
         unavailable.reason
+    );
+}
+
+#[test]
+fn an_upgrade_records_the_version_the_project_pins() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let dest = tmp.path().join("ui-app");
+
+    let out = scaffold(&db, &dest, "react-web");
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+
+    let manifest_path = dest.join("forge.yaml");
+    let original = fs::read_to_string(&manifest_path).unwrap();
+    assert_eq!(
+        parse_yaml(&manifest_path)["kit"]["version"].as_str(),
+        Some("0.1.0"),
+        "the scaffold pins the version it was generated with"
+    );
+
+    // A manifest that disagrees with the project's own committed bytes. This
+    // is the defect the upgrade has to reconcile rather than leave behind:
+    // `forge kit verify <path>` deliberately reads what the project *says* it
+    // pins, so a stale line here is a project that fails its own drift gate.
+    let stale = original.replacen("  version: \"0.1.0\"", "  version: \"0.0.9\"", 1);
+    assert_ne!(stale, original, "the kit block declares a version line");
+    fs::write(&manifest_path, &stale).unwrap();
+
+    let report = kit::upgrade_kit_snapshot(
+        &dest,
+        "platform-ui-web@0.1.0",
+        true,
+        false,
+        "2026-01-01T00:00:00Z",
+    )
+    .expect("upgrade is readable")
+    .expect("the kit upgrade path exists");
+    assert!(
+        report.written.contains(&"forge.yaml".to_string()),
+        "the upgrade records the pin it moved to: {:?}",
+        report.written
+    );
+
+    // The declared pin, the receipt and the owned files agree again.
+    assert_eq!(
+        parse_yaml(&manifest_path)["kit"]["version"].as_str(),
+        Some("0.1.0"),
+        "the manifest pins the version the upgrade moved to"
+    );
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(dest.join(".platform/receipt.json")).unwrap()).unwrap();
+    assert_eq!(receipt["version"], "0.1.0");
+
+    // And the edit is exactly the one line it claims to be. A YAML round-trip
+    // would have reordered and reformatted the whole manifest, breaking the
+    // byte-identical render contract; this proves it does not.
+    assert_eq!(
+        fs::read_to_string(&manifest_path).unwrap(),
+        original,
+        "only the declared version line changed"
+    );
+}
+
+#[test]
+fn the_explicit_upgrade_is_operator_reachable_and_reviews_before_it_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let dest = tmp.path().join("ui-app");
+
+    let out = scaffold(&db, &dest, "react-web");
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let before = file_bytes(&dest);
+    let to = "platform-ui-web@0.1.0";
+    let args = ["kit", "upgrade", &dest.display().to_string(), "--to", to];
+
+    // Review is the default, and it is read-only: a reviewable per-file diff
+    // is what the operator sees before anything is applied.
+    let out = run(&db, &args);
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let human = lossy(&out.stdout);
+    assert!(human.contains("nothing was written"), "{human}");
+    assert!(human.contains(".platform/tokens/tokens.css"), "{human}");
+    assert!(
+        human.contains("apply with `forge kit upgrade --confirm`"),
+        "{human}"
+    );
+    assert_eq!(before, file_bytes(&dest), "a review wrote nothing");
+
+    // Confirmation applies it, and says which files it touched.
+    let mut confirmed = args.to_vec();
+    confirmed.push("--confirm");
+    let out = run_json(&db, &confirmed);
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["to"], to);
+    let written: Vec<String> = serde_json::from_value(value["written"].clone()).unwrap();
+    assert!(
+        written.contains(&".platform/receipt.json".to_string()),
+        "{written:?}"
+    );
+}
+
+#[test]
+fn an_unavailable_upgrade_is_refused_with_a_reason_and_changes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let dest = tmp.path().join("rs-app");
+
+    let out = scaffold(&db, &dest, "rust-web");
+    assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
+    let before = file_bytes(&dest);
+
+    // A declared zero pinned no kit, so there is nothing to move. The command
+    // has to refuse: reporting "already current" is the one outcome this state
+    // must never produce.
+    let out = run(
+        &db,
+        &[
+            "kit",
+            "upgrade",
+            &dest.display().to_string(),
+            "--to",
+            "platform-dotnet@0.1.0",
+            "--confirm",
+        ],
+    );
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "an unavailable upgrade is a refusal, not a pass: {}",
+        lossy(&out.stdout)
+    );
+    let err = lossy(&out.stderr);
+    assert!(err.contains("error[kit-unknown]"), "{err}");
+    assert!(err.contains("kit upgrade unavailable"), "{err}");
+    assert!(err.contains("pinned no shared-layer kit"), "{err}");
+    assert_eq!(
+        before,
+        file_bytes(&dest),
+        "a refused upgrade changed nothing"
     );
 }
 

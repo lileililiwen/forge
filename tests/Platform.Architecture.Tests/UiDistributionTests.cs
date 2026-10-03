@@ -258,10 +258,15 @@ public sealed class UiDistributionTests
     [Fact]
     public void The_package_manifest_and_razor_package_version_are_untouched_by_this_capability()
     {
-        // No .csproj, PackageReference or ProjectReference is added by this change, so
-        // the manifest stays byte-identical and Platform.UI.Razor stays at 0.1.0.
+        // The UI capability adds no .csproj, PackageReference or ProjectReference
+        // and does not change Platform.UI.Razor. The count is a tripwire for that
+        // claim, not a statement about the size of the platform, so it moves when
+        // a different capability adds a package. platform-build-policy-package
+        // added src/Platform.Build (a build-only policy package, no assembly and
+        // no references) taking the manifest from 75 to 76; the assertions below
+        // are what actually pin the UI capability's blast radius.
         var manifest = JsonDocument.Parse(File.ReadAllText(Path("eng/package-manifest.json"))).RootElement;
-        Assert.Equal(75, manifest.GetProperty("packages").GetArrayLength());
+        Assert.Equal(76, manifest.GetProperty("packages").GetArrayLength());
 
         var razor = manifest.GetProperty("packages").EnumerateArray()
             .Single(package => package.GetProperty("packageId").GetString() == "Platform.UI.Razor");

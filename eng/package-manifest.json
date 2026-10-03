@@ -409,6 +409,19 @@
       "version": "0.1.0"
     },
     {
+      "description": "Build-only package carrying the platform's shared MSBuild policy in buildTransitive/Platform.Build.props. Reference it at an exact version to receive the policy with no per-repository copy and no import-by-path.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Build",
+      "packageReferences": [],
+      "path": "src/Platform.Build/Platform.Build.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
       "description": "Provider-neutral cache contracts, keys, telemetry, and in-memory implementation.",
       "frameworkReferences": [],
       "isPackable": true,

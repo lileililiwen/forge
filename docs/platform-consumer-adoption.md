@@ -9,10 +9,98 @@ opt-in boundaries, and upgrade/rollback before any code is shipped.
 
 - Local/private feed setup for packed artifacts.
 - Exact-version pinning and the rationale for rejecting floating ranges.
+- **Shared MSBuild policy: the `Platform.Build` policy package.**
 - A pilot-consumer fixture that exercises the adoption path.
 - Upgrade and rollback smoke testing against packed artifacts.
 - Vulnerability review and the production/test dependency rules.
 - A per-repository adoption checklist.
+
+## Shared MSBuild policy: the `Platform.Build` package
+
+**This is the supported way for a consumer repository to obtain the platform's
+shared MSBuild policy.** Obtain it by referencing the packed package at an exact
+version:
+
+```xml
+<PackageReference Include="Platform.Build" Version="0.1.0" />
+```
+
+No import, no file copy, and no path to configure. The package ships
+`buildTransitive/Platform.Build.props`, which NuGet imports automatically, so
+the version a project was built against is recorded in the project's dependency
+declaration rather than in an unreviewed file.
+
+Do **not** obtain build policy from `/home/paul/code/Directory.Build.props`.
+That file lives outside any Git repository, so no commit records it and no
+review sees it; MSBuild finds it only by walking up the directory tree, which
+means a clone on a different machine, or a repository moved one directory up,
+silently changes the build. A package reference keeps the project buildable
+with or without this repository present on disk.
+
+### What the package asserts, and what it deliberately does not
+
+| Property | Asserted value | Notes |
+|---|---|---|
+| `EnforceCodeStyleInBuild` | `true` | code style is enforced during build |
+| `Deterministic` | `true` | reproducible output, so a packed package is comparable to its local build |
+| `CentralPackageTransitivePinningEnabled` | `true` | a transitive dependency cannot slip past the pinned version set |
+| `ContinuousIntegrationBuild` | `true` | only when `'$(CI)' == 'true'` |
+
+Every one is set with `Condition="'$(X)' == ''"`, so **a consumer's own value
+always wins**. Setting `EnforceCodeStyleInBuild` to `false` in your project is
+enough to opt out of that single property.
+
+The package asserts **no `TargetFramework` and no `RootNamespace`**. Those are
+project identity: a shared package that asserted a TFM would retarget your
+project behind your back, and generators that write a `.csproj` already own
+both. The package also does not assert `PlatformAsSource`,
+`PlatformPackageVersion` or `PlatformConsumerSourceRoot` — those depend on a
+local filesystem probe of a sibling checkout, so they vary per machine and
+belong to your own build, not to a feed-restored artifact.
+
+The `NoWarn` suppression list is owned by the package and currently ships
+**empty**: the baseline this package replaces carried no suppression list, so
+there is no inherited set to justify. An entry may only be added together with
+a one-line justification, and `BuildPolicyConformanceTests` rejects the packed
+props if an unjustified entry ever appears.
+
+### Single ownership: do not duplicate these five
+
+`build/Platform.Consumer.props` already owns `Nullable`, `LangVersion`,
+`AnalysisLevel`, `TreatWarningsAsErrors` and `ManagePackageVersionsCentrally`.
+The policy package must not assert them, and neither should a consumer's own
+file, because two `== ''`-guarded files claiming one property resolve it by
+import order and the loser is silent. `BuildPolicyConformanceTests` fails the
+build if the packed props ever starts claiming one of the five.
+
+If you want that consumer bootstrap, import it by path as documented in
+[`docs/workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md). The
+two routes are complementary and are documented in both directions:
+
+| Route | Document | Obtains |
+|---|---|---|
+| Policy package (restore-driven, versioned) | this document | code style, determinism, central pinning, CI flag |
+| Consumer bootstrap (import by path, opt-in) | [`workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md) | the five consumer defaults plus the implicit `Platform.Core` reference |
+
+### Verifying the policy actually applied
+
+A build-only package restores and builds identically whether or not its props
+are honoured, so a green build is **not** evidence that the policy applied.
+`tests/Platform.ConsumerConformance/Tests/BuildPolicyConformanceTests.cs` reads
+the *resolved* MSBuild property values from a fixture that restores
+`Platform.Build` out of the feed, and additionally lists the packed archive to
+prove `buildTransitive/Platform.Build.props` is really inside the `.nupkg`.
+Run it with:
+
+```bash
+bash scripts/conformance.sh
+```
+
+Note that replacing a packed artifact in `.local-feed` is not enough on its
+own: the fixtures must be re-restored, because MSBuild imports the *extracted*
+copy under the conformance project's `.nuget-packages` directory. A missing
+extracted props file is imported as a no-op, which is the silent-degradation
+failure this route exists to remove.
 
 ## Local / private feed setup
 
@@ -42,7 +130,9 @@ version. Floating ranges, wildcards, and `[1.0,2.0)` ranges are rejected by
 and the equivalent architecture test. The rule is enforced at the consumer
 end too: every consumer repository should adopt `ManagePackageVersionsCentrally`
 with `<PackageVersion Include="Platform.AspNetCore" Version="0.1.0" />`
-lines that pin every platform package to a single value.
+lines that pin every platform package to a single value. `Platform.Build` is a
+`Platform.*` package and is bound by the same rule: its policy package
+reference must name an exact version, never a range or a wildcard.
 
 Rationale: the platform reserves the right to ship breaking changes in
 minor versions, so a single commit may produce two incompatible

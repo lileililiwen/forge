@@ -1,5 +1,19 @@
 # Workspace consumer bootstrap
 
+> **This document describes the import-by-path route only.** It requires
+> importing a file by path and opting in with `PlatformConsumerBootstrap=true`.
+> For the restore-driven route — a versioned package reference that needs no
+> import and no opt-in — see
+> [`docs/platform-consumer-adoption.md`](platform-consumer-adoption.md), which
+> documents `Platform.Build` as the supported way to obtain shared MSBuild
+> policy. The two are complementary and must not be mixed for the same
+> property: `build/Platform.Consumer.props` owns `Nullable`, `LangVersion`,
+> `AnalysisLevel`, `TreatWarningsAsErrors` and `ManagePackageVersionsCentrally`,
+> while `Platform.Build` owns the code-style, determinism, central-pinning and
+> CI properties. Each property has exactly one owner, and
+> `BuildPolicyConformanceTests` fails the build if either file starts claiming
+> the other's.
+
 The workspace uses .NET 10 as its default SDK and target framework for new
 MSBuild projects.
 
@@ -53,6 +67,13 @@ not already set it.
 | `AnalysisLevel` | `latest-recommended` |
 | `TreatWarningsAsErrors` | `true` |
 | `ManagePackageVersionsCentrally` | `true` |
+
+These five belong to this file and to nowhere else. Do not re-assert them in a
+`Directory.Build.props` of your own and do not expect the `Platform.Build`
+policy package to supply them: a property that two `== ''`-guarded files assert
+resolves by import order, and the file that loses is silent about it. The
+policy package covers a disjoint set of properties; see
+[`docs/platform-consumer-adoption.md`](platform-consumer-adoption.md).
 
 ### Central package management and `Platform.Core`
 

@@ -33,6 +33,46 @@ public sealed class AdoptionConformanceTests
     }
 
     [Fact]
+    public void Build_policy_fixtures_pin_every_Platform_package_to_an_exact_version()
+    {
+        // The exact-version rule applies to every Platform.* package, including
+        // the build-policy package, whose fixtures are the first surface in this
+        // repository that references it. The main conformance project does not
+        // reference Platform.Build - it demonstrates the library packages - so
+        // the rule would otherwise be unenforced for the policy route.
+        var fixtures = Directory
+            .EnumerateFiles(
+                Path.Combine(LocateProjectDirectory(), "Fixtures", "BuildPolicy"),
+                "*.csproj",
+                SearchOption.AllDirectories)
+            .ToArray();
+
+        Assert.NotEmpty(fixtures);
+
+        var references = fixtures
+            .SelectMany(fixture => XDocument.Load(fixture)
+                .Descendants()
+                .Where(e => string.Equals(e.Name.LocalName, "PackageReference", StringComparison.OrdinalIgnoreCase))
+                .Where(e => (e.Attribute("Include")?.Value ?? string.Empty).StartsWith("Platform.", StringComparison.OrdinalIgnoreCase))
+                .Select(e => new { Fixture = fixture, Name = e.Attribute("Include")?.Value ?? string.Empty, Version = e.Attribute("Version")?.Value ?? string.Empty }))
+            .ToArray();
+
+        Assert.NotEmpty(references);
+        Assert.Contains(references, reference => reference.Name == "Platform.Build");
+
+        foreach (var reference in references)
+        {
+            var where = Path.GetFileName(reference.Fixture);
+            Assert.False(
+                string.IsNullOrWhiteSpace(reference.Version),
+                $"{reference.Name} in {where} must declare a pinned Version attribute (no floating versions).");
+            Assert.False(
+                ContainsFloating(reference.Version),
+                $"{reference.Name} in {where} must use an exact version. Floating, range, or wildcard versions are not allowed (saw '{reference.Version}').");
+        }
+    }
+
+    [Fact]
     public void Conformance_project_pins_testing_packages_to_the_same_version_as_their_public_contracts()
     {
         var document = XDocument.Load(LocateProjectPath());

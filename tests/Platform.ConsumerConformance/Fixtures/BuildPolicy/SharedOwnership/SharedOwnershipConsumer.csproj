@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build policy conformance fixture: both policy routes in scope at once.
+
+    This reproduces the one real design risk in
+    openspec/changes/platform-build-policy-package/design.md section 3: two
+    files that both use the same == '' guard for a property, so the winner is
+    decided by import order and the loser is silent.
+
+    The workspace achieves that ordering with
+    /home/paul/code/Directory.Build.targets, which imports
+    build/Platform.Consumer.props AFTER the project body while a
+    buildTransitive props file from a package is imported BEFORE it. That
+    workspace targets file deliberately excludes projects inside this
+    repository, so the import is reproduced here explicitly instead: the
+    bootstrap import sits at the very bottom of this project, after the
+    property group a consumer would have written, which is the same position
+    it occupies in a real workspace consumer.
+
+    Both routes are therefore live in one evaluation, and the resolved values
+    are asserted against the design section 3 ownership table. If either file
+    ever starts claiming a property the other owns, this fixture is where the
+    overlap becomes visible.
+
+    ImportDirectoryBuildProps/Targets are off so the repository's own
+    Directory.Build.props is not a fourth claimant.
+  -->
+
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.BuildPolicy.SharedOwnership</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.BuildPolicy.SharedOwnership</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+    <PlatformConsumerBootstrap>true</PlatformConsumerBootstrap>
+    <PlatformPackageVersion>0.1.0</PlatformPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BuildPolicyFixtureSource.cs" Link="BuildPolicyFixtureSource.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.Build" Version="0.1.0" />
+  </ItemGroup>
+
+  <!--
+    Position matters: this is where the workspace Directory.Build.targets puts
+    the bootstrap import, after the project body.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

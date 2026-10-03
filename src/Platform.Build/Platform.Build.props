@@ -1,0 +1,110 @@
+<Project>
+
+  <!--
+    Platform shared MSBuild policy.
+
+    This file ships inside the Platform.Build NuGet package at
+    buildTransitive/Platform.Build.props, packed from this file by
+    Platform.Build.csproj. A project receives the platform's build policy by
+    adding one pinned PackageReference:
+
+      <PackageReference Include="Platform.Build" Version="0.1.0" />
+
+    No import, no file copy, and no per-repository path to configure. A
+    project that does not reference the package never evaluates this file.
+
+    Transport and history
+    =====================
+    This policy used to reach consumer repositories through
+    /home/paul/code/Directory.Build.props, a file that lives outside every
+    Git repository and is therefore owned by no commit and reviewed by no
+    diff. MSBuild discovered it by walking up the directory tree. A
+    versioned package is the positive form of the decision recorded in
+    forge/openspec/changes/archive/2026-10-03-scaffold-prewires-shared-layer
+    (design.md:134), which refused a ProjectReference into a sibling
+    checkout because "the project stops working when dotnet-platform-libs
+    is absent". A package reference keeps the project buildable without
+    this repository on disk while still naming the version it was built
+    against.
+
+    Single ownership (this file's hard rule)
+    =========================================
+    Every property below is asserted by exactly one file, and every property
+    is set with Condition="'$(X)' == ''" so a consumer's own value always
+    wins. This matters because the other two homes for platform policy both
+    use the same == '' guard, so if two files claimed one property the
+    winner would be decided by import order and the loser would be silent:
+
+      * build/Platform.Consumer.props owns Nullable, LangVersion,
+        AnalysisLevel, TreatWarningsAsErrors and ManagePackageVersionsCentrally.
+        It is the import-by-path consumer bootstrap route, gated by the
+        PlatformConsumerBootstrap=true opt-in. This file must never assert
+        any of those five: doing so would make the resolved value depend on
+        which file MSBuild imported first.
+
+      * The consuming project owns TargetFramework and RootNamespace. A
+        shared package asserting a target framework on its consumers is
+        heavy-handed, and Platform.Build deliberately asserts neither.
+
+      * The machine-local transport switch (PlatformAsSource,
+        PlatformPackageVersion, PlatformConsumerSourceRoot) stays in the
+        workspace's own Directory.Build.props. Those depend on an Exists()
+        probe of a sibling checkout and vary per machine, so a versioned,
+        feed-restored artifact is the wrong home for them.
+  -->
+
+  <!--
+    Warnings and code style. AnalysisLevel and TreatWarningsAsErrors are
+    owned by build/Platform.Consumer.props and are deliberately absent here;
+    see the single-ownership note above.
+  -->
+  <PropertyGroup>
+    <EnforceCodeStyleInBuild Condition="'$(EnforceCodeStyleInBuild)' == ''">true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!--
+    Reproducible output. Deterministic keeps a given source tree producing
+    byte-identical binaries, which is what makes a published Platform
+    package verifiable against the local feed it was packed from.
+  -->
+  <PropertyGroup>
+    <Deterministic Condition="'$(Deterministic)' == ''">true</Deterministic>
+  </PropertyGroup>
+
+  <!--
+    Central package management stays transitive: a transitive dependency
+    that declares its own version cannot slip past the consumer's pinned
+    version set. ManagePackageVersionsCentrally itself is owned by
+    build/Platform.Consumer.props and is deliberately absent here.
+  -->
+  <PropertyGroup>
+    <CentralPackageTransitivePinningEnabled Condition="'$(CentralPackageTransitivePinningEnabled)' == ''">true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!--
+    Continuous integration: normalize source paths so a CI-built package is
+    byte-comparable with a locally built one. The '$(CI)' guard matches the
+    repository's own Directory.Build.props, so a local build is unaffected
+    and the consumer can still set ContinuousIntegrationBuild itself.
+  -->
+  <PropertyGroup Condition="'$(CI)' == 'true'">
+    <ContinuousIntegrationBuild Condition="'$(ContinuousIntegrationBuild)' == ''">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <!--
+    NoWarn: owned by this file, currently with no entries.
+
+    A suppression list is only worth shipping when every entry can be
+    re-evaluated by a later reader, and the platform baseline this file
+    replaces carried no NoWarn list at all, so there is no inherited set to
+    justify. Rather than invent suppressions, this file asserts nothing and
+    BuildPolicyConformanceTests rejects the file if an entry ever appears
+    without a one-line justification next to it.
+
+    The candidate set, if one is ever adopted, is
+    smotoox/Directory.Build.props - the workspace's existing example of the
+    justified-list convention - and adopting it means importing those 22
+    entries one at a time with their own reasons, not copying the list.
+  -->
+
+</Project>

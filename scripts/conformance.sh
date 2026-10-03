@@ -13,6 +13,15 @@ set -euo pipefail
 #   * package-mode fixture (PlatformAsSource unset, feed + pinned version)
 #   * unsupported-target fixture (net8.0) — must surface a named diagnostic
 #   * opt-out fixture — must receive no reference and no defaults
+#
+# It also exercises the packed policy package (Platform.Build):
+#   * each Fixtures/BuildPolicy/ project is restored from the local feed that
+#     the pack step above just wrote, then built
+#   * BuildPolicyConformanceTests asserts the *resolved* MSBuild property
+#     values, the archive's buildTransitive layout, the single-ownership rule
+#     against build/Platform.Consumer.props, and the consumer-override and
+#     non-default-target cases. A passing build is not sufficient evidence for
+#     a build-only package, so the assertions are on property values.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -21,6 +30,17 @@ CONFORMANCE_PROJECT="$ROOT_DIR/tests/Platform.ConsumerConformance/Platform.Consu
 LOCAL_FEED_DIR="$ROOT_DIR/tests/Platform.ConsumerConformance/.local-feed"
 LOG_DIR="$ROOT_DIR/tests/Platform.ConsumerConformance/.logs"
 NUGET_SOURCE="${NUGET_SOURCE:-https://repo.huaweicloud.com/repository/nuget/v3/index.json}"
+
+# Packed-policy fixtures. Each one restores Platform.Build from the feed this
+# script just wrote; BuildPolicyConformanceTests asserts their resolved MSBuild
+# property values, which is the only evidence that a build-only package's props
+# were actually honoured.
+BUILD_POLICY_DIR="$ROOT_DIR/tests/Platform.ConsumerConformance/Fixtures/BuildPolicy"
+BUILD_POLICY_APPLIED_PROJECT="$BUILD_POLICY_DIR/Applied/AppliedPolicyConsumer.csproj"
+BUILD_POLICY_OVERRIDE_PROJECT="$BUILD_POLICY_DIR/ConsumerOverride/ConsumerOverrideConsumer.csproj"
+BUILD_POLICY_UNREFERENCED_PROJECT="$BUILD_POLICY_DIR/Unreferenced/UnreferencedConsumer.csproj"
+BUILD_POLICY_NON_DEFAULT_TARGET_PROJECT="$BUILD_POLICY_DIR/NonDefaultTarget/NonDefaultTargetConsumer.csproj"
+BUILD_POLICY_SHARED_OWNERSHIP_PROJECT="$BUILD_POLICY_DIR/SharedOwnership/SharedOwnershipConsumer.csproj"
 
 if [ ! -f "$SOLUTION" ]; then
   echo "ERROR: cannot find solution at $SOLUTION" >&2
@@ -88,6 +108,21 @@ run_step "pack" dotnet pack "$SOLUTION" -c Release --no-restore -o "$LOCAL_FEED_
 step "Restoring conformance project from local feed"
 run_step "restore" dotnet restore "$CONFORMANCE_PROJECT" --source "$LOCAL_FEED_DIR" --source "$NUGET_SOURCE" --nologo -m:1
 
+step "Restoring build-policy fixtures from local feed"
+# The build-policy fixtures must be restored from the packed Platform.Build
+# before BuildPolicyConformanceTests evaluates them. A build-only package
+# restores cleanly whether or not its props are honoured, so an un-restored
+# fixture would make every resolved-property assertion fail for the wrong
+# reason and a stale restore would make them pass for the wrong one.
+for policy_fixture in "$BUILD_POLICY_APPLIED_PROJECT" \
+                      "$BUILD_POLICY_OVERRIDE_PROJECT" \
+                      "$BUILD_POLICY_UNREFERENCED_PROJECT" \
+                      "$BUILD_POLICY_NON_DEFAULT_TARGET_PROJECT" \
+                      "$BUILD_POLICY_SHARED_OWNERSHIP_PROJECT"; do
+  run_step "build-policy-restore-$(basename "$policy_fixture" .csproj)" \
+    dotnet restore "$policy_fixture" --source "$LOCAL_FEED_DIR" --source "$NUGET_SOURCE" --nologo -m:1
+done
+
 step "Building conformance project"
 run_step "build" dotnet build "$CONFORMANCE_PROJECT" -c Release --no-restore --nologo -m:1
 
@@ -131,5 +166,22 @@ run_step "bootstrap-opt-out-build" \
 run_expected_failure "bootstrap-unsupported-target" \
   "net8.0" \
   dotnet build "$UNSUPPORTED_TARGET_PROJECT" -c Release --nologo -m:1
+
+step "Exercising build-policy fixtures"
+# Each build-policy fixture must build against the props the packed package
+# applies. Building is not the assertion - BuildPolicyConformanceTests reads
+# the resolved property values - but a fixture that cannot build at all means
+# its evaluation is untrustworthy, so the build is checked first.
+#
+# SharedOwnership is restored but not built here: it opts into the
+# import-by-path bootstrap alongside the package reference, so building it would
+# re-test the bootstrap, which the fixtures above already cover.
+for policy_fixture in "$BUILD_POLICY_APPLIED_PROJECT" \
+                      "$BUILD_POLICY_OVERRIDE_PROJECT" \
+                      "$BUILD_POLICY_UNREFERENCED_PROJECT" \
+                      "$BUILD_POLICY_NON_DEFAULT_TARGET_PROJECT"; do
+  run_step "build-policy-build-$(basename "$policy_fixture" .csproj)" \
+    dotnet build "$policy_fixture" -c Release --no-restore --nologo -m:1
+done
 
 printf "\nConsumer conformance suite succeeded.\n"

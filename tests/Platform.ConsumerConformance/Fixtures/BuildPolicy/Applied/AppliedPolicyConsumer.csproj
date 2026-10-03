@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build policy conformance fixture: the package applies the policy.
+
+    A net10.0 consumer that adds one pinned PackageReference to Platform.Build
+    and imports nothing by path. Every property the package owns must resolve
+    to the recorded platform policy.
+
+    ImportDirectoryBuildProps/Targets are switched off so the repository's own
+    Directory.Build.props cannot be the reason a property resolves. With them
+    off, the package's buildTransitive props are the only possible source of
+    the policy this project sees, which is what makes the assertions in
+    BuildPolicyConformanceTests meaningful rather than coincidental.
+  -->
+
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.BuildPolicy.Applied</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.BuildPolicy.Applied</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BuildPolicyFixtureSource.cs" Link="BuildPolicyFixtureSource.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.Build" Version="0.1.0" />
+  </ItemGroup>
+
+</Project>

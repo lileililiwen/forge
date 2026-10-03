@@ -14,6 +14,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Platform.Testing\Platform.Testing.csproj" />
     <ProjectReference Include="..\..\src\Platform.Testing.AspNetCore\Platform.Testing.AspNetCore.csproj" />
+    <!-- Real application booted by PlatformTestWebApplicationFactory. -->
+    <ProjectReference Include="..\Platform.Testing.TestApplication\Platform.Testing.TestApplication.csproj" />
   </ItemGroup>
 
   <ItemGroup>

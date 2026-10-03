@@ -46,6 +46,7 @@ public class DependencyDirectionTests
         "src/Platform.Web.OpenApi/Platform.Web.OpenApi.csproj",
         "src/Platform.Web.Versioning/Platform.Web.Versioning.csproj",
         "src/Platform.Testing/Platform.Testing.csproj",
+        "src/Platform.Testing.AspNetCore/Platform.Testing.AspNetCore.csproj",
         "src/Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj",
         "src/Platform.Persistence.Postgres/Platform.Persistence.Postgres.csproj",
         "src/Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
@@ -344,6 +345,13 @@ public class DependencyDirectionTests
         var violations = packages
             .Where(p => ForbiddenProductionPackagePrefixes.Any(prefix =>
                 p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            // Platform.Testing.AspNetCore is a test-only host package: it legitimately
+            // references Microsoft.AspNetCore.Mvc.Testing, which is guarded separately
+            // by Platform_Testing_AspNetCore_declares_FrameworkReference_for_ASPNET.
+            // Microsoft.EntityFrameworkCore stays forbidden for it, so the ORM stays
+            // out of a package that four repositories consume.
+            .Where(p => !(relativePath.Contains("Platform.Testing.AspNetCore", StringComparison.OrdinalIgnoreCase)
+                && p.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase)))
             .ToArray();
 
         Assert.True(
@@ -554,6 +562,34 @@ public class DependencyDirectionTests
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .ToArray();
         Assert.Contains("Microsoft.AspNetCore.App", frameworkReferences, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Platform_Testing_AspNetCore_has_no_orm_test_framework_or_container_reference()
+    {
+        // The shared web test factory must stay dependency-light: no ORM, no test
+        // framework, no mocking framework, no container runtime. Database and schema
+        // helpers are deferred, and adding any of these would put an ORM or xUnit
+        // into the closure of a package four repositories consume.
+        var packages = ReadPackageReferences("src/Platform.Testing.AspNetCore/Platform.Testing.AspNetCore.csproj");
+        var forbiddenPrefixes = new[]
+        {
+            "Microsoft.EntityFrameworkCore",
+            "xunit",
+            "Moq",
+            "NSubstitute",
+            "FluentAssertions",
+            "Testcontainers",
+        };
+        var violations = packages
+            .Where(package => forbiddenPrefixes.Any(prefix =>
+                package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Platform.Testing.AspNetCore must not reference an ORM, test framework, mocking framework or container runtime. Found: "
+                + string.Join(", ", violations));
     }
 
     [Fact]
@@ -808,7 +844,8 @@ public class DependencyDirectionTests
                 || project.EndsWith("Platform.Auditing.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Jobs.Hangfire.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Web.Composition.csproj", StringComparison.OrdinalIgnoreCase)
-                || project.EndsWith("Platform.Tenant.Lifecycle.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase))
+                || project.EndsWith("Platform.Tenant.Lifecycle.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
+                || project.EndsWith("Platform.Testing.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase))
             {
                 Assert.True(
                     references.Length == 1 && references[0].Equals("Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase),

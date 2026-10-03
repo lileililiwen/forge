@@ -261,3 +261,28 @@ public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(5);
 public TimeSpan MaxRetryDelay { get; set; } = TimeSpan.FromMinutes(5);
 public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 public void Validate()
+[Platform.Testing.AspNetCore]
+public class PlatformTestWebApplicationFactory<TEntryPoint> : WebApplicationFactory<TEntryPoint>
+public const string Testing = "Testing";
+public delegate void PlatformTestHostConfiguration(IServiceCollection services, IConfigurationBuilder configuration);
+public enum PlatformTestTemporaryDirectoryScope
+public new HttpClient CreateClient(WebApplicationFactoryClientOptions options)
+public new HttpClient CreateClient() => WithEntryPointDiagnostic(base.CreateClient);
+public new TestServer Server => WithEntryPointDiagnostic(() => base.Server);
+public override async ValueTask DisposeAsync()
+public override IServiceProvider Services => WithEntryPointDiagnostic(() => base.Services);
+public PlatformTestWebApplicationFactory<TEntryPoint> ConfigureTestServices(
+public PlatformTestWebApplicationFactory<TEntryPoint> ConfigureWebHost(Action<IWebHostBuilder> configure)
+public PlatformTestWebApplicationFactory<TEntryPoint> DecorateService<TService, TWrapper>(
+public PlatformTestWebApplicationFactory<TEntryPoint> OnDispose(Action action)
+public PlatformTestWebApplicationFactory<TEntryPoint> OnDispose(Func<ValueTask> action)
+public PlatformTestWebApplicationFactory<TEntryPoint> ReplaceService<TService, TImplementation>()
+public PlatformTestWebApplicationFactory<TEntryPoint> ReplaceService<TService>(TService instance)
+public PlatformTestWebApplicationFactory<TEntryPoint> UseTemporaryDirectory(
+public PlatformTestWebApplicationFactory<TEntryPoint> WithClock(IClock clock)
+public PlatformTestWebApplicationFactory<TEntryPoint> WithClock(TimeProvider timeProvider)
+public PlatformTestWebApplicationFactory<TEntryPoint> WithConfiguration(string key, string? value)
+public PlatformTestWebApplicationFactory<TEntryPoint> WithEnvironment(string environmentName)
+public static class PlatformTestEnvironments
+public static class PlatformTestingAspNetCoreAssemblyMarker
+public string EnvironmentName => _environmentName;

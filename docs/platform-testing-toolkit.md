@@ -7,7 +7,7 @@ exactly what they need without inheriting unwanted dependencies.
 | Package | What it adds | Production references allowed |
 | --- | --- | --- |
 | `Platform.Testing` | Clocks, scenario builders, entitlement/usage fakes, `RecordingEventBus`, `TransientFailureInjector`. | No. |
-| `Platform.Testing.AspNetCore` | `PlatformTestWebApplicationFactory` for in-memory `TestServer` hosts with in-memory configuration and a `ConfigureTestServices` extension. | No. |
+| `Platform.Testing.AspNetCore` | `PlatformTestWebApplicationFactory<TEntryPoint>` boots the consumer's real application over `TestServer`, with in-memory configuration, environment selection, service replacement/decoration, deterministic clock injection, teardown hooks and a temporary directory. One host per instance. | No. |
 
 Both packages are enforced as test-only by the architecture suite: any
 `src/Platform.*.csproj` that is not itself a `*.Testing.csproj` must
@@ -66,12 +66,18 @@ tests can assert on call counts without parsing exception text.
 
 ### Test host
 
+`PlatformTestWebApplicationFactory<TEntryPoint>` boots the **consumer's own**
+application over `TestServer` from the named entry point — it never builds an
+application of its own. Configure it in place: every member below mutates the same
+factory, so the suite builds exactly one host per instance.
+
 ```csharp
-await using var factory = new PlatformTestWebApplicationFactory()
+await using var factory = new PlatformTestWebApplicationFactory<Program>()
+    .WithEnvironment("Testing")
     .WithConfiguration("Platform:Test", "ok")
+    .WithClock(new ControllableClock(DateTimeOffset.UnixEpoch))
     .ConfigureTestServices((services, configuration) =>
     {
-        services.AddSingleton<IClock>(new ControllableClock(DateTimeOffset.UnixEpoch));
         services.AddSingleton<IEventBus>(new RecordingEventBus());
     });
 

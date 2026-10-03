@@ -8,6 +8,21 @@
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
+  <!-- Fixtures/ holds real source that this project's tests compile and use
+       (18 test files reference Platform.ConsumerConformance.Fixtures), so the
+       fixture sources stay in the glob. What must stay out is the *generated*
+       output: scripts/conformance.sh builds those fixtures as standalone
+       projects, which leaves AssemblyInfo/GlobalUsings under
+       Fixtures/**/obj/**. The default SDK glob is **/*.cs, so on the second
+       conformance run those generated files were compiled into this project
+       and collided on duplicate attributes — the script was not idempotent.
+       Excluding only the obj/ subtree keeps the sources and drops the
+       generated residue. -->
+  <ItemGroup>
+    <Compile Remove="Fixtures/**/obj/**" />
+    <None Remove="Fixtures/**/obj/**" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Platform.AspNetCore" Version="0.1.0" />
     <PackageReference Include="Platform.Core" Version="0.1.0" />

@@ -141,12 +141,17 @@ modified in this change.
       row to record the feed and the conformance contract.
 - [ ] Update the `README.md` UI section to point at the feed instead of leaving
       the layer undiscoverable.
-- [ ] Record the answer to open decision **D14** (whether
-      `check-public-api.sh` should cover `Platform.UI.Razor`) in
-      `design.md` §10 and implement or explicitly decline it. Default: decline.
-- [ ] Record the answer to open decision **D15** (stay at `0.1.0` with
-      digest-pinning, or take `0.2.0`) in `design.md` §10. Default: stay at
-      `0.1.0`.
+- [ ] Ruled **D14**: `check-public-api.sh` does **not** cover
+      `Platform.UI.Razor` and `eng/public-api-baseline.txt` is **not**
+      regenerated. Record the coverage gap explicitly in the change docs so
+      it stays visible rather than being closed over.
+- [ ] Ruled **D15**: the three UI packages stay at `0.1.0` with
+      digest-pinning. Do **not** take `0.2.0` — the change is additive, so a
+      bump would signal a contract change that did not happen.
+- [ ] Wire `verify-ui.mjs` into `scripts/quality-gate.sh` (ruled; this
+      overrides the change's earlier "recommended: wire it in, but leave it
+      to the owner" hedge). Without it a token regression does not block the
+      repo gate, which is the `contract-parity: OK` failure class again.
 
 ---
 
@@ -201,9 +206,9 @@ modified in this change.
 - [ ] `scripts/check-public-api.sh` produces a clean diff (V16).
 - [ ] `dotnet test tests/Platform.Architecture.Tests` passes with the new
       guards green and no existing guard removed (V17).
-- [ ] `scripts/quality-gate.sh` passes end to end (V18). Note that it does
-      **not** today run `verify-ui.mjs`; record whether that is accepted
-      (open decision 5) rather than silently relying on it.
+- [ ] `scripts/quality-gate.sh` passes end to end (V18), **including** the
+      newly wired `verify-ui.mjs` step. If the verifier is not yet wired, that
+      is an incomplete task, not an accepted gap — report it as outstanding.
 - [ ] `git diff --check` is clean.
 - [ ] Record every actual command output in the handoff. Report any
       environment-blocked check with its exact next action, never as passing.

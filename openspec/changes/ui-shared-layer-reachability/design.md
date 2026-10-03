@@ -12,6 +12,7 @@ repository. `forge/` is read-only here.
 | Owner | Owns | Direction |
 |---|---|---|
 | `ui/tokens/tokens.json` | **every** design-token value, in DTCG form, light **and** dark | → generator |
+| `ui/legacy-divergent.json` | the **frozen** legacy-divergent baseline (15 repos, closed) | reads nothing; no code path writes it (**D16**) |
 | `ui/scripts/generate-tokens.mjs` | DTCG walk + alias resolution + primitive emission | reads tokens.json, writes `dist/` |
 | `ui/scripts/verify-ui.mjs` | completeness and no-orphan-literal oracle over `dist/` | reads `dist/` |
 | `ui/scripts/pack-ui.mjs` | deterministic tarballs into `ui/feed/` | reads `packages/*` |
@@ -227,7 +228,9 @@ pass-through changes nothing. The mechanism is a **closed** list:
 1. At implementation time, `scripts/check-ui-conformance.sh` **generates** the
    baseline by scanning for a shared-primitive declaration outside any vendored
    feed directory. This session's measurement gives **15** repos.
-2. That list is committed as a frozen constant, and a guard in
+2. That list is committed as a frozen **data file**,
+   `ui/legacy-divergent.json` (**D16** — data, not a script constant, so no code
+   path can extend it in review-blind edits), and a guard in
    `UiDistributionTests.cs` asserts the count has **not grown** and that no
    listed repo has been removed without its state being updated.
 3. Any repo *not* on the list that declares `.visually-hidden` or `.sr-only`
@@ -283,7 +286,7 @@ project. Package count stays **75**; the manifest stays byte-identical.
 | Canonical primitive | `generate-tokens.mjs` | every consumer | `.visually-hidden` present, 9 properties, no `!important` |
 | Feed bytes | `pack-ui.mjs` → `ui/feed/*.tgz` + `feed.json` | a consumer's committed `vendor/platform-ui/` | sha256 of each tarball == `feed.json` == consumer's `ui-conformance.json` |
 | Compliance declaration | consumer `ui-conformance.json` | `check-ui-conformance.sh` | exactly one of `consumes-feed` / `exempt`; no shared-primitive declaration outside the frozen list |
-| Frozen baseline | `check-ui-conformance.sh` constants + `UiDistributionTests.cs` | the check itself | legacy list length unchanged and non-extensible |
+| Frozen baseline | `ui/legacy-divergent.json` (data file, **D16**) + `UiDistributionTests.cs` | the check itself | legacy list length unchanged and non-extensible |
 
 Additive-compatibility invariant: the generator rewrite **must not rename any
 emitted token**. `verify-ui.mjs`'s 6-token assertion and the existing
@@ -324,7 +327,11 @@ Nothing in this change migrates anything. Stated as a boundary, not a plan:
   repository, sequenced under this repository's one-active-change rule
   (`AGENTS.md` workflow), each doing the same three moves: commit the feed
   bytes, add `ui-conformance.json`, delete the local primitive. Sequenced
-  `arivio` first (measured defect, not preference), then the 4-property
+  `arivio` first — **ruled, not proposed** (§10) — because its copy is a
+  measured a11y defect rather than a style disagreement: it omits `padding`,
+  `margin` and `border` and leaks a 1px box, so a screen-reader-only element
+  still occupies layout. A repository that is only stylistically divergent may
+  wait for its own schedule; a measured a11y defect may not. Then the 4-property
   variants, then the remainder.
 - **Follow-up `ui-pattern-token-binding` (in `forge`):** map
   `design-token-spacing-4` → `space.4` and the scale vocabulary onto the
@@ -344,19 +351,21 @@ An already-`file:`-consuming consumer is unaffected: this change adds no
   because the manifest's inputs are unchanged. `Platform.UI.Razor` is
   untouched at `0.1.0`. `eng/public-api-baseline.txt` is unchanged;
   `scripts/check-public-api.sh` scans 6 packages and none of them changes.
-  `Platform.UI.Razor` is **not** in that scan list — a pre-existing coverage
-  gap, recorded here and **not** closed by this change (closing it would
-  regenerate the baseline for a package this change does not touch).
+  `Platform.UI.Razor` is **not** in that scan list — a **named, explicit**
+  pre-existing coverage gap, recorded here and **not** closed by this change
+  (**D14**: the scan keeps the 6 packages it covers today and the baseline is
+  not regenerated, because regenerating it could silently absorb a breaking
+  change in a package this change does not touch).
 - **Architecture guards:** additive test methods in an existing project. No
   guard deleted, renamed, or weakened. The recorded guard count is stated two
   ways in the proposal (137 methods / 355 executed cases) and this change does
   not re-measure it by running the suite.
-- **npm:** strictly additive within `0.1.0`. `tokens.css` gains declarations
-  and the canonical primitive; it renames nothing, so a hypothetical 0.1.0
-  consumer keeps resolving. Package versions are unchanged because their
-  public surface is unchanged; consumers pin the tarball **and** its digest, so
-  a version that is not bumped but whose bytes changed is caught by
-  `ui-feed-digest-mismatch` rather than silently absorbed. That is the reason
+- **npm:** strictly additive within `0.1.0` (**D15**). `tokens.css` gains
+  declarations and the canonical primitive; it renames nothing, so a
+  hypothetical 0.1.0 consumer keeps resolving. Package versions are unchanged
+  because their public surface is unchanged; consumers pin the tarball **and**
+  its digest, so a version that is not bumped but whose bytes changed is caught
+  by `ui-feed-digest-mismatch` rather than silently absorbed. That is the reason
   the digest, not the version, is the load-bearing check.
 - **Existing `ui` tests:** `react-ui/tests/components.test.mjs` and the
   `react-shell` tests must stay green. They are named as gates, not reported
@@ -391,7 +400,7 @@ One oracle per contract. Each is a command or a named assertion — none is
 | V15 | .NET manifest untouched | `scripts/generate-package-manifest.sh --check` reports `Manifest matches source.`; `scripts/package-inventory.sh` still enumerates **75** |
 | V16 | Public API untouched | `scripts/check-public-api.sh` produces a clean diff against the unchanged `eng/public-api-baseline.txt` |
 | V17 | Guards green | `dotnet test tests/Platform.Architecture.Tests` passes; no existing guard removed or weakened |
-| V18 | Repo gate | `scripts/quality-gate.sh` passes end to end, and `openspec validate ui-shared-layer-reachability --strict` passes |
+| V18 | Repo gate | `scripts/quality-gate.sh` passes end to end **including `node ui/scripts/verify-ui.mjs`, which this change wires into it** (§10, gate-semantics ruling), and `openspec validate ui-shared-layer-reachability --strict` passes |
 
 **Evidence discipline for the implementing session:** V5, V6, V7, V15, V16 and
 V17 require running `node`, `npm`/`dotnet`, which this proposal did **not** do.
@@ -418,27 +427,50 @@ build. Any oracle blocked by a missing toolchain SHALL be reported as
 | D11 | Razor coverage | exclude · **include (token + check only)** | **include** | `Platform.UI.Razor` already ships at `0.1.0`; 5 of 15 divergent copies are Razor repos; `platform-tokens.css` needs no new vehicle. | **Decided** |
 | D12 | Responsive unification | now · **NG8** | **NG8** | 118 existing non-scale queries; collapsing them is fleet adoption, not distribution. New divergence still fails. | **Decided** |
 | D13 | Generator rewrite timing | after feed · **before feed** | **before** | Distributing an artifact that can drop tokens scales the defect. V6 protects the rename invariant. | **Decided** |
-| D14 | Close the `check-public-api.sh` gap for `Platform.UI.Razor` | now · record only | **record only** | Would regenerate the baseline for a package this change does not touch; scope creep with manifest/baseline churn. | **Open for owner** |
-| D15 | Kit version bump policy on `0.1.0` | bump to `0.2.0` · keep `0.1.0` + digest | **keep `0.1.0`, digest is load-bearing** | Surface is unchanged (additive); a bump would imply a contract change that did not happen. Consumers pin tarball **and** digest, so byte drift is caught regardless. | **Open for owner** |
-| D16 | Should the frozen list live in a script constant or a checked-in data file | constant · data file | **data file** (`ui/legacy-divergent.json`) | A data file is reviewable as a diff and cannot be edited by a code path; a constant invites in-code edits. V12 asserts its length. | **Open for owner** |
+| D14 | Close the `check-public-api.sh` gap for `Platform.UI.Razor` | now · record only | **record only** | Unrelated to this change, and a regenerated baseline can silently absorb a breaking change in that package's surface. The gap is therefore recorded as a **named, explicit** pre-existing coverage gap (§8) so it stays visible rather than being closed over. | **Decided** |
+| D15 | Kit version bump policy on `0.1.0` | bump to `0.2.0` · keep `0.1.0` + digest | **keep `0.1.0`, digest is load-bearing** | Purely additive (a `.visually-hidden` primitive plus dark-theme tokens), so the public surface is unchanged and a bump would imply a contract change that did not happen. Consumers pin tarball **and** digest, so byte drift is caught regardless. | **Decided** |
+| D16 | Should the frozen list live in a script constant or a checked-in data file | constant · data file | **data file** (`ui/legacy-divergent.json`) | A data file is reviewable as a diff and cannot be edited by a code path; a constant invites in-code edits. V12 asserts its length. | **Decided** |
+| D17 | Which repository migrates off the frozen list first | `arivio` · ordered by age · ordered by count | **`arivio`** | Not a close call. `arivio`'s copy is measured **defective**, not merely divergent: it omits `padding`, `margin` and `border` from the reset and leaks a 1px box, so a screen-reader-only element occupies layout. A repository that is only stylistically divergent may wait for its own schedule; a measured a11y defect must not. | **Decided** |
+| D18 | Whether `verify-ui.mjs` is wired into `scripts/quality-gate.sh` | wire it · record only | **wire it in** | Overrides this change's own earlier recommendation. A verifier that no gate runs does not gate, and that is this workspace's demonstrated failure mode: `forge/scripts/contract-parity.sh` performs zero comparisons yet prints `contract-parity: OK`, and `release-check.sh` skips it. The repo gate is currently `dotnet` + `openspec` + `git diff --check`, so without this wiring a token regression does not block it. V18 asserts the wired step. | **Decided** |
 
-### Open decisions left to the owner
+### Owner rulings
 
-1. **D14** — extend `scripts/check-public-api.sh` to cover `Platform.UI.Razor`
-   (and regenerate `eng/public-api-baseline.txt`), or leave the pre-existing
-   6-package coverage gap closed-over. Recommended: leave it; it is unrelated
-   to this change and regenerating the baseline adds review noise.
-2. **D15** — confirm the three UI packages stay at `0.1.0` with digest-pinning,
-   or take a `0.2.0` for the added `.visually-hidden` primitive and dark-theme
-   tokens. Recommended: stay at `0.1.0`; the change is additive and the digest
-   already catches drift.
-3. **D16** — confirm the frozen legacy list ships as
-   `ui/legacy-divergent.json` (data file) rather than a script constant.
-4. **Sequencing** — confirm `ui-fleet-adoption` and `ui-pattern-token-binding`
-   are the accepted follow-up names, and which of `arivio` (the measured
-   defect) goes first.
-5. **Whether `verify-ui.mjs` should also be wired into
-   `scripts/quality-gate.sh`.** It is not today (the gate is `dotnet` +
-   `openspec` + `git diff --check`), so a token regression does not block the
-   repo gate. Recommended: wire it in, but that is a gate-semantics change and
-   is left to the owner.
+All five questions below have been **decided** by the owner. They are recorded
+here so this change no longer carries an open question.
+
+1. **D14 — record only.** `scripts/check-public-api.sh` keeps the 6 packages it
+   covers today. It is **not** extended to `Platform.UI.Razor`, and
+   `eng/public-api-baseline.txt` is **not** regenerated. The gap is unrelated to
+   this change, and a regenerated baseline can silently absorb a breaking change
+   in a package this change does not touch, so it is recorded as a **named,
+   explicit** pre-existing coverage gap (§8) — visible, not closed over.
+2. **D15 — stay at `0.1.0`.** The three UI packages keep `0.1.0` with
+   digest-pinning; no `0.2.0` is taken. The change is purely additive (a
+   `.visually-hidden` primitive plus dark-theme tokens), so the public surface is
+   unchanged and a bump would signal a contract change that did not happen.
+   Consumers pin the tarball **and** the digest, so byte drift is caught
+   regardless of the version number.
+3. **D16 — data file.** The frozen legacy-divergent list ships as
+   `ui/legacy-divergent.json`. A data file is reviewable as a diff and cannot be
+   edited by a code path; a script constant invites in-code edits that never
+   appear in review. V12 asserts its length.
+4. **Sequencing — `arivio` is migrated first, ahead of every other repository in
+   the frozen list.** This is not a preference between equal candidates:
+   `arivio`'s copy omits `padding`, `margin` and `border` from the reset and
+   leaks a 1px box, so a screen-reader-only element still occupies layout. That
+   is a **measured a11y defect**. Repositories that are only stylistically
+   divergent may wait for their own schedule; a measured a11y defect may not.
+   Follow-up names `ui-fleet-adoption` and `ui-pattern-token-binding` stand.
+5. **Gate wiring — `verify-ui.mjs` IS wired into `scripts/quality-gate.sh`.**
+   This **overrides** the recommendation this change previously carried ("wire
+   it in, but that is a gate-semantics change and is left to the owner"); the
+   owner has now ruled. It is recorded here as the gate-semantics change it is.
+   The rationale, stated because it contradicts the document's own earlier
+   recommendation: this workspace has a demonstrated, diagnosed failure mode of
+   checks that report OK without checking — `forge/scripts/contract-parity.sh`
+   performs zero comparisons yet prints `contract-parity: OK`, and
+   `release-check.sh` skips it. A verifier that no gate runs does not gate, so
+   shipping token verification unwired would reproduce exactly the pattern this
+   change exists to prevent. The repo gate is currently `dotnet` + `openspec` +
+   `git diff --check`, so without this wiring a token regression does not block
+   the repo gate.

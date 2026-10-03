@@ -140,9 +140,9 @@ primitive itself.**
 | Aspect | Assessment |
 |---|---|
 | New .NET package | **None.** Package count stays **75**. See below. |
-| New npm package | **None.** The same 3 packages at `0.1.0` are packed and committed; no package is authored. |
+| New npm package | **None.** The same 3 packages at `0.1.0` are packed and committed; no package is authored. Versions stay at `0.1.0` with digest-pinning (**D15**) — the change is additive, so a bump would imply a contract change that did not happen. |
 | `eng/package-manifest.json` | **Byte-identical.** The manifest records package identity, `packageReferences`, `projectReferences` and target frameworks. This change adds no `.csproj`, no `PackageReference` and no `ProjectReference`; `ui/` is not a .NET project and is not inventoried. |
-| `eng/public-api-baseline.txt` | **Unchanged.** No public .NET type is added or altered. `Platform.UI.Razor` is not in `scripts/check-public-api.sh`'s 6-package scan list, and this change does not alter its surface, so no baseline regeneration is required or performed. |
+| `eng/public-api-baseline.txt` | **Unchanged.** No public .NET type is added or altered. `Platform.UI.Razor` is not in `scripts/check-public-api.sh`'s 6-package scan list, and this change does not alter its surface, so no baseline regeneration is required or performed. That gap is a **named, explicit** pre-existing coverage gap (**D14**), deliberately recorded rather than closed here. |
 | Architecture guards | Additive test methods in the existing `Platform.Architecture.Tests` project (which already has 137 `[Fact]`/`[Theory]` methods). No guard is deleted, renamed or weakened. |
 | Touches `forge/` | **No.** Referenced only. |
 
@@ -176,8 +176,10 @@ them and you get a feed nobody can check or a check that verifies nothing.
   `ui/scripts/verify-ui.mjs` (completeness + no-orphan-literal assertions,
   canonical primitive), new `ui/scripts/pack-ui.mjs`, new
   `ui/scripts/verify-ui-feed.mjs`, new `scripts/check-ui-conformance.sh`,
-  `ui/feed/*.tgz` (new committed bytes), `ui/README.md` and `docs/packages.md`
-  (UI rows only).
+  new `ui/legacy-divergent.json` (the frozen 15-repo baseline, **D16**),
+  `ui/feed/*.tgz` (new committed bytes), `scripts/quality-gate.sh`
+  (modified: gains `node ui/scripts/verify-ui.mjs`, §10 gate-semantics
+  ruling), `ui/README.md` and `docs/packages.md` (UI rows only).
 - **Tests:** `tests/Platform.Architecture.Tests/UiDistributionTests.cs` (new
   file in an existing project) asserting the frozen legacy list has not grown,
   the kit's generated CSS is byte-stable, and no new .NET project references a
@@ -232,8 +234,11 @@ them and you get a feed nobody can check or a check that verifies nothing.
   legacy list so the check can start from a truthful baseline, and each repair
   is its own change. **Follow-up: `ui-fleet-adoption`** — one OpenSpec change
   per consuming repository, sequenced under this repository's one-active-change
-  rule, beginning with `arivio` because it is the only measured *defect*
-  rather than a style disagreement.
+  rule, `arivio` **first, ruled** (`design.md` §10): its copy omits `padding`,
+  `margin` and `border` and leaks a 1px box, so a screen-reader-only element
+  still occupies layout — the one measured *a11y defect* rather than a style
+  disagreement. A repository that is only stylistically divergent may wait for
+  its own schedule; that defect may not.
 - **NG3 — No repair of the `openaccounting` dead-utility defect.** 100 files
   (`.html`/`.cshtml` scope) use Tailwind `sm:`/`md:`/`lg:` utilities with no
   `tailwind.config.*`, no `postcss.config.*`, and no Tailwind directive in any

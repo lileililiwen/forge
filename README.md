@@ -234,6 +234,15 @@ method, every option).
 | Package | Kind | Depends on | Anchor | One-liner |
 | --- | --- | --- | --- | --- |
 | `Platform.UI.Razor` | Production | (none) | [§ Platform UI](docs/packages.md#platform-ui) | Token-backed Razor static web assets and conventions. |
+
+The npm token layer this package's assets follow lives under [`ui/`](ui/README.md):
+`@platform/design-tokens`, `@platform/react-ui` and `@platform/react-shell`, all at `0.1.0`.
+It is resolvable from another repository by committing the packed bytes in `ui/feed/*.tgz`
+into that repository's own tree and declaring a `file:` dependency specifier — no registry,
+no sibling checkout, no absolute path and no environment variable. `ui/tokens/tokens.json`
+is the single source of every token value, the generated CSS ships the canonical
+`.visually-hidden` primitive, and `node ui/scripts/verify-ui.mjs` runs in
+`scripts/quality-gate.sh`.
 | `Platform.Starter` | Production | `Platform.Web`, `Platform.Identity.AspNetCore`, `Platform.Admin.AspNetCore`, `Platform.Billing`, `Platform.Mailing` | [§ Platform.Starter](docs/packages.md#platformstarter) | Opt-in application bootstrap that composes web, identity, admin, billing, and mailing (no application persistence or provider implementation). |
 
 ### Testing

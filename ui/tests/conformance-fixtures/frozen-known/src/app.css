@@ -1,0 +1,13 @@
+/* Fixture: copied as the repository name of a frozen legacy entry (openpanel) at test time.
+   It must be reported as a known divergence and must not fail the check. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,12 +1,132 @@
+// Generate ui/packages/design-tokens/dist/{tokens.css,tokens.ts} from
+// ui/tokens/tokens.json.
+//
+// The generator walks the DTCG tree and resolves its aliases. It enumerates no
+// token path and hardcodes no token value: the previous template literal read
+// specific paths (source.color.slate['50'].$value, …), so a token added to
+// tokens.json produced no output and no error, and the dark theme carried a
+// second literal palette that existed in no token file (design.md D-A, D-B).
+// verify-ui.mjs fails both of those states; this file can no longer cause them.
+
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  CANONICAL_VISUALLY_HIDDEN,
+  formatDeclarations,
+  readThemeOverrides,
+  readTokens,
+  resolveAliases,
+  semanticColorTokens,
+} from './lib/token-model.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = JSON.parse(await readFile(join(root, 'tokens/tokens.json'), 'utf8'));
-const css = `/* Generated from ui/tokens/tokens.json. Do not edit. */\n:root {\n  --color-slate-50: ${source.color.slate['50'].$value};\n  --color-slate-100: ${source.color.slate['100'].$value};\n  --color-slate-300: ${source.color.slate['300'].$value};\n  --color-slate-500: ${source.color.slate['500'].$value};\n  --color-slate-700: ${source.color.slate['700'].$value};\n  --color-slate-900: ${source.color.slate['900'].$value};\n  --color-blue-600: ${source.color.blue['600'].$value};\n  --color-blue-700: ${source.color.blue['700'].$value};\n  --color-red-700: ${source.color.red['700'].$value};\n  --color-green-700: ${source.color.green['700'].$value};\n  --color-amber-700: ${source.color.amber['700'].$value};\n  --color-white: ${source.color.white.$value};\n  --space-1: ${source.space['1'].$value}; --space-2: ${source.space['2'].$value}; --space-3: ${source.space['3'].$value}; --space-4: ${source.space['4'].$value}; --space-6: ${source.space['6'].$value}; --space-8: ${source.space['8'].$value};\n  --radius-sm: ${source.radius.sm.$value}; --radius-md: ${source.radius.md.$value}; --radius-lg: ${source.radius.lg.$value}; --radius-full: ${source.radius.full.$value};\n  --font-sans: ${source.font.sans.$value}; --font-body: ${source.font.body.$value}; --font-small: ${source.font.small.$value}; --font-large: ${source.font.large.$value}; --font-title: ${source.font.title.$value};\n  --color-background: var(--color-slate-50); --color-surface: var(--color-white); --color-foreground: var(--color-slate-900); --color-muted: var(--color-slate-100); --color-muted-foreground: var(--color-slate-700); --color-primary: var(--color-blue-600); --color-primary-hover: var(--color-blue-700); --color-danger: var(--color-red-700); --color-success: var(--color-green-700); --color-warning: var(--color-amber-700); --focus-ring: var(--color-blue-600);\n}\n[data-theme="dark"], .theme-dark { --color-background: var(--color-slate-900); --color-surface: var(--color-slate-700); --color-foreground: var(--color-slate-50); --color-muted: var(--color-slate-700); --color-muted-foreground: var(--color-slate-100); --color-primary: #93c5fd; --color-primary-hover: #bfdbfe; --color-danger: #fca5a5; --color-success: #86efac; --color-warning: #fcd34d; --focus-ring: #bfdbfe; }\n@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }\n`;
-const ts = `/** Generated from tokens.json. */\nexport const tokens = { color: { background: 'var(--color-background)', surface: 'var(--color-surface)', foreground: 'var(--color-foreground)', primary: 'var(--color-primary)', danger: 'var(--color-danger)', success: 'var(--color-success)', warning: 'var(--color-warning)' }, space: { 1: 'var(--space-1)', 2: 'var(--space-2)', 3: 'var(--space-3)', 4: 'var(--space-4)', 6: 'var(--space-6)', 8: 'var(--space-8)' } } as const;\nexport type PlatformTheme = 'light' | 'dark';\n`;
+
+const tokens = resolveAliases(readTokens(source));
+const semantics = semanticColorTokens(tokens);
+
+function customPropertyOf(semanticName) {
+  const token = semantics.get(semanticName);
+  if (!token) throw new Error(`generate-tokens: no semantic color token named ${semanticName}`);
+  return token;
+}
+
+/** One blank-line-separated group per top-level token group, in source order. */
+function groupedByGroup(members) {
+  const groups = [];
+  for (const token of members) {
+    let current = groups.at(-1);
+    if (!current || current.group !== token.group) {
+      current = { group: token.group, members: [] };
+      groups.push(current);
+    }
+    current.members.push(token);
+  }
+  return groups.map((group) => `\n${formatDeclarations(group.members)}`);
+}
+
+// Theme blocks are data: the override map in tokens.json decides which declared
+// primitive each semantic name re-points to in each mode.
+const themeBlocks = readThemeOverrides(source).map(({ mode, groups }) => {
+  const declarations = groups.flatMap((group) =>
+    group.entries.map(({ key, alias }) => {
+      const token = customPropertyOf(key);
+      const referenced = tokens.find((candidate) => candidate.path === alias);
+      if (!referenced) {
+        throw new Error(`generate-tokens: theme override ${mode} for ${token.path} references undeclared {${alias}}`);
+      }
+      return `  ${token.name}: var(${referenced.name});`;
+    }),
+  );
+  return `[data-theme="${mode}"], .theme-${mode} {\n${declarations.join('\n')}\n}`;
+});
+
+const rootCss = [
+  ...groupedByGroup(tokens.filter((token) => !token.path.startsWith('semantic.'))),
+  ...groupedByGroup(tokens.filter((token) => token.path.startsWith('semantic.'))),
+].join('\n');
+const rootBlock = `:root {\n${rootCss}\n}`;
+
+const visuallyHidden = `${CANONICAL_VISUALLY_HIDDEN.selector} {\n${CANONICAL_VISUALLY_HIDDEN.declarations
+  .map(([property, value]) => `  ${property}: ${value};`)
+  .join('\n')}\n}`;
+
+const css = [
+  '/* Generated from ui/tokens/tokens.json. Do not edit. */',
+  rootBlock,
+  ...themeBlocks.map((block) => `\n${block}`),
+  `\n/* Canonical shared primitive. Emitted here so it cannot drift from the kit;`,
+  '   no !important, so a consumer cascade can still override it. */',
+  `${visuallyHidden}`,
+  '@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }',
+  '',
+].join('\n');
+
+// tokens.ts keeps the pre-rewrite `tokens` shape and names, and adds a flat
+// resolved map so the TypeScript artifact carries every declared value too.
+const groups = [
+  ['color', tokens.filter((token) => token.path.startsWith('semantic.color.'))],
+  ['space', tokens.filter((token) => token.group === 'space')],
+  ['radius', tokens.filter((token) => token.group === 'radius')],
+  ['font', tokens.filter((token) => token.group === 'font')],
+  ['component', tokens.filter((token) => token.group === 'component')],
+];
+
+function objectLiteral(entries) {
+  return `{ ${entries.map(([key, value]) => `${keyLiteral(key)}: ${value}`).join(', ')} }`;
+}
+
+const keyLiteral = (key) => (/^(?:[A-Za-z_$][A-Za-z0-9_$]*|\d+)$/.test(key) ? key : JSON.stringify(key));
+
+// `semantic.color.mutedForeground` is a color token, not a `semantic.color.*` member of a
+// `color.*` primitive group, so the color group keys off the semantic prefix.
+const keyOf = (group) => (token) => {
+  const prefix = group === 'color' ? 'semantic.color.' : `${group}.`;
+  return token.path.slice(prefix.length);
+};
+
+const tokensObject = objectLiteral(
+  groups.map(([group, members]) => [group, objectLiteral(members.map((token) => [keyOf(group)(token), JSON.stringify(`var(${token.name})`)]))]),
+);
+
+const tokenValues = objectLiteral(tokens.map((token) => [token.name, JSON.stringify(token.literal)]));
+
+const ts = [
+  '/** Generated from tokens.json. Do not edit. */',
+  `export const tokens = ${tokensObject} as const;`,
+  '',
+  '/** Every declared token name and its alias-resolved value. */',
+  `export const tokenValues = ${tokenValues} as const;`,
+  '',
+  'export type TokenName = keyof typeof tokenValues;',
+  'export type PlatformTheme = \'light\' | \'dark\';',
+  '',
+].join('\n');
+
 const output = join(root, 'packages/design-tokens/dist');
 await mkdir(output, { recursive: true });
 await writeFile(join(output, 'tokens.css'), css);
 await writeFile(join(output, 'tokens.ts'), ts);
+
+console.log(`generate-tokens: emitted ${tokens.length} tokens, ${themeBlocks.length} theme block(s) from ui/tokens/tokens.json.`);

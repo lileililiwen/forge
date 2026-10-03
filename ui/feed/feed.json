@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kitVersion": "0.1.0",
+  "generatedBy": "ui/scripts/pack-ui.mjs",
+  "deterministic": "members sorted by path; mtime 0; uid/gid 0; empty uname/gname; mode 0644; gzip level 9",
+  "packages": [
+    {
+      "name": "@platform/design-tokens",
+      "version": "0.1.0",
+      "file": "platform-design-tokens-0.1.0.tgz",
+      "sha256": "7043211b80556632b7afe1661efc1b2236bb608a048522092ea24bbe11a99c15",
+      "members": [
+        "package/dist/tokens.css",
+        "package/dist/tokens.ts",
+        "package/package.json"
+      ]
+    },
+    {
+      "name": "@platform/react-ui",
+      "version": "0.1.0",
+      "file": "platform-react-ui-0.1.0.tgz",
+      "sha256": "45c757f6d222952cbeebb058670b9d731472b0afe776a3a96a23cc479ff59809",
+      "members": [
+        "package/package.json",
+        "package/src/components.tsx",
+        "package/src/index.ts",
+        "package/styles.css"
+      ]
+    },
+    {
+      "name": "@platform/react-shell",
+      "version": "0.1.0",
+      "file": "platform-react-shell-0.1.0.tgz",
+      "sha256": "0a23272e4f744712f2757e2c0be62b55a0f9fa93edeb7dddd22910e5635cba52",
+      "members": [
+        "package/package.json",
+        "package/src/index.ts",
+        "package/src/shell.tsx"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "fixture-feed-consumer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fixture: a consumer that resolves the platform UI layer from tarballs it commits itself.",
+  "dependencies": {
+    "@platform/design-tokens": "file:vendor/platform-ui/platform-design-tokens-0.1.0.tgz",
+    "@platform/react-ui": "file:vendor/platform-ui/platform-react-ui-0.1.0.tgz",
+    "@platform/react-shell": "file:vendor/platform-ui/platform-react-shell-0.1.0.tgz"
+  }
+}

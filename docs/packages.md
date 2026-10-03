@@ -967,6 +967,39 @@ React artifacts live under `ui/`: `@platform/design-tokens`, `@platform/react-ui
 `@platform/react-shell`. React and Razor share semantic tokens and state conventions while
 retaining independent implementations.
 
+## Distribution and conformance
+
+The three npm packages stay at `0.1.0` with digest pinning, and their packed bytes are
+committed in `ui/feed/*.tgz` beside a `ui/feed/feed.json` digest manifest. A repository
+outside this one consumes the layer by committing those tarballs into its own tree and
+declaring a `file:` dependency specifier plus a one-file `ui-conformance.json`; no sibling
+checkout, absolute path, environment variable or registry is involved. `ui/tokens/tokens.json`
+is the single source of every token value, and the generated CSS additionally defines the
+canonical `.visually-hidden` primitive (nine properties, no `!important`) that 15
+repositories had each written themselves.
+
+- `node ui/scripts/generate-tokens.mjs` regenerates `dist/tokens.css` and `dist/tokens.ts`
+  from the token source by walking the DTCG tree.
+- `node ui/scripts/verify-ui.mjs` is the oracle and is **wired into
+  `scripts/quality-gate.sh`**: it fails with a named diagnostic on a dropped token
+  (`ui-token-dropped`), an undeclared literal such as a hard-coded dark-theme value
+  (`ui-orphan-literal`), an unresolvable alias (`ui-alias-unresolved`), or a missing or
+  duplicated canonical primitive.
+- `scripts/check-ui-conformance.sh` scans the workspace and fails a repository that
+  declares a shared UI primitive itself (`ui-divergent-primitive`), ships a user interface
+  with no declaration (`ui-conformance-undeclared`), or introduces a new non-scale
+  breakpoint (`ui-breakpoint-undeclared`). The 15 known divergent repositories, the
+  undeclared-UI repositories and the existing breakpoint values are frozen in
+  `ui/legacy-divergent.json` so the check fails the *next* divergence without blocking
+  today's.
+- `scripts/test-ui-distribution.sh` exercises all of the above on fixtures, including a
+  real offline `npm install` at an unrelated path.
+
+See [`ui/README.md`](../ui/README.md) for the mechanism, the three refused dependency
+path forms, the version policy and the known boundaries. `Platform.UI.Razor` is not in
+`scripts/check-public-api.sh`'s six-package scan, a deliberate and recorded coverage gap:
+`eng/public-api-baseline.txt` is unchanged by this capability.
+
 # Platform.Notifications
 
 `Platform.Notifications` provides channel-neutral email/SMS intents, delivery outcomes,

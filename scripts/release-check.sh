@@ -5,7 +5,8 @@
 # and licence policy (`cargo deny check`, `cargo audit`), strict OpenSpec
 # validation, the full native profile matrix (evidence for every supported
 # profile), the readiness gate over the runner-qualified profiles, and the
-# contract parity walk when the platform-contracts source is present. Usage:
+# contract parity comparison when the platform-contracts source is present.
+# That comparison blocks on any mismatch. Usage:
 #
 #   scripts/release-check.sh [--gate-profile <id>]...
 #
@@ -19,9 +20,10 @@
 # `--gate-profile` flags locally to reproduce the CI verdict.
 #
 # The parity step runs when `PLATFORM_CONTRACTS_DIR` or the
-# `../platform-contracts` sibling checkout resolves; otherwise it prints a
-# note and continues (CI's `contract-parity` job blocks instead — the one
-# documented local/CI divergence).
+# `../platform-contracts` sibling checkout resolves, and a mismatch there blocks
+# this run. Only an absent source prints a note and continues (CI's
+# `contract-parity` job blocks instead — the one documented local/CI
+# divergence).
 #
 # Exit status: 0 only when every required check and every selected matrix
 # row passes. Anything else (including an unavailable `openspec`,
@@ -93,8 +95,12 @@ else
   exit 1
 fi
 
-# Contract parity: runs when the platform-contracts source resolves; a note
-# (not a pass) when it does not. CI's `contract-parity` job blocks instead.
+# Contract parity: runs when the platform-contracts source resolves. The step
+# compares the vendored contract bytes against the source and exits non-zero on
+# any mismatch, so under `set -eu` a mismatch aborts this run — it is a block,
+# not a note. Only an absent source prints a note and continues, which is the
+# one documented local/CI divergence: CI's `contract-parity` job blocks without
+# it instead.
 PARITY_SRC="${PLATFORM_CONTRACTS_DIR:-}"
 if [ -z "$PARITY_SRC" ] && [ -d "../platform-contracts" ]; then
   PARITY_SRC="../platform-contracts"

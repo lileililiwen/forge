@@ -80,6 +80,15 @@
       "security_sensitive_fields": ["capability_id", "service"],
       "owner_runtime": "per-service manifest publisher (C#/Rust)",
       "description": "Self-declared capability of a service: which contracts it can produce or consume, and at what stability level."
+    },
+    "platform.public-portfolio-manifest": {
+      "schema": "schemas/public-portfolio-manifest.schema.json",
+      "supported_major_versions": [1],
+      "current_version": "1.0.0",
+      "status_fields": ["showcase_status"],
+      "security_sensitive_fields": ["manifest_sha256", "projects.id", "source_url"],
+      "owner_runtime": "Forge (Rust) producer; Hugo (Go) consumer",
+      "description": "Public, language-neutral catalog of approved project metadata for the portfolio site. Only explicitly public fields are valid; admin, account, private, and internal surfaces are rejected. The manifest sha256 covers the projects[] catalog."
     }
   },
   "secret_field_substrings": [

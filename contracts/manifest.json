@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "source": "platform-contracts",
-  "revision": "d31495d424c8a2366a557a49f23c049e32f60291",
-  "synced_at": "2026-09-27T04:04:49.440Z",
+  "revision": "645d8c03013552d768a82d96bebefe77fcfa68c9",
+  "synced_at": "2026-10-03T06:15:20.635Z",
   "files": [
     {
       "path": "registry.json",
-      "sha256": "102f7ef37988e694c4c13269a85acead680125c6225bb8b22b8e75beb02f73f2",
+      "sha256": "090a97bb561230333184881cbbbd8f8096df2e2a6b746466ca9abfb99ed1fad9",
       "source": "platform-contracts",
-      "revision": "d31495d424c8a2366a557a49f23c049e32f60291"
+      "revision": "645d8c03013552d768a82d96bebefe77fcfa68c9"
     },
     {
       "path": "schemas/audit-event.schema.json",
@@ -53,6 +53,12 @@
       "revision": "d31495d424c8a2366a557a49f23c049e32f60291"
     },
     {
+      "path": "schemas/public-portfolio-manifest.schema.json",
+      "sha256": "07a3c47769da8923998273cda602ddffb195f983e3dcf344fb1d86540c6bc986",
+      "source": "platform-contracts",
+      "revision": "645d8c03013552d768a82d96bebefe77fcfa68c9"
+    },
+    {
       "path": "schemas/readiness.schema.json",
       "sha256": "d267a1825fcf3c40af9e2f0e0d30cdd21ffe3b479a5f6c8549c4aaef99f7fdda",
       "source": "platform-contracts",
@@ -60,9 +66,9 @@
     },
     {
       "path": "schemas/registry.schema.json",
-      "sha256": "b55a7a57508dfae38cf2d40f30ad4df27230b2a6b7ebd55b9dcd7b0a200d0961",
+      "sha256": "4655866e9640068be06f8c7194becbf8a6b4e1c0711a85d02374841734fb6b0e",
       "source": "platform-contracts",
-      "revision": "d31495d424c8a2366a557a49f23c049e32f60291"
+      "revision": "645d8c03013552d768a82d96bebefe77fcfa68c9"
     },
     {
       "path": "schemas/release-evidence.schema.json",

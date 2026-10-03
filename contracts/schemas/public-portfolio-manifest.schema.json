@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.contracts/public-portfolio-manifest.schema.json",
+  "title": "Public portfolio manifest",
+  "description": "Versioned, language-neutral catalog of public project metadata for the portfolio site. Required payload fields identify the catalog revision and the manifest hash; projects[] carries one entry per public project. Source URLs and surface URLs MUST be HTTPS, MUST NOT point at admin/account/private paths, and the project id is unique across the catalog. No arbitrary metadata map is allowed.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_family",
+    "schema_version",
+    "generated_at",
+    "manifest_revision",
+    "manifest_sha256",
+    "projects"
+  ],
+  "properties": {
+    "schema_family": {
+      "type": "string",
+      "enum": ["platform.public-portfolio-manifest"],
+      "description": "The contract family this manifest conforms to. Always platform.public-portfolio-manifest."
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the manifest schema this document conforms to."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 UTC timestamp at which the producer emitted this manifest."
+    },
+    "manifest_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+      "description": "Stable producer-side revision identifier (for example, a content hash or a sequence tag)."
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Lowercase hex SHA-256 of the canonical JSON form of the projects[] catalog (without the manifest envelope). Consumers may use this to detect catalog drift."
+    },
+    "projects": {
+      "type": "array",
+      "description": "Approved public projects. May be empty for a first-run or temporarily empty catalog.",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/project" }
+    }
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "category",
+        "source_url",
+        "visibility",
+        "showcase_status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Stable, URL-safe project identifier. Unique across the catalog."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://(?!.*/(?:admin|account|private|internal)(?:/|$)).+$",
+          "description": "Public HTTPS source repository URL. MUST NOT point at admin, account, private, or internal paths."
+        },
+        "demo_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "pattern": "^https://(?!.*/(?:admin|account|private|internal)(?:/|$)).+$",
+          "description": "Optional public HTTPS demo URL. MUST be HTTPS and MUST NOT point at admin, account, private, or internal paths."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public"],
+          "description": "Only public projects are allowed in the public manifest."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Optional flag a consumer may use to pin the project in a 'featured' section."
+        },
+        "showcase_status": {
+          "type": "string",
+          "enum": ["planned", "demo", "beta", "stable", "archived", "unknown"],
+          "description": "Communication status, not production readiness. The site renders this; it does not gate deploys."
+        },
+        "surfaces": {
+          "type": "array",
+          "description": "Optional list of public surfaces a consumer can link to. Each surface requires a public label and an HTTPS URL.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "url"],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://(?!.*/(?:admin|account|private|internal)(?:/|$)).+$"
+              }
+            }
+          }
+        },
+        "status_evidence": {
+          "type": "object",
+          "description": "Optional safe evidence object describing the showcase_status. Descriptive only; may be stale.",
+          "additionalProperties": false,
+          "required": ["observed_at"],
+          "properties": {
+            "observed_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Identifier for the evidence source (for example, 'forge/build-status' or 'ci/manual')."
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        }
+      }
+    }
+  }
+}

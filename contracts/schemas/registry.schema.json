@@ -40,7 +40,28 @@
             "items": { "type": "string" }
           },
           "owner_runtime": { "type": "string", "minLength": 1 },
-          "description": { "type": "string", "minLength": 1 }
+          "description": { "type": "string", "minLength": 1 },
+          "narrowing": {
+            "type": "object",
+            "description": "Optional. Absent means 'not narrowing', so every family is valid as-is. Dropping a major from supported_major_versions MUST be published through this block first: keep state 'declared' while a consumer may still sit on the dropped major, and move it to 'enforced' only once every declaring consumer has migrated. `python3 tools/manifest.py --check-narrowing` fails a publish that is 'enforced' while the manifest still serves a dropped major.",
+            "required": ["declared_on", "drops", "previous_supported_major_versions", "notice", "state"],
+            "additionalProperties": false,
+            "properties": {
+              "declared_on": { "type": "string", "format": "date-time" },
+              "drops": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "integer", "minimum": 0 }
+              },
+              "previous_supported_major_versions": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "integer", "minimum": 0 }
+              },
+              "notice": { "type": "string", "minLength": 1 },
+              "state": { "type": "string", "enum": ["declared", "enforced"] }
+            }
+          }
         }
       }
     },

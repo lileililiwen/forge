@@ -143,7 +143,26 @@ divergences with 0 diagnostics.
 The proposal's evidence totals did **not** reproduce and were not rewritten to
 match; the load-bearing 15 divergent copies did.
 
-## Current: shared-test-web-factory (active change, implemented)
+## Archived: shared-test-web-factory (COMPLETE, archived 2026-10-05)
+
+**ARCHIVED.** `openspec archive shared-test-web-factory` completed on 2026-10-05
+with 0 unchecked tasks. Moved to
+`openspec/changes/archive/2026-10-04-shared-test-web-factory/`; the spec is
+promoted to `openspec/specs/platform-test-web-factory/spec.md` (+10
+requirements). Archive commit: `a8d90cb`.
+
+This was the one completed-but-unarchived change, and the one
+`platform-build-policy-package` explicitly left open as a coordination
+question at its `tasks.md:75`. Archiving it reduces the library's active
+changes from 3 to 2. The two that remain — `platform-build-policy-package`
+(36/39) and `ui-shared-layer-reachability` (60/64) — belong to other work and
+were not touched.
+
+**Still stale:** `AGENTS.md` asserts "`openspec list` is empty". It is not. That
+claim was not corrected in the archive commit because it belongs to
+`platform-build-policy-package`, which owns the sequencing question.
+
+### Archived detail follows
 
 `Platform.Testing.AspNetCore` now ships `PlatformTestWebApplicationFactory<TEntryPoint>`,
 a real `WebApplicationFactory<TEntryPoint>` that boots the **consumer's own**

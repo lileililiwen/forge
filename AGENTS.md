@@ -49,3 +49,9 @@
 - Deterministic assembly precedes AI; generated projects must work without Forge.
 - Do not replace DriftWatch, the existing PTY manager or external content/analytics.
 - Do not force higher maturity, publish, push or deploy implicitly.
+
+## Git workflow
+
+- Work on `main`. Do not create a branch or a worktree unless the user explicitly asks.
+- Never push. The user owns publishing.
+- Stage explicit paths; never `git add -A`.

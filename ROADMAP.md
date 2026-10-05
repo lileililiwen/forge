@@ -113,9 +113,9 @@ capabilities and must not become a second monolithic starter-kit architecture.
 
 ## Status summary
 
-- Active changes: none (`openspec list` is empty); the consumer bootstrap, site-user auth starter, and post-MVP readiness queue is archived.
-- Archived changes: fifty-five (see `openspec/changes/archive/`).
-- Generated specs: forty-eight (see `openspec/specs/`).
+- Active changes: none (`openspec list` is empty); the shared-test-web-factory, platform-build-policy-package, and ui-shared-layer-reachability queue is archived.
+- Archived changes: fifty-eight (see `openspec/changes/archive/`).
+- Generated specs: fifty-one (see `openspec/specs/`).
 - Source projects: 75 (`src/`) plus 52 in-solution test projects (`tests/`), 6 samples (`samples/`), 3 template projects (`templates/`), and 1 CLI tool (`tools/`).
-- Tests: 1,391 passing across 48 in-solution test suites under SDK `10.0.400` (`grep` total over `dotnet test Platform.sln -c Release --no-build --no-restore --nologo -m:1`; architecture suite alone is 350 guard tests in `Platform.Architecture.Tests`). The solution-excluded consumer-conformance fixture (`tests/Platform.ConsumerConformance/`) adds the shared-contract envelope validation and the packed-artifact smoke test.
+- Tests: 1,391 passing across 48 in-solution test suites under SDK `10.0.400` (`grep` total over `dotnet test Platform.sln -c Release --no-build --no-restore --nologo -m:1`; architecture suite alone is 367 guard tests in `Platform.Architecture.Tests`). The solution-excluded consumer-conformance fixture (`tests/Platform.ConsumerConformance/`) adds the shared-contract envelope validation and the packed-artifact smoke test.
 - Baseline: SDK `10.0.400`, all projects `net10.0`, Microsoft framework packages at `10.0.0` (except `Microsoft.Extensions.Caching.Hybrid 9.3.0`, `Microsoft.Extensions.Http.Resilience 8.10.0`, `Microsoft.FeatureManagement 4.5.0`, and ASP.NET Core versioning helpers pinned by compatibility), third-party packages unchanged.

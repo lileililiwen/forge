@@ -5,9 +5,10 @@ DFS implementation → BFS regression → Verification.** No consumer repository
 modified in this change.
 
 **Implementation status.** This change has now been implemented in this repository.
-The checkboxes below reflect what the implementing session actually completed, with the
+The checkboxes below reflect what the implementing sessions actually completed, with the
 evidence recorded under each one. Two items remain unchecked and carry their reason
-inline. The change is **not archived** and `openspec/specs/` is unchanged: archiving is
+inline (baseline re-run, deliberately not redone; requirement→test mapping, partial
+for two scenarios unprovable in this repository). The change is **not archived** and `openspec/specs/` is unchanged: archiving is
 the parent session's step.
 
 ---
@@ -277,10 +278,15 @@ the parent session's step.
       hit its 30-second timeout under concurrent load and passes 69/69 when that
       project is run on its own. No Hangfire or Jobs code is touched by this change.
 - [x] `git diff --check` is clean.
-- [ ] Record every actual command output in the handoff. Report any
+- [x] Record every actual command output in the handoff. Report any
       environment-blocked check with its exact next action, never as passing.
-      **Left to the parent session.** This worker session made no commit (the parent
-      commits), and `AGENTS.md` step 7 puts the `HANDOFF.md` update after the
-      implementation commit. The command output this session observed is in its
-      report, not in `HANDOFF.md`.
-- [ ] State the evidence boundary in `HANDOFF.md` explicitly: **no consumer repository is resolved, migrated or proven by this change.** The portability proof (V10) is the one thing that *does* resolve a feed outside this repository, and it is done with a fixture, not with `devloom` or `kairovia`.
+      **Done by the finishing session** in `HANDOFF.md` ("Archived:
+      ui-shared-layer-reachability"): openspec validations, `verify-ui.mjs`,
+      self-test, deterministic pack, distribution tests (19 cases), react-ui
+      tests, architecture suite 367/367, workspace conformance scan
+      (83 repos, 0 diagnostics), manifest check, `git diff --check`; the one
+      environment-blocked check (`check-public-api.sh` ordering-only diff under
+      `LANG=zh_CN.UTF-8`, added/removed multisets proven identical) recorded
+      with its next action (pin the sort locale in the script).
+- [x] State the evidence boundary in `HANDOFF.md` explicitly: **no consumer repository is resolved, migrated or proven by this change.** The portability proof (V10) is the one thing that *does* resolve a feed outside this repository, and it is done with a fixture, not with `devloom` or `kairovia`.
+      Stated in the archived handoff section.

@@ -1,5 +1,73 @@
 # Handoff
 
+## Archived: ui-shared-layer-reachability (COMPLETE, archived 2026-10-05)
+
+**ARCHIVED.** `openspec archive ui-shared-layer-reachability --yes` completed on
+2026-10-05 at 62/64 tasks (2 knowingly open, `--yes` flag acknowledged the
+warning). Moved to
+`openspec/changes/archive/2026-10-05-ui-shared-layer-reachability/`; spec
+promoted: `openspec/specs/platform-ui-token-distribution/spec.md` (+8
+requirements, new). Archive commit: `a4b2e87`.
+
+**Two tasks stay knowingly open, with next actions (see `tasks.md` 0, 7):**
+
+- **0 Baseline re-run.** Proposal evidence totals did not reproduce under a
+  reconstructed probe (width-query totals, UI-bearing/dark-mode/skip-link
+  counts, `z-index` declarations) and `proposal.md` was deliberately left
+  unedited rather than overwritten with a different measurement. The
+  load-bearing number — 15 divergent `.visually-hidden` copies — reproduces
+  exactly and is the frozen `ui/legacy-divergent.json` list.
+- **7 Requirement→test mapping, partial.** Twelve of fourteen requirements
+  have an executed oracle. Two scenarios cannot have one in this repository:
+  "a Razor Pages repository consumes the token artifact" (no Razor consumer
+  repository exists) and "a Dart token artifact is requested" (the platform
+  ships no Dart artifact).
+
+**Evidence boundary: no consumer repository is resolved, migrated, or proven
+by this change.** The portability proof (V10) resolves the feed at an
+unrelated path, offline, with the registry unreachable — using a fixture, not
+`devloom` or `kairovia`.
+
+Verification evidence (finishing session, SDK `10.0.400`):
+
+- `openspec validate ui-shared-layer-reachability --strict` — valid (62/64
+  noted at archive); post-archive `validate --all --strict` — 52/52 passed.
+- `node ui/scripts/verify-ui.mjs` — PASS (47 declared tokens emitted, 38
+  baselined at 0.1.0, canonical `.visually-hidden` 9 properties, no
+  `!important`); `selftest-verify-ui.mjs` — 15/15 negative cases plus
+  positive control.
+- `ui/scripts/pack-ui.mjs` twice — byte-identical tarballs (deterministic).
+- `scripts/test-ui-distribution.sh` — 19/19 cases (feed self-check, verifier
+  pass/fail incl. all three path refusals, offline portability).
+- `node ui/packages/react-ui/tests/components.test.mjs` — passed.
+- `dotnet test tests/Platform.Architecture.Tests -c Release` — 367/367.
+- `scripts/check-ui-conformance.sh` — exit 0: 83 repositories scanned, 15
+  known frozen divergences, 48 frozen undeclared-UI, 34 out of scope,
+  0 diagnostics.
+- `scripts/generate-package-manifest.sh --check` — `Manifest matches source.`
+- `git diff --check` — clean (one fix applied: the archive promotion wrote a
+  trailing blank line at EOF of the promoted spec; removed, whitespace-only,
+  specs re-validated).
+
+**One pre-existing environment issue surfaced, not caused by this change:**
+`check-public-api.sh` exits 1 under this shell (`LANG=zh_CN.UTF-8`) with an
+**ordering-only** diff (added/removed line multisets proven identical by
+sort-normalised comparison — same root cause as documented for
+`platform-build-policy-package`: locale-sensitive `sort -u` without a pinned
+`LC_ALL`). No public API change. Next action: follow-up to pin the sort
+locale in the script.
+
+**Stale docs refreshed in the archive commit:** `AGENTS.md` "Current state"
+and `ROADMAP.md` status summary now record all three completions
+(`shared-test-web-factory`, `platform-build-policy-package`,
+`ui-shared-layer-reachability`): 58 archived changes, 51 generated specs,
+367 architecture guards. `openspec list` is empty; the next work, if any,
+starts with a fresh OpenSpec proposal.
+
+**Left untouched:** `.ai-gate/gate.yaml` (modified in working tree) and
+`driftwatch.toml` (untracked) are external/local tooling state, not part of
+either change, and were neither staged nor committed.
+
 ## Archived: platform-build-policy-package (COMPLETE, archived 2026-10-05)
 
 **ARCHIVED.** `openspec archive platform-build-policy-package` completed on

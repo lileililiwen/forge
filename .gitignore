@@ -21,6 +21,12 @@
 /.ruff_cache/
 *.profraw
 # Local runtime, secrets and credentials
+#
+# /.forge/ holds what Forge writes for one machine, not what a project declares:
+# `.forge/gate/**` evidence output, `.forge/agents/**` sessions, and
+# `.forge/providers.yaml`, whose adapter commands are absolute paths into this
+# developer's checkouts. Tracking it would ship paths that are wrong everywhere
+# else, so the whole directory stays ignored.
 /.forge/
 *.log
 *.db

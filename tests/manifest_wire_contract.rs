@@ -5,8 +5,11 @@
 //! `platform-contracts`' `schemas/public-portfolio-manifest.schema.json`. Forge
 //! used to emit three fields the schema rejects — a bare family name, an
 //! integer `schema_version` and an integer `manifest_revision` — and nothing
-//! inside this repository could catch it, because the mirror under `contracts/`
-//! does not contain that schema file at all.
+//! inside this repository could catch it when the defect was found, because the
+//! mirror under `contracts/` did not retain that schema file. It does now, and
+//! `scripts/contract-parity.sh` compares it byte-for-byte against the resolved
+//! source. This test still resolves a `platform-contracts` checkout rather than
+//! the mirror; repointing it at `contracts/schemas/` is open work.
 //!
 //! Two tests, failing differently:
 //!

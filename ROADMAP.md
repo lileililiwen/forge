@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) and the later publish, portal, portfolio, catalog and studio packages listed under [Later packages](#later-packages) are implemented, archived and promoted to their canonical specs — 69 archived changes and 62 canonical specs; `openspec list` reports no remaining active changes. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) and the later publish, portal, portfolio, catalog and studio packages listed under [Later packages](#later-packages) are implemented, archived and promoted to their canonical specs — 71 archived changes and 63 canonical specs; `openspec list` reports no remaining active changes. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -93,31 +93,35 @@ Live analytics aggregate evidence for the interest store is likewise a provider-
 
 All 29 baseline and audit changes plus the sibling-integration packages
 (orders 30 through 39) are archived and promoted to their canonical specs.
-The current active queue is reported by `openspec list`; `HANDOFF.md` retains
-the existing `current_spec` pointer. Planning artifacts do not change that
-implementation pointer. A new implementation cycle selects exactly one
-eligible change and follows implement-one-change → local verify/Gate → strict
-validate → archive, committing only related work, updating and committing
-handoff, then stopping without pushing.
+`openspec list` reports no active changes, so `HANDOFF.md` carries no
+`current_spec` pointer — the governance checker requires the line to be absent,
+not set to `none`, when the queue is empty. A new implementation cycle selects
+exactly one eligible change and follows implement-one-change → local verify/Gate
+→ strict validate → archive, committing only related work, updating and
+committing handoff, then stopping without pushing.
 
-## Proposed idea-to-production workflow changes
+## Idea-to-production workflow changes (delivered)
 
-These are planning artifacts added after the existing active queue was
-discovered. Implement one dependency-ready change at a time and reconcile
-`HANDOFF.md` before selecting it.
+All four were planning artifacts when this section was written. Each is now
+implemented, archived and promoted to its canonical spec, so none of them is a
+queue item:
 
 1. `github-cli-project-workflows` — use the developer's existing `gh` session
    for explicit local repository operations; no separate GitHub login.
+   → [spec](openspec/specs/github-cli-project-workflows/spec.md)
 2. `site-studio-preview-refinement` — create a reviewed site spec, scaffold the
    existing `react-web` profile, run a bounded local preview, and refine via the
    controlled agent adapter.
+   → [spec](openspec/specs/site-studio-preview-refinement/spec.md)
 3. `project-to-production-workflow` — stage, health-check, and explicitly
    promote a project through OpenPanel; retry Hermora enrollment separately
    without redeploying.
+   → [spec](openspec/specs/project-to-production-workflow/spec.md)
 4. `hypora-graduation-import` — validate a local `platform.idea-graduation`
    snapshot, preview its brief/evidence, and require confirmation before
    creating Forge project state. Depends on the shared contract and Hypora's
    producer change.
+   → [spec](openspec/specs/hypora-graduation-import/spec.md)
 
 Dependencies: Studio consumes existing Intent/generation/agent behavior;
 repository operations are independent; production workflow depends on

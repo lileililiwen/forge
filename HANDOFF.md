@@ -6,9 +6,12 @@
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
 
-current_spec: runtime-hardening-and-contract-closure
+**No active changes remain.** The seven in-flight packages were consolidated into
+`runtime-hardening-and-contract-closure` and archived on 2026-10-05 as
+`openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
+promoting 11 requirements and modifying 1 across five canonical specs.
 
-## Seven in-flight changes consolidated into one package
+## Seven in-flight changes consolidated, then archived
 
 Seven change packages were implemented, verified and committed on `main`, and none
 was archived. Each one recorded `openspec archive` as "deliberately not run: the
@@ -16,12 +19,10 @@ other changes are parked" — which is inverted, because archive is the per-chan
 step that removes a change from flight. The queue had jammed on a blocker in
 `contract-parity-gate-real-digests` §4.4 (`check-spec-governance.mjs` failing on the
 `scaffold-prewires-shared-layer` spec), and that blocker had already been fixed by
-`5019d12` without anyone re-running the check.
+`5019d12` without anyone re-running the check. That check reports PASS today.
 
-The seven are now merged into one active package,
-`openspec/changes/runtime-hardening-and-contract-closure/`, and the seven
-directories are removed. Their full text is preserved in git from `c138f08` to
-`1c3e1f5`.
+The seven are merged into one archived package and their directories are removed.
+Their full text is preserved in git from `c138f08` to `1c3e1f5`.
 
 | Absorbed change | Code commit | Concern |
 |---|---|---|
@@ -48,8 +49,19 @@ requirement per mechanism**:
 - the allocator refusal, the bounded adapter run, the bounded revision lookup, the
   parity gate and the manifest wire shape carried verbatim.
 
-`openspec validate --all --strict` passing with the package active was confirmed
-before this commit; the archive itself follows in the next commit.
+`openspec archive` ran with spec promotion, no `--skip-specs`:
+**11 requirements added, 1 modified**, across `governance-provider-contract` (3),
+`platform-contract-consumption` (5 added, 1 modified), `portfolio-share` (1),
+`runtime-hardening-and-test-isolation` (1) and `site-studio-preview-refinement` (1).
+Verification re-run at archive time rather than inherited: whole workspace
+**2305 passed / 0 failed / 3 ignored**, `scripts/contract-parity.sh` **exit 0**
+comparing 13 files and 10 family digests, manifest schema acceptance against the
+sibling contract **1 passed**, `cargo fmt --check` clean, clippy exit 0,
+`check-openspec-change-names` and `check-spec-governance` PASS.
+
+The narrative sections below still name the seven absorbed packages, because each one
+records a distinct mechanism and its measured evidence. They are history, not
+work-in-flight: every requirement they describe is now in a canonical spec.
 
 ## What governance-adapter-bounded-process-run fixes
 

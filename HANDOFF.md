@@ -1,5 +1,38 @@
 # Handoff
 
+## Current: platform-privacy (COMPLETE, archived 2026-10-05)
+
+New packages `Platform.Privacy` (consent vocabulary, version-gated
+fail-closed evaluation, in-memory store, subject-rights contracts +
+registry, anonymization helpers) and `Platform.Privacy.AspNetCore`
+(consent-cookie service, scoped state, `RequireConsent` enforcement
+with 403 naming missing categories, explicit anonymous policy
+defaulting to deny). No product routes, no banner markup, unsigned
+plain-JSON cookie by design. Commit: `dcf8f2c`.
+
+**Verification:** 13 new tests (9 core + 4 adapter) pass; 3 new
+architecture facts (core refs only Core, adapter refs Core + Privacy,
+FrameworkReference allowlist); `openspec validate --all --strict`
+54/54; `scripts/conformance.sh` EXIT=0; `git diff --check` clean;
+package manifest regenerated (78 packages); `docs/packages.md`
+section added. Revert rows, build-verified and restored: stale
+version grants → 1 fail; swallowed provider failure → 1 fail;
+unenforced endpoint → 1 fail.
+
+**Pre-existing, not this change:** full `Platform.sln` shows 3
+architecture failures from the `ui-shared-layer-reachability`
+archive (tests still read the active change path). `Only_..._`
+failure among them was mine (missing FrameworkReference allowlist)
+and is fixed; the 2 `UiDistributionTests` failures predate this
+change — record, do not expand scope to fix. `.ai-gate/gate.yaml`
+carries an uncommitted `governance-quality: true` line from external
+tooling; left untouched.
+
+**Next:** openlearning consumes the packages (consent banner +
+wire-up, export/erasure providers for learner data). The packages
+are not yet packed/published; the consumer restores via project
+reference or a local feed until release.
+
 ## Archived: ui-shared-layer-reachability (COMPLETE, archived 2026-10-05)
 
 **ARCHIVED.** `openspec archive ui-shared-layer-reachability --yes` completed on

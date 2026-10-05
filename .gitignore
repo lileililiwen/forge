@@ -48,7 +48,12 @@ Thumbs.db
 /.ariadex/
 /.claude/
 /.commandcode/
-/templates/
+/.qoder/
+
+# templates/ is NOT runtime state and must stay tracked: src/generate/mod.rs
+# embeds templates/rust-web-main-rs.txt with include_str! at compile time, so
+# ignoring it made a fresh clone fail to build. b85f980 added it here alongside
+# the agent directories by mistake.
 
 # Driftwatch local runtime state. This directory holds per-machine state
 # (state.db and local caches), never project configuration, so it must

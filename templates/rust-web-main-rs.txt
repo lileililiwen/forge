@@ -1,0 +1,20 @@
+//! {id}: rust-web scaffold (deterministic asset {GENERATOR_VERSION}).
+
+/// Stable greeting used by native tests.
+pub fn greeting() -> &'static str {{
+    "hello from {id}"
+}}
+
+fn main() {{
+    println!("{{}}", greeting());
+}}
+
+#[cfg(test)]
+mod tests {{
+    use super::*;
+
+    #[test]
+    fn greeting_is_stable() {{
+        assert_eq!(greeting(), "hello from {id}");
+    }}
+}}

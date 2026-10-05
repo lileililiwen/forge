@@ -13,25 +13,132 @@ version performed zero comparisons and printed an unconditional
 `contract-parity: OK`. It also re-syncs three drifted mirror files. The change is
 not archived and no commit has been made for it.
 
-current_spec: governance-adapter-request-write-race
+current_spec: governance-adapter-bounded-process-run
 
-## Three changes are in flight and none is archived
+## Five changes are in flight and none is archived
 
-`.ai-rules/workflow.md` allows one active change at a time. **Three** active
+`.ai-rules/workflow.md` allows one active change at a time. **Five** active
 change directories exist right now, because the owner explicitly authorized
-this work to proceed alongside the two already parked. Nothing below was
+this work to proceed alongside the ones already parked. Nothing below was
 archived, deleted or committed on another change's behalf.
 
 | Change | State | Concern |
 |---|---|---|
 | `contract-parity-gate-real-digests` | active, implemented, **not archived**, no commit | vendored contract bytes |
 | `manifest-wire-contract-shape` | active, implemented, verified, **not archived** | the emitted manifest's wire shape |
-| `governance-adapter-request-write-race` | active, implemented, verified, **not archived** | a governance adapter that never reads its request |
+| `governance-adapter-request-write-race` | active, implemented, verified, **not archived** (`21a9566`) | a governance adapter that never reads its request |
+| `governance-adapter-bounded-process-run` | active, implemented, verified, **not archived** | the adapter subprocess can deadlock; the revision lookup has no deadline |
+| `studio-preview-contract-port-range` | active, implemented, verified, **not archived** | a test port range inside the OS ephemeral window |
 
-The three are independent concerns and none depends on another. The
-`current_spec:` pointer above names the change most recently worked on;
-`governance-adapter-request-write-race` was selected next, not instead of the
-other two.
+The five are independent concerns and none depends on another. The
+`current_spec:` pointer above names the change most recently worked on.
+
+## What governance-adapter-bounded-process-run fixes
+
+Three defects in `run_adapter` / `git_revision`, all recorded as outstanding in
+`governance-adapter-request-write-race`'s `design.md` §5 and all reachable from
+`forge governance check`.
+
+1. **A large stdout deadlocked.** `MAX_ADAPTER_OUTPUT_BYTES` is 256 KiB, a pipe
+   buffer is 64 KiB, and the old code read a pipe only *after* `try_wait`
+   reported the child gone. Any adapter writing more than one buffer blocked in
+   `write(2)` on every run and was reported `Unavailable` —
+   `adapter exceeded timeout of 5000 ms`. Arithmetic, not a race. Both pipes
+   are now drained on their own threads while the parent waits, bytes past the
+   cap counted and discarded so the cap stays a real memory bound.
+2. **`git_revision` had no deadline.** `Command::output()` blocks until the
+   child exits, forever, and it runs on *every* check including the local
+   provider. It is now bounded by the selected provider's existing `timeout_ms`
+   — the constant `validate_config` already constrains — so no new number
+   enters the boundary. Measured against the pre-fix expression: `timeout 8` →
+   **exit 124**, never returned.
+3. **The wait polled every 10 ms.** It is now a blocking `recv_timeout` that
+   wakes on a pipe reaching end-of-file or at the deadline.
+
+Two further findings came out of the implementation and are documented rather
+than papered over. `/bin/sh -c '…'` forks on this host, so killing a child does
+not close a pipe a descendant inherited (**measured**: the pipe stayed open the
+full 30 s), which is why the drain threads are detached rather than joined — a
+join there took the full 30 s, an unbounded wait in the exact case the bound
+exists for. And end-of-file is **not** an exit event, so a waiter that woke
+only on end-of-file reported `exceeded timeout` for adapters that had answered
+completely (**measured**: 2–4 failures per run, at exact multiples of the 5 s
+and 10 s test budgets; 0 failures and 0.02 s after the fix). That one narrow
+window — both pipes done, child not yet reaped — is the only place a short
+re-check remains, and it has its own deterministic guard.
+
+`21a9566` is not regressed: the `BrokenPipe`-is-not-a-failure rule and the
+kill-and-reap on a genuine write failure are carried through untouched, and
+both of its guards still pass.
+
+### Verification of these two changes (2026-10-05)
+
+| Check | Result |
+|---|---|
+| `cargo test --test studio_preview_contract` × 30 | **30/30 passed**, `7 passed; 0 failed` every run |
+| `cargo test --test studio_preview_contract -- --test-threads=8` × 10 | **10/10 passed** |
+| `cargo test --test governance_contract` × 30 | **30/30 passed** |
+| `cargo test --test governance_contract -- --test-threads=8` / `=1` | **10/10** and **10/10** passed |
+| `cargo test --lib governance::tests` | 17 passed |
+| Full suite, 6 runs with the change **stashed** | 4 of 6 **failed**; run c failed `preview_port_collision_is_refused_without_killing_a_listener` with `left: 56, right: 64` |
+| Full suite, 5 runs with the change | 2 clean (`2303 passed / 0 failed`), 3 with failures all drawn from the pre-existing pool |
+| `cargo fmt --check` | clean |
+| `cargo clippy --workspace --all-targets` | exit 0; 12 warnings stashed, 12 applied — none added |
+| `git diff --check` | PASS |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | 68 passed / 0 failed |
+
+Guard-by-guard, against the pre-fix mechanism, with the guard reverted rather
+than the fix assumed:
+
+| Guard | Against the pre-fix mechanism |
+|---|---|
+| `an_adapter_that_writes_more_than_one_pipe_buffer_still_answers` | **fails**: `left: Unavailable, right: Pass` |
+| `an_adapter_that_writes_past_the_output_cap_is_refused` | **fails**: `Ok(... status: Unavailable, detail: "adapter exceeded timeout of 5000 ms")` |
+| `a_revision_lookup_that_never_answers_gives_up_within_its_bound` | the pre-fix `Command::output()` expression, rebuilt and run, **never returned**: `timeout 8` → exit **124** |
+| `a_child_that_closed_its_pipes_and_keeps_running_is_not_reported_as_a_timeout` | **fails**: `elapsed 5.004397229s` of a 5 s budget |
+| Studio liveness loop, one listener removed | **fails**: `listener on 4100 no longer accepts: Connection refused (os error 111)` |
+
+The first full-suite runs with an early version of the fix failed 2–4 tests per
+run at exact multiples of the 5 s/10 s test budgets. That was this change's own
+bug — end-of-file is not an exit event — and it is documented in the change's
+`design.md` §3.4 rather than quietly dropped.
+
+## Six whole-suite flakes remain, all reproduced or classified stashed
+
+| Test | Signature | State |
+|---|---|---|
+| `studio_preview_contract::preview_port_collision_is_refused_without_killing_a_listener` | `left: 56, right: 64` | **fixed** by `studio-preview-contract-port-range` |
+| `api_contract::{healthz_route_returns_200_without_authorization, unknown_route_returns_404, wrong_method_returns_405}` | `ConnectionReset (os error 104)` | **pre-existing, reproduced stashed**: 3 failures in 8 target runs |
+| `delivery_cross_surface::a_successful_preflight_writes_a_journal_row_visible_on_both_transports` | `publish provider 'openpanel': Broken pipe (os error 32)` | **pre-existing, reproduced stashed** (3 of 6 baseline runs) |
+| `docs_contract::provider_failure_keeps_prior_derivative_and_redacts_secrets` | `translator stdin write failed: Broken pipe (os error 32)` | **pre-existing, reproduced stashed** |
+| `mcp_contract::mcp_repeated_isolated_round_trip_is_stable` | two invocations, `observed_at` one second apart | **pre-existing, reproduced stashed** |
+| `gate::tests::real_run_executes_gate_surface_and_records_evidence` | `Text file busy (os error 26)` | **pre-existing, not reproduced stashed** — 1 of 6 with-change runs, 0 of 6 baseline; passes 5/5 in isolation both ways |
+| `docs_contract::ordering_is_stable_by_project_then_source_whatever_the_selection_order` | — | **pre-existing, reproduced stashed** |
+
+**The strongest candidate for the next change**: `src/publish/providers.rs:531`,
+`src/docs/mod.rs:676` and `src/delivery/hermora.rs:171` carry the *same*
+`BrokenPipe` defect `21a9566` fixed for governance adapters — a bare
+`write_all` that turns an adapter answering without reading its request into a
+hard failure. The fix is now written and reviewed once; applying it three more
+times is mechanical.
+
+## What studio-preview-contract-port-range fixes
+
+`preview_port_collision_is_refused_without_killing_a_listener` bound a fixed
+range `45800–45863`, inside this host's ephemeral window
+(`/proc/sys/net/ipv4/ip_local_port_range` = `32768 60999`). One unrelated
+outbound connection took one port and the test failed `left: 63, right: 64`.
+The test now reads the ephemeral window, considers only candidates lying wholly
+outside it, and **keeps the listeners** that verified its range was free, so
+nothing can change between choosing the range and occupying it. Measured: with
+`4100..4163` held by an unrelated process, the whole target still passes 7/7.
+
+The test also had a second, hidden defect. The "listeners are all still alive"
+assertion compared a `Vec` length with the value it was built from and **could
+not fail**. It now proves a listener still accepts on every port and that no
+port was released. The record states plainly that neither half can prove
+*ownership*, because nothing observable from outside a process can.
 
 `manifest-wire-contract-shape` is implemented, verified and **not archived**.
 It is a *second* active change alongside the parked
@@ -119,25 +226,18 @@ across distinct directories, no socket, and read-only fixtures.
   `--test-threads=8`, the 20 at `--test-threads=1`, or 220 further default
   runs, and it is **not** claimed as fixed. It is most likely a different,
   environmental flake — see the studio port note below — but that is a
-  hypothesis, not a measurement.
-- **Three adjacent defects found while mapping `run_adapter`, not fixed here**
-  and recorded in the change's `design.md` §5: stdout is not drained while the
-  child runs, so an adapter writing more than one 64 KiB pipe buffer deadlocks
-  until its deadline against a 256 KiB `MAX_ADAPTER_OUTPUT_BYTES`; `git_revision`
-  has no deadline at all; the wait loop polls at 10 ms. None of them is the
-  cause of this flake — no adapter in this repository produces more than ~10 KiB
-  — and the first needs concurrent drain + deadline handling, a materially
-  larger change.
-- **`tests/studio_preview_contract.rs::preview_port_collision_is_refused_without_killing_a_listener`
-  is a separate, pre-existing flake**, seen in a whole-suite run and outside
-  this change's scope. It binds the fixed range 45800–45863, which lies inside
-  this machine's Linux ephemeral range (`/proc/sys/net/ipv4/ip_local_port_range`
-  = `32768 60999`), so any concurrent outbound connection from any process can
-  take one of the 64 ports and the test's own bind then returns 63. Mechanism
-  proved, not guessed: with another process holding the range, the same
-  assertion fails (`left: 0, right: 64` when all 64 are held; `left: 63,
-  right: 64` when one is). It passes in isolation. The fix is not a free port
-  or a free port *range*; it belongs to its own change.
+  hypothesis, not a measurement, and it remains open: the capture never
+  recorded which test failed, so nothing links it to anything later measured.
+- ~~**Three adjacent defects found while mapping `run_adapter`, not fixed here**~~
+  **Since fixed** by `governance-adapter-bounded-process-run` (concurrent pipe
+  drain, a `git_revision` deadline, a blocking wait instead of a 10 ms poll).
+  These three were **not** the cause of this flake — no adapter in this
+  repository produces more than ~10 KiB.
+- ~~**`tests/studio_preview_contract.rs::preview_port_collision_is_refused_without_killing_a_listener`
+  is a separate, pre-existing flake**~~ **Since fixed** by
+  `studio-preview-contract-port-range`, which chooses the range at run time
+  outside the host's ephemeral window and proves the occupied listeners survive
+  the refusal with an assertion that can fail.
 
 ## What manifest-wire-contract-shape does
 

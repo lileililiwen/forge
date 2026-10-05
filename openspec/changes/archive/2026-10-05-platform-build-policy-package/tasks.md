@@ -14,6 +14,18 @@ Phases are BFS → DFS → BFS.
   in
   [`docs/platform-build-policy-migration.md`](../../../docs/platform-build-policy-migration.md).
 
+## Finish scope (2026-10-05, owner-ordered)
+
+The in-repository scope — part 1, the migration half of part 3, and the
+migration/rollback documentation — is complete and verified below. Part 2 (a
+`forge` edit, outside this repository and outside this change's edit surface)
+and the root-file retirement (blocked on part 2 via deletion-clause 5) are
+**cross-repo follow-ups**, each needing its own change in its own repository;
+they cannot be committed here. Two tasks stay knowingly open with next actions
+inline: 2.3 (`NoWarn` justification set — an owner policy decision) and 4.3
+(rollback rehearsal — needs the harness-parameterisation follow-up). The
+change archives on this scope; the follow-ups are recorded in `HANDOFF.md`.
+
 ## 0. Caveats and confirmations
 
 - [x] **Read `openspec/specs/platform-consumer-bootstrap/spec.md` and
@@ -72,18 +84,17 @@ Phases are BFS → DFS → BFS.
   `smotoox`'s 22-entry list, which is a per-repository deviation rather than
   platform policy, so the package ships no `NoWarn` at all and enforces the
   justification rule for any future entry.
-- [ ] **Sequencing note, unresolved.** `AGENTS.md` says one active OpenSpec
-  change at a time, but two are already active (`ui-shared-layer-reachability`
-  at 60/64 tasks; `shared-test-web-factory` complete but unarchived). This
-  change adds a third. Decide with the change owner whether to archive
-  `shared-test-web-factory` first; this is a coordination question, not a
-  technical blocker, and it is deliberately left open.
-  **Still open.** A coordination decision for the change owner; part 1 does not
-  resolve it and did not archive any other change. One consequence was paid for
-  in this part: the `ui-shared-layer-reachability` tripwire
+- [x] **Sequencing note, resolved 2026-10-05.** `AGENTS.md` says one active OpenSpec
+  change at a time, but two were active (`ui-shared-layer-reachability`;
+  `shared-test-web-factory` complete but unarchived). `shared-test-web-factory`
+  is now archived (`a8d90cb`, 2026-10-05), and the change owner ordered a
+  sequential finish: `platform-build-policy-package` first, then
+  `ui-shared-layer-reachability`, one at a time. This change proceeds to
+  archive on its finish scope above; the remaining coordination cost it paid —
+  the `ui-shared-layer-reachability` tripwire
   `UiDistributionTests.The_package_manifest_and_razor_package_version_are_untouched_by_this_capability`
-  pins the manifest package count, so adding a package moved it from 75 to 76.
-  See 3.4.
+  pins the manifest package count, so adding a package moved it from 75 to 76 —
+  is recorded in 3.4 and still holds (guard asserts 76).
 - [x] **Stage only this change directory.** Stage explicit paths; never
   `git add -A`.
 

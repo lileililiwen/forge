@@ -8,6 +8,9 @@ checks:
   tests: true
   security: true
   declared-verification: true
+  governance-quality: true
+  placeholder-threshold: true
+  product-code-boundary: true
 blocking:
   - FAIL
   - REVIEW_REQUIRED
@@ -26,3 +29,6 @@ commands:
   build: 'cargo build --workspace'
   tests: 'cargo test --workspace'
   security: 'cargo audit'
+  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project forge --json'
+  placeholder-threshold: 'python3 ../workspace-governance/scripts/product_code_quality.py .'
+  product-code-boundary: 'python3 ../workspace-governance/scripts/product_code_quality.py .'

@@ -8,16 +8,17 @@
 //! adapters over exactly these functions.
 
 use std::fs;
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use forge::registry::Registry;
 use forge::studio::state::SessionPreviewState;
 use forge::studio::{
     load_session, parse_spec_text, save_spec, start_preview, stop_preview, FakeRunner,
-    PreviewState, ProcessRunner, PORT_RANGE_WIDTH, RUNTIME_BIN_ENV, STUDIO_PORT_RANGE_START_ENV,
+    PreviewState, ProcessRunner, DEFAULT_PORT_RANGE_START, PORT_RANGE_WIDTH, RUNTIME_BIN_ENV,
+    STUDIO_PORT_RANGE_START_ENV,
 };
 
 /// Serialize the tests: the Studio port range and the startup-timeout
@@ -37,13 +38,127 @@ pages:\n\
 \x20\x20\x20\x20\x20\x20- id: hero-block\n\
 \x20\x20\x20\x20\x20\x20\x20\x20kind: hero\n";
 
-/// A distinct port range for this test binary so it cannot collide
-/// with the CLI/API test processes running in parallel.
-const TEST_PORT_BASE: u16 = 45800;
+/// Distance between candidate range lower bounds. The window is `PORT_RANGE_WIDTH`
+/// wide, so 128 leaves a gap between candidates and never two candidates that
+/// overlap.
+const CANDIDATE_STEP: u16 = 128;
+
+/// The window this host draws ephemeral **outbound** source ports from
+/// (`/proc/sys/net/ipv4/ip_local_port_range`).
+///
+/// This is the reason no test may hardcode a port range. The kernel hands out
+/// source ports from here for every outbound connection by every process on
+/// the machine, and it does not skip a port because something is already
+/// listening on it inbound. A hardcoded range inside this window loses a port
+/// to an unrelated connection, which is exactly how
+/// `preview_port_collision_is_refused_without_killing_a_listener` reported
+/// `left: 63, right: 64` when the base was the fixed `45800` and this host's
+/// window was `32768 60999`.
+///
+/// When the file cannot be read, `49152` is used: it is macOS's default lower
+/// bound and it keeps the candidates well below, where the product's own
+/// default range lives.
+fn ephemeral_range() -> (u16, u16) {
+    std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
+        .ok()
+        .and_then(|text| {
+            let mut parts = text.split_whitespace();
+            Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+        })
+        .unwrap_or((49_152, u16::MAX))
+}
+
+/// Lower bounds to try for a width-wide range, in order.
+///
+/// Every candidate is kept **wholly** outside the ephemeral window — not
+/// merely non-overlapping — so no outbound connection on this host can take any
+/// port in it. The first sweep starts near the product's own default range so a
+/// printed port stays recognisable.
+fn candidate_bases() -> Vec<u16> {
+    let width = u32::from(PORT_RANGE_WIDTH);
+    let first = u32::from(DEFAULT_PORT_RANGE_START).max(1024);
+    let last = u32::from(u16::MAX) - width + 1;
+    let (low, high) = ephemeral_range();
+    let (low, high) = (u32::from(low), u32::from(high));
+    let mut bases = Vec::new();
+
+    // Below the ephemeral window, starting at the product's default range.
+    let mut base = first;
+    while base + width <= low {
+        bases.push(base as u16);
+        base += u32::from(CANDIDATE_STEP);
+    }
+    // Above the ephemeral window.
+    let mut base = high + 1;
+    while base <= last {
+        bases.push(base as u16);
+        base += u32::from(CANDIDATE_STEP);
+    }
+    // Last resort for a host whose ephemeral window swallows the space above:
+    // anything at all that is not inside the window.
+    let mut base = 1024;
+    while base <= last {
+        if base + width <= low || base > high {
+            bases.push(base as u16);
+        }
+        base += 1024;
+    }
+    bases
+}
+
+/// Occupy a width-wide range that lies outside the ephemeral window, and
+/// **keep the listeners**.
+///
+/// The listeners are the point. A helper that probed for a free range and then
+/// released its probes would leave a window between "free" and "bind", and the
+/// test that needs the range *busy* would still be taking a guess. Here the
+/// ports the test occupies are the same sockets the search verified, so nothing
+/// can change between the search and the assertions.
+///
+/// This is setup, not a retry over a flaky assertion: it answers "where on this
+/// host is a width-wide window free?", a question that has no constant answer.
+/// The assertions built on top of it are unchanged in strength.
+fn reserve_range() -> (u16, Vec<TcpListener>) {
+    let mut tried = Vec::new();
+    for base in candidate_bases() {
+        let mut listeners = Vec::new();
+        let mut complete = true;
+        for offset in 0..PORT_RANGE_WIDTH {
+            match TcpListener::bind(("127.0.0.1", base + offset)) {
+                Ok(listener) => listeners.push(listener),
+                Err(_) => {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+        if complete {
+            return (base, listeners);
+        }
+        tried.push(base);
+    }
+    panic!(
+        "no {PORT_RANGE_WIDTH}-wide port range could be bound outside the ephemeral window {:?}; \
+         tried lower bounds {tried:?}",
+        ephemeral_range()
+    );
+}
+
+/// The one range this binary uses when a test needs the window **free**. Chosen
+/// once so the range cannot drift between `set_test_env()` and the assertion
+/// that checks the reserved port falls inside it.
+fn shared_port_base() -> u16 {
+    static BASE: OnceLock<u16> = OnceLock::new();
+    *BASE.get_or_init(|| reserve_range().0)
+}
+
+fn set_test_env_at(base: u16) {
+    std::env::set_var(STUDIO_PORT_RANGE_START_ENV, base.to_string());
+    std::env::set_var("FORGE_STUDIO_STARTUP_TIMEOUT_SECS", "8");
+}
 
 fn set_test_env() {
-    std::env::set_var(STUDIO_PORT_RANGE_START_ENV, TEST_PORT_BASE.to_string());
-    std::env::set_var("FORGE_STUDIO_STARTUP_TIMEOUT_SECS", "8");
+    set_test_env_at(shared_port_base());
 }
 
 fn setup(tmp: &Path) -> (Registry, PathBuf) {
@@ -87,8 +202,12 @@ fn preview_reaches_ready_records_start_and_stop() {
     let runner = Box::new(FakeRunner::default());
     let (session, live) = start_preview(&registry, &project_root, runner).unwrap();
     assert_eq!(session.preview.state, PreviewState::Ready);
+    let base = shared_port_base();
     let port = session.preview.port.expect("reserved port");
-    assert!((TEST_PORT_BASE..TEST_PORT_BASE + PORT_RANGE_WIDTH).contains(&port));
+    assert!(
+        (base..base + PORT_RANGE_WIDTH).contains(&port),
+        "{port} outside {base}"
+    );
 
     // The status read reflects the persisted ready state.
     let loaded = load_session(&project_root).unwrap().unwrap();
@@ -171,19 +290,19 @@ fn preview_startup_failure_persists_failed_with_typed_code() {
 #[test]
 fn preview_port_collision_is_refused_without_killing_a_listener() {
     let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    set_test_env();
+    // Occupy a whole range outside the host's ephemeral window, and keep the
+    // listeners that verified it was free, so nothing can take a port between
+    // choosing the range and occupying it.
+    let (base, listeners) = reserve_range();
+    assert_eq!(
+        listeners.len(),
+        PORT_RANGE_WIDTH as usize,
+        "reserve_range returned a partial range"
+    );
+    set_test_env_at(base);
     let tmp = tempfile::tempdir().unwrap();
     let (registry, project_root) = setup(tmp.path());
     save_minimal_spec(&registry, &project_root);
-
-    // Occupy the whole range so the allocator refuses.
-    let mut listeners = Vec::new();
-    for offset in 0..PORT_RANGE_WIDTH {
-        if let Ok(listener) = TcpListener::bind(("127.0.0.1", TEST_PORT_BASE + offset)) {
-            listeners.push(listener);
-        }
-    }
-    assert_eq!(listeners.len(), PORT_RANGE_WIDTH as usize);
 
     let runner = Box::new(FakeRunner::default());
     let err = start_preview(&registry, &project_root, runner)
@@ -191,9 +310,25 @@ fn preview_port_collision_is_refused_without_killing_a_listener() {
         .unwrap_err();
     assert_eq!(err.code(), "studio-port-unavailable");
 
-    // The listeners the test owns are all still alive: the allocator
-    // never killed an unrelated process.
-    assert_eq!(listeners.len(), PORT_RANGE_WIDTH as usize);
+    // The listeners this test owns are all still alive: the allocator never
+    // killed an unrelated process. Two observable facts per port, because one
+    // alone is only half the claim.
+    for (offset, _listener) in listeners.iter().enumerate() {
+        let port = base + offset as u16;
+        // A socket is still accepting on this port: a killed or closed
+        // listening socket refuses connections instead of completing them.
+        TcpStream::connect(("127.0.0.1", port))
+            .unwrap_or_else(|err| panic!("listener on {port} no longer accepts: {err}"));
+        // And the port was never released: a port some socket holds cannot be
+        // re-bound. This second fact cannot tell our listener from a different
+        // one bound later — nothing observable from outside can — so the pair
+        // proves what is externally visible, that a listener survived and the
+        // port was not given back to the kernel.
+        assert!(
+            TcpListener::bind(("127.0.0.1", port)).is_err(),
+            "port {port} was released: the allocator killed an unrelated listener"
+        );
+    }
     drop(listeners);
 
     let loaded = load_session(&project_root).unwrap().unwrap();

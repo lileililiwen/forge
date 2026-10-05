@@ -620,3 +620,102 @@ fn make_executable(path: &std::path::Path) {
 
 #[cfg(not(unix))]
 fn make_executable(_path: &std::path::Path) {}
+
+/// An adapter that writes `bytes` of padding on stdout, inside a
+/// `forge.governance.observation/0.1.0`-shaped JSON response.
+///
+/// `padding` lands in `metadata` so the test can assert the **whole** payload
+/// crossed the pipe: an implementation that truncated instead of draining would
+/// report a short string and fail.
+#[cfg(unix)]
+fn write_padding_adapter(path: &std::path::Path, bytes: usize) {
+    fs::write(
+        path,
+        format!(
+            r#"#!/bin/sh
+req=$(cat)
+printf '{{"provider":"workspace-governance","protocol_version":"0.1.0","project_id":"local-demo","status":"pass","evidence":["emitted-bytes={bytes}"],"metadata":{{"pad":"'
+head -c {bytes} /dev/zero | tr '\0' 'x'
+printf '"}}}}'
+"#
+        ),
+    )
+    .unwrap();
+    make_executable(path);
+}
+
+/// An adapter that writes more than the kernel's 64 KiB pipe buffer still
+/// answers.
+///
+/// This is the guard for the deadlock the boundary used to have. Before the
+/// drain, Forge read a pipe only after the adapter exited, so an adapter that
+/// wrote more than one pipe buffer blocked in `write(2)` on **every** run and
+/// was reported `unavailable` with `adapter exceeded timeout`. It is
+/// arithmetic, not a race, so the test could not pass before the fix.
+///
+/// The `timeout_ms` of 5 s is also the bound that keeps this guard from
+/// hanging the suite: a regression costs 5 s and a failed assertion, never a
+/// stuck run.
+#[cfg(unix)]
+#[test]
+fn an_adapter_that_writes_more_than_one_pipe_buffer_still_answers() {
+    const PADDING: usize = 200 * 1024; // 3x the 64 KiB pipe buffer, under the 256 KiB cap
+    let project = valid_project();
+    let adapter = project.path().join("chatty.sh");
+    write_padding_adapter(&adapter, PADDING);
+    save_provider_selection(
+        project.path(),
+        WORKSPACE_GOVERNANCE_PROVIDER_ID,
+        Some(adapter.to_str().unwrap()),
+        true,
+        5_000,
+    )
+    .unwrap();
+
+    let started = std::time::Instant::now();
+    let observation = check_project(project.path()).unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(observation.status, ProviderStatus::Pass);
+    assert_eq!(observation.evidence, [format!("emitted-bytes={PADDING}")]);
+    assert_eq!(
+        observation.metadata["pad"].as_str().map(str::len),
+        Some(PADDING),
+        "the whole payload must cross the pipe, not a truncated prefix"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "answering took {elapsed:?}: that is the deadline, not a drained read"
+    );
+}
+
+/// Draining a pipe must not become buffering it: past the output cap, Forge
+/// still refuses with the typed cap error rather than accepting the payload or
+/// waiting for the deadline.
+#[cfg(unix)]
+#[test]
+fn an_adapter_that_writes_past_the_output_cap_is_refused() {
+    const PADDING: usize = 320 * 1024; // past MAX_ADAPTER_OUTPUT_BYTES
+    let project = valid_project();
+    let adapter = project.path().join("flooding.sh");
+    write_padding_adapter(&adapter, PADDING);
+    save_provider_selection(
+        project.path(),
+        WORKSPACE_GOVERNANCE_PROVIDER_ID,
+        Some(adapter.to_str().unwrap()),
+        true,
+        5_000,
+    )
+    .unwrap();
+
+    let err = check_project(project.path()).unwrap_err();
+    let text = err.to_string();
+    assert!(
+        text.contains("adapter stdout exceeds 262144 bytes"),
+        "expected the typed output-cap refusal, got: {text}"
+    );
+    assert!(
+        matches!(err, ForgeError::GovernanceInvalid { .. }),
+        "{err:?}"
+    );
+}

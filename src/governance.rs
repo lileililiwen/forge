@@ -39,6 +39,19 @@ const OBSERVATIONS_RELATIVE_PATH: &str = ".forge/governance/observations.json";
 const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const MAX_ADAPTER_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_EVIDENCE_CHARS: usize = 2_000;
+/// Bound on the bytes read from the revision lookup. `git rev-parse HEAD`
+/// answers with one object name — 40 hex characters, or 64 under SHA-256 — so
+/// anything beyond this is not the answer, and an unbounded read from a child
+/// process would be the very defect this lookup is being bounded to fix.
+const MAX_GIT_REVISION_BYTES: usize = 4 * 1024;
+/// Appended to the adapter's stderr when a descendant kept a drained pipe open
+/// past the deadline, so an incomplete read is visible instead of silent.
+const TRUNCATED_DRAIN_MARKER: &str = " [adapter output pipe still open at the deadline]";
+/// Re-check interval for the one window where both pipes are at end-of-file but
+/// the child has not been reaped yet. Documented at its only use in
+/// `run_bounded`: end-of-file is not an exit event, so that window has no
+/// thread left to wake the waiter.
+const EXIT_RECHECK: Duration = Duration::from_millis(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -396,7 +409,7 @@ pub fn evaluate_project(project_root: &Path) -> Result<GovernanceObservation, Fo
     let config = load_config(project_root)?;
     let provider = config.provider.unwrap_or_default();
     let project_id = manifest.project.id;
-    let source_revision = git_revision(project_root);
+    let source_revision = git_revision(project_root, provider.timeout_ms);
     let mut observation = if provider.provider == LOCAL_PROVIDER_ID {
         local_observation(project_root, &project_id, source_revision)
     } else if !provider.enabled {
@@ -618,56 +631,258 @@ fn run_adapter(
             return Err(err);
         }
     }
+    // The write end is closed before anything is waited on, so an adapter that
+    // reads its request sees end-of-input and one that never reads it has
+    // already been tolerated above.
+    drop(child.stdin.take());
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
+    let run = run_bounded(
+        &mut child,
+        deadline,
+        MAX_ADAPTER_OUTPUT_BYTES,
+        MAX_ADAPTER_OUTPUT_BYTES,
+    )?;
+    if run.timed_out {
+        return Ok(AdapterOutput {
+            status: synthetic_failure_status(),
+            stdout: Vec::new(),
+            stderr: format!("adapter exceeded timeout of {timeout_ms} ms"),
+        });
+    }
+    if let Some(err) = run.stdout.error {
+        return Err(ForgeError::GovernanceUnavailable {
+            reason: format!("cannot read adapter stdout: {err}"),
+        });
+    }
+    if let Some(err) = run.stderr.error {
+        return Err(ForgeError::GovernanceUnavailable {
+            reason: format!("cannot read adapter stderr: {err}"),
+        });
+    }
+    if run.stdout.total > MAX_ADAPTER_OUTPUT_BYTES {
+        return Err(ForgeError::GovernanceInvalid {
+            reason: format!("adapter stdout exceeds {MAX_ADAPTER_OUTPUT_BYTES} bytes"),
+        });
+    }
+    let mut stderr = limit_text(
+        &redact_credentials(&String::from_utf8_lossy(&run.stderr.bytes)),
+        500,
+    );
+    if run.truncated {
+        stderr = format!("{stderr}{TRUNCATED_DRAIN_MARKER}");
+    }
+    Ok(AdapterOutput {
+        status: run.status,
+        stdout: run.stdout.bytes,
+        stderr,
+    })
+}
+
+/// One drained pipe.
+///
+/// `bytes` holds the first `cap` bytes and `total` counts **every** byte the
+/// child wrote, so the caller can enforce its cap without the reader having to
+/// stop. That distinction is the whole point: a reader that stopped at `cap`
+/// would block the child on its next write and re-create the deadlock this
+/// drain exists to remove.
+#[derive(Clone, Debug)]
+struct PipeDrain {
+    bytes: Vec<u8>,
+    total: usize,
+    error: Option<String>,
+}
+
+/// The outcome of one bounded run: the child's exit status, both drained pipes,
+/// and whether Forge stopped waiting first.
+#[derive(Debug)]
+struct BoundedRun {
+    status: std::process::ExitStatus,
+    stdout: PipeDrain,
+    stderr: PipeDrain,
+    timed_out: bool,
+    /// A descendant inherited a pipe and still held it open past the deadline,
+    /// so its bytes are incomplete. Recorded rather than assumed away.
+    truncated: bool,
+}
+
+/// Which pipe a drain result belongs to.
+#[derive(Clone, Copy)]
+enum Pipe {
+    Stdout,
+    Stderr,
+}
+
+fn index_of(pipe: Pipe) -> usize {
+    match pipe {
+        Pipe::Stdout => 0,
+        Pipe::Stderr => 1,
+    }
+}
+
+/// Read one pipe to end on its own thread, keeping at most `cap` bytes, and
+/// report the result when it reaches end-of-file.
+///
+/// Draining continues past the cap on purpose: the child must be able to run to
+/// completion and Forge still needs its exit status. A send failure only means
+/// the waiter has already given up, which it has already handled.
+fn drain_pipe<R: Read + Send + 'static>(
+    mut stream: R,
+    cap: usize,
+    pipe: Pipe,
+    events: std::sync::mpsc::Sender<(Pipe, PipeDrain)>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut total = 0usize;
+        let mut error = None;
+        let mut chunk = [0u8; 8192];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(read) => {
+                    total += read;
+                    if bytes.len() < cap {
+                        let room = cap - bytes.len();
+                        bytes.extend_from_slice(&chunk[..read.min(room)]);
+                    }
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(err) => {
+                    error = Some(err.to_string());
+                    break;
+                }
+            }
+        }
+        let _ = events.send((
+            pipe,
+            PipeDrain {
+                bytes,
+                total,
+                error,
+            },
+        ));
+    })
+}
+
+/// Wait for `child` to exit, bounded by `deadline`, while both of its pipes
+/// are drained on their own threads.
+///
+/// The wait is a blocking receive, not a poll: it wakes when a pipe reaches
+/// end-of-file or when the deadline arrives, and never in between. `try_wait`
+/// is kept rather than moving `child.wait()` into a thread precisely because it
+/// reports the exit **without reaping**, which leaves this function holding the
+/// `Child` and therefore able to `kill` **and** `wait` on every failure path. A
+/// waiter-thread design would have to kill by pid and lose that guarantee.
+fn run_bounded(
+    child: &mut std::process::Child,
+    deadline: Instant,
+    stdout_cap: usize,
+    stderr_cap: usize,
+) -> Result<BoundedRun, ForgeError> {
+    let (events_tx, events_rx) = std::sync::mpsc::channel::<(Pipe, PipeDrain)>();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    // The spare sender keeps the channel connected for the whole call, so
+    // `recv_timeout` always blocks for real instead of returning
+    // `Disconnected` immediately and spinning once both readers are done.
+    let _events_guard = events_tx.clone();
+    // The reader handles are deliberately dropped, not joined. A reader's end of
+    // the job is to report on its channel, which is what the bounded receive
+    // below waits for; joining it would wait instead for *every* process
+    // holding the pipe to close it. `/bin/sh -c 'sleep 30'` forks, so killing
+    // the child leaves a descendant holding the write end — measured: the pipe
+    // stayed open the full 30 s after the child was killed. Joining there would
+    // make this function unbounded in exactly the case it exists to bound. A
+    // detached reader ends when its pipe does, and the partial read is reported
+    // as `truncated` rather than waited for.
+    let _readers = [
+        stdout.map(|stream| drain_pipe(stream, stdout_cap, Pipe::Stdout, events_tx.clone())),
+        stderr.map(|stream| drain_pipe(stream, stderr_cap, Pipe::Stderr, events_tx.clone())),
+    ];
+
+    let mut drains: [Option<PipeDrain>; 2] = [None, None];
+    let mut timed_out = false;
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                if let Some(mut stream) = child.stdout.take() {
-                    stream.read_to_end(&mut stdout).map_err(|err| {
-                        ForgeError::GovernanceUnavailable {
-                            reason: format!("cannot read adapter stdout: {err}"),
-                        }
-                    })?;
-                }
-                if let Some(mut stream) = child.stderr.take() {
-                    stream.read_to_end(&mut stderr).map_err(|err| {
-                        ForgeError::GovernanceUnavailable {
-                            reason: format!("cannot read adapter stderr: {err}"),
-                        }
-                    })?;
-                }
-                if stdout.len() > MAX_ADAPTER_OUTPUT_BYTES {
-                    return Err(ForgeError::GovernanceInvalid {
-                        reason: format!("adapter stdout exceeds {MAX_ADAPTER_OUTPUT_BYTES} bytes"),
-                    });
-                }
-                return Ok(AdapterOutput {
-                    status,
-                    stdout,
-                    stderr: limit_text(&redact_credentials(&String::from_utf8_lossy(&stderr)), 500),
-                });
-            }
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Ok(AdapterOutput {
-                    status: synthetic_failure_status(),
-                    stdout: Vec::new(),
-                    stderr: format!("adapter exceeded timeout of {timeout_ms} ms"),
-                });
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
             Err(err) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate(child);
                 return Err(ForgeError::GovernanceUnavailable {
                     reason: format!("adapter wait failed: {err}"),
                 });
             }
         }
+        let now = Instant::now();
+        if now >= deadline {
+            terminate(child);
+            timed_out = true;
+            break synthetic_failure_status();
+        }
+        // A pipe reaching end-of-file is not the same event as the child being
+        // reaped. A forking shell reaches end-of-file when *its* child exits and
+        // then lives a few microseconds longer, so once both pipes are done
+        // there is no further event to wake this thread and the wait would run
+        // out the whole budget on an adapter that already answered — measured:
+        // every run then reported `exceeded timeout`. In that one narrow window
+        // the wait therefore falls back to a short re-check. Everywhere else
+        // the receive blocks for the full remaining budget and the wake-up *is*
+        // the event.
+        let slice = if drains.iter().all(|drain| drain.is_some()) {
+            EXIT_RECHECK.min(deadline - now)
+        } else {
+            deadline - now
+        };
+        match events_rx.recv_timeout(slice) {
+            Ok((pipe, drain)) => drains[index_of(pipe)] = Some(drain),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if drains.iter().all(|drain| drain.is_some()) {
+                    continue;
+                }
+                terminate(child);
+                timed_out = true;
+                break synthetic_failure_status();
+            }
+            // Unreachable while the spare sender above is held; treated as a
+            // wake-up so a future change cannot turn it into a spin.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+        }
+    };
+
+    // The child is reaped, so a drain that has not reported by the deadline was
+    // held open by a descendant that outlived it. That is reported, never waited
+    // on: an unbounded wait here would be the defect this function exists to
+    // remove.
+    while drains.iter().any(|drain| drain.is_none()) {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        match events_rx.recv_timeout(deadline - now) {
+            Ok((pipe, drain)) => drains[index_of(pipe)] = Some(drain),
+            Err(_) => break,
+        }
     }
+    let truncated = drains.iter().any(|drain| drain.is_none());
+    let empty = PipeDrain {
+        bytes: Vec::new(),
+        total: 0,
+        error: None,
+    };
+    Ok(BoundedRun {
+        status,
+        stdout: drains[0].take().unwrap_or_else(|| empty.clone()),
+        stderr: drains[1].take().unwrap_or(empty),
+        timed_out,
+        truncated,
+    })
+}
+
+/// Terminate and reap a child that outlived its budget. Both halves matter:
+/// the kill stops it, the wait clears the zombie.
+fn terminate(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Write the request to the adapter's standard input.
@@ -814,15 +1029,41 @@ fn validate_provider_id(provider: &str) -> Result<(), ForgeError> {
     Ok(())
 }
 
-fn git_revision(project_root: &Path) -> Option<String> {
-    Command::new("git")
+/// Resolve the project's recorded source revision.
+///
+/// The lookup runs under the same bounded-wait discipline as the adapter
+/// itself, using the selected provider's existing `timeout_ms` — the value
+/// [`validate_config`] already constrains and the value `run_adapter` already
+/// uses — rather than a second, invented bound. A lookup that hangs, fails or
+/// answers nothing usable yields no revision, exactly as before; what changes is
+/// that a hanging `git` can no longer hang the check.
+fn git_revision(project_root: &Path, timeout_ms: u64) -> Option<String> {
+    let mut command = Command::new("git");
+    command
         .args(["rev-parse", "HEAD"])
         .current_dir(project_root)
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().ok()?;
+    let run = run_bounded(
+        &mut child,
+        Instant::now() + Duration::from_millis(timeout_ms),
+        MAX_GIT_REVISION_BYTES,
+        MAX_GIT_REVISION_BYTES,
+    )
+    .ok()?;
+    if !run.status.success() {
+        return None;
+    }
+    let revision = String::from_utf8_lossy(&run.stdout.bytes)
+        .trim()
+        .to_string();
+    if revision.is_empty() {
+        None
+    } else {
+        Some(revision)
+    }
 }
 
 fn limit_text(value: &str, max: usize) -> String {
@@ -833,6 +1074,148 @@ fn limit_text(value: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    /// End-of-file is not an exit event, and this is the **deterministic** guard
+    /// for that. The child closes both pipes itself and then lives on for a
+    /// while, so end-of-file provably precedes the exit instead of racing it —
+    /// which is why a realistic `printf` child is not enough here: closing its
+    /// own pipes and exiting leaves a window a few microseconds wide, and a
+    /// waiter that only woke on end-of-file passed the `printf` guard while
+    /// still failing real adapters 2–4 times per run.
+    ///
+    /// A waiter that blocks out its budget once there is nothing left to wake it
+    /// reports a timeout for a child that answered in 200 ms.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_that_closed_its_pipes_and_keeps_running_is_not_reported_as_a_timeout() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "exec 1>&- 2>&-; sleep 0.2; exit 0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+
+        let started = Instant::now();
+        let run = run_bounded(
+            &mut child,
+            started + Duration::from_secs(5),
+            MAX_GIT_REVISION_BYTES,
+            MAX_GIT_REVISION_BYTES,
+        )
+        .unwrap();
+        let elapsed = started.elapsed();
+
+        assert!(
+            run.status.success(),
+            "a child that closed its pipes and then exited 0 must not be reported as killed"
+        );
+        assert!(!run.timed_out, "200 ms of work is not a 5 s timeout");
+        assert!(elapsed < Duration::from_secs(2), "elapsed {elapsed:?}");
+    }
+
+    /// A revision lookup that never answers gives up inside its bound instead
+    /// of hanging the check forever.
+    ///
+    /// Before the fix the lookup was `Command::output()`, which blocks until the
+    /// child exits with no timeout at all — so this command never returns and
+    /// the caller waits indefinitely. The bound here is the same one
+    /// `git_revision` receives: the selected provider's existing `timeout_ms`.
+    #[cfg(unix)]
+    #[test]
+    fn a_revision_lookup_that_never_answers_gives_up_within_its_bound() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "sleep 30"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+
+        let started = Instant::now();
+        let run =
+            run_bounded(&mut child, started + Duration::from_millis(200), 4096, 4096).unwrap();
+        let elapsed = started.elapsed();
+
+        assert!(
+            run.timed_out,
+            "a 30 s child must not report success: {run:?}"
+        );
+        // Generous next to the 200 ms bound so a loaded machine cannot turn a
+        // passing run into a failure, while still being far below the 30 s the
+        // child would otherwise take. Pre-fix this assertion is never reached:
+        // the call does not return.
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "the bound did not take effect: {elapsed:?}"
+        );
+    }
+
+    /// The positive control for the guard above, and the guard for the subtler
+    /// half of the same defect: a pipe reaching end-of-file is **not** the child
+    /// being reaped. `/bin/sh -c 'printf …'` forks on this host, so both pipes
+    /// are done microseconds before the shell itself exits. A waiter that only
+    /// woke on end-of-file and then blocked for the rest of its budget would
+    /// report a timeout for an adapter that had already answered — measured,
+    /// that is exactly what happened.
+    #[cfg(unix)]
+    #[test]
+    fn a_bounded_revision_lookup_returns_the_object_name_it_printed() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "printf 'a1b2c3d4\\n'"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+
+        let started = Instant::now();
+        let run = run_bounded(
+            &mut child,
+            started + Duration::from_secs(5),
+            MAX_GIT_REVISION_BYTES,
+            MAX_GIT_REVISION_BYTES,
+        )
+        .unwrap();
+        let elapsed = started.elapsed();
+
+        assert!(!run.timed_out, "a child that answered cannot time out");
+        assert!(run.status.success());
+        assert!(!run.truncated);
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout.bytes).trim(),
+            "a1b2c3d4"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "answering took {elapsed:?} of a 5 s budget: the waiter slept past the exit"
+        );
+    }
+
+    /// Bounding the lookup must not turn it into one that always reports no
+    /// revision: a real repository's head is still recorded.
+    #[test]
+    fn git_revision_still_reports_the_repository_head() {
+        let repo = TempDir::new().unwrap();
+        let head = git_revision(repo.path(), 10_000);
+        // A fresh temp directory is not a repository, so the honest assertion
+        // here is the `None` mapping; the recorded head is exercised through
+        // `evaluate_project` in `tests/governance_contract.rs`. What this pins
+        // is that the bounded call runs and returns rather than panicking or
+        // blocking.
+        assert_eq!(head, None);
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        if !root.join(".git").exists() {
+            return;
+        }
+        let revision = git_revision(root, 10_000).expect("this repository's head");
+        assert_eq!(revision.len(), 40, "{revision}");
+        assert!(
+            revision.chars().all(|c| c.is_ascii_hexdigit()),
+            "{revision}"
+        );
+    }
 
     #[test]
     fn unknown_status_is_rejected() {

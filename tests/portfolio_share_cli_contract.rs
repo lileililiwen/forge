@@ -290,7 +290,8 @@ fn publishing_writes_only_public_fields() {
     share_set(&db, "alethefy", "Alethefy");
     let preview = run_json(&db, &["portfolio", "share", "preview"]);
     let hash = preview["preview"]["manifest_sha256"].as_str().unwrap();
-    run_json(&db, &["portfolio", "share", "approve", "--hash", hash]);
+    let approved = run_json(&db, &["portfolio", "share", "approve", "--hash", hash]);
+    assert_eq!(approved["approval"]["revision"], 1);
     let target = tmp.path().join("public/portfolio-manifest.json");
     let report = run_json(
         &db,
@@ -310,8 +311,18 @@ fn publishing_writes_only_public_fields() {
 
     let document: Value =
         serde_json::from_str(&fs::read_to_string(&target).unwrap()).expect("manifest document");
-    assert_eq!(document["schema_family"], "public-portfolio-manifest");
-    assert_eq!(document["schema_version"], 1);
+    // The contract's shape: a qualified family, a full semantic version as a
+    // string, and an opaque revision tag. All three were numbers or a bare
+    // family name before, and the consuming site rejected them.
+    assert_eq!(
+        document["schema_family"],
+        "platform.public-portfolio-manifest"
+    );
+    assert_eq!(document["schema_version"], "1.0.0");
+    assert_eq!(
+        document["manifest_revision"],
+        format!("rev_{}", approved["approval"]["revision"])
+    );
     assert_eq!(document["manifest_sha256"], hash);
     assert_eq!(document["projects"][0]["id"], "alethefy");
     assert_eq!(document["projects"][0]["title"], "Alethefy");

@@ -63,8 +63,8 @@ pub struct ManifestProject {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestBody {
     pub schema_family: String,
-    pub schema_version: u32,
-    pub manifest_revision: u32,
+    pub schema_version: String,
+    pub manifest_revision: String,
     pub projects: Vec<ManifestProject>,
 }
 
@@ -72,8 +72,8 @@ impl ManifestBody {
     pub fn new(manifest_revision: u32, projects: Vec<ManifestProject>) -> Self {
         Self {
             schema_family: MANIFEST_SCHEMA_FAMILY.to_string(),
-            schema_version: MANIFEST_SCHEMA_VERSION,
-            manifest_revision,
+            schema_version: MANIFEST_SCHEMA_VERSION.to_string(),
+            manifest_revision: wire_manifest_revision(manifest_revision),
             projects,
         }
     }
@@ -92,14 +92,33 @@ impl ManifestBody {
     }
 }
 
+/// The internal integer revision in the form the contract's
+/// `manifest_revision` field requires.
+///
+/// The contract asks for a *stable producer-side revision identifier* — an
+/// opaque string of 1 to 64 characters over `[A-Za-z0-9._:-]` after a leading
+/// alphanumeric. Forge's revision is a monotonic integer, so the encoding is a
+/// pure, injective and total function of it: no clock, no counter, no random
+/// component, and no two revisions collide. `rev_` plus at most ten `u32`
+/// digits is 14 characters, and every one of them is inside the contract's
+/// character class.
+///
+/// The `rev_` prefix is load-bearing rather than decorative: it lets a consumer
+/// tell a sequence tag from a content hash, which is the distinction the
+/// contract's own field description draws. The encoding lives in this one
+/// function so no call site can invent a second spelling.
+pub fn wire_manifest_revision(revision: u32) -> String {
+    format!("rev_{revision}")
+}
+
 /// The published document: the canonical body plus its emission time
 /// and the hash that binds it to an approval.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublicPortfolioManifest {
     pub schema_family: String,
-    pub schema_version: u32,
+    pub schema_version: String,
     pub generated_at: String,
-    pub manifest_revision: u32,
+    pub manifest_revision: String,
     pub manifest_sha256: String,
     pub projects: Vec<ManifestProject>,
 }
@@ -143,9 +162,9 @@ impl ManifestDraft {
     pub fn document(&self, generated_at: &str) -> String {
         let manifest = PublicPortfolioManifest {
             schema_family: self.body.schema_family.clone(),
-            schema_version: self.body.schema_version,
+            schema_version: self.body.schema_version.clone(),
             generated_at: generated_at.to_string(),
-            manifest_revision: self.body.manifest_revision,
+            manifest_revision: self.body.manifest_revision.clone(),
             manifest_sha256: self.manifest_sha256(),
             projects: self.body.projects.clone(),
         };
@@ -156,6 +175,10 @@ impl ManifestDraft {
 }
 
 /// Build the candidate manifest from the stored share records.
+///
+/// `manifest_revision` is the **internal** revision and stays an integer here;
+/// the contract's string field is produced by [`wire_manifest_revision`] inside
+/// [`ManifestBody::new`].
 ///
 /// This is the second validation gate: a record was already checked
 /// when it was written, and it is checked again here so a row written
@@ -391,10 +414,105 @@ mod tests {
         let parsed: PublicPortfolioManifest = serde_json::from_str(&document).expect("document");
         assert_eq!(parsed.schema_family, MANIFEST_SCHEMA_FAMILY);
         assert_eq!(parsed.schema_version, MANIFEST_SCHEMA_VERSION);
-        assert_eq!(parsed.manifest_revision, 4);
+        assert_eq!(parsed.manifest_revision, wire_manifest_revision(4));
         assert_eq!(parsed.manifest_sha256, draft.manifest_sha256());
         assert_eq!(parsed.projects[0].id, "alpha");
         assert!(document.ends_with('\n'));
+    }
+
+    /// The contract's own rules, restated as executable checks so the pins
+    /// cannot drift without a Rust test failing — no sibling checkout needed.
+    #[test]
+    fn the_document_matches_the_contract_shape() {
+        let draft = build_manifest(&[record("alpha", "https://example.com/a")], 4);
+        let document = draft.document("2026-09-29T00:00:00Z");
+        let value: serde_json::Value = serde_json::from_str(&document).expect("document");
+
+        // The fields are strings on the wire, not JSON numbers. This is the
+        // assertion the old shape failed: a number deserialized into a
+        // `serde_json::Value` string slot would not compare equal.
+        assert_eq!(value["schema_family"], "platform.public-portfolio-manifest");
+        assert_eq!(value["schema_version"], "1.0.0");
+        assert_eq!(value["manifest_revision"], "rev_4");
+        for field in ["schema_family", "schema_version", "manifest_revision"] {
+            assert!(
+                value[field].is_string(),
+                "`{field}` must serialize as a JSON string, got {:?}",
+                value[field]
+            );
+        }
+        // The family is a closed enum upstream and the version a full
+        // semantic version.
+        assert_eq!(
+            value["schema_family"].as_str(),
+            Some(MANIFEST_SCHEMA_FAMILY)
+        );
+        let version = value["schema_version"].as_str().expect("version");
+        assert_eq!(version, MANIFEST_SCHEMA_VERSION);
+        assert!(semver_triple(version), "`{version}` is not x.y.z");
+        // `manifest_sha256` stays lowercase hex.
+        let hash = value["manifest_sha256"].as_str().expect("hash");
+        assert!(
+            hash.len() == 64
+                && hash
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "`{hash}` is not lowercase hex SHA-256"
+        );
+    }
+
+    #[test]
+    fn manifest_revision_encoding_is_stable_and_schema_shaped() {
+        // The contract's pattern, transcribed from
+        // `public-portfolio-manifest.schema.json` rather than trusted.
+        let zero = wire_manifest_revision(0);
+        assert_eq!(zero, "rev_0");
+        assert!(
+            is_contract_manifest_revision(&zero),
+            "`{zero}` does not match the contract's manifest_revision pattern"
+        );
+        // Pure and injective: the same integer always encodes the same way, and
+        // two revisions never collide.
+        let mut seen = std::collections::BTreeSet::new();
+        for revision in [0u32, 1, 4, 9, 10, 1_000, u32::MAX] {
+            let encoded = wire_manifest_revision(revision);
+            assert_eq!(encoded, wire_manifest_revision(revision));
+            assert!(
+                is_contract_manifest_revision(&encoded),
+                "`{encoded}` does not match the contract's manifest_revision pattern"
+            );
+            assert!(
+                (1..=64).contains(&encoded.chars().count()),
+                "`{encoded}` is {} characters, outside 1..=64",
+                encoded.chars().count()
+            );
+            assert!(seen.insert(encoded), "two revisions encoded identically");
+        }
+    }
+
+    /// `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, implemented directly so the
+    /// test does not depend on a regex engine being compiled in.
+    fn is_contract_manifest_revision(value: &str) -> bool {
+        let mut chars = value.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        if !first.is_ascii_alphanumeric() {
+            return false;
+        }
+        let rest: Vec<char> = chars.collect();
+        rest.len() <= 63
+            && rest
+                .iter()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+    }
+
+    fn semver_triple(value: &str) -> bool {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
     }
 
     #[test]

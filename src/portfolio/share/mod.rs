@@ -43,8 +43,8 @@ mod audit_types;
 
 pub use audit_types::{validate_actor, validate_operation_key, PublicationAttempt, ShareApproval};
 pub use manifest::{
-    build_manifest, sha256_hex, ManifestBody, ManifestDraft, ManifestProject, ManifestSurface,
-    PublicPortfolioManifest,
+    build_manifest, sha256_hex, wire_manifest_revision, ManifestBody, ManifestDraft,
+    ManifestProject, ManifestSurface, PublicPortfolioManifest,
 };
 pub use publish::{
     publish_timeout, AdapterRequest, AdapterResponse, LocalFilePublisher, PublishContext,
@@ -63,13 +63,17 @@ use crate::policy::redact_credentials;
 pub const SHARE_CONTRACT_VERSION: &str = "forge-portfolio-share/0.1.0";
 
 /// Schema family of the consumed public manifest contract. The
-/// serialized shape is owned by `platform-contracts`
-/// (`public-portfolio-manifest`); Forge pins the family name and
-/// major version it produces and never invents a field.
-pub const MANIFEST_SCHEMA_FAMILY: &str = "public-portfolio-manifest";
+/// serialized shape is owned by `platform-contracts`, whose
+/// `public-portfolio-manifest.schema.json` declares this exact
+/// family as a closed enum. Forge pins the qualified name and the
+/// full version it produces and never invents a field.
+pub const MANIFEST_SCHEMA_FAMILY: &str = "platform.public-portfolio-manifest";
 
-/// Major version of the consumed manifest contract.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+/// Full semantic version of the consumed manifest contract, as the
+/// contract declares it (`^[0-9]+\.[0-9]+\.[0-9]+$`). Forge supports
+/// major 1 and produces no minor or patch variant, so the version it
+/// writes is `1.0.0` — a *string*, not the integer major.
+pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Contract version of the request/response envelope exchanged with
 /// an optional external publication adapter.

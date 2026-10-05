@@ -13,7 +13,111 @@ version performed zero comparisons and printed an unconditional
 `contract-parity: OK`. It also re-syncs three drifted mirror files. The change is
 not archived and no commit has been made for it.
 
-current_spec: contract-parity-gate-real-digests
+current_spec: manifest-wire-contract-shape
+
+`manifest-wire-contract-shape` is the change now in flight. It is implemented,
+verified and **not archived**, and it is a *second* active change:
+`.ai-rules/workflow.md` allows one at a time, and the repository owner
+explicitly authorized this work to proceed alongside the parked
+`contract-parity-gate-real-digests`. That change is untouched and still
+unarchived — this work neither archived it, deleted its package, nor committed
+on its behalf. The two are a different concern (vendored contract bytes versus
+the emitted manifest's wire shape) and neither depends on the other.
+
+## What manifest-wire-contract-shape does
+
+Forge is the **producer** of the manifest a separate static Hugo site consumes.
+Three fields it emitted were rejected by the consumed schema, so the first real
+export would have failed the consumer's build. The schema is
+`platform-contracts/schemas/public-portfolio-manifest.schema.json`
+(`platform.public-portfolio-manifest/1.0.0`, digest
+`07a3c47769da8923998273cda602ddffb195f983e3dcf344fb1d86540c6bc986`).
+
+| Field | Was | Now |
+|---|---|---|
+| `schema_family` | `"public-portfolio-manifest"` | `"platform.public-portfolio-manifest"` |
+| `schema_version` | JSON number `1` | string `"1.0.0"` |
+| `manifest_revision` | JSON number (`u32`) | string `"rev_<revision>"` |
+
+The internal revision is **unchanged everywhere it is stored**: the
+`manifest_revision INTEGER` column, the `i64` approval, audit, publication
+report and adapter envelope, and `build_manifest(records, u32)`. Only the
+serialized field is a string, produced by one function,
+`wire_manifest_revision`, so no call site can invent a second spelling.
+
+The encoding is a pure, injective function of the integer, so an unchanged
+catalog still hashes identically. One honest consequence: an approval made
+before this change is bound to the old hash, so `publish` now refuses it until
+the operator previews and approves again. No stored approval or audit entry was
+rewritten — that would forge an approval nobody gave.
+
+## Verification (2026-10-05)
+
+- `cargo build`: clean. One `unused import: ShareSurface` warning in
+  `src/portfolio/share/validation.rs`, **verified pre-existing** (present with
+  this change stashed).
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip
+  generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain`:
+  **2294 passed / 0 failed / 3 ignored**. The skip is the pre-existing hang
+  described under "Pre-existing conditions" below. The three ignored tests are
+  the pre-existing `contract::tests::parity_walk`, the pre-existing
+  `packing_leaves_the_sibling_checkout_byte_identical`, and this change's own
+  acceptance test, run explicitly.
+- `cargo test --test manifest_wire_contract -- --ignored --nocapture`:
+  **1 passed** — `jsonschema` accepted a Forge-produced manifest.
+- **Acceptance, consumer's own oracle**: a scratch registry, a real
+  `target/debug/forge portfolio share set → preview → approve → publish` cycle,
+  and then
+  `python3 lileililiwen.github.io/scripts/validate_manifest.py --strict`
+  against `/home/paul/code/platform-contracts/schemas/public-portfolio-manifest.schema.json`:
+  `manifest OK … (schema 1.0.0, 1 project(s), revision rev_1)`, **exit 0**.
+- `node scripts/check-openspec-change-names.mjs`: PASS.
+- `openspec validate --all --strict --no-interactive`: 65 passed / 0 failed.
+- `cargo fmt --check`: clean (it was already clean on `main` before this
+  change; the "five dirty files" note further down is stale).
+- `cargo clippy --workspace --all-targets`: exit 0, and **zero findings in any
+  file this change touches** (`src/portfolio/share/mod.rs`,
+  `src/portfolio/share/manifest.rs`, `tests/portfolio_share_cli_contract.rs`,
+  `tests/manifest_wire_contract.rs`). The remaining warnings are all in files
+  this change does not own.
+- `git diff --check`: PASS.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
+## Three further contract mismatches found, and not fixed
+
+Found while mapping the document, reproduced, and deliberately left as
+non-goals of this change rather than silently widening its scope. All three are
+reachable from the command line today, and each produces a published manifest
+the consumer rejects.
+
+1. **`visibility`** — the schema's enum is `["public"]`; Forge's `Visibility::ALL`
+   also admits `unlisted`. `share set --visibility unlisted` publishes a
+   document rejected with `projects/0/visibility: 'unlisted' is not one of
+   ['public']`.
+2. **`status_evidence`** — the schema is `additionalProperties: false` and
+   permits only `observed_at`, `source`, `note`; Forge's `EVIDENCE_KEYS` admits
+   `observed_at`, `source_system`, `source_revision`, `state`, `source`. A
+   record with `--evidence '{"observed_at":"…","source_system":"…"}'` is
+   rejected with `Additional properties are not allowed ('source_system' was
+   unexpected)`.
+3. **`id` length** — the schema caps `id` at 64 characters.
+   `validate_project_id` already pins the schema's *pattern* exactly but has no
+   length bound, so a 70-character id registers, publishes and is rejected with
+   `projects/0/id: … is too long`.
+
+Fixing these means deciding whether Forge narrows its vocabularies or the
+contract widens them. That is a product decision, not a mechanical one, and it
+belongs to its own change.
+
+## A mirror gap worth naming
+
+`contracts/schemas/public-portfolio-manifest.schema.json` is **absent from
+Forge's own mirror**, which is why nothing inside this repository could have
+caught the shape defect at all. Re-syncing the mirror belongs to
+`contract-parity-gate-real-digests`, which is still parked. Until it lands, the
+acceptance test reads the schema from the sibling checkout and is `#[ignore]`d
+rather than silently skipping, so a green suite never stands in for a check that
+did not run.
 
 The work landed on `main`. It was originally committed on a
 `feat/scaffold-prewires-shared-layer` branch; `main` was fast-forwarded onto it
@@ -152,14 +256,14 @@ did not run.
 
 ## Pre-existing conditions (not regressions)
 
-- `cargo fmt --all -- --check` fails on five files this change does not own.
-  **Verified pre-existing**: the parent-commit versions of
+- `cargo fmt --all -- --check` used to fail on five files this change does not
+  own. **This is now stale and was re-checked on 2026-10-05: the tree is
+  rustfmt-clean on `main` at `b8b0fb5`, so that earlier failure has been fixed
+  by intervening work rather than by this change.** The claim below is kept as
+  written history: at the time, the parent-commit versions of
   `src/gate/evidence.rs`, `src/github/normalize.rs`,
-  `src/portfolio/share/validation.rs` and `src/publish/fleet.rs` are already
-  rustfmt-dirty, so this is not drift from this change. Note that the change's
-  commit *does* touch four of those five files, so the earlier claim that they
-  were "untouched" was imprecise; the substantive claim, that the formatting
-  failure predates it, holds.
+  `src/portfolio/share/validation.rs` and `src/publish/fleet.rs` were already
+  rustfmt-dirty, so that failure was not drift from that change.
 - `scripts/release-check.sh` blocks at its first gate, `cargo fmt --check`, for
   the reason above. It never reaches its test, clippy, audit or readiness
   stages. `cargo-deny` and `cargo-audit` are both installed.

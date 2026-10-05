@@ -28,6 +28,8 @@ public class DependencyDirectionTests
         "src/Platform.Quota/Platform.Quota.csproj",
         "src/Platform.Quota.Testing/Platform.Quota.Testing.csproj",
         "src/Platform.Quota.AspNetCore/Platform.Quota.AspNetCore.csproj",
+        "src/Platform.Privacy/Platform.Privacy.csproj",
+        "src/Platform.Privacy.AspNetCore/Platform.Privacy.AspNetCore.csproj",
         "src/Platform.Idempotency/Platform.Idempotency.csproj",
         "src/Platform.Jobs/Platform.Jobs.csproj",
         "src/Platform.Jobs.Hangfire/Platform.Jobs.Hangfire.csproj",
@@ -101,6 +103,8 @@ public class DependencyDirectionTests
         "Platform.Storage.Tests",
         "Platform.Quota.Tests",
         "Platform.Quota.AspNetCore.Tests",
+        "Platform.Privacy.Tests",
+        "Platform.Privacy.AspNetCore.Tests",
         "Platform.Testing.Tests",
         "Platform.Web.Tests",
         "Platform.Web.Edge.Tests",
@@ -841,6 +845,7 @@ public class DependencyDirectionTests
                 || project.EndsWith("Platform.Persistence.Multitenancy.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Realtime.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Quota.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
+                || project.EndsWith("Platform.Privacy.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Auditing.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Jobs.Hangfire.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Web.Composition.csproj", StringComparison.OrdinalIgnoreCase)
@@ -1183,6 +1188,46 @@ public class DependencyDirectionTests
         Assert.Equal(2, references.Length);
         Assert.Contains("Platform.Core", references, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("Platform.Quota", references, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Platform_Privacy_only_references_Platform_Core()
+    {
+        var path = "src/Platform.Privacy/Platform.Privacy.csproj";
+        Assert.Equal(["Platform.Core"], ReadProjectReferences(path));
+        Assert.DoesNotContain(ReadPackageReferences(path), package =>
+            package.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase)
+                || package.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
+                || package.StartsWith("StackExchange.Redis", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Platform_Privacy_AspNetCore_references_only_platform_core_and_privacy()
+    {
+        var references = ReadProjectReferences("src/Platform.Privacy.AspNetCore/Platform.Privacy.AspNetCore.csproj");
+        Assert.Equal(2, references.Length);
+        Assert.Contains("Platform.Core", references, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("Platform.Privacy", references, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Platform_Privacy_AspNetCore_does_not_reference_forbidden_packages()
+    {
+        var path = "src/Platform.Privacy.AspNetCore/Platform.Privacy.AspNetCore.csproj";
+        var packages = ReadPackageReferences(path);
+        var violations = packages
+            .Where(p => p.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith("StackExchange.Redis", StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith("Stripe", StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith("Hangfire", StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith("Quartz", StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith("RabbitMQ", StringComparison.OrdinalIgnoreCase)
+                || p.StartsWith("Polly", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Platform.Privacy.AspNetCore must not reference forbidden packages but references: " + string.Join(", ", violations));
     }
 
     [Fact]

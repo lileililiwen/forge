@@ -402,6 +402,27 @@ prices, invoices, wallets, ledgers, or persistence models.
 See [`platform-quota.md`](platform-quota.md) for unit conversion, reconciliation, migration, and
 ownership boundaries.
 
+## Platform.Privacy
+
+`Platform.Privacy` provides the shared privacy vocabulary: consent categories, records, and
+versioned policy evaluation; subject-rights provider contracts with an aggregating registry;
+and anonymization helpers. It depends on `Platform.Core` and dependency-injection
+abstractions only; it references neither ASP.NET Core nor EF Core and defines no subject
+data shapes.
+
+- `ConsentCategory` — Necessary, Preferences, Analytics, Marketing.
+- `ConsentRecord` — subject, granted categories, timestamp, policy version.
+- `IConsentStore` and `InMemoryConsentStore` — thread-safe record persistence.
+- `ConsentPolicy` — fail-closed evaluation; records under older versions lose optional grants.
+- `ISubjectExportProvider`, `ISubjectErasureProvider`, `SubjectRightsRegistry` — application
+  providers with `ExportBundle` / `ErasureReport` results; one provider's failure never drops
+  another's success.
+- `Anonymizers` — email masking and keyed HMAC-SHA256 pseudonyms; keys stay application-owned.
+- `Platform.Privacy.AspNetCore` — consent-cookie service, request-scoped consent state,
+  `RequireConsent` endpoint metadata with middleware enforcement (403 naming missing
+  categories), and DI wiring. No product routes, no banner markup, unsigned plain-JSON
+  cookie by design.
+
 ## Platform.Idempotency
 
 Framework-neutral idempotency contract. Depends on `Platform.Core`, `Microsoft.Extensions.Options`, and `Microsoft.Extensions.DependencyInjection.Abstractions`; targets `net10.0`. Does not reference ASP.NET Core, EF Core, StackExchange.Redis, or application projects.

@@ -1080,6 +1080,44 @@
       "version": "0.1.0"
     },
     {
+      "description": "Provider-neutral privacy vocabulary: consent records and policy evaluation, subject-rights contracts, anonymization helpers.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Privacy",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Privacy/Platform.Privacy.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional ASP.NET Core privacy adapter over Platform.Privacy contracts: consent-cookie state and category enforcement. No product routes, no banner markup, no subject data knowledge.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Privacy.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Privacy.AspNetCore/Platform.Privacy.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Privacy/Platform.Privacy.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
       "description": "Provider-neutral quota contracts and thread-safe in-memory store.",
       "frameworkReferences": [],
       "isPackable": true,

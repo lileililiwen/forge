@@ -653,7 +653,7 @@ fn run_with_stdin_timeout(
     stdin_bytes: &[u8],
     timeout: Duration,
 ) -> Result<CapturedOutput, String> {
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::process::Stdio;
     let mut command = Command::new(binary);
     for arg in args {
@@ -673,7 +673,7 @@ fn run_with_stdin_timeout(
             }
         })?;
     if let Some(mut stdin) = child.stdin.take() {
-        if let Err(err) = stdin.write_all(stdin_bytes) {
+        if let Err(err) = crate::process::write_request(&mut stdin, stdin_bytes) {
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!("translator stdin write failed: {err}"));

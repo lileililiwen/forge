@@ -894,14 +894,14 @@ fn terminate(child: &mut std::process::Child) {
 /// a provider failure — the caller proceeds to read the exit status and output
 /// the adapter actually produced. Every other error keeps the typed
 /// unavailable refusal.
+///
+/// The rule itself is [`crate::process::write_request`], shared with the other
+/// three request boundaries; this is only the governance-specific mapping from
+/// an `io::Error` to the typed refusal.
 fn write_adapter_request(stdin: &mut impl Write, request: &[u8]) -> Result<(), ForgeError> {
-    match stdin.write_all(request) {
-        Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(err) => Err(ForgeError::GovernanceUnavailable {
-            reason: format!("cannot write adapter request: {err}"),
-        }),
-    }
+    crate::process::write_request(stdin, request).map_err(|err| ForgeError::GovernanceUnavailable {
+        reason: format!("cannot write adapter request: {err}"),
+    })
 }
 
 fn synthetic_failure_status() -> std::process::ExitStatus {

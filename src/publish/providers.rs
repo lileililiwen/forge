@@ -526,15 +526,18 @@ pub fn invoke_provider(
             reason: format!("cannot start publish provider `{}`: {error}", entry.id),
         })?;
     if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        stdin
-            .write_all(&input)
-            .map_err(|error| ForgeError::PublishInvalid {
+        if let Err(error) = crate::process::write_request(&mut stdin, &input) {
+            // A genuine write failure leaves the provider running; reap it
+            // before reporting, so no live provider is left behind.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ForgeError::PublishInvalid {
                 reason: format!(
                     "cannot send request to publish provider `{}`: {error}",
                     entry.id
                 ),
-            })?;
+            });
+        }
     }
     let progress_reader = child.stderr.take().map(|stderr| {
         let provider_id = entry.id.clone();

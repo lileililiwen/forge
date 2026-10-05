@@ -16,7 +16,7 @@
 //! timeout/output policy and never has to re-implement the
 //! `try_wait`/`kill` dance.
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -141,6 +141,39 @@ pub fn cap_stderr(bytes: &[u8]) -> String {
     truncated
 }
 
+/// Write a request to a child process's standard input.
+///
+/// Every Forge surface that hands a request to an external executable
+/// goes through here, because the interesting case is shared by all of
+/// them: **a child that answers without ever reading its request.** Such
+/// a child closes the read end of the pipe as it exits, so Forge's own
+/// write can lose the race and come back `BrokenPipe` (Rust installs
+/// `SIGPIPE = SIG_IGN`, so this is an `errno`, never a signal).
+///
+/// | Child behaviour | `write_all` | [`write_request`] |
+/// |---|---|---|
+/// | reads the request | `Ok` | `Ok(())` |
+/// | answered without reading; input already closed | `Err(BrokenPipe)` | `Ok(())` — the caller goes on to read the exit status and output the child actually produced |
+/// | genuinely unreachable | any other `Err` | `Err(err)` — the caller turns it into its own typed refusal |
+///
+/// `BrokenPipe` is the one error that reports on the *child* rather than
+/// on Forge's plumbing: it can only be raised because the peer closed
+/// its end. Every other `io::ErrorKind` (`PermissionDenied`, `EBADF`,
+/// `EIO`, `ENOMEM`, …) says something about Forge's own plumbing and is
+/// returned unchanged.
+///
+/// The caller owns the child's lifecycle: on `Err` the child is still
+/// running and must be killed and reaped before the refusal is
+/// returned. The `Ok` path must not kill — that child is precisely the
+/// one whose answer is wanted.
+pub fn write_request(stdin: &mut impl Write, request: &[u8]) -> std::io::Result<()> {
+    match stdin.write_all(request) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +229,53 @@ mod tests {
         let out = spawn_with_timeout(&mut cmd, Duration::from_secs(2)).unwrap();
         assert!(out.stderr.ends_with(STDERR_TRUNCATION_MARKER));
         assert!(out.stderr.len() <= MAX_STDERR_BYTES + STDERR_TRUNCATION_MARKER.len());
+    }
+
+    /// A child that answered without reading its request is a legitimate
+    /// provider, so Forge losing the write race against it is not a
+    /// failure.
+    ///
+    /// Deterministic by construction: the child is reaped **before** the
+    /// write, so the read end of the pipe is provably closed. No
+    /// end-to-end harness can establish that ordering, because every
+    /// caller writes immediately after `spawn()` and never waits first.
+    #[cfg(unix)]
+    #[test]
+    fn a_request_write_to_a_child_that_already_exited_is_not_a_failure() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "exec 0<&-; exit 0"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success());
+
+        // Before this rule the write came back `Err(BrokenPipe)`, which
+        // every caller reported as a provider failure while discarding
+        // the answer the child had already written to stdout.
+        write_request(&mut stdin, br#"{"action":"gate"}"#).unwrap();
+    }
+
+    /// A write failure that is *not* the child closing its input is still
+    /// a real inability to hand over the request, and must reach the
+    /// caller: a change that swallowed every write error here would let a
+    /// genuine fault be reported as the child's own exit status.
+    #[test]
+    fn a_request_write_failure_that_is_not_a_broken_pipe_is_returned() {
+        struct Failing;
+        impl Write for Failing {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let err = write_request(&mut Failing, b"{}").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied, "{err}");
     }
 }

@@ -13,7 +13,6 @@
 //! Wall-clock timeout: `FORGE_HERMORA_TIMEOUT_SECS` (default 60s,
 //! clamped to `1..=600`).
 
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant as TimeInstant};
@@ -167,8 +166,22 @@ pub fn invoke(
     if let Some(mut stdin) = child.stdin.take() {
         // A broken pipe here means the adapter exited early; the
         // exit-status surface below reports the real cause rather
-        // than the EOF.
-        let _ = stdin.write_all(&payload);
+        // than the EOF. Any *other* write failure is Forge's own
+        // plumbing, not the adapter's answer, so it is a typed
+        // refusal — and the still-running child is killed and
+        // reaped before it is reported.
+        if let Err(err) = crate::process::write_request(&mut stdin, &payload) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ForgeError::DeliveryUnavailable {
+                reason: format!(
+                    "hermora adapter `{}` could not be given its request: {err}; \
+                     the approved deployment is retained and the \
+                     onboarding attempt is retryable",
+                    adapter.display()
+                ),
+            });
+        }
     }
 
     let deadline = TimeInstant::now() + timeout;

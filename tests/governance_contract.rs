@@ -161,6 +161,38 @@ printf '%s' '{"provider":"external","protocol_version":"0.1.0","project_id":"loc
 }
 
 #[test]
+fn an_adapter_that_never_reads_its_request_still_answers() {
+    // An adapter is an external executable Forge does not own, and one is
+    // entitled to answer without reading the request: it closes its own
+    // standard input before answering. Forge must report what that adapter
+    // actually answered, not `unavailable` because its request write lost the
+    // race against the adapter's exit.
+    let project = valid_project();
+    let adapter = project.path().join("silent.sh");
+    fs::write(
+        &adapter,
+        r#"#!/bin/sh
+exec 0<&-
+printf '%s' '{"provider":"workspace-governance","protocol_version":"0.1.0","project_id":"local-demo","status":"pass","evidence":["adoption=adopted"],"detail":"answered without reading the request"}'
+"#,
+    )
+    .unwrap();
+    make_executable(&adapter);
+    save_provider_selection(
+        project.path(),
+        WORKSPACE_GOVERNANCE_PROVIDER_ID,
+        Some(adapter.to_str().unwrap()),
+        true,
+        10_000,
+    )
+    .unwrap();
+
+    let observation = check_project(project.path()).unwrap();
+    assert_eq!(observation.status, ProviderStatus::Pass);
+    assert_eq!(observation.evidence, ["adoption=adopted"]);
+}
+
+#[test]
 fn status_rendering_marks_external_failure_as_not_healthy() {
     let status = GovernanceStatus::from(ProviderStatus::Unavailable);
     assert!(!status.is_healthy());

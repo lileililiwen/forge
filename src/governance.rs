@@ -610,11 +610,13 @@ fn run_adapter(
             reason: format!("cannot start adapter `{adapter}`: {err}"),
         })?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(request)
-            .map_err(|err| ForgeError::GovernanceUnavailable {
-                reason: format!("cannot write adapter request: {err}"),
-            })?;
+        if let Err(err) = write_adapter_request(&mut stdin, request) {
+            // A genuine write failure leaves the child running; reap it before
+            // reporting, exactly as the deadline path below does.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(err);
+        }
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     loop {
@@ -665,6 +667,25 @@ fn run_adapter(
                 });
             }
         }
+    }
+}
+
+/// Write the request to the adapter's standard input.
+///
+/// A `BrokenPipe` is the one write error that carries information about the
+/// *adapter* rather than about Forge's plumbing: it can only be raised because
+/// the adapter closed its input. An adapter that answers without reading its
+/// request is a legitimate provider, so losing that race is Forge's timing, not
+/// a provider failure — the caller proceeds to read the exit status and output
+/// the adapter actually produced. Every other error keeps the typed
+/// unavailable refusal.
+fn write_adapter_request(stdin: &mut impl Write, request: &[u8]) -> Result<(), ForgeError> {
+    match stdin.write_all(request) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(err) => Err(ForgeError::GovernanceUnavailable {
+            reason: format!("cannot write adapter request: {err}"),
+        }),
     }
 }
 
@@ -821,6 +842,56 @@ mod tests {
     #[test]
     fn normalized_failure_status_is_not_healthy() {
         assert!(!GovernanceStatus::from(ProviderStatus::Unavailable).is_healthy());
+    }
+
+    /// An adapter that answers without reading its request is a legitimate
+    /// provider, so Forge losing the write race against it must not become an
+    /// `unavailable` observation.
+    ///
+    /// Deterministic by construction: the child is reaped *before* the write,
+    /// so the read end of the pipe is provably closed. An end-to-end test
+    /// cannot establish that ordering, because `run_adapter` writes
+    /// immediately after spawning and never waits first.
+    #[cfg(unix)]
+    #[test]
+    fn a_request_write_to_an_adapter_that_already_exited_is_not_a_failure() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "exec 0<&-; exit 0"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success());
+
+        // Before the fix this was `Err(cannot write adapter request: Broken
+        // pipe (os error 32))`, which `run_external_provider` reports as an
+        // `Unavailable` observation while discarding the adapter's answer.
+        write_adapter_request(&mut stdin, br#"{"action":"check"}"#).unwrap();
+    }
+
+    /// A write failure that is not the adapter closing its input is still a
+    /// real inability to talk to the adapter, and keeps its typed refusal.
+    #[test]
+    fn a_request_write_failure_that_is_not_a_broken_pipe_still_refuses() {
+        struct Failing;
+        impl Write for Failing {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let refusal = write_adapter_request(&mut Failing, b"{}").unwrap_err();
+        assert!(
+            matches!(refusal, ForgeError::GovernanceUnavailable { .. }),
+            "{refusal:?}"
+        );
+        assert!(refusal.to_string().contains("cannot write adapter request"));
     }
 
     /// Build `<root>/workspace-governance/scripts/forge_governance_adapter.py`

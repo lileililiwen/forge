@@ -13,16 +13,131 @@ version performed zero comparisons and printed an unconditional
 `contract-parity: OK`. It also re-syncs three drifted mirror files. The change is
 not archived and no commit has been made for it.
 
-current_spec: manifest-wire-contract-shape
+current_spec: governance-adapter-request-write-race
 
-`manifest-wire-contract-shape` is the change now in flight. It is implemented,
-verified and **not archived**, and it is a *second* active change:
-`.ai-rules/workflow.md` allows one at a time, and the repository owner
-explicitly authorized this work to proceed alongside the parked
-`contract-parity-gate-real-digests`. That change is untouched and still
-unarchived — this work neither archived it, deleted its package, nor committed
-on its behalf. The two are a different concern (vendored contract bytes versus
-the emitted manifest's wire shape) and neither depends on the other.
+## Three changes are in flight and none is archived
+
+`.ai-rules/workflow.md` allows one active change at a time. **Three** active
+change directories exist right now, because the owner explicitly authorized
+this work to proceed alongside the two already parked. Nothing below was
+archived, deleted or committed on another change's behalf.
+
+| Change | State | Concern |
+|---|---|---|
+| `contract-parity-gate-real-digests` | active, implemented, **not archived**, no commit | vendored contract bytes |
+| `manifest-wire-contract-shape` | active, implemented, verified, **not archived** | the emitted manifest's wire shape |
+| `governance-adapter-request-write-race` | active, implemented, verified, **not archived** | a governance adapter that never reads its request |
+
+The three are independent concerns and none depends on another. The
+`current_spec:` pointer above names the change most recently worked on;
+`governance-adapter-request-write-race` was selected next, not instead of the
+other two.
+
+`manifest-wire-contract-shape` is implemented, verified and **not archived**.
+It is a *second* active change alongside the parked
+`contract-parity-gate-real-digests`; that change is untouched and still
+unarchived.
+
+## What governance-adapter-request-write-race does
+
+`tests/governance_contract.rs` was flaky: ~50 % failure rate, 1–2 tests failing
+per run, varying every time. It was reported as a shared-state problem and it
+was **not** one. Two measurements settle it:
+
+```
+$ for i in $(seq 1 20); do cargo test --test governance_contract -- --test-threads=1; done
+7 runs FAILED (1-3 tests each), 13 runs ok
+```
+
+Serialising the target does not fix it, which is what a per-test race does and
+what shared state does not. The four tests that ever failed are exactly the
+four whose adapter script never reads standard input:
+
+```sh
+#!/bin/sh
+printf '%s' '{"provider":"external", ...}'
+```
+
+Such an adapter exits immediately and closes the read end of its stdin pipe,
+so Forge's own request write can lose the race and come back
+`Broken pipe (os error 32)`. `run_external_provider` maps that to
+`ProviderStatus::Unavailable` and **throws the adapter's answer away** — the
+answer was already complete on stdout. Measured detail, captured through the
+real `save_provider_selection` + `check_project` path:
+
+```
+status=Unavailable detail=Some("cannot write adapter request: Broken pipe (os error 32)")
+```
+
+The fix is in `src/governance.rs`, not in the test. `BrokenPipe` is the one
+write error that says something about the *adapter* rather than about Forge's
+plumbing, so `write_adapter_request` treats it as a completed write and Forge
+reads the exit status, stdout and stderr the adapter actually produced. Every
+other write error keeps its typed unavailable refusal, and now kills and reaps
+the child before returning. No test was ignored, serialised, slept or retried.
+
+The shared-state hypothesis was tested and cleared rather than assumed: no
+`set_var`/`remove_var` or `set_current_dir` on this path, no `static` /
+`OnceLock`, per-test `TempDir`, pid-keyed temp file names that cannot collide
+across distinct directories, no socket, and read-only fixtures.
+
+### Verification (2026-10-05)
+
+- `cargo test --test governance_contract`, **245 consecutive runs** at default
+  parallelism across five blocks: **244 passed, 1 failed**, and the final
+  contiguous block of 20 was **20/20 passed** (see the open item below). A
+  further 20 runs at `--test-threads=8`: 20/20 passed. A further 20 at
+  `--test-threads=1`: 20/20 passed.
+- Before the fix, for comparison: 13 failures across 8 of 20 default runs, and
+  7 failures across 4 of 20 serialised runs.
+- The deterministic guard was checked against the **pre-fix** code: with the
+  `BrokenPipe` arm removed,
+  `a_request_write_to_an_adapter_that_already_exited_is_not_a_failure` fails
+  1/1 with `cannot write adapter request: Broken pipe (os error 32)`. It is not
+  a vacuous test. The end-to-end guard
+  `an_adapter_that_never_reads_its_request_still_answers` is a *weaker*
+  instrument — it detected the pre-fix defect in 0/10 whole-target runs,
+  because `run_adapter` writes immediately after `spawn()` and the child must
+  win a sub-millisecond race. It is kept as the only place in the suite that
+  names the scenario as a requirement, not as the deterministic pin. A guard
+  that raised the odds with CPU pressure or repetition was rejected: that is the
+  nondeterminism this change exists to remove.
+- `cargo test --workspace --all-targets --no-fail-fast -- --skip
+  generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain`,
+  `cargo fmt --check`, `cargo clippy --workspace --all-targets` (zero findings
+  in either file this change touches), `git diff --check`,
+  `node scripts/check-openspec-change-names.mjs`,
+  `openspec validate --all --strict --no-interactive` — see the totals in the
+  change's `tasks.md` §4.
+- No shared Gate Runtime is configured; no Gate pass is claimed.
+
+### Outstanding
+
+- **One unexplained failure in 245 runs.** A single run of the 245 (default
+  parallelism) reported `20 passed; 1 failed` and the capture did not record
+  which test or why. It was not reproduced in the 20 runs at
+  `--test-threads=8`, the 20 at `--test-threads=1`, or 220 further default
+  runs, and it is **not** claimed as fixed. It is most likely a different,
+  environmental flake — see the studio port note below — but that is a
+  hypothesis, not a measurement.
+- **Three adjacent defects found while mapping `run_adapter`, not fixed here**
+  and recorded in the change's `design.md` §5: stdout is not drained while the
+  child runs, so an adapter writing more than one 64 KiB pipe buffer deadlocks
+  until its deadline against a 256 KiB `MAX_ADAPTER_OUTPUT_BYTES`; `git_revision`
+  has no deadline at all; the wait loop polls at 10 ms. None of them is the
+  cause of this flake — no adapter in this repository produces more than ~10 KiB
+  — and the first needs concurrent drain + deadline handling, a materially
+  larger change.
+- **`tests/studio_preview_contract.rs::preview_port_collision_is_refused_without_killing_a_listener`
+  is a separate, pre-existing flake**, seen in a whole-suite run and outside
+  this change's scope. It binds the fixed range 45800–45863, which lies inside
+  this machine's Linux ephemeral range (`/proc/sys/net/ipv4/ip_local_port_range`
+  = `32768 60999`), so any concurrent outbound connection from any process can
+  take one of the 64 ports and the test's own bind then returns 63. Mechanism
+  proved, not guessed: with another process holding the range, the same
+  assertion fails (`left: 0, right: 64` when all 64 are held; `left: 63,
+  right: 64` when one is). It passes in isolation. The fix is not a free port
+  or a free port *range*; it belongs to its own change.
 
 ## What manifest-wire-contract-shape does
 

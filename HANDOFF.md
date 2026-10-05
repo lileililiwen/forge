@@ -13,11 +13,11 @@ version performed zero comparisons and printed an unconditional
 `contract-parity: OK`. It also re-syncs three drifted mirror files. The change is
 not archived and no commit has been made for it.
 
-current_spec: governance-adapter-bounded-process-run
+current_spec: adapter-request-write-boundary
 
-## Five changes are in flight and none is archived
+## Seven changes are in flight and none is archived
 
-`.ai-rules/workflow.md` allows one active change at a time. **Five** active
+`.ai-rules/workflow.md` allows one active change at a time. **Seven** active
 change directories exist right now, because the owner explicitly authorized
 this work to proceed alongside the ones already parked. Nothing below was
 archived, deleted or committed on another change's behalf.
@@ -29,8 +29,10 @@ archived, deleted or committed on another change's behalf.
 | `governance-adapter-request-write-race` | active, implemented, verified, **not archived** (`21a9566`) | a governance adapter that never reads its request |
 | `governance-adapter-bounded-process-run` | active, implemented, verified, **not archived** | the adapter subprocess can deadlock; the revision lookup has no deadline |
 | `studio-preview-contract-port-range` | active, implemented, verified, **not archived** | a test port range inside the OS ephemeral window |
+| `adapter-request-write-boundary` | active, implemented, verified, **not archived** | the same broken-pipe request write at the publish, translate and hermora boundaries |
+| `studio-test-port-range` | active, implemented, verified, **not archived** | three more hardcoded test port ranges inside the OS ephemeral window |
 
-The five are independent concerns and none depends on another. The
+The seven are independent concerns and none depends on another. The
 `current_spec:` pointer above names the change most recently worked on.
 
 ## What governance-adapter-bounded-process-run fixes
@@ -104,26 +106,189 @@ run at exact multiples of the 5 s/10 s test budgets. That was this change's own
 bug — end-of-file is not an exit event — and it is documented in the change's
 `design.md` §3.4 rather than quietly dropped.
 
-## Six whole-suite flakes remain, all reproduced or classified stashed
+## Whole-suite flakes: four fixed here, four still open and classified
 
 | Test | Signature | State |
 |---|---|---|
 | `studio_preview_contract::preview_port_collision_is_refused_without_killing_a_listener` | `left: 56, right: 64` | **fixed** by `studio-preview-contract-port-range` |
-| `api_contract::{healthz_route_returns_200_without_authorization, unknown_route_returns_404, wrong_method_returns_405}` | `ConnectionReset (os error 104)` | **pre-existing, reproduced stashed**: 3 failures in 8 target runs |
-| `delivery_cross_surface::a_successful_preflight_writes_a_journal_row_visible_on_both_transports` | `publish provider 'openpanel': Broken pipe (os error 32)` | **pre-existing, reproduced stashed** (3 of 6 baseline runs) |
-| `docs_contract::provider_failure_keeps_prior_derivative_and_redacts_secrets` | `translator stdin write failed: Broken pipe (os error 32)` | **pre-existing, reproduced stashed** |
-| `mcp_contract::mcp_repeated_isolated_round_trip_is_stable` | two invocations, `observed_at` one second apart | **pre-existing, reproduced stashed** |
-| `gate::tests::real_run_executes_gate_surface_and_records_evidence` | `Text file busy (os error 26)` | **pre-existing, not reproduced stashed** — 1 of 6 with-change runs, 0 of 6 baseline; passes 5/5 in isolation both ways |
-| `docs_contract::ordering_is_stable_by_project_then_source_whatever_the_selection_order` | — | **pre-existing, reproduced stashed** |
+| `studio_api_contract::api_owns_the_live_preview_between_start_and_stop` | `studio port unavailable: no free port in range 47100..=47163` | **fixed** by `studio-test-port-range` — mechanism reproduced and proved, see below |
+| `studio_cli_contract::preview_start_probe_reaches_ready_and_leaves_no_live_process` | same, for `47300..=47363` | **fixed** by `studio-test-port-range` |
+| `delivery_cross_surface::a_successful_preflight_writes_a_journal_row_visible_on_both_transports` | `publish provider 'openpanel': Broken pipe (os error 32)` | **fixed** by `adapter-request-write-boundary`; 30/30 target runs |
+| `docs_contract::provider_failure_keeps_prior_derivative_and_redacts_secrets` | `translator stdin write failed: Broken pipe (os error 32)` | **fixed** by `adapter-request-write-boundary`; 30/30 target runs |
+| `api_contract::{healthz_route_returns_200_without_authorization, unknown_route_returns_404, wrong_method_returns_405}` | `ConnectionReset (os error 104)` | **pre-existing, reproduced stashed**: 3 failures in 8 target runs — untouched here |
+| `mcp_contract::mcp_repeated_isolated_round_trip_is_stable` | two invocations, `observed_at` one second apart | **pre-existing, reproduced stashed** — untouched here |
+| `docs_contract::ordering_is_stable_by_project_then_source_whatever_the_selection_order` | — | **pre-existing, reproduced stashed** — untouched here |
+| `Text file busy (os error 26)` at **three** lib sites — `portfolio::share::publish::tests::publish_timeout_is_bounded`, `policy::tests::unrecognized_json_documents_never_report`, `gate::tests::real_run_executes_gate_surface_and_records_evidence` | `spawn failed: Text file busy (os error 26)` | **pre-existing, root-caused, not fixable in scope** — see "The Text file busy flake, root-caused" below |
 
-**The strongest candidate for the next change**: `src/publish/providers.rs:531`,
-`src/docs/mod.rs:676` and `src/delivery/hermora.rs:171` carry the *same*
-`BrokenPipe` defect `21a9566` fixed for governance adapters — a bare
-`write_all` that turns an adapter answering without reading its request into a
-hard failure. The fix is now written and reviewed once; applying it three more
-times is mechanical.
+The three `BrokenPipe` boundaries named as "the strongest candidate for the next
+change" are now fixed; the rule they share lives in `process::write_request`.
 
-## What studio-preview-contract-port-range fixes
+## The `Text file busy` flake, root-caused
+
+It is **not** a gate-runner bug, **not** an environmental quirk, and **not** a
+collision between parallel test targets. It is a harness race, and it is
+reproducible on demand. Four sites now, and the first three are all in the lib
+target: whichever one writes a script happens to be racing whichever spawner.
+
+Measured rate on this machine: 1 failure in 30 `cargo test --lib` runs, 1 in 40,
+and 1 on the first `strace` attempt. **0 failures in 200 runs of the single test
+in isolation** — which is exactly why the previous worker recorded it as
+"passes 5/5 in isolation both ways" and could not place it.
+
+The three sites, all in the lib target, all the same shape: write a script into
+a temp directory with `fs::write`, `chmod +x`, then `Command::new(that path)`:
+
+| Site | Fixture |
+|---|---|
+| `src/portfolio/share/publish.rs:444` | `/tmp/forge-share-timeout-<pid>/wedged.sh` |
+| `src/policy/mod.rs` (`executable()`) | `<TempDir>/proj/dw-junk.sh` |
+| `src/gate/mod.rs:1072` (`write_fixture_script`) | `<TempDir>/gate-ok.sh` |
+| `tests/inventory_contract.rs:281` | `<TempDir>/inventory-adapter.sh`, staged with `fs::copy` |
+
+The syscall trace of a real failure shows the mechanism exactly:
+
+```
+2445580 openat("…/proj/dw-junk.sh", O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC) = 27
+…
+2445600 execve("…/proj/dw-junk.sh", [… "--version"]) = -1 ETXTBSY
+```
+
+`2445600` is a **forked child**, and so are `2445597`, `2445598`, `2445599` and
+`2445603` — other tests' spawns, interleaved. `fs::write` holds the
+`O_WRONLY` descriptor across its `open`/`write`/`close`, and Rust's spawn path
+is `fork` + `execvp`, so **a child forked inside that window inherits a copy of
+the write descriptor**. The child then execs the very file that descriptor is
+open for. `O_CLOEXEC` does not save it: the kernel checks `ETXTBSY` while
+opening the new executable, which is *before* it closes the close-on-exec
+descriptors. The exec of an executable that another live descriptor has open
+for writing is refused, which is the ordinary "you cannot overwrite a running
+executable" rule.
+
+That accounts for every observation, including the ones that looked like
+evidence for other explanations:
+
+- **0/200 in isolation** — one thread, so no second spawn can fork inside the
+  write window.
+- **A different test each time** — it is whichever script-writer happens to be
+  racing whichever spawner.
+- **Not a shared artifact** — each fixture lives in its own `TempDir`; what is
+  shared is the process's descriptor table, not a file.
+- **Not the filesystem** — `/tmp` is tmpfs here, but the rule is inode-wide and
+  behaves the same on ext4.
+- **The leaked directories** (`/tmp/forge-share-timeout-*` on disk right now)
+  are a *consequence*: the panic skips the `remove_dir_all` at the end of the
+  test, so a failed run leaves its fixture behind.
+
+**Why it is not fixed here.** Closing the window needs every `spawn` in the
+process to be excluded from the write window, which means a lock around *all*
+process creation in a 1180-test binary plus every integration-test binary.
+One of the three sites (`src/portfolio/share/**`) is explicitly outside this
+change's scope, and the other two are lib-crate unit tests whose spawn sites are
+product code. It is therefore left **named and owned here rather than left
+unowned**: the honest statement is that it is a genuine race with a known
+mechanism and no fix that fits one change. Scheduling it means picking one of:
+
+1. a crate-wide spawn/write lock used by every test that stages an executable
+   (touches product code, or needs the tests moved behind a helper), or
+2. replacing staged-script fixtures with `sh -c '<body>'`, which removes the
+   writable executable entirely — not possible where the code under test
+   resolves a *path*, which is all three sites.
+
+## What adapter-request-write-boundary fixes
+
+`21a9566` fixed a `BrokenPipe` on the *governance* adapter's request write and
+recorded the other three as mechanical. Those three are now fixed by one shared
+rule instead of three more copies of it:
+
+```rust
+// src/process.rs
+pub fn write_request(stdin: &mut impl Write, request: &[u8]) -> std::io::Result<()>
+```
+
+`BrokenPipe` is `Ok(())` — the peer closed its input, so the caller goes on to
+the child's real exit status and output. Every other error is returned for the
+caller to map to its own typed refusal.
+
+| Site | Pre-fix | Post-fix |
+|---|---|---|
+| `src/publish/providers.rs:529` | bare `write_all` → `PublishInvalid`, **child left running** | shared rule, kill + reap, same message |
+| `src/docs/mod.rs:676` | bare `write_all` → translator error | shared rule; its existing kill + reap unchanged |
+| `src/delivery/hermora.rs:173` | `let _ = stdin.write_all(&payload)` — **every** error discarded | shared rule, kill + reap, typed `DeliveryUnavailable` |
+| `src/governance.rs:898` | already correct (`21a9566`) | its mapper delegates to the shared rule; both landed guards untouched |
+
+Hermora was the odd one: its comment already stated the correct rule ("a broken
+pipe here means the adapter exited early") and the code under it threw the
+error away, so a genuine `EIO`/`ENOMEM` while writing a request was silently
+swallowed and Forge then reported the adapter's own exit status for a request
+that was never delivered.
+
+**Why one shared function rather than three more edits.** The decision "`BrokenPipe`
+reports on the child, so it is not Forge's failure" is policy, not a detail of
+one module, and four copies is how Hermora's `let _ =` was written in the first
+place — three sites spelled the rule and the fourth had nothing to copy. The
+helper takes a `&mut impl Write`, not a `&mut Child`, precisely so the
+*non*-`BrokenPipe` arm stays unit-testable with a `Write` impl that always fails
+`PermissionDenied`. That guard is what catches a reintroduced `let _ =`.
+
+Two guards in `src/process.rs::tests`, both deterministic:
+
+| Guard | Against the pre-fix behaviour |
+|---|---|
+| `a_request_write_to_a_child_that_already_exited_is_not_a_failure` | **fails 1/1**: `Os { code: 32, kind: BrokenPipe }` |
+| `a_request_write_failure_that_is_not_a_broken_pipe_is_returned` | passes both ways by design — it pins the *retained* refusal |
+
+### The deadlock check on the three new sites
+
+Asked to check each site for the pipe-buffer deadlock `5d5f103` fixed in
+`governance.rs`. **The shape is present at all three, and worse**: stdout is
+drained only *after* `try_wait` reports exit, and none of the three caps stdout
+at all.
+
+| Site | stdout drained while the child runs? | cap | a child writing > 64 KiB to stdout |
+|---|---|---|---|
+| `src/publish/providers.rs:589-607` | no (stderr *is*, on its own thread, `:546`) | none | blocks in `write(2)`, killed at `provider_timeout()`, reported `timed out` |
+| `src/docs/mod.rs:684-693` | no | none | blocked, killed at the translator timeout |
+| `src/delivery/hermora.rs:180-200` | no (stderr is `/dev/null`) | `RESPONSE_BYTES_MAX` applies *after* the wait, so it bounds the retained response, not the read | blocked, killed at `adapter_timeout()` |
+
+**It is a misclassification, not a hang**: each loop has an existing deadline it
+returns from, so the wrong verdict is "timed out", not "wedged". It is left
+unfixed deliberately — closing it means re-deriving the bounded-run machinery
+three more times, including its measured `/bin/sh` fork hazard where drain
+threads must be *detached* because joining one took the full 30 s. No test in
+this repository produces more than ~10 KiB on these channels, so nothing
+attributes a failure to it. Recorded in the change's `design.md` §5.
+
+## What studio-test-port-range fixes
+
+Three more targets hardcoded bases inside this host's ephemeral window
+(`/proc/sys/net/ipv4/ip_local_port_range` = `32768 60999`):
+`studio_api_contract.rs:193` (`47100`), `studio_cli_contract.rs:505,549`
+(`47300`) and `react_web_native_preview.rs:153` (`48200`). One shared helper,
+`tests/support/studio_ports.rs`, now serves all four Studio targets including
+the one the previous change fixed, so there is one search rather than four.
+
+**Mechanism proved both ways.** With an unrelated python process holding all
+256 ports of `45800-45863`, `47100-47163`, `47300-47363` and `48200-48263`:
+
+- with the fix, all four targets pass;
+- with the pre-fix bases restored, `studio_api_contract` fails
+  `studio port unavailable: no free port in range 47100..=47163` and
+  `studio_cli_contract` fails `no free port in range 47300..=47363`.
+
+**A defect this change introduced and then fixed.** Its own first full-suite run
+failed, because a `react_web_native_preview` run was executing at the same time
+and all four targets preferred the *same* window:
+
+```
+studio-start-timeout: profile runner exited before binding the reserved port (port 4100)
+```
+
+`cargo test` runs test binaries one at a time; two `cargo test` invocations do
+not. Each target now starts its search at its own index, so it prefers `4100`,
+`4228`, `4356` or `4484` — rotated, not filtered, so every candidate stays
+reachable. Measured with `ss -ltn` while three targets ran: `4228` and `4356` in
+use at once, from two different targets. The underlying gap is the allocator's
+own bind/drop window, which is a product defect and is recorded as such.
 
 `preview_port_collision_is_refused_without_killing_a_listener` bound a fixed
 range `45800–45863`, inside this host's ephemeral window
@@ -144,6 +309,56 @@ port was released. The record states plainly that neither half can prove
 It is a *second* active change alongside the parked
 `contract-parity-gate-real-digests`; that change is untouched and still
 unarchived.
+
+## Verification of adapter-request-write-boundary and studio-test-port-range
+
+Every run of every target, 2026-10-05. **400 consecutive runs, all clean.**
+
+| Check | Result |
+|---|---|
+| 7 targets × 30 runs at default parallelism | **210/210 clean** |
+| `cargo test --lib` × 30 | **30/30** `1180 passed; 0 failed` |
+| 8 targets × 10 at `--test-threads=8` | **80/80 clean** |
+| 8 targets × 10 at `--test-threads=1` | **80/80 clean** |
+| held-range experiment (256 ports of the four old bases held) | 4 targets × 3 runs, **12/12 clean** |
+| held-range **negative control** (pre-fix bases restored) | `studio_api_contract` fails `no free port in range 47100..=47163`; `studio_cli_contract` fails `no free port in range 47300..=47363` |
+| concurrency control (3 Studio targets at once, 5 rounds) | **15/15 clean** with distinct slots; with every slot forced to `0` the same control failed inside five rounds |
+| `FORGE_NATIVE_REACT_WEB_PREVIEW=1 cargo test --test react_web_native_preview` | **6/6 passed**, each a real `npm install`, a real Vite dev server on the run-time base and a Playwright render (`VERIFIED: rendered "hello from native-react-preview"`) |
+| new guard vs. pre-fix behaviour | `a_request_write_to_a_child_that_already_exited_is_not_a_failure` **fails 1/1** with `Os { code: 32, kind: BrokenPipe }` |
+| `cargo fmt --check` | clean |
+| `cargo clippy --workspace --all-targets` | exit 0; zero diagnostics in any file either change touches, and the per-target warning set is **identical** stashed vs applied |
+| `git diff --check` | PASS |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **70 passed / 0 failed** |
+
+### Whole suite, 6 runs each, with and without the two changes
+
+| Run | with the change | change **stashed** |
+|---|---|---|
+| 1 | 2305 passed / 0 failed / 3 ignored | 2302 / **1 failed** / 3 — `delivery_cross_surface::a_successful_preflight_writes_a_journal_row_visible_on_both_transports` |
+| 2 | 2304 / **1 failed** / 3 — `inventory_show_consumes_external_adapter_executable` | 2303 / 0 failed / 3 |
+| 3 | 2304 / **1 failed** / 3 — `flutter_scaffold_tests_pass_without_forge` | 2302 / **1 failed** / 3 — `format_json_does_not_alter_checker_stdout` |
+| 4 | 2305 / 0 failed / 3 | 2302 / **1 failed** / 3 — the `delivery_cross_surface` BrokenPipe test again |
+| 5 | 2304 / **1 failed** / 3 — `flutter_scaffold_tests_pass_without_forge` | 2302 / **1 failed** / 3 — the `delivery_cross_surface` BrokenPipe test again |
+| 6 | 2305 / 0 failed / 3 | 2302 / **1 failed** / 3 — `docs_contract::provider_failure_keeps_prior_derivative_and_redacts_secrets` |
+
+**3 of 6 applied runs clean, against 1 of 6 stashed.** Four of the five stashed
+failures are the two `BrokenPipe` tests this work fixes, and neither appears in
+any applied run. The two-test difference in the totals is the two new unit
+guards.
+
+The host matters for reading these numbers: it is shared, and during this work
+another tenant had a load average above 30 with several processes pinned at
+100 % CPU. Every number above was measured under that load, not on an idle
+machine.
+
+### The two applied failures that remain, and their status
+
+| Test | Status |
+|---|---|
+| `inventory_show_consumes_external_adapter_executable` — `cannot start inventory adapter /tmp/.tmpcyR0pz/inventory-adapter.sh: Text file busy (os error 26)` | **Pre-existing class, not reproduced stashed.** The failure is a *spawn* failure: `tests/inventory_contract.rs` does `fs::copy` of a fixture script and `src/publish/inventory.rs:382` execs it, which is the write-descriptor race above. Both files are untouched by this work and the failure happens before any request write, so it cannot come from it. **Not observed in the 6 stashed runs, and not reproduced in 240 stashed runs of that target** (120 serial + 120 under 6-way parallel load); it needs the whole-suite's process pressure |
+| `flutter_scaffold_tests_pass_without_forge` | **Environmental, not reproduced stashed.** It shells out to `flutter test` → `dart pub get`, which needs the network and the whole machine; it failed 2 of 6 applied runs and 0 of 6 stashed. `tests/generate_contract.rs` is untouched by this work |
+| `format_json_does_not_alter_checker_stdout` (stashed run 3 only) | **Pre-existing**, seen only with the change stashed |
 
 ## What governance-adapter-request-write-race does
 

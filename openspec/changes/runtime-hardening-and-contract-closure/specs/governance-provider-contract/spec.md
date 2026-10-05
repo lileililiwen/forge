@@ -1,5 +1,48 @@
 ## ADDED Requirements
 
+### Requirement: Adapter request-write race is not a provider failure
+
+Forge SHALL write the request of every external governance adapter, publish
+provider, translator and delivery adapter to its standard input through one
+shared boundary, SHALL treat a request write that the child closed before
+consuming it — signalled by `BrokenPipe` — as a normal completion of the write
+step, and SHALL continue to the child's real exit status, stdout and stderr, so
+that a provider which answers without reading its request is reported by what it
+actually answered. Forge SHALL keep a typed refusal for every other
+request-write failure and SHALL terminate and reap the child before returning
+that refusal. No call site SHALL discard a request-write error.
+
+#### Scenario: Adapter answers without reading its request
+
+- **WHEN** a selected external adapter, publish provider, translator or delivery
+  adapter exits successfully without reading the request Forge wrote to its
+  standard input
+- **THEN** Forge reads that exit status and response, reports the adapter's own
+  status and evidence, and does not report `unavailable`, a publish refusal, a
+  translation failure or a delivery failure because Forge lost the write race
+
+#### Scenario: Repeated checks of a non-reading adapter agree
+
+- **WHEN** the same adapter that does not read its request is invoked
+  repeatedly, including while other adapter tests run concurrently
+- **THEN** every invocation returns the same status and the same evidence, and no
+  invocation reports a broken pipe
+
+#### Scenario: Request cannot be written for a real reason
+
+- **WHEN** writing the request fails for any reason other than the child closing
+  its input
+- **THEN** Forge terminates and reaps the child and returns its typed
+  unavailable, publish-invalid, translation-failed or delivery-unavailable
+  refusal with a bounded detail naming the failure
+
+#### Scenario: A write failure is never silently swallowed
+
+- **WHEN** the request write fails for any reason
+- **THEN** the outcome is decided by Forge's own code path and never by an
+  adapter's exit status alone, so a request that was not delivered cannot be
+  reported as an adapter answer
+
 ### Requirement: Bounded adapter subprocess run
 
 Forge SHALL execute a selected external governance adapter with both of its

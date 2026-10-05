@@ -6,34 +6,50 @@
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
 
-`contract-parity-gate-real-digests` is active and implemented but **not
-archived**. It makes `scripts/contract-parity.sh` actually compare the vendored
-contract bytes against the resolved `platform-contracts` source: the previous
-version performed zero comparisons and printed an unconditional
-`contract-parity: OK`. It also re-syncs three drifted mirror files. The change is
-not archived and no commit has been made for it.
+current_spec: runtime-hardening-and-contract-closure
 
-current_spec: adapter-request-write-boundary
+## Seven in-flight changes consolidated into one package
 
-## Seven changes are in flight and none is archived
+Seven change packages were implemented, verified and committed on `main`, and none
+was archived. Each one recorded `openspec archive` as "deliberately not run: the
+other changes are parked" — which is inverted, because archive is the per-change
+step that removes a change from flight. The queue had jammed on a blocker in
+`contract-parity-gate-real-digests` §4.4 (`check-spec-governance.mjs` failing on the
+`scaffold-prewires-shared-layer` spec), and that blocker had already been fixed by
+`5019d12` without anyone re-running the check.
 
-`.ai-rules/workflow.md` allows one active change at a time. **Seven** active
-change directories exist right now, because the owner explicitly authorized
-this work to proceed alongside the ones already parked. Nothing below was
-archived, deleted or committed on another change's behalf.
+The seven are now merged into one active package,
+`openspec/changes/runtime-hardening-and-contract-closure/`, and the seven
+directories are removed. Their full text is preserved in git from `c138f08` to
+`1c3e1f5`.
 
-| Change | State | Concern |
+| Absorbed change | Code commit | Concern |
 |---|---|---|
-| `contract-parity-gate-real-digests` | active, implemented, **not archived**, no commit | vendored contract bytes |
-| `manifest-wire-contract-shape` | active, implemented, verified, **not archived** | the emitted manifest's wire shape |
-| `governance-adapter-request-write-race` | active, implemented, verified, **not archived** (`21a9566`) | a governance adapter that never reads its request |
-| `governance-adapter-bounded-process-run` | active, implemented, verified, **not archived** | the adapter subprocess can deadlock; the revision lookup has no deadline |
-| `studio-preview-contract-port-range` | active, implemented, verified, **not archived** | a test port range inside the OS ephemeral window |
-| `adapter-request-write-boundary` | active, implemented, verified, **not archived** | the same broken-pipe request write at the publish, translate and hermora boundaries |
-| `studio-test-port-range` | active, implemented, verified, **not archived** | three more hardcoded test port ranges inside the OS ephemeral window |
+| `contract-parity-gate-real-digests` | `c138f08` | vendored contract bytes |
+| `manifest-wire-contract-shape` | `619b945` | the emitted manifest's wire shape |
+| `governance-adapter-request-write-race` | `21a9566` | a governance adapter that never reads its request |
+| `governance-adapter-bounded-process-run` | `5d5f103` | the adapter subprocess can deadlock; the revision lookup had no deadline |
+| `studio-preview-contract-port-range` | `5d5f103` | a test port range inside the OS ephemeral window |
+| `adapter-request-write-boundary` | `e3a156b` | the same broken-pipe request write at the publish, translate and hermora boundaries |
+| `studio-test-port-range` | `f078a4c` | three more hardcoded test port ranges inside the OS ephemeral window |
 
-The seven are independent concerns and none depends on another. The
-`current_spec:` pointer above names the change most recently worked on.
+Merging was necessary, not cosmetic: `src/governance.rs` was edited by three of the
+five code commits, and `f078a4c` deleted ~100 lines `5d5f103` had just written into
+`tests/studio_preview_contract.rs` to move them into the shared
+`tests/support/studio_ports.rs`. Archiving separately would have promoted two
+near-duplicate port requirements into `runtime-hardening-and-test-isolation` and
+written the broken-pipe rule twice at two scopes. After the merge there is **one
+requirement per mechanism**:
+
+- the request-write rule in `governance-provider-contract` only, widened to all four
+  boundaries and carrying all four unioned scenarios;
+- the Studio test port window in `runtime-hardening-and-test-isolation` only,
+  carrying the union of six scenarios;
+- the allocator refusal, the bounded adapter run, the bounded revision lookup, the
+  parity gate and the manifest wire shape carried verbatim.
+
+`openspec validate --all --strict` passing with the package active was confirmed
+before this commit; the archive itself follows in the next commit.
 
 ## What governance-adapter-bounded-process-run fixes
 

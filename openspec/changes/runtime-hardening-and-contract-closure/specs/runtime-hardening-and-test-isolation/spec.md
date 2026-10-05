@@ -1,14 +1,18 @@
 ## ADDED Requirements
 
-### Requirement: Studio port tests share one run-time window
+### Requirement: Studio test port ranges are chosen at run time outside the host ephemeral window
 
 Forge SHALL NOT hardcode a TCP port range in any test that drives the Studio
-preview allocator, in any target. The tests of that allocator SHALL share one
-selection of a width-wide window: it SHALL be chosen at run time from
+preview allocator or that exercises a process-global port-range setting. Those
+tests SHALL share one selection of a width-wide window, made at run time from
 candidates lying wholly outside the host's ephemeral port window, every port in
-it SHALL have been bindable when it was chosen, and each assertion about the
-allocated port SHALL be computed from the base that was actually configured
-rather than from a literal.
+the chosen window SHALL have been bindable when it was chosen, and each
+assertion about the allocated port SHALL be computed from the base that was
+actually configured rather than from a literal. A test that needs its range
+occupied SHALL hold the listeners that verified the window was free, so the
+choice and the occupancy cannot race. Each Studio target SHALL begin its search
+at its own candidate index, so targets running at the same time do not prefer the
+same window.
 
 #### Scenario: An unrelated outbound connection takes a port
 

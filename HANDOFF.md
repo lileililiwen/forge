@@ -10,6 +10,23 @@ requirements were promoted into
 `runtime-hardening-and-contract-closure` and archived on 2026-10-05 as
 `openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
 promoting 11 requirements and modifying 1 across five canonical specs.
+`openspec list` reports none active; the repository now holds 71 archived changes
+and 63 canonical specs.
+
+### Fresh clones did not build
+
+`.gitignore` excluded `/templates/`, filed under "local agent runtime state" by
+`b85f980` alongside `/.ariadex/`, `/.claude/` and `/.commandcode/`. It is not agent
+state: `src/generate/mod.rs:662` embeds `templates/rust-web-main-rs.txt` with
+`include_str!`, so the `rust-web` scaffold body could never be committed. Proven by
+moving the directory aside and building —
+`error: couldn't read src/generate/../../templates/rust-web-main-rs.txt`,
+`could not compile forge (lib)`. Every clone since `b85f980` was incomplete; only the
+working machine had the file. The rule is removed and the template is tracked.
+
+Local agent state for this CLI (`/.qoder/`) is now ignored on the same terms as the
+other agent directories, and the root `driftwatch.toml` is tracked, which is what the
+`.gitignore` comment next to `.driftwatch/` already said should happen.
 
 ## Seven in-flight changes consolidated, then archived
 
@@ -333,10 +350,9 @@ not fail**. It now proves a listener still accepts on every port and that no
 port was released. The record states plainly that neither half can prove
 *ownership*, because nothing observable from outside a process can.
 
-`manifest-wire-contract-shape` is implemented, verified and **not archived**.
-It is a *second* active change alongside the parked
-`contract-parity-gate-real-digests`; that change is untouched and still
-unarchived.
+`manifest-wire-contract-shape` is implemented, verified and archived — promoted on
+2026-10-05 as part of `runtime-hardening-and-contract-closure`, together with the six
+other packages that had been committed without promotion.
 
 ## Verification of adapter-request-write-boundary and studio-test-port-range
 
@@ -567,15 +583,23 @@ Fixing these means deciding whether Forge narrows its vocabularies or the
 contract widens them. That is a product decision, not a mechanical one, and it
 belongs to its own change.
 
-## A mirror gap worth naming
+## The mirror gap is closed, but its test still points at the sibling
 
-`contracts/schemas/public-portfolio-manifest.schema.json` is **absent from
-Forge's own mirror**, which is why nothing inside this repository could have
-caught the shape defect at all. Re-syncing the mirror belongs to
-`contract-parity-gate-real-digests`, which is still parked. Until it lands, the
-acceptance test reads the schema from the sibling checkout and is `#[ignore]`d
-rather than silently skipping, so a green suite never stands in for a check that
-did not run.
+The schema that was missing from Forge's mirror —
+`contracts/schemas/public-portfolio-manifest.schema.json` — **is now present**, and
+`scripts/contract-parity.sh` verifies it and the twelve other retained files
+byte-for-byte against the resolved `platform-contracts` source (13 files, 10 family
+digests, exit 0, re-run 2026-10-05). The reason nothing in this repository could
+catch the wire-shape defect no longer holds.
+
+One piece of that change's workaround is still standing, and it is now unnecessary
+rather than wrong: `tests/manifest_wire_contract.rs::pinned_schema_path` resolves
+only `PLATFORM_CONTRACTS_DIR` or a sibling `platform-contracts/` checkout, never the
+vendored mirror, so its decisive test stays `#[ignore]`d and is run explicitly.
+Repointing it at `contracts/schemas/` would let the schema check run in the ordinary
+suite — it would still need Python with `jsonschema`. That is a test behaviour
+change, so it is left as open work for its own package rather than folded into a
+documentation refresh.
 
 The work landed on `main`. It was originally committed on a
 `feat/scaffold-prewires-shared-layer` branch; `main` was fast-forwarded onto it
@@ -773,12 +797,11 @@ did not run.
 The work was committed on `feat/scaffold-prewires-shared-layer` rather than
 straight onto `main`, contrary to the owner's standing direction.
 
-**AGENTS.md has never contained any branch instruction.** Its full history is
+**At the time, AGENTS.md contained no branch instruction.** Its history then was
 three commits (`5a2d272`, `d069d59`, `290832f`), and neither AGENTS.md nor
-`.ai-rules/` nor README.md mentions "branch" or "main" anywhere — a
-repository-wide search of those files returns nothing. So the rule the owner
-believes was written down is not in the repository, and the previous agent was
-not working from a written instruction to override.
+`.ai-rules/` nor README.md mentioned "branch" or "main" anywhere. So the rule the
+owner believed was written down was not in the repository, and the previous agent
+was not working from a written instruction to override.
 
 The most likely driver is the agent harness rather than the repository: the
 default commit guidance in this environment is "if on the default branch, branch
@@ -790,10 +813,11 @@ Corrective action taken: `main` was fast-forwarded to the commit, the branch
 deleted, and all subsequent work committed on `main`. Nothing was lost — the
 branch tip and `main` are the same commit.
 
-**To make the owner's rule durable, it needs to be written down.** It is not
-currently in any file this repository reads. The one-line addition belongs in
-`AGENTS.md` under "Required workflow", something like "Commit to `main`
-directly; do not create topic branches unless the owner asks for one."
+**The rule has since been written down.** `AGENTS.md` now carries a "Git workflow"
+section: work on `main`, no branch or worktree unless the owner explicitly asks,
+never push, stage explicit paths and never `git add -A`. That closes the gap this
+section recorded; the rest of it stays as the reason the rule is stated where an
+agent will read it before committing.
 
 ## Native evidence (real, not claimed)
 

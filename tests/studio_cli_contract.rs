@@ -16,6 +16,14 @@ use std::process::Command;
 
 use serde_json::Value;
 
+#[path = "support/studio_ports.rs"]
+mod studio_ports;
+use studio_ports::shared_port_base;
+
+/// See `support/studio_ports.rs`: each Studio target prefers a different
+/// candidate window.
+const SLOT: u16 = 2;
+
 const APP_SPEC_CONTRACT: &str = "forge-app-spec/0.1.0";
 const SESSION_CONTRACT: &str = "forge-studio-session/0.1.0";
 const PREVIEW_CONTRACT: &str = "forge-studio-preview/0.1.0";
@@ -487,6 +495,10 @@ fn preview_start_probe_reaches_ready_and_leaves_no_live_process() {
     assert_eq!(saved["spec_revision"], "r1");
 
     let runner = stub_runner(tmp.path());
+    // Chosen at run time outside this host's ephemeral window; a hardcoded
+    // base inside `ip_local_port_range` loses a port to any unrelated
+    // outbound connection on the machine.
+    let port_range_start = shared_port_base(SLOT).to_string();
     let out = run_env(
         &db,
         &[
@@ -502,7 +514,7 @@ fn preview_start_probe_reaches_ready_and_leaves_no_live_process() {
         ],
         &[
             ("FORGE_STUDIO_RUNNER_BIN", runner.to_str().unwrap()),
-            ("FORGE_STUDIO_PORT_RANGE_START", "47300"),
+            ("FORGE_STUDIO_PORT_RANGE_START", &port_range_start),
             ("FORGE_STUDIO_STARTUP_TIMEOUT_SECS", "10"),
         ],
     );
@@ -546,7 +558,7 @@ fn preview_start_probe_reaches_ready_and_leaves_no_live_process() {
         ],
         &[
             ("FORGE_STUDIO_RUNNER_BIN", runner.to_str().unwrap()),
-            ("FORGE_STUDIO_PORT_RANGE_START", "47300"),
+            ("FORGE_STUDIO_PORT_RANGE_START", &port_range_start),
             ("FORGE_STUDIO_STARTUP_TIMEOUT_SECS", "10"),
         ],
     );

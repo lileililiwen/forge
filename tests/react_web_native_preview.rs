@@ -28,6 +28,14 @@ use forge::studio::{
     parse_spec_text, save_spec, start_preview, stop_preview, PreviewState, ProcessRunner,
 };
 
+#[path = "support/studio_ports.rs"]
+mod studio_ports;
+use studio_ports::shared_port_base;
+
+/// See `support/studio_ports.rs`: each Studio target prefers a different
+/// candidate window.
+const SLOT: u16 = 3;
+
 const ID: &str = "native-react-preview";
 
 fn has_npm() -> bool {
@@ -150,7 +158,13 @@ fn native_react_web_preview_renders_in_a_browser() {
     let spec = parse_spec_text(&spec_text).expect("valid AppSpec");
     save_spec(&registry, ID, &dest, spec, "r0").expect("save spec");
 
-    std::env::set_var("FORGE_STUDIO_PORT_RANGE_START", "48200");
+    // Chosen at run time outside this host's ephemeral window; a hardcoded
+    // base inside `ip_local_port_range` loses a port to any unrelated
+    // outbound connection on the machine.
+    std::env::set_var(
+        "FORGE_STUDIO_PORT_RANGE_START",
+        shared_port_base(SLOT).to_string(),
+    );
     std::env::set_var("FORGE_STUDIO_STARTUP_TIMEOUT_SECS", "90");
     let runner = Box::new(ProcessRunner::react_web());
     let (session, live) = start_preview(&registry, &dest, runner).expect("preview reaches ready");

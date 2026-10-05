@@ -20,7 +20,15 @@ use std::process::Command;
 use chrono::{Duration, Utc};
 use forge::api::{handle_buffered, ApiConfig, ApiRequest, ApiResponse};
 use forge::registry::Registry;
-use forge::studio::{parse_spec_text, save_spec};
+use forge::studio::{parse_spec_text, save_spec, PORT_RANGE_WIDTH};
+
+#[path = "support/studio_ports.rs"]
+mod studio_ports;
+use studio_ports::shared_port_base;
+
+/// See `support/studio_ports.rs`: each Studio target prefers a different
+/// candidate window.
+const SLOT: u16 = 1;
 
 const PROJECT_ID: &str = "studio-api";
 /// A hex bearer token; `load_session` resolves it under the
@@ -189,8 +197,12 @@ fn api_owns_the_live_preview_between_start_and_stop() {
 
     // Controlled runner + a dedicated port range for this process.
     let runner = stub_runner(tmp.path());
+    // The range is chosen at run time, outside this host's ephemeral window:
+    // a hardcoded base inside `ip_local_port_range` loses a port to any
+    // unrelated outbound connection on the machine.
+    let port_base = shared_port_base(SLOT);
     std::env::set_var("FORGE_STUDIO_RUNNER_BIN", &runner);
-    std::env::set_var("FORGE_STUDIO_PORT_RANGE_START", "47100");
+    std::env::set_var("FORGE_STUDIO_PORT_RANGE_START", port_base.to_string());
     std::env::set_var("FORGE_STUDIO_STARTUP_TIMEOUT_SECS", "10");
 
     // One config spans both calls: the server owns the live session.
@@ -207,7 +219,10 @@ fn api_owns_the_live_preview_between_start_and_stop() {
     assert_eq!(value["preview"]["state"], "ready");
     assert_eq!(value["preview"]["project_id"], PROJECT_ID);
     let port = value["preview"]["port"].as_u64().expect("reserved port");
-    assert!((47100..47164).contains(&port));
+    assert!(
+        (u64::from(port_base)..u64::from(port_base) + u64::from(PORT_RANGE_WIDTH)).contains(&port),
+        "{port} outside {port_base}"
+    );
     let url = value["preview"]["preview_url"]
         .as_str()
         .expect("preview url");

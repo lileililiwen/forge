@@ -11,7 +11,11 @@
 - [x] 2.1 Add `EnableSiteUsers` template option and conditional generated package references/files.
 - [x] 2.2 Render app-owned Identity user/context, cookie registration, initial migration, login/logout/recovery pages, and starter layout.
 - [x] 2.3 Render owner bootstrap command with random one-time password and a Production refusal.
-- [x] 2.4 Render opt-in self-registration and app-owned permission catalog/policies with deny-by-default behavior.
+- [ ] 2.4 Render opt-in self-registration and app-owned permission catalog/policies with deny-by-default behavior.
+  (Corrected by `platform-shared-auth-pages`: this task was recorded complete, but no
+  self-registration page was rendered — only the permission catalog and policies were.
+  The app-owned permission catalog and policies are done; the page arrived later, in
+  `openspec/changes/platform-shared-auth-pages`.)
 - [x] 2.5 Add test-environment fake authentication and document incremental adoption/rollback.
 
 ## 3. BFS — Cross-surface regression and completeness

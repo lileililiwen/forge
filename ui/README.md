@@ -49,8 +49,13 @@ change, not a refactor.
 
 `tokens/emitted-baseline.json` records all 38 names the 0.1.0 generator emitted with
 their values. `verify-ui.mjs` fails with `ui-token-renamed` if any of them is missing or
-changed. The rewrite is **additive**: it emits 47 names today, the 38 baselined ones
-plus 5 dark-capable shades and 4 component tokens.
+changed. The rewrite is **additive**: it emits 49 names today, the 38 baselined ones
+plus 5 dark-capable shades, 4 component tokens, and the 2 semantic colors
+(`semantic.color.onPrimary`, `semantic.color.border`) that
+`platform-shared-auth-pages` added after measuring the auth pages and finding the
+button label at 1.80:1 on the dark primary fill and the field edge at 1.48:1 on the
+light surface. Neither could be expressed with an existing primitive in both modes, so
+both are theme-override entries rather than a raw shade.
 
 ## The canonical visually-hidden primitive
 
@@ -79,6 +84,7 @@ ui/feed/
   platform-design-tokens-0.1.0.tgz
   platform-react-ui-0.1.0.tgz
   platform-react-shell-0.1.0.tgz
+  platform-react-auth-0.1.0.tgz
   feed.json          # kit version, per-package name/version/sha256/members
 ```
 
@@ -144,12 +150,12 @@ at a fixed level. Two runs produce byte-identical tarballs; prove it with
 
 ## Version policy (D15)
 
-The three packages stay at **0.1.0**. This change is additive — a `.visually-hidden`
-primitive plus dark-capable token shades — so the public surface is unchanged and a
-`0.2.0` bump would signal a contract change that did not happen. Consumers pin the
-tarball **and** its digest, so bytes that changed without a version bump are caught by
-`ui-feed-digest-mismatch` rather than absorbed. The digest is the load-bearing check; the
-version is not.
+The packages stay at **0.1.0**. The work is additive — a `.visually-hidden` primitive,
+dark-capable token shades, two semantic colors, and a fourth package — so no existing
+package's public surface changed and a `0.2.0` bump would signal a contract change that
+did not happen. Consumers pin the tarball **and** its digest, so bytes that changed without
+a version bump are caught by `ui-feed-digest-mismatch` rather than absorbed. The digest is
+the load-bearing check; the version is not.
 
 ## Conformance: absence, not presence
 

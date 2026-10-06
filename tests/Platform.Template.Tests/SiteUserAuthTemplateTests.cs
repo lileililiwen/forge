@@ -43,6 +43,21 @@ public sealed class SiteUserAuthTemplateTests : IClassFixture<TemplatePackFixtur
         Assert.True(File.Exists(Path.Combine(appDirectory, "Pages", "Shared", "_ViewImports.cshtml")));
         Assert.True(File.Exists(Path.Combine(appDirectory, "Pages", "Shared", "_ViewStart.cshtml")));
 
+        // Self-registration: the page, its code-behind, the opt-in it reads, and the
+        // antiforgery token its form carries.
+        var registerPage = Path.Combine(appDirectory, "Pages", "Identity", "Account", "Register.cshtml");
+        var registerCodeBehind = registerPage + ".cs";
+        Assert.True(File.Exists(registerPage));
+        Assert.True(File.Exists(registerCodeBehind));
+        var registerMarkup = File.ReadAllText(registerPage);
+        Assert.Contains("@Html.AntiForgeryToken()", registerMarkup, StringComparison.Ordinal);
+        Assert.Contains("Model.IsRegistrationEnabled", registerMarkup, StringComparison.Ordinal);
+        var registerModel = File.ReadAllText(registerCodeBehind);
+        Assert.Contains("SelfRegistrationEnabled", registerModel, StringComparison.Ordinal);
+        Assert.Contains("UserManager<ApplicationUser>", registerModel, StringComparison.Ordinal);
+        // The generated appsettings keeps the opt-in off until the owner turns it on.
+        Assert.Contains("\"SelfRegistrationEnabled\": false", File.ReadAllText(Path.Combine(appDirectory, "appsettings.json")), StringComparison.Ordinal);
+
         // No separate tools/BootstrapOwner project — bootstrap-owner runs in-process.
         Assert.False(Directory.Exists(Path.Combine(appDirectory, "tools")));
 
@@ -85,6 +100,11 @@ public sealed class SiteUserAuthTemplateTests : IClassFixture<TemplatePackFixtur
         // No SiteUsers / Pages / Migrations files.
         Assert.False(Directory.Exists(Path.Combine(appDirectory, "SiteUsers")));
         Assert.False(Directory.Exists(Path.Combine(appDirectory, "Pages")));
+
+        // The Register page rides on the existing Pages/Identity/** exclude, so a
+        // disabled template emits no self-registration surface at all.
+        Assert.False(File.Exists(Path.Combine(appDirectory, "Pages", "Identity", "Account", "Register.cshtml")));
+        Assert.False(File.Exists(Path.Combine(appDirectory, "Pages", "Identity", "Account", "Register.cshtml.cs")));
 
         // Generated csproj must NOT reference any Identity or Razor Pages packages.
         var project = File.ReadAllText(Path.Combine(appDirectory, $"{appName}.csproj"));

@@ -49,6 +49,8 @@
   --color-muted-foreground: var(--color-slate-700);
   --color-primary: var(--color-blue-600);
   --color-primary-hover: var(--color-blue-700);
+  --color-on-primary: var(--color-white);
+  --color-border: var(--color-slate-500);
   --color-danger: var(--color-red-700);
   --color-success: var(--color-green-700);
   --color-warning: var(--color-amber-700);
@@ -63,6 +65,8 @@
   --color-muted-foreground: var(--color-slate-100);
   --color-primary: var(--color-blue-300);
   --color-primary-hover: var(--color-blue-200);
+  --color-on-primary: var(--color-slate-900);
+  --color-border: var(--color-slate-300);
   --color-danger: var(--color-red-300);
   --color-success: var(--color-green-300);
   --color-warning: var(--color-amber-300);

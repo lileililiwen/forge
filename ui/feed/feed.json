@@ -8,7 +8,7 @@
       "name": "@platform/design-tokens",
       "version": "0.1.0",
       "file": "platform-design-tokens-0.1.0.tgz",
-      "sha256": "7043211b80556632b7afe1661efc1b2236bb608a048522092ea24bbe11a99c15",
+      "sha256": "13e2e5488d005c1615cceaa65400bf2154ae899a547dab8126238799312ef4dc",
       "members": [
         "package/dist/tokens.css",
         "package/dist/tokens.ts",
@@ -36,6 +36,20 @@
         "package/package.json",
         "package/src/index.ts",
         "package/src/shell.tsx"
+      ]
+    },
+    {
+      "name": "@platform/react-auth",
+      "version": "0.1.0",
+      "file": "platform-react-auth-0.1.0.tgz",
+      "sha256": "5ea55e34bcadcd8147bfef0eca9a059c8f1540880921506a73681be05fb1ee0e",
+      "members": [
+        "package/package.json",
+        "package/src/auth-forms.tsx",
+        "package/src/branding.ts",
+        "package/src/index.ts",
+        "package/src/theme.tsx",
+        "package/styles.css"
       ]
     }
   ]

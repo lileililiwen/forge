@@ -141,7 +141,112 @@ public sealed class SiteUserAuthTests : IClassFixture<SiteUserAuthTests.Factory>
     private static string ExtractAlert(string html) =>
         System.Text.RegularExpressions.Regex.Match(html, "<div class=\"alert\"[^>]*>([^<]+)</div>").Groups[1].Value;
 
-    public sealed class Factory : WebApplicationFactory<Program>
+    [Fact]
+    public async Task Register_is_refused_while_self_registration_is_disabled()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var response = await client.GetAsync("/Identity/Account/Register");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("does not accept public registrations", content, StringComparison.OrdinalIgnoreCase);
+        // No form is rendered while the toggle is off, so there is nothing to post and
+        // no antiforgery token to harvest.
+        Assert.DoesNotContain("__RequestVerificationToken", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Register_post_is_refused_and_creates_nothing_while_self_registration_is_disabled()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        // The token comes from another page because the Register form is not rendered.
+        // That is the point: a hand-built post must be refused by the handler, not by
+        // the absence of a rendered form.
+        var antiforgery = await client.GetAntiForgeryTokenAsync("/Identity/Account/Login");
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["Input.Email"] = "closed-registration@example.com",
+            ["Input.Password"] = "ClosedPassword!1",
+            ["Input.ConfirmPassword"] = "ClosedPassword!1",
+            ["__RequestVerificationToken"] = antiforgery,
+        });
+        var post = await client.PostAsync("/Identity/Account/Register", form);
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+        var content = await post.Content.ReadAsStringAsync();
+        Assert.Contains("does not accept public registrations", content, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(_factory.FindUserByEmail("closed-registration@example.com"));
+    }
+
+    [Fact]
+    public async Task Register_creates_an_account_when_the_owner_enables_self_registration()
+    {
+        using var factory = new SelfRegistrationFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var antiforgery = await client.GetAntiForgeryTokenAsync("/Identity/Account/Register");
+        Assert.NotEqual(string.Empty, antiforgery);
+
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["Input.Email"] = "newcomer@example.com",
+            ["Input.Password"] = "NewcomerPassword!1",
+            ["Input.ConfirmPassword"] = "NewcomerPassword!1",
+            ["__RequestVerificationToken"] = antiforgery,
+        });
+        var post = await client.PostAsync("/Identity/Account/Register", form);
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+        Assert.Contains("The account was created", await post.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        // The account landed in the application-owned store the rest of the feature uses.
+        Assert.NotNull(factory.FindUserByEmail("newcomer@example.com"));
+    }
+
+    [Fact]
+    public async Task Register_password_mismatch_and_known_email_return_the_identical_generic_message()
+    {
+        using var factory = new SelfRegistrationFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        factory.RegisterOwner("known@example.com", "KnownPassword!1");
+        var antiforgery = await client.GetAntiForgeryTokenAsync("/Identity/Account/Register");
+
+        var mismatch = await client.PostAsync("/Identity/Account/Register", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["Input.Email"] = "mismatch@example.com",
+            ["Input.Password"] = "MismatchPassword!1",
+            ["Input.ConfirmPassword"] = "SomethingElse!1",
+            ["__RequestVerificationToken"] = antiforgery,
+        }));
+        var known = await client.PostAsync("/Identity/Account/Register", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["Input.Email"] = "known@example.com",
+            ["Input.Password"] = "KnownPassword!1",
+            ["Input.ConfirmPassword"] = "KnownPassword!1",
+            ["__RequestVerificationToken"] = antiforgery,
+        }));
+
+        // A mismatch and an address the store already knows must be indistinguishable:
+        // neither may reveal that the address exists.
+        var mismatchMessage = ExtractAlert(await mismatch.Content.ReadAsStringAsync());
+        var knownMessage = ExtractAlert(await known.Content.ReadAsStringAsync());
+        Assert.False(string.IsNullOrEmpty(mismatchMessage));
+        Assert.Equal(mismatchMessage, knownMessage);
+    }
+
+    [Fact]
+    public async Task Register_rejects_a_post_without_an_antiforgery_token()
+    {
+        using var factory = new SelfRegistrationFactory();
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["Input.Email"] = "no-csrf@example.com",
+            ["Input.Password"] = "NoCsrfPassword!1",
+            ["Input.ConfirmPassword"] = "NoCsrfPassword!1",
+        });
+        var response = await client.PostAsync("/Identity/Account/Register", form);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(factory.FindUserByEmail("no-csrf@example.com"));
+    }
+
+    /// <summary>Shared host for the site-user tests: a fresh SQLite file per instance.</summary>
+    public abstract class SiteUsersFactoryBase : WebApplicationFactory<Program>
     {
         private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"site-users-{Guid.NewGuid():N}.db");
 
@@ -150,10 +255,12 @@ public sealed class SiteUserAuthTests : IClassFixture<SiteUserAuthTests.Factory>
             builder.UseSetting("ConnectionStrings:Default", $"Data Source={_databasePath}");
         }
 
+        /// <summary>
+        /// The factory exposes the host's services directly, so tests can seed an
+        /// account without racing with the bootstrap-owner command.
+        /// </summary>
         public void RegisterOwner(string email, string password)
         {
-            // The factory exposes the host's services directly, so tests can
-            // seed an owner without racing with the bootstrap-owner command.
             using var scope = Services.CreateScope();
             var userManager = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<StarterApp.SiteUsers.ApplicationUser>>();
             var existing = userManager.FindByEmailAsync(email).GetAwaiter().GetResult();
@@ -168,6 +275,14 @@ public sealed class SiteUserAuthTests : IClassFixture<SiteUserAuthTests.Factory>
             Assert.True(result.Succeeded, string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
+        /// <summary>Returns the stored account for an email, or null when there is none.</summary>
+        public StarterApp.SiteUsers.ApplicationUser? FindUserByEmail(string email)
+        {
+            using var scope = Services.CreateScope();
+            var userManager = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<StarterApp.SiteUsers.ApplicationUser>>();
+            return userManager.FindByEmailAsync(email).GetAwaiter().GetResult();
+        }
+
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
@@ -176,6 +291,20 @@ public sealed class SiteUserAuthTests : IClassFixture<SiteUserAuthTests.Factory>
                 try { File.Delete(_databasePath); }
                 catch (IOException) { }
             }
+        }
+    }
+
+    public sealed class Factory : SiteUsersFactoryBase
+    {
+    }
+
+    /// <summary>The same host with the application owner's opt-in turned on.</summary>
+    public sealed class SelfRegistrationFactory : SiteUsersFactoryBase
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.UseSetting("SiteUsers:SelfRegistrationEnabled", "true");
         }
     }
 }

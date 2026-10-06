@@ -1,4 +1,4 @@
-// Pack the three platform UI packages into ui/feed/*.tgz plus ui/feed/feed.json.
+// Pack the platform UI packages into ui/feed/*.tgz plus ui/feed/feed.json.
 //
 // Why a committed tarball and not a directory (design.md section 2):
 //   * a `file:` specifier over a directory is satisfied by npm with a symlink,
@@ -34,6 +34,7 @@ const PACKAGES = [
   { directory: 'design-tokens', name: '@platform/design-tokens' },
   { directory: 'react-ui', name: '@platform/react-ui' },
   { directory: 'react-shell', name: '@platform/react-shell' },
+  { directory: 'react-auth', name: '@platform/react-auth' },
 ];
 
 /** Never packed, whatever the `files` array says. */

@@ -20,12 +20,14 @@ public sealed class UiDistributionTests
     private const int RecordedLegacyDivergentCount = 15;
 
     /// <summary>
-    /// sha256 of the generated CSS after the DTCG tree walk landed. Any change to
-    /// the emitted bytes is a token contract change and must be reviewed here, not
-    /// discovered by a consumer whose <c>file:</c> digest no longer matches.
+    /// sha256 of the generated CSS after this change's two additive semantic
+    /// color tokens (<c>--color-on-primary</c>, <c>--color-border</c>) were added by
+    /// platform-shared-auth-pages. Any change to the emitted bytes is a token contract
+    /// change and must be reviewed here, not discovered by a consumer whose
+    /// <c>file:</c> digest no longer matches.
     /// </summary>
     private const string GeneratedTokensCssSha256 =
-        "843944e647a803da4cbbe818a27c0d51de417ac274ad46b8b8e26ed4aad55471";
+        "2216411d7e42ef5399c79c0b84e34460cff97251aa1fa47a09870f455be790f3";
 
     private static readonly string RepositoryRoot = LocateRepositoryRoot();
 
@@ -187,10 +189,11 @@ public sealed class UiDistributionTests
     [Fact]
     public void Ui_npm_packages_stay_at_0_1_0_with_digest_pinning()
     {
-        // D15: the change is additive (a .visually-hidden primitive plus dark-theme
-        // tokens), so a 0.2.0 bump would signal a contract change that did not happen.
+        // D15: the change is additive (a .visually-hidden primitive, dark-theme
+        // tokens, and the two semantic colors platform-shared-auth-pages measured its
+        // way to), so a 0.2.0 bump would signal a contract change that did not happen.
         // The digest, not the version, is the load-bearing check.
-        foreach (var package in new[] { "design-tokens", "react-ui", "react-shell" })
+        foreach (var package in new[] { "design-tokens", "react-ui", "react-shell", "react-auth" })
         {
             var manifest = JsonDocument.Parse(
                 File.ReadAllText(Path($"ui/packages/{package}/package.json"))).RootElement;

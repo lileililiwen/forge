@@ -64,6 +64,35 @@ pub(super) fn handle(
                 super::workbench::apply(db_path, id, &body, req)
             })
         }
+        Route::AdminPortfolioList => {
+            guarded(db_path, request, |req| super::portfolio::list(db_path, req))
+        }
+        Route::AdminPortfolioEvidence => {
+            guarded(db_path, request, |_| super::portfolio::evidence(db_path))
+        }
+        Route::AdminPortfolioProject { id } => {
+            guarded(db_path, request, |_| super::portfolio::detail(db_path, id))
+        }
+        Route::AdminPortfolioRead { id, kind } => guarded(db_path, request, |_| {
+            super::portfolio::read_item(db_path, id, kind)
+        }),
+        Route::AdminPortfolioWrite { id, action } => {
+            if !is_json(request) {
+                return cors(
+                    config,
+                    request,
+                    error(
+                        415,
+                        "admin-content-type-required",
+                        "portfolio writes require application/json",
+                    ),
+                );
+            }
+            guarded(db_path, request, |req| {
+                let body = req.json_body();
+                super::portfolio::write_item(db_path, id, action, &body)
+            })
+        }
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)

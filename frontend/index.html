@@ -15,7 +15,7 @@
       <aside class="sidebar" aria-label="Forge navigation">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
         <p class="side-label">WORKSPACE</p>
-        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a></nav>
+        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" href="#portfolio"><span aria-hidden="true">◈</span> Portfolio</a></nav>
         <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
       </aside>
       <main id="main-content" class="main-area">
@@ -135,6 +135,39 @@
                 <div id="wb-apply-result" class="wb-plan-result" hidden></div>
               </section>
             </div>
+          </section>
+          <section id="portfolio" class="project-panel" aria-labelledby="portfolio-title">
+            <div class="panel-heading">
+              <div><h2 id="portfolio-title">Portfolio &amp; evidence</h2><p class="muted">Forge-owned metadata across every project, plus cross-project source evidence. Every read runs through the crate's own typed in-process functions — no provider is probed on load, and imported evidence stays source-owned and read-only.</p></div>
+              <div class="panel-tools">
+                <button id="portfolio-refresh" class="button button-quiet" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="portfolio-error" class="notice notice-error" role="alert" hidden></div>
+            <div id="portfolio-notice" class="notice" role="status" aria-live="polite" hidden></div>
+            <section class="source-panel" aria-labelledby="portfolio-sources-title">
+              <div class="panel-heading"><div><h3 id="portfolio-sources-title">Evidence sources</h3><p class="muted">Each source keeps its own state; an unavailable source never hides the others and is never shown as a pass.</p></div></div>
+              <ul id="portfolio-sources" class="source-list" role="status" aria-live="polite" aria-label="Portfolio evidence source status"></ul>
+              <div id="portfolio-evidence-empty" class="empty-state compact"><h3>Cross-project evidence unavailable</h3><p>Start the Forge API and reload to read the catalog, gaps, fleet, governance, analytics, provider, readiness and interest evidence.</p></div>
+            </section>
+            <div class="table-scroll" tabindex="0" role="region" aria-label="Portfolio projects">
+              <table><thead><tr><th scope="col">Project</th><th scope="col">Lifecycle</th><th scope="col">Confidence</th><th scope="col">Tags</th><th scope="col">Evidence</th><th scope="col">Next action</th></tr></thead><tbody id="portfolio-rows"></tbody></table>
+            </div>
+            <p id="portfolio-project-empty" class="empty-state compact" hidden><span class="empty-mark" aria-hidden="true">◈</span>No portfolio records yet. Register projects and tag or review them to build the cross-project view.</p>
+            <section class="wb-card" aria-labelledby="portfolio-metadata-title">
+              <div class="panel-heading"><div><h3 id="portfolio-metadata-title">Manage Forge-owned metadata</h3><p class="muted">Tags, relations, reviews and goals are owned by Forge and editable here. Imported evidence cannot be edited from the browser.</p></div></div>
+              <div class="wb-plan-tools">
+                <label class="filter-box"><span class="sr-only">Select a managed project</span>
+                  <select id="portfolio-project"><option value="">Choose a project…</option></select>
+                </label>
+                <label class="search-box"><span class="sr-only">Tag name</span><input id="portfolio-tag" type="text" placeholder="Add a tag" autocomplete="off"></label>
+                <button id="portfolio-add-tag" class="button button-quiet" type="button">Add tag</button>
+                <label class="filter-box"><span class="sr-only">Review confidence</span>
+                  <select id="portfolio-confidence"><option value="">Record a review…</option></select>
+                </label>
+                <button id="portfolio-record-review" class="button" type="button">Record review</button>
+              </div>
+            </section>
           </section>
         </section>
       </main>

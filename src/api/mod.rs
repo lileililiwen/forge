@@ -109,6 +109,11 @@ mod admin;
 /// catalog (`forge-project-catalog/0.1.0`) in this module.
 pub mod command_catalog;
 mod fleet;
+/// Session-gated portfolio controls and cross-project evidence views
+/// (`forge-web-portfolio-controls/0.1.0`) backing `/v1/admin/portfolio*`.
+/// Forge-owned metadata writes reuse registry Core only; imported,
+/// source-owned evidence is read-only and never executed live on page load.
+mod portfolio;
 /// Sub-module that serves the in-process portal UI on the
 /// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
 /// `POST /ui/projects/{id}/publish`). Rendered with
@@ -460,6 +465,31 @@ pub enum Route {
     AdminProjectApply {
         id: String,
     },
+    /// `GET /v1/admin/portfolio` — cross-project portfolio fleet: each
+    /// registered project's user-owned record, tags and read-only evidence
+    /// states (`forge-web-portfolio-controls/0.1.0`). Session-gated.
+    AdminPortfolioList,
+    /// `GET /v1/admin/portfolio/evidence` — truthful cross-project evidence
+    /// bundle (catalog, gaps, fleet/inventory, governance, analytics,
+    /// provider, readiness, interest). Non-live; no probe on page load.
+    AdminPortfolioEvidence,
+    /// `GET /v1/admin/portfolio/{id}` — full single-project portfolio view.
+    AdminPortfolioProject {
+        id: String,
+    },
+    /// `GET /v1/admin/portfolio/{id}/{kind}` — a read-only portfolio
+    /// sub-resource (today `evidence`).
+    AdminPortfolioRead {
+        id: String,
+        kind: String,
+    },
+    /// `POST /v1/admin/portfolio/{id}/{action}` — a Forge-owned metadata
+    /// mutation (`tags`, `relations`, `reviews`, `goals`); `evidence` is the
+    /// honest source-owned refusal. `action` is a validated key, never a path.
+    AdminPortfolioWrite {
+        id: String,
+        action: String,
+    },
     AdminOptions,
     /// `GET /ui` — in-process portal UI fleet list.
     UiFleet,
@@ -640,12 +670,30 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["v1", "admin", "projects", id, "apply"]) => Some(Route::AdminProjectApply {
             id: (*id).to_string(),
         }),
+        // Portfolio routes: `/evidence` is a reserved second segment and is
+        // matched before the generic `{id}` arm so a literal path never reads
+        // as a project id. `{kind}`/`{action}` are validated keys, not paths.
+        ("GET", ["v1", "admin", "portfolio"]) => Some(Route::AdminPortfolioList),
+        ("GET", ["v1", "admin", "portfolio", "evidence"]) => Some(Route::AdminPortfolioEvidence),
+        ("GET", ["v1", "admin", "portfolio", id]) => Some(Route::AdminPortfolioProject {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "admin", "portfolio", id, kind]) => Some(Route::AdminPortfolioRead {
+            id: (*id).to_string(),
+            kind: (*kind).to_string(),
+        }),
+        ("POST", ["v1", "admin", "portfolio", id, action]) => Some(Route::AdminPortfolioWrite {
+            id: (*id).to_string(),
+            action: (*action).to_string(),
+        }),
         // CORS preflight for the deeper admin paths: the generic
         // `["v1","admin",_]` arm below only matches the three-segment admin
         // paths, so the workbench's four- and five-segment paths need their
         // own OPTIONS arms.
         ("OPTIONS", ["v1", "admin", "projects", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "projects", _, _]) => Some(Route::AdminOptions),
+        ("OPTIONS", ["v1", "admin", "portfolio", _]) => Some(Route::AdminOptions),
+        ("OPTIONS", ["v1", "admin", "portfolio", _, _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
@@ -838,6 +886,11 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
+        | Route::AdminPortfolioList
+        | Route::AdminPortfolioEvidence
+        | Route::AdminPortfolioProject { .. }
+        | Route::AdminPortfolioRead { .. }
+        | Route::AdminPortfolioWrite { .. }
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -968,6 +1021,11 @@ pub fn handle(
             | Route::AdminProjectDetail { .. }
             | Route::AdminProjectPlan { .. }
             | Route::AdminProjectApply { .. }
+            | Route::AdminPortfolioList
+            | Route::AdminPortfolioEvidence
+            | Route::AdminPortfolioProject { .. }
+            | Route::AdminPortfolioRead { .. }
+            | Route::AdminPortfolioWrite { .. }
     ) {
         return admin::handle(config, db_path, request, &route);
     }
@@ -1100,7 +1158,12 @@ pub fn handle(
         // admin session gate and must not be served workbench data.
         Route::AdminProjectDetail { .. }
         | Route::AdminProjectPlan { .. }
-        | Route::AdminProjectApply { .. } => not_found(),
+        | Route::AdminProjectApply { .. }
+        | Route::AdminPortfolioList
+        | Route::AdminPortfolioEvidence
+        | Route::AdminPortfolioProject { .. }
+        | Route::AdminPortfolioRead { .. }
+        | Route::AdminPortfolioWrite { .. } => not_found(),
     }
 }
 
@@ -1174,6 +1237,11 @@ fn authorize(
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
+        | Route::AdminPortfolioList
+        | Route::AdminPortfolioEvidence
+        | Route::AdminPortfolioProject { .. }
+        | Route::AdminPortfolioRead { .. }
+        | Route::AdminPortfolioWrite { .. }
         | Route::AdminOptions
         | Route::UiSignIn
         | Route::UiAuthCallback

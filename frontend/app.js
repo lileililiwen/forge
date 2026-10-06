@@ -560,6 +560,195 @@
     document.getElementById("wb-apply").addEventListener("click", applyUpgrade);
   }
 
+  // ---- Portfolio controls
+  // Forge-owned metadata across projects plus a truthful cross-project
+  // evidence surface. Every value is rendered as text via textContent —
+  // never raw-HTML assignment — and the only writes are typed metadata
+  // mutations that send an id and fixed fields. Imported evidence is shown
+  // read-only; the browser sends no path, command text or provider probe.
+  const PORTFOLIO_STATUS_LABELS = {
+    fresh: "Fresh", stale: "Stale", unconfigured: "Not configured", unavailable: "Unavailable",
+    available: "Available", not_run: "Not run", "not-run": "Not run", not_ready: "Not ready",
+    "not-ready": "Not ready", ready: "Ready", disabled: "Disabled", supported: "Supported",
+    planned: "Planned", enabled: "Enabled", observed: "Observed", valid: "Valid",
+    invalid: "Invalid", no_projects: "No projects", evaluated: "Evaluated",
+  };
+  const PORTFOLIO_CONFIDENCE = ["unknown", "low", "medium", "high"];
+
+  function statusLabel(state) {
+    return PORTFOLIO_STATUS_LABELS[state] || (state || "unknown");
+  }
+
+  function showPortfolioNotice(message) {
+    const notice = document.getElementById("portfolio-notice");
+    notice.textContent = message;
+    notice.hidden = false;
+  }
+
+  function clearPortfolioNotice() {
+    const notice = document.getElementById("portfolio-notice");
+    notice.hidden = true;
+    notice.textContent = "";
+  }
+
+  function showPortfolioError(message) {
+    const error = document.getElementById("portfolio-error");
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  function clearPortfolioError() {
+    const error = document.getElementById("portfolio-error");
+    error.hidden = true;
+    error.textContent = "";
+  }
+
+  function portfolioSourceItem(label, state) {
+    const li = document.createElement("li");
+    li.className = "source-item";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const badge = makeBadge(statusLabel(state), "state-observed");
+    li.append(name, badge);
+    return li;
+  }
+
+  function renderPortfolioEvidence(sections) {
+    const list = document.getElementById("portfolio-sources");
+    list.textContent = "";
+    document.getElementById("portfolio-evidence-empty").hidden = !!sections;
+    if (!sections) return;
+    const fleet = sections.fleet || {};
+    (fleet.sources || []).forEach((source) => {
+      list.append(portfolioSourceItem(`Fleet · ${source.name || source.source || "source"}`, source.state));
+    });
+    const provider = sections.provider || {};
+    (provider.rows || []).forEach((row) => {
+      list.append(portfolioSourceItem(`Provider · ${row.provider}`, row.status));
+    });
+    list.append(portfolioSourceItem("Readiness", (sections.readiness || {}).state || "not_run"));
+    (sections.governance ? sections.governance.providers || [] : []).forEach((row) => {
+      list.append(portfolioSourceItem(`Governance · ${row.provider}`, row.status));
+    });
+    (sections.analytics ? sections.analytics.providers || [] : []).forEach((row) => {
+      list.append(portfolioSourceItem(`Analytics · ${row.provider}`, row.support));
+    });
+    const gaps = sections.gaps || {};
+    list.append(portfolioSourceItem(`Gap report · ${gaps.total ?? 0} findings`, gaps.clean ? "ready" : "not_ready"));
+    const interest = sections.interest || {};
+    const withheld = (interest.verdicts || []).filter((v) => v.withheld).length;
+    list.append(portfolioSourceItem(`Interest · ${withheld} withheld`, interest.state || "unavailable"));
+  }
+
+  function renderPortfolioProjects(projects) {
+    const tbody = document.getElementById("portfolio-rows");
+    tbody.textContent = "";
+    document.getElementById("portfolio-project-empty").hidden = projects.length > 0;
+    projects.forEach((project) => {
+      const row = document.createElement("tr");
+      const name = document.createElement("td");
+      name.textContent = project.project_id || "—";
+      const tags = (project.tags || []).join(", ");
+      row.append(
+        name,
+        textCell(project.lifecycle),
+        textCell(project.confidence),
+        textCell(tags),
+        textCell(project.evidence_summary),
+        textCell(project.next_action),
+      );
+      tbody.append(row);
+    });
+  }
+
+  function populatePortfolioProjects(projects) {
+    const select = document.getElementById("portfolio-project");
+    select.textContent = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a project…";
+    select.append(placeholder);
+    projects.forEach((project) => {
+      const option = document.createElement("option");
+      option.value = project.project_id;
+      option.textContent = project.project_id;
+      select.append(option);
+    });
+  }
+
+  async function loadPortfolio() {
+    clearPortfolioError();
+    try {
+      const data = await request("/v1/admin/portfolio", { headers: { Accept: "application/json" } });
+      const projects = data.projects || [];
+      renderPortfolioProjects(projects);
+      populatePortfolioProjects(projects);
+    } catch (err) {
+      showPortfolioError(err.message || "Portfolio metadata unavailable.");
+    }
+    try {
+      const evidence = await request("/v1/admin/portfolio/evidence", { headers: { Accept: "application/json" } });
+      renderPortfolioEvidence(evidence.sections);
+    } catch (_) {
+      renderPortfolioEvidence(null);
+    }
+  }
+
+  async function portfolioAddTag() {
+    const id = document.getElementById("portfolio-project").value;
+    const name = document.getElementById("portfolio-tag").value.trim();
+    clearPortfolioNotice();
+    clearPortfolioError();
+    if (!id) { showPortfolioError("Select a managed project first."); return; }
+    if (!name) { showPortfolioError("Enter a tag name."); return; }
+    try {
+      await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      document.getElementById("portfolio-tag").value = "";
+      showPortfolioNotice(`Tag “${name}” recorded for ${id}.`);
+      await loadPortfolio();
+    } catch (err) {
+      showPortfolioError(err.message || "The tag could not be recorded; nothing was changed.");
+    }
+  }
+
+  async function portfolioRecordReview() {
+    const id = document.getElementById("portfolio-project").value;
+    const confidence = document.getElementById("portfolio-confidence").value;
+    clearPortfolioNotice();
+    clearPortfolioError();
+    if (!id) { showPortfolioError("Select a managed project first."); return; }
+    if (!confidence) { showPortfolioError("Choose a review confidence."); return; }
+    try {
+      await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ confidence }),
+      });
+      showPortfolioNotice(`Review recorded for ${id}.`);
+      await loadPortfolio();
+    } catch (err) {
+      showPortfolioError(err.message || "The review could not be recorded; nothing was changed.");
+    }
+  }
+
+  function initPortfolio() {
+    const confidence = document.getElementById("portfolio-confidence");
+    PORTFOLIO_CONFIDENCE.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      confidence.append(option);
+    });
+    document.getElementById("portfolio-add-tag").addEventListener("click", portfolioAddTag);
+    document.getElementById("portfolio-record-review").addEventListener("click", portfolioRecordReview);
+    document.getElementById("portfolio-refresh").addEventListener("click", loadPortfolio);
+    loadPortfolio();
+  }
+
   async function dashboardPage() {
     let state;
     try { state = await session(); }
@@ -584,6 +773,7 @@
         document.querySelector(".table-scroll").hidden = false;
       }
       initWorkbench(projects);
+      initPortfolio();
       const refresh = () => renderProjects(projects);
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);

@@ -1,5 +1,3 @@
-current_spec: portal-accessible-responsive-ui
-
 # Forge handoff
 
 ## Current state
@@ -8,10 +6,10 @@ current_spec: portal-accessible-responsive-ui
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
 
-**`portal-accessible-responsive-ui` is the current dependency-ready package.**
-It is the second and last active portal change; the sign-in package it was
-authored alongside is now closed. The seven earlier in-flight packages were
-consolidated into `runtime-hardening-and-contract-closure` and archived on
+**No active changes remain.** Both portal packages authored after the queue
+closed are now implemented and archived, so `openspec list` reports none active
+and the `current_spec` pointer is removed. The seven earlier in-flight packages
+were consolidated into `runtime-hardening-and-contract-closure` and archived on
 2026-10-05 as
 `openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
 promoting 11 requirements and modifying 1 across five canonical specs. At that
@@ -55,6 +53,34 @@ change, in files it does not touch):
   Deterministic coverage sits at the `BrowserAuthVerifier` seam plus the real
   verifier's pre-network refusals (provider error, empty code, expired
   challenge).
+
+### portal-accessible-responsive-ui delivered and archived (2026-10-06)
+
+`portal-accessible-responsive-ui` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-portal-accessible-responsive-ui`,
+promoting four `portal-web-ui` requirements. Every portal page now renders one
+accessible document shell (`chrome()`): language, skip link, one named
+`<header>`/`<nav>`, exactly one `<main id="main-content">`, one page-level
+`<h1>` and one `<footer>`. The inline stylesheet is token-driven with a
+light/dark preference, reduced-motion support, a visible high-contrast focus
+ring, minimum pointer targets and 320px reflow; data tables are captioned,
+scoped and wrapped in named keyboard-reachable scroll regions. Only
+`src/api/ui/render.rs` changed. No client JavaScript, external asset or new
+dependency was added.
+
+Evidence at archive: `cargo test --test portal_ui_contract` (39 passed) and
+`cargo test --test portal_browser_a11y` (1 passed) — the latter drives
+`tests/browser/portal-a11y-check.mjs` over the shipped page families at
+320/375/640/768/1280 CSS px in light and dark and reported
+`portal-a11y-check: ok (7 pages, light+dark, 5 viewports, 7 screenshots)`;
+`cargo fmt --check`, `cargo build`, `openspec validate --all --strict`,
+`node scripts/check-openspec-change-names.mjs` and `git diff --check` all pass.
+The full workspace run has no new failure (only the pre-existing
+`reported_manifest_changelog_versions_agree` below). Clippy is clean for every
+file this change touches; the same pre-existing lints remain elsewhere. The
+browser harness requires `node`, the pinned `tests/browser/node_modules`
+install and a Chromium engine; when any is absent it reports `UNVERIFIED` and
+the markup contract layer remains the always-run evidence.
 
 ### Fresh clones did not build
 

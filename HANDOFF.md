@@ -1,14 +1,24 @@
 # Forge handoff
 
-current_spec: forge-web-project-fleet
+current_spec: forge-web-command-catalog
 
 ## Current state
 
-`forge-global-admin-portal` is implemented, verified and archived as
+`forge-web-project-fleet` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-project-fleet`, promoting three
+`forge-web-project-fleet` requirements into a new canonical spec. The dashboard's
+`GET /v1/admin/projects` now returns a normalized fleet envelope that combines the
+local registry, an explicitly selected portable inventory source and the workspace
+fleet observer, and always includes a guaranteed Forge-self record; the standalone
+`frontend/` renders the sources and per-project rows with honest
+healthy-empty/stale/malformed/unavailable/conflict states and no fake actions. The
+next eligible change from `openspec list` and the roadmap is
+`forge-web-command-catalog`.
+
+Before that, `forge-global-admin-portal` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-global-admin-portal`, promoting four
 `forge-admin-login` requirements (new canonical spec) and four `portal-web-ui`
-requirements. The next eligible change from `openspec list` and the roadmap is
-`forge-web-project-fleet`.
+requirements.
 
 The delivered portal gives one Forge-wide administrator email/password login and
 an all-project dashboard, independent of each project's `forge.yaml` `identity:`
@@ -31,6 +41,67 @@ promoting 11 requirements and modifying 1 across five canonical specs. At that
 archive checkpoint, `openspec list` reported none active and the repository held
 71 archived changes and 63 canonical specs; the portal packages below were
 authored afterward.
+
+### forge-web-project-fleet delivered and archived (2026-10-06)
+
+`forge-web-project-fleet` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-project-fleet`, promoting three
+`forge-web-project-fleet` requirements into a new canonical spec (3 added, 0
+modified). The dashboard's authenticated JSON endpoint now composes one normalized
+fleet from several sources and always includes Forge itself:
+
+- `src/api/fleet.rs` (new, private, JSON-only, no markup): resolves the local
+  registry, an explicitly selected portable inventory source and the workspace
+  fleet observer through bounded read-only adapters, then merges them with
+  provenance. A guaranteed Forge-self record is always present at index 0; a
+  registry row carrying the self identity is merged into that single record
+  (`has_registry_ref`) rather than duplicated, so Forge appears exactly once.
+  Each row keeps its legacy keys (`id/profile/state/lifecycle/confidence/tags/
+  evidence/updated_at`) plus normalized fields, and mutates only Forge-managed
+  rows (capability labels). Cross-source identity collisions are retained and
+  conflict-marked with capabilities cleared — never silently dropped.
+- Provenance is exposed per source as a `SourceDescriptor` (`id/kind/status/
+  count/malformed/reason/observed_at/provider`) that never carries an absolute
+  filesystem path. Adapter failures emit a fixed safe reason; the path-bearing
+  error text and `report.source`/`snapshot.source` are never serialized. Healthy-
+  empty, fresh, stale, unconfigured, unavailable, malformed (named, not dropped)
+  and conflict states are all preserved.
+- `src/api/admin.rs`: `GET /v1/admin/projects` delegates to `fleet::load(db)` after
+  the session check, returning the envelope or a neutral unavailable response;
+  auth, CORS and the no-markup portal contract are unchanged. `src/api/mod.rs`
+  adds `mod fleet;`.
+- `frontend/index.html`, `app.js`, `styles.css`: a source panel (`role="status"
+  aria-live="polite"`) plus a source filter, and a seven-column project table
+  (Project/Source/Profile/Latest state/Evidence/Lifecycle/Access). Everything is
+  rendered via `textContent` only; capabilities show as labels with no links, so
+  there are no fake actions. Deep project navigation is intentionally deferred to
+  the future `forge-web-project-workbench`.
+
+Evidence at archive (commands run, real output):
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; only pre-existing warnings: `ShareSurface` in `src/portfolio/share/validation.rs`, `journal` field / `Published` variant in `src/main.rs`, none added by this change) |
+| `cargo fmt --check` | clean |
+| `cargo test --lib api::fleet` | **8 passed / 0 failed** (self merge, conflict detection, source classification, summary counts, ordering) |
+| `cargo test --test forge_web_fleet_contract` | **11 passed / 0 failed** (anon 401 no data; self on empty registry; self merges registered same-id; managed registry rows distinct; inventory + workspace observed rows; stale inventory; malformed named not dropped; configured-but-unreadable → unavailable safe reason with no path; cross-source conflict retains row and disables links; no absolute path serialized with all sources active) |
+| `cargo test --test forge_admin_api_contract` | **4 passed / 0 failed** (empty-registry assertion updated to expect the single self row with `registered:0`, `self_present:true`) |
+| `cargo test --test forge_portal_frontend_contract` | **5 passed / 0 failed** |
+| `cargo test --test api_contract` / `identity_contract` / `portal_ui_contract` | **11 / 19 / 39 passed, 0 failed** (compatibility intact) |
+| live loopback round-trip | real `api serve` (18777) + `web serve` (18778) with the exact frontend origin: `/healthz` 200; anonymous `GET /v1/admin/projects` → `401 api-unauthorized`; hostile origin → `403`; `/index.html` 200; `/app.js` 200 `text/javascript; charset=utf-8`; path traversal → `404` |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate forge-web-project-fleet --strict` | valid (before archive) |
+| `openspec validate --all --strict --no-interactive` | **69 passed / 0 failed** (before and after archive) |
+| `git diff --check` | PASS |
+
+Honest scope of verification: the source-panel and project-row DOM rendering and
+the search/source-filter re-render are covered by the standalone frontend source
+contract and were exercised at the HTTP/JSON level against the running listeners,
+but were **not** rendered in an interactive headless browser here; that visual pass
+remains for the operator. Source selection stays strictly env-driven
+(`FORGE_INVENTORY_SOURCE`, `FORGE_WORKSPACE_REGISTRY`, plus `FORGE_SELF_ID` and
+`FORGE_FLEET_MAX_AGE_SECONDS` overrides) — no sibling-directory scanning, no
+absolute path leakage, no mutation of unmanaged rows.
 
 ### portal-browser-sign-in delivered and archived (2026-10-06)
 

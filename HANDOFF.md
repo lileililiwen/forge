@@ -1,10 +1,22 @@
 # Forge handoff
 
-current_spec: forge-web-project-workbench
+current_spec: forge-web-portfolio-controls
 
 ## Current state
 
-`forge-web-command-catalog` is implemented, verified and archived as
+`forge-web-project-workbench` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-project-workbench`, promoting
+four `forge-web-project-workbench` requirements into a new canonical spec. The
+workbench deep-dives a single managed project from the dashboard: session-gated
+detail, side-effect-free plan and confirmed apply, where every triggered
+workflow goes through the crate's own typed in-process functions or a strict
+fixed allowlist of design-scoped command ids — never `sh -c`, a generic shell
+or interpolated user-controlled argv — and anything unsafe or not yet web
+available renders the catalog's honest disposition instead of a fake
+execution. The next eligible change from `openspec list` and the roadmap is
+`forge-web-portfolio-controls`.
+
+Before that, `forge-web-command-catalog` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-command-catalog`, promoting three
 `forge-web-command-catalog` requirements into a new canonical spec. Every
 top-level and nested Rust CLI command (225 rows, including `help`) is now
@@ -13,8 +25,7 @@ and a searchable Commands section of the standalone frontend, each mapped to a
 truthful availability state (`web`, `cli_only`, `provider_required`,
 `project_capability_required`, `not_yet_web`) with plain-language guidance; no
 shell/eval route exists anywhere and Clap-tree parity is a hard test failure on
-drift. The next eligible change from `openspec list` and the roadmap is
-`forge-web-project-workbench`.
+drift.
 
 Before that, `forge-web-project-fleet` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-project-fleet`, promoting three

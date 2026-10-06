@@ -1,10 +1,30 @@
 # Forge handoff
 
-current_spec: forge-web-delivery-controls
-
 ## Current state
 
-`forge-web-portfolio-controls` is implemented, verified and archived as
+`forge-web-delivery-controls` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-delivery-controls`, promoting four
+`forge-web-delivery-controls` requirements into a new canonical spec. It delivers
+the sharing→approve→publish flow the portfolio package deferred, on the same
+session-gated, exact-origin, JSON-only admin boundary as the other `/v1/admin`
+routes: share allowlist add/remove, a side-effect-free preview that mints the
+current SHA-256 manifest digest, digest-bound approval, publication through the
+Core `publish_approved_manifest` chain, reconciliation of ambiguous/unknown
+attempts and per-operation status all live behind `GET`/`POST /v1/admin/delivery*`.
+Every mutating step is confirm- and digest-bound — an unconfirmed call or a
+stale/mismatched digest is refused with no effect and a refreshed preview. Nothing
+runs `sh -c`, a generic shell or interpolated argv; the browser never supplies a
+filesystem path (the artifact target comes only from server-side
+`FORGE_SHARE_PUBLISH_TARGET`, an unset target is a typed `409` prerequisite and no
+response serializes an absolute path — the `local-file:<path>` publisher label is
+reduced to a safe kind). Publication from the web always dispatches
+`adapter: None` (default-safe local export); the subprocess adapter,
+repository/provider operations beyond share publication (commit/push/mirror,
+release/deploy, GitHub metadata, docs translation and Studio) stay honestly
+`cli_only`/`provider_required` in the catalog and are never substituted with shell
+execution.
+
+Before that, `forge-web-portfolio-controls` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-portfolio-controls`, promoting
 three `forge-web-portfolio-controls` requirements into a new canonical spec. It
 adds cross-project portfolio metadata controls and truthful evidence views to the
@@ -16,9 +36,8 @@ matrix and readiness with source, freshness and honest per-source status,
 performing no provider probe on load (each row `not_run`) and enforcing the
 interest cohort threshold. Every projection is scrubbed of absolute filesystem
 paths, and nothing runs `sh -c`, a generic shell or interpolated argv. Portfolio
-sharing (allowlist, preview and digest-bound approval) and its publication are
-owned by the delivery package. The next eligible change from `openspec list` and
-the roadmap is `forge-web-delivery-controls`.
+sharing (allowlist, preview and digest-bound approval) and its publication were
+owned by the delivery package and are now delivered and archived above.
 
 Before that, `forge-web-project-workbench` is implemented, verified and archived
 as `openspec/changes/archive/2026-10-06-forge-web-project-workbench`, promoting
@@ -59,8 +78,8 @@ The delivered portal gives one Forge-wide administrator email/password login and
 an all-project dashboard, independent of each project's `forge.yaml` `identity:`
 block. Browser HTML/CSS/JS live under `frontend/` and are served by the
 standalone Rust `forge web serve` listener; the separate `forge api serve`
-listener serves admin auth and the fleet as JSON only. The pointer above names
-the next active change.
+listener serves admin auth and the fleet as JSON only. No active change remains
+in the `openspec list` queue.
 
 `scaffold-prewires-shared-layer` is implemented, verified and archived. Its
 requirements were promoted into
@@ -76,6 +95,116 @@ promoting 11 requirements and modifying 1 across five canonical specs. At that
 archive checkpoint, `openspec list` reported none active and the repository held
 71 archived changes and 63 canonical specs; the portal packages below were
 authored afterward.
+
+### forge-web-delivery-controls delivered and archived (2026-10-06)
+
+`forge-web-delivery-controls` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-delivery-controls`, promoting four
+`forge-web-delivery-controls` requirements into a new canonical spec (4 added, 0
+modified). It delivers the share→preview→approve→publish→reconcile→status pipeline
+the portfolio-controls package explicitly deferred, behind the same session-gated,
+exact-origin, JSON-only `/v1/admin` boundary as every other admin surface:
+
+- `src/api/delivery.rs` (new, private, JSON-only, no markup): eight typed,
+  in-process routes — `GET /v1/admin/delivery` (one honest read: allowlist records,
+  current manifest preview with its SHA-256 digest, newest approval, publication
+  trail, any unreconciled attempt, server-side target state, non-live provider
+  matrix with `live_probes: false`, and a self-describing `routes` block),
+  `GET /v1/admin/delivery/preview` (side-effect-free plan, `effect: none`),
+  `POST /v1/admin/delivery/allowlist/{id}` and
+  `POST /v1/admin/delivery/allowlist/{id}/remove` (allowlist add/withdraw),
+  `POST /v1/admin/delivery/approve` (approve the exact reviewed digest — Core
+  re-derives the draft inside its transaction as a second layer, so a record edited
+  between preview and approval is refused), `POST /v1/admin/delivery/publish`
+  (publish through `publish_approved_manifest`),
+  `POST /v1/admin/delivery/reconcile` (resolve an `unknown` attempt) and
+  `GET /v1/admin/delivery/operation/{key}` (journal-backed status by key). Every
+  mutation reuses ONLY the crate's own typed functions (`Registry` share audit,
+  `portfolio::publication::{preview_manifest, publish_approved_manifest}`,
+  `validate_operation_key`, `provider::matrix(false)`); nothing spawns a shell,
+  `sh -c`, an interpreter, a Git executable or the publish-adapter subprocess, and
+  nothing reads a filesystem path from the request.
+- Confirm-and-digest boundary (the load-bearing requirement): every mutating route
+  runs through `confirmed_digest`, which refuses `confirm != true` with
+  `409 delivery-confirm-required` and an empty/mismatched `plan_digest` with
+  `400 delivery-invalid` / `409 delivery-plan-stale` — recomputing the current
+  manifest hash and, on a mismatch, returning `effect: "none"` plus a refreshed
+  preview. Publish additionally orders confirm → non-empty digest → validated
+  operation key → configured target (`409 delivery-prerequisite` if
+  `FORGE_SHARE_PUBLISH_TARGET` is unset) → existing approval → approved-hash match,
+  and always dispatches `adapter: None` (default-safe local export). Retrying the
+  same operation key reconciles against the recorded attempt (`already_present:
+  true`, bytes unchanged) rather than publishing twice; an unreconciled `unknown`
+  attempt blocks a new publish until reconciled with its exact digest (and
+  `unknown` is never an accepted reconciliation outcome).
+- Path and privacy boundaries: the artifact target comes only from server-side
+  `FORGE_SHARE_PUBLISH_TARGET` and is never serialized; `redact_local_paths` exempts
+  self-authored `/v1/...` route tokens (no filesystem path begins with `/v1/`) while
+  redacting genuine absolute tokens, `scrub` recurses over the whole projection, and
+  Core's `local-file:<absolute path>` publisher label is reduced to the safe kind
+  `"local-file export"` before it leaves `publication_block_from_report`. Invalid
+  ids and operation keys (shell metacharacters, `..`/`%2e` traversal, uppercase) are
+  typed `400`/`404` refusals that never echo the input; a withdrawal of an absent
+  record reports `removed: false, effect: none` honestly.
+- `src/api/mod.rs` + `src/api/admin.rs` + `src/identity/global.rs`: the eight
+  `Route::AdminDelivery*` variants are wired into the existing global-session cookie
+  gate, exact-origin CORS (deep-path `OPTIONS` preflights included) and the `415`
+  non-JSON gate; `session_actor` resolves the audit actor from the validated session
+  cookie only (reads `forge_admin.email`, never the password field), falling back to
+  a fixed persona label if the identity read fails.
+- `src/api/command_catalog.rs`: the nine `portfolio.share.*` leaf rows
+  (set/remove/show/list/preview/approve/publish/reconcile/audit) are flipped from
+  `not_yet_web` to `web_at(...)` pointing at the seven new `WEB_ROUTE_DELIVERY_*`
+  constants added to `IMPLEMENTED_WEB_ROUTES` (enforced by the internal
+  `web_rows_only_point_at_implemented_routes` test); commit/push/mirror,
+  release/deploy, GitHub metadata, docs and Studio keep their honest
+  `cli_only`/`provider_required` disposition and the overview reports
+  `repository_operations.web = false` and `adapter.web = false`.
+- `frontend/index.html` + `frontend/app.js`: a standalone Delivery section
+  (preview/digest, target/provider state, allowlist roster, approval, publication
+  history and unreconciled-attempt gate, plus typed confirm-gated action forms and
+  an operation-key lookup) rendered via `textContent` only; `initDelivery(projects)`
+  runs after `initPortfolio()`. No markup/eval/shell sink and no new file; the
+  `forge web serve` allowlist is unchanged.
+
+Evidence at archive (commands run, real output):
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; only the same pre-existing warnings — none added) |
+| `cargo fmt --check` | clean (exit 0) |
+| `cargo test --test forge_web_delivery_controls_contract` | **10 passed / 0 failed** (anon `401` with no delivery data leak on GET and `401` on a JSON-content-type POST; hostile origin `403` including deep-path `OPTIONS` `403`/`204`; unconfirmed mutation `409 delivery-confirm-required` with no effect; stale digest `409 delivery-plan-stale` `effect: none` + refreshed preview + no record/approval written; invalid ids/keys (shell metacharacters, traversal) `400 delivery-invalid` never echoed; empty overview honest not-run + `repository_operations.web false` + `adapter.web false` + self-described routes; publish seam — unset target `409 delivery-prerequisite`, wrong digest `409`, confirmed+matching digest `200` writes `site/portfolio-manifest.json` with `publisher: "local-file export"` and the project id present and no path leak, same-key retry `already_present: true` bytes unchanged, status lookup by key; unknown attempt surfaced and only a confirmed, digest-matched, non-`unknown` reconciliation clears it; withdrawal of an absent record `removed: false effect: none`; frontend standalone JSON-only + shell-free region) |
+| `cargo test --test forge_admin_api_contract` / `forge_web_fleet_contract` / `forge_web_command_catalog_contract` / `forge_web_project_workbench_contract` | **4 / 11 / 8 / 11 passed, 0 failed** (compatibility intact; the catalog's strict external allow-list now covers the seven delivery routes and nine share rows) |
+| `cargo test --test forge_web_portfolio_controls_contract` | **11 passed / 0 failed** (the deferred sharing flow now delivered without regressing portfolio controls) |
+| `cargo test --test forge_portal_frontend_contract` / `portal_ui_contract` | **5 / 39 passed, 0 failed** |
+| `cargo test --test api_contract` / `identity_contract` | **11 / 19 passed, 0 failed** (no loopback-bind flake this run) |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate --all --strict --no-interactive` | **69 passed / 0 failed** |
+| `git diff --check` | PASS |
+| `openspec archive forge-web-delivery-controls --yes` | **11/13 tasks**, warning for the 2 intentionally-deferred tasks honored via `--yes`; `forge-web-delivery-controls: create`, **4 requirements added / 0 modified** into `openspec/specs/forge-web-delivery-controls/spec.md`; **no `--skip-specs`**; archived as `2026-10-06-forge-web-delivery-controls`; `openspec list` subsequently reports **no active changes** |
+
+Honest scope of verification: the live provider/remote write is exercised only at
+a deterministic typed seam — a temporary local directory as the write/publish
+oracle — so publication success/failure/partial/unknown/reconciliation states are
+proven real and honest, but no live interactive-browser session or live-provider
+sandbox was run here (task 4.2's live portions are left unticked). Task 2.3
+(mirror/GitHub typed browser operations) is intentionally NOT implemented: those
+families keep their `provider_required`/`cli_only` disposition and are covered
+deterministically at the catalog and typed-refusal seam rather than faked with
+shell execution; the delivery is honest that a browser publish confirms the
+artifact on this host only, with promotion beyond it staying with the CLI
+provider. This change did **not** run `cargo clippy` or a full-workspace
+`cargo test`; verification was the focused new contract suite plus the directly
+relevant existing suites above (129 tests, 0 failures), run once, per the delivery's
+effort budget. Pre-existing conditions from prior entries (untouched clippy lints,
+the `artifact_baseline_contract` changelog check, the `Text file busy` test-harness
+race) were neither re-run nor altered by this change.
+
+**Program completion:** `forge-web-delivery-controls` was the last active OpenSpec
+change in the queue. With it implemented, verified and archived, `openspec list`
+reports no active changes and the web command-center program — global admin portal,
+project fleet, command catalog, project workbench, portfolio controls and delivery
+controls — is complete.
 
 ### forge-web-portfolio-controls delivered and archived (2026-10-06)
 

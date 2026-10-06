@@ -125,6 +125,25 @@ pub fn session_valid(db_path: &Path, token: &str) -> Result<bool, String> {
     .map_err(|err| err.to_string())
 }
 
+/// The actor behind a valid session, for audit trails that must name who
+/// authorized a mutation. The store holds exactly one Forge administrator,
+/// so a valid session resolves to that account's address; an invalid or
+/// expired token resolves to `None` — the actor is never taken from a
+/// browser-supplied field. The password hash is never read here.
+pub fn session_actor(db_path: &Path, token: &str) -> Result<Option<String>, String> {
+    if !session_valid(db_path, token)? {
+        return Ok(None);
+    }
+    let db = connection(db_path)?;
+    db.query_row(
+        "SELECT email FROM forge_admin WHERE singleton = 1",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|err| err.to_string())
+}
+
 pub fn revoke(db_path: &Path, token: &str) -> Result<(), String> {
     let db = connection(db_path)?;
     db.execute(

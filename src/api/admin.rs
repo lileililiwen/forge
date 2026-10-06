@@ -93,9 +93,62 @@ pub(super) fn handle(
                 super::portfolio::write_item(db_path, id, action, &body)
             })
         }
+        Route::AdminDelivery => guarded(db_path, request, |_| super::delivery::overview(db_path)),
+        Route::AdminDeliveryPreview => {
+            guarded(db_path, request, |_| super::delivery::preview(db_path))
+        }
+        Route::AdminDeliveryOperation { key } => guarded(db_path, request, |_| {
+            super::delivery::operation(db_path, key)
+        }),
+        Route::AdminDeliveryAllowlist { id } => {
+            delivery_write(config, db_path, request, |req, body| {
+                super::delivery::allowlist_set(db_path, id, &body, req)
+            })
+        }
+        Route::AdminDeliveryAllowlistRemove { id } => {
+            delivery_write(config, db_path, request, |req, body| {
+                super::delivery::allowlist_remove(db_path, id, &body, req)
+            })
+        }
+        Route::AdminDeliveryApprove => delivery_write(config, db_path, request, |req, body| {
+            super::delivery::approve(db_path, &body, req)
+        }),
+        Route::AdminDeliveryPublish => delivery_write(config, db_path, request, |req, body| {
+            super::delivery::publish(db_path, &body, req)
+        }),
+        Route::AdminDeliveryReconcile => delivery_write(config, db_path, request, |req, body| {
+            super::delivery::reconcile(db_path, &body, req)
+        }),
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)
+}
+
+/// One JSON-only, session-gated delivery mutation: a non-JSON content type
+/// is refused before the session gate ever runs the handler, and the
+/// handler itself enforces the confirm- and digest-binding. Delivery
+/// actions are typed in-process Core calls — never a shell, never a
+/// browser-supplied path.
+fn delivery_write<F>(config: &ApiConfig, db_path: &Path, request: &ApiRequest, f: F) -> ApiResponse
+where
+    F: FnOnce(&ApiRequest, serde_json::Value) -> ApiResponse,
+{
+    if !is_json(request) {
+        return cors(
+            config,
+            request,
+            error(
+                415,
+                "admin-content-type-required",
+                "delivery mutations require application/json",
+            ),
+        );
+    }
+    cors(
+        config,
+        request,
+        guarded(db_path, request, |req| f(req, req.json_body())),
+    )
 }
 
 /// Run `f` only after the same global-admin session gate every other admin

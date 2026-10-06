@@ -749,6 +749,383 @@
     loadPortfolio();
   }
 
+  // ---- Delivery controls (share pipeline: allowlist → preview → approve →
+  // publish → reconcile → status)
+  //
+  // Boundary: the browser only ever sends a validated project `id` chosen
+  // from the dropdown and a fixed set of share fields, plus the exact
+  // preview digest it reviewed and an operation key. It never sends a
+  // filesystem path, a command line or anything a shell would interpret.
+  // Every mutating call requires an explicit confirmation tick and echoes
+  // `plan_digest`; a changed or stale digest is refused with `effect: none`
+  // and the refreshed preview is re-rendered. Publication and provider
+  // outcomes are shown exactly as the journaled audit trail recorded them —
+  // never a fabricated success. All values render as text via textContent.
+  const DELIVERY_STATUS_LABELS = {
+    published: "Published", failed: "Failed", unknown: "Unknown — reconcile",
+    pending: "Pending", reconciled: "Reconciled", approved: "Approved",
+    "not-run": "Not run", not_run: "Not run", disabled: "Disabled",
+  };
+  const delivery = { digest: null };
+
+  function deliveryLabel(state) {
+    return DELIVERY_STATUS_LABELS[state] || (state || "unknown");
+  }
+
+  function shortDigest(digest) {
+    return digest ? `${String(digest).slice(0, 12)}…` : "—";
+  }
+
+  function showDeliveryNotice(message) {
+    const notice = document.getElementById("delivery-notice");
+    notice.textContent = message;
+    notice.hidden = false;
+  }
+
+  function clearDeliveryNotice() {
+    const notice = document.getElementById("delivery-notice");
+    notice.hidden = true;
+    notice.textContent = "";
+  }
+
+  function showDeliveryError(message) {
+    const error = document.getElementById("delivery-error");
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  function clearDeliveryError() {
+    const error = document.getElementById("delivery-error");
+    error.hidden = true;
+    error.textContent = "";
+  }
+
+  function renderDeliveryActionResult(result, status) {
+    const box = document.getElementById("delivery-action-result");
+    box.textContent = "";
+    box.hidden = false;
+    const head = document.createElement("p");
+    head.className = "wb-plan-head";
+    const note = result.note || (result.error && result.error.message)
+      || `Delivery call returned HTTP ${status}.`;
+    head.textContent = note;
+    box.append(head);
+    const effect = document.createElement("p");
+    effect.className = "muted";
+    effect.textContent = `Effect: ${result.effect || (result.accepted ? "external-delivery-dispatched" : "none")}.`;
+    box.append(effect);
+    if (result.publication) {
+      const pub = result.publication;
+      const detail = document.createElement("p");
+      detail.className = "muted";
+      detail.textContent = `Operation ${pub.operation_key || "—"} · ${deliveryLabel(pub.status)} · digest ${shortDigest(pub.manifest_sha256)} · publisher ${pub.publisher || "—"}.`;
+      box.append(detail);
+    }
+    if (result.preview && result.preview.manifest_sha256) {
+      // A stale/changed digest returns the refreshed preview; adopt it so the
+      // operator re-confirms against real state rather than acting blind.
+      delivery.digest = result.preview.manifest_sha256;
+      const refreshed = document.createElement("p");
+      refreshed.className = "muted";
+      refreshed.textContent = `Refreshed preview digest: ${delivery.digest}. Review it and confirm again to proceed.`;
+      box.append(refreshed);
+    }
+    if (result.approval) {
+      const detail = document.createElement("p");
+      detail.className = "muted";
+      detail.textContent = `Approval revision ${result.approval.revision} bound to ${shortDigest(result.approval.manifest_sha256)}.`;
+      box.append(detail);
+    }
+  }
+
+  function renderDeliveryPreview(preview) {
+    const list = document.getElementById("delivery-preview");
+    list.replaceChildren();
+    if (!preview || !preview.manifest_sha256) {
+      list.append(detailRow("Preview", "Unavailable — the registry could not be read."));
+      delivery.digest = null;
+      return;
+    }
+    delivery.digest = preview.manifest_sha256;
+    list.append(
+      detailRow("Manifest revision", preview.manifest_revision),
+      detailRow("Preview digest", preview.manifest_sha256),
+      detailRow("Candidate projects", preview.project_count),
+      detailRow("Approvable", preview.approvable ? "Yes" : "No"),
+    );
+    const findings = preview.findings || [];
+    if (findings.length) {
+      const ul = document.createElement("ul");
+      ul.className = "wb-findings";
+      for (const finding of findings) {
+        const li = document.createElement("li");
+        li.textContent = `${finding.project_id} — ${finding.field}: ${finding.code}`;
+        ul.append(li);
+      }
+      list.append(li_wrap(ul));
+    } else {
+      list.append(detailRow("Findings", "None — the manifest is clean."));
+    }
+  }
+
+  // Wrap a node so it can sit inside the detail list without breaking layout.
+  function li_wrap(node) {
+    const row = document.createElement("div");
+    row.className = "detail-row";
+    const dt = document.createElement("dt");
+    dt.textContent = "Blocking findings";
+    const dd = document.createElement("dd");
+    dd.append(node);
+    row.append(dt, dd);
+    return row;
+  }
+
+  function renderDeliveryTarget(target) {
+    const el = document.getElementById("delivery-target");
+    if (!target) { el.textContent = ""; return; }
+    el.textContent = target.configured
+      ? `Publication target: configured on this host (${target.publisher || "local export"}). The browser never names a path.`
+      : "Publication target: NOT configured (server-side). A browser publish is refused as a typed prerequisite until an operator configures it in a terminal.";
+  }
+
+  function renderDeliveryProvider(provider) {
+    const el = document.getElementById("delivery-provider");
+    const rows = (provider && provider.rows) || [];
+    if (!rows.length) { el.textContent = "Provider matrix unavailable."; return; }
+    const notRun = rows.filter((row) => (row.status || "").includes("not-run") || (row.status || "").includes("not_run")).length;
+    el.textContent = `Providers: ${rows.length} listed, ${notRun} not-run. No live probe runs on page load; delivery uses only Forge's local export.`;
+  }
+
+  function renderDeliveryAllowlist(records) {
+    const body = document.getElementById("delivery-allowlist-rows");
+    body.textContent = "";
+    document.getElementById("delivery-allowlist-empty").hidden = records.length > 0;
+    records.forEach((record) => {
+      const row = document.createElement("tr");
+      row.append(
+        textCell(record.project_id),
+        textCell(record.title),
+        textCell(record.visibility),
+        textCell(record.state),
+        textCell(record.revision == null ? "—" : String(record.revision)),
+      );
+      body.append(row);
+    });
+  }
+
+  function renderDeliveryApproval(approval) {
+    const list = document.getElementById("delivery-approval");
+    list.replaceChildren();
+    if (!approval) {
+      list.append(detailRow("Latest approval", "None yet — approve a preview digest first."));
+      return;
+    }
+    list.append(
+      detailRow("Approval revision", approval.revision),
+      detailRow("Approved digest", approval.manifest_sha256),
+      detailRow("Project count", approval.project_count),
+      detailRow("State", deliveryLabel(approval.state)),
+      detailRow("Actor", approval.actor),
+    );
+  }
+
+  function renderDeliveryPublications(publications) {
+    const body = document.getElementById("delivery-publication-rows");
+    body.textContent = "";
+    document.getElementById("delivery-publication-empty").hidden = publications.length > 0;
+    publications.forEach((attempt) => {
+      const row = document.createElement("tr");
+      row.append(
+        textCell(attempt.operation_key),
+        textCell(deliveryLabel(attempt.status)),
+        textCell(shortDigest(attempt.manifest_sha256)),
+        textCell(attempt.actor),
+        textCell(attempt.finished_at || "—"),
+      );
+      body.append(row);
+    });
+  }
+
+  function renderDeliveryUnreconciled(attempt) {
+    const banner = document.getElementById("delivery-unreconciled");
+    if (!attempt) { banner.hidden = true; banner.textContent = ""; return; }
+    banner.textContent = `Unreconciled publication: operation ${attempt.operation_key || "—"} (id ${attempt.publication_id ?? "—"}, digest ${shortDigest(attempt.manifest_sha256)}). Forge cannot vouch for this dispatch — reconcile it before publishing a new revision.`;
+    banner.hidden = false;
+  }
+
+  function populateDeliveryProjects(projects) {
+    const select = document.getElementById("delivery-project");
+    select.textContent = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a project…";
+    select.append(placeholder);
+    managedProjects(projects).forEach((project) => {
+      const option = document.createElement("option");
+      option.value = project.identity;
+      option.textContent = project.name || project.identity;
+      select.append(option);
+    });
+  }
+
+  async function loadDelivery() {
+    clearDeliveryError();
+    try {
+      const data = await request("/v1/admin/delivery", { headers: { Accept: "application/json" } });
+      renderDeliveryPreview(data.preview);
+      renderDeliveryTarget(data.target);
+      renderDeliveryProvider(data.provider);
+      renderDeliveryAllowlist(data.allowlist || []);
+      renderDeliveryApproval(data.approval);
+      renderDeliveryPublications(data.publications || []);
+      renderDeliveryUnreconciled(data.unreconciled);
+      populateDeliveryProjects((window.__forgeProjects || []));
+    } catch (err) {
+      showDeliveryError(err.message || "Delivery controls unavailable. Start the Forge API and reload.");
+    }
+  }
+
+  function requireDeliveryDigest() {
+    if (!delivery.digest) {
+      showDeliveryError("No preview digest is loaded yet. Refresh delivery first.");
+      return null;
+    }
+    return delivery.digest;
+  }
+
+  async function deliverySetAllowlist(isRemove) {
+    clearDeliveryNotice();
+    clearDeliveryError();
+    const id = document.getElementById("delivery-project").value;
+    if (!id) { showDeliveryError("Choose a project first."); return; }
+    const digest = requireDeliveryDigest();
+    if (!digest) return;
+    const confirmEl = document.getElementById("delivery-set-confirm");
+    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this changes what may become public."); return; }
+    const path = isRemove
+      ? `/v1/admin/delivery/allowlist/${encodeURIComponent(id)}/remove`
+      : `/v1/admin/delivery/allowlist/${encodeURIComponent(id)}`;
+    const payload = isRemove
+      ? { confirm: true, plan_digest: digest }
+      : {
+        confirm: true,
+        plan_digest: digest,
+        title: document.getElementById("delivery-title-input").value.trim(),
+        summary: document.getElementById("delivery-summary").value.trim(),
+        category: document.getElementById("delivery-category").value.trim(),
+        source_url: document.getElementById("delivery-source").value.trim(),
+      };
+    document.getElementById("delivery-set").disabled = true;
+    document.getElementById("delivery-remove").disabled = true;
+    const { status, ok, body } = await requestStatus(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    document.getElementById("delivery-set").disabled = false;
+    document.getElementById("delivery-remove").disabled = false;
+    renderDeliveryActionResult(body, status);
+    confirmEl.checked = false;
+    await loadDelivery();
+  }
+
+  async function deliveryApprove() {
+    clearDeliveryNotice();
+    clearDeliveryError();
+    const digest = requireDeliveryDigest();
+    if (!digest) return;
+    const confirmEl = document.getElementById("delivery-approve-confirm");
+    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this approves the manifest for publication."); return; }
+    const { status, ok, body } = await requestStatus("/v1/admin/delivery/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ confirm: true, plan_digest: digest }),
+    });
+    renderDeliveryActionResult(body, status);
+    confirmEl.checked = false;
+    await loadDelivery();
+  }
+
+  async function deliveryPublish() {
+    clearDeliveryNotice();
+    clearDeliveryError();
+    const digest = requireDeliveryDigest();
+    if (!digest) return;
+    const key = document.getElementById("delivery-opkey").value.trim();
+    if (!key) { showDeliveryError("Enter an operation key (the idempotency identity for this publish)."); return; }
+    const confirmEl = document.getElementById("delivery-publish-confirm");
+    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this writes the approved manifest to the server target."); return; }
+    document.getElementById("delivery-publish").disabled = true;
+    const { status, ok, body } = await requestStatus("/v1/admin/delivery/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ confirm: true, plan_digest: digest, operation_key: key }),
+    });
+    document.getElementById("delivery-publish").disabled = false;
+    renderDeliveryActionResult(body, status);
+    confirmEl.checked = false;
+    await loadDelivery();
+  }
+
+  async function deliveryReconcile() {
+    clearDeliveryNotice();
+    clearDeliveryError();
+    const idRaw = document.getElementById("delivery-reconcile-id").value.trim();
+    const publicationId = Number(idRaw);
+    if (!idRaw || !Number.isInteger(publicationId)) { showDeliveryError("Enter the numeric publication id of the ambiguous attempt."); return; }
+    const statusChoice = document.getElementById("delivery-reconcile-status").value;
+    if (!statusChoice) { showDeliveryError("Choose the outcome you observed (published or failed)."); return; }
+    const digest = document.getElementById("delivery-reconcile-digest").value.trim();
+    if (!digest) { showDeliveryError("Enter the attempt's recorded digest — reconciliation binds to the exact ambiguous publication."); return; }
+    const confirmEl = document.getElementById("delivery-reconcile-confirm");
+    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this records the outcome as your explicit statement."); return; }
+    const { status, ok, body } = await requestStatus("/v1/admin/delivery/reconcile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ confirm: true, publication_id: publicationId, status: statusChoice, plan_digest: digest }),
+    });
+    renderDeliveryActionResult(body, status);
+    confirmEl.checked = false;
+    await loadDelivery();
+  }
+
+  async function deliveryLookup() {
+    clearDeliveryNotice();
+    clearDeliveryError();
+    const key = document.getElementById("delivery-lookup-key").value.trim();
+    if (!key) { showDeliveryError("Enter an operation key to look up."); return; }
+    let result;
+    try {
+      result = await request(`/v1/admin/delivery/operation/${encodeURIComponent(key)}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      showDeliveryError(err.message || "No publication with that operation key is recorded here.");
+      return;
+    }
+    const box = document.getElementById("delivery-action-result");
+    box.textContent = "";
+    box.hidden = false;
+    const head = document.createElement("p");
+    head.className = "wb-plan-head";
+    head.textContent = `Operation ${key}: ${deliveryLabel((result.publication || {}).status)}.`;
+    box.append(head);
+    const guidance = document.createElement("p");
+    guidance.className = "muted";
+    guidance.textContent = result.guidance || "The attempt is recorded as shown.";
+    box.append(guidance);
+  }
+
+  function initDelivery(projects) {
+    window.__forgeProjects = projects;
+    document.getElementById("delivery-refresh").addEventListener("click", loadDelivery);
+    document.getElementById("delivery-set").addEventListener("click", () => deliverySetAllowlist(false));
+    document.getElementById("delivery-remove").addEventListener("click", () => deliverySetAllowlist(true));
+    document.getElementById("delivery-approve").addEventListener("click", deliveryApprove);
+    document.getElementById("delivery-publish").addEventListener("click", deliveryPublish);
+    document.getElementById("delivery-reconcile").addEventListener("click", deliveryReconcile);
+    document.getElementById("delivery-lookup").addEventListener("click", deliveryLookup);
+    loadDelivery();
+  }
+
   async function dashboardPage() {
     let state;
     try { state = await session(); }
@@ -774,6 +1151,7 @@
       }
       initWorkbench(projects);
       initPortfolio();
+      initDelivery(projects);
       const refresh = () => renderProjects(projects);
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);

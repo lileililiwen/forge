@@ -15,7 +15,7 @@
       <aside class="sidebar" aria-label="Forge navigation">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
         <p class="side-label">WORKSPACE</p>
-        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" href="#portfolio"><span aria-hidden="true">◈</span> Portfolio</a></nav>
+        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" href="#portfolio"><span aria-hidden="true">◈</span> Portfolio</a><a class="nav-link" href="#delivery"><span aria-hidden="true">⇪</span> Delivery</a></nav>
         <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
       </aside>
       <main id="main-content" class="main-area">
@@ -168,6 +168,82 @@
                 <button id="portfolio-record-review" class="button" type="button">Record review</button>
               </div>
             </section>
+          </section>
+          <section id="delivery" class="project-panel" aria-labelledby="delivery-title">
+            <div class="panel-heading">
+              <div><h2 id="delivery-title">Delivery controls</h2><p class="muted">Review the share pipeline, confirm each delivery mutation against the exact manifest digest, and track publication outcomes. Every action runs through the crate's own typed in-process functions — no shell, no browser-supplied path, no live provider on load.</p></div>
+              <div class="panel-tools">
+                <button id="delivery-refresh" class="button button-quiet" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="delivery-error" class="notice notice-error" role="alert" hidden></div>
+            <div id="delivery-notice" class="notice" role="status" aria-live="polite" hidden></div>
+            <div id="delivery-unreconciled" class="notice notice-error" role="alert" hidden></div>
+            <div class="workbench-grid">
+              <section class="wb-card" aria-labelledby="delivery-preview-title">
+                <h3 id="delivery-preview-title">Manifest preview</h3>
+                <p class="muted">The digest every delivery action binds to. Reading it changes nothing.</p>
+                <dl id="delivery-preview" class="detail-list"></dl>
+                <p id="delivery-target" class="muted"></p>
+                <p id="delivery-provider" class="muted"></p>
+              </section>
+              <section class="wb-card" aria-labelledby="delivery-allowlist-title">
+                <h3 id="delivery-allowlist-title">Share allowlist</h3>
+                <p class="muted">Projects whose share record makes them a publish candidate. Nothing is public until its digest is approved and published.</p>
+                <div class="table-scroll compact" tabindex="0" role="region" aria-label="Share allowlist">
+                  <table><thead><tr><th scope="col">Project</th><th scope="col">Title</th><th scope="col">Visibility</th><th scope="col">State</th><th scope="col">Revision</th></tr></thead><tbody id="delivery-allowlist-rows"></tbody></table>
+                </div>
+                <p id="delivery-allowlist-empty" class="empty-state compact" hidden>No share records yet. Add one below to make a project a publish candidate.</p>
+              </section>
+              <section class="wb-card" aria-labelledby="delivery-timeline-title">
+                <h3 id="delivery-timeline-title">Approval &amp; publication trail</h3>
+                <dl id="delivery-approval" class="detail-list"></dl>
+                <div class="table-scroll compact" tabindex="0" role="region" aria-label="Publication history">
+                  <table><thead><tr><th scope="col">Op key</th><th scope="col">Status</th><th scope="col">Digest</th><th scope="col">Actor</th><th scope="col">Finished</th></tr></thead><tbody id="delivery-publication-rows"></tbody></table>
+                </div>
+                <p id="delivery-publication-empty" class="empty-state compact" hidden>No publication attempts recorded yet.</p>
+              </section>
+              <section class="wb-card" aria-labelledby="delivery-actions-title">
+                <h3 id="delivery-actions-title">Confirmed actions</h3>
+                <p class="muted">Each action below requires an explicit confirmation tick and echoes the exact preview digest. A changed or stale digest is refused and nothing is dispatched.</p>
+                <p class="wb-subtitle">Add / replace a share record</p>
+                <div class="wb-plan-tools">
+                  <label class="filter-box"><span class="sr-only">Project</span><select id="delivery-project"><option value="">Choose a project…</option></select></label>
+                  <label class="search-box"><span class="sr-only">Title</span><input id="delivery-title-input" type="text" placeholder="Title" autocomplete="off"></label>
+                  <label class="search-box"><span class="sr-only">Summary</span><input id="delivery-summary" type="text" placeholder="Summary" autocomplete="off"></label>
+                  <label class="search-box"><span class="sr-only">Category</span><input id="delivery-category" type="text" placeholder="Category" autocomplete="off"></label>
+                  <label class="search-box"><span class="sr-only">Source URL</span><input id="delivery-source" type="text" placeholder="Source URL" autocomplete="off"></label>
+                  <label class="wb-confirm"><input id="delivery-set-confirm" type="checkbox"> Confirm allowlisting this project.</label>
+                  <button id="delivery-set" class="button" type="button">Add to allowlist</button>
+                  <button id="delivery-remove" class="button button-quiet" type="button">Withdraw record</button>
+                </div>
+                <p class="wb-subtitle">Approve the reviewed digest</p>
+                <div class="wb-plan-tools">
+                  <label class="wb-confirm"><input id="delivery-approve-confirm" type="checkbox"> Confirm approval of this exact manifest digest.</label>
+                  <button id="delivery-approve" class="button" type="button">Approve preview digest</button>
+                </div>
+                <p class="wb-subtitle">Publish the approved digest</p>
+                <div class="wb-plan-tools">
+                  <label class="search-box"><span class="sr-only">Operation key</span><input id="delivery-opkey" type="text" placeholder="Operation key" autocomplete="off"></label>
+                  <label class="wb-confirm"><input id="delivery-publish-confirm" type="checkbox"> Confirm this writes the approved manifest to the server-configured target.</label>
+                  <button id="delivery-publish" class="button" type="button">Publish approved digest</button>
+                </div>
+                <p class="wb-subtitle">Reconcile an ambiguous outcome</p>
+                <div class="wb-plan-tools">
+                  <label class="search-box"><span class="sr-only">Publication id</span><input id="delivery-reconcile-id" type="text" placeholder="Publication id" autocomplete="off"></label>
+                  <label class="filter-box"><span class="sr-only">Observed outcome</span><select id="delivery-reconcile-status"><option value="">Observed outcome…</option><option value="published">Published</option><option value="failed">Failed</option></select></label>
+                  <label class="search-box"><span class="sr-only">Attempt digest</span><input id="delivery-reconcile-digest" type="text" placeholder="Attempt digest" autocomplete="off"></label>
+                  <label class="wb-confirm"><input id="delivery-reconcile-confirm" type="checkbox"> Confirm this records the outcome I observed.</label>
+                  <button id="delivery-reconcile" class="button button-quiet" type="button">Reconcile attempt</button>
+                </div>
+                <p class="wb-subtitle">Look up an operation by key</p>
+                <div class="wb-plan-tools">
+                  <label class="search-box"><span class="sr-only">Operation key</span><input id="delivery-lookup-key" type="text" placeholder="Operation key" autocomplete="off"></label>
+                  <button id="delivery-lookup" class="button button-quiet" type="button">Read status</button>
+                </div>
+                <div id="delivery-action-result" class="wb-plan-result" hidden></div>
+              </section>
+            </div>
           </section>
         </section>
       </main>

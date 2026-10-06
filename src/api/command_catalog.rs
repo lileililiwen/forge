@@ -38,6 +38,19 @@ const WEB_ROUTE_PROJECT_DETAIL: &str = super::workbench::ROUTE_PROJECT_DETAIL;
 const WEB_ROUTE_PROJECT_PLAN: &str = super::workbench::ROUTE_PROJECT_PLAN;
 const WEB_ROUTE_PROJECT_APPLY: &str = super::workbench::ROUTE_PROJECT_APPLY;
 
+/// Delivery-control typed routes (`forge-web-delivery-controls/0.1.0`).
+/// These reference the delivery module's own route constants so the
+/// catalog and the live endpoints can never name different paths: the
+/// share allowlist, manifest preview, digest-bound approval, publication,
+/// reconciliation and operation-status surfaces.
+const WEB_ROUTE_DELIVERY_OVERVIEW: &str = super::delivery::ROUTE_DELIVERY_OVERVIEW;
+const WEB_ROUTE_DELIVERY_PREVIEW: &str = super::delivery::ROUTE_DELIVERY_PREVIEW;
+const WEB_ROUTE_DELIVERY_ALLOWLIST: &str = super::delivery::ROUTE_DELIVERY_ALLOWLIST;
+const WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE: &str = super::delivery::ROUTE_DELIVERY_ALLOWLIST_REMOVE;
+const WEB_ROUTE_DELIVERY_APPROVE: &str = super::delivery::ROUTE_DELIVERY_APPROVE;
+const WEB_ROUTE_DELIVERY_PUBLISH: &str = super::delivery::ROUTE_DELIVERY_PUBLISH;
+const WEB_ROUTE_DELIVERY_RECONCILE: &str = super::delivery::ROUTE_DELIVERY_RECONCILE;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -45,6 +58,13 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_PROJECT_DETAIL,
     WEB_ROUTE_PROJECT_PLAN,
     WEB_ROUTE_PROJECT_APPLY,
+    WEB_ROUTE_DELIVERY_OVERVIEW,
+    WEB_ROUTE_DELIVERY_PREVIEW,
+    WEB_ROUTE_DELIVERY_ALLOWLIST,
+    WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE,
+    WEB_ROUTE_DELIVERY_APPROVE,
+    WEB_ROUTE_DELIVERY_PUBLISH,
+    WEB_ROUTE_DELIVERY_RECONCILE,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names
@@ -1738,76 +1758,80 @@ impl CatalogBuilder {
             Portfolio,
             Workspace,
         );
-        self.leaf(Some("portfolio.share"), "set", "Define or replace one project's public share record; nothing is public until approved and published.", Portfolio, Workspace, LocalWrite, NotYetWeb, caps_registry_write);
-        self.leaf(
+        // The share family is the delivery-controls web surface
+        // (`forge-web-delivery-controls`): every row resolves to a typed,
+        // session-gated route whose mutations all require an explicit
+        // confirmation plus the reviewed manifest digest.
+        self.web_at(Some("portfolio.share"), "set", "Define or replace one project's public share record; nothing is public until approved and published.", Portfolio, Workspace, Risk::LocalWrite, WEB_ROUTE_DELIVERY_ALLOWLIST, caps_registry_write);
+        self.web_at(
             Some("portfolio.share"),
             "remove",
             "Withdraw a project's share record; it leaves the public catalog.",
             Portfolio,
             Workspace,
-            LocalWrite,
-            NotYetWeb,
+            Risk::LocalWrite,
+            WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.share"),
             "show",
             "Show one project's share record and its allowlisted surfaces.",
             Portfolio,
             Workspace,
-            Read,
-            NotYetWeb,
+            Risk::Read,
+            WEB_ROUTE_DELIVERY_OVERVIEW,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.share"),
             "list",
             "List every share record, newest state first.",
             Portfolio,
             Workspace,
-            Read,
-            NotYetWeb,
+            Risk::Read,
+            WEB_ROUTE_DELIVERY_OVERVIEW,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.share"),
             "preview",
             "Preview the candidate manifest: exact canonical bytes, hash and findings (read-only).",
             Portfolio,
             Workspace,
-            Read,
-            NotYetWeb,
+            Risk::Read,
+            WEB_ROUTE_DELIVERY_PREVIEW,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.share"),
             "approve",
             "Approve one exact manifest hash for publication.",
             Portfolio,
             Workspace,
-            LocalWrite,
-            NotYetWeb,
+            Risk::LocalWrite,
+            WEB_ROUTE_DELIVERY_APPROVE,
             caps_registry_write,
         );
-        self.leaf(Some("portfolio.share"), "publish", "Publish the approved manifest through the default-safe local export or an optional adapter.", Portfolio, Workspace, RemoteWrite, NotYetWeb, caps_registry_write);
-        self.leaf(
+        self.web_at(Some("portfolio.share"), "publish", "Publish the approved manifest through the default-safe local export; the optional adapter stays CLI-only and the browser never names a path.", Portfolio, Workspace, Risk::RemoteWrite, WEB_ROUTE_DELIVERY_PUBLISH, caps_registry_write);
+        self.web_at(
             Some("portfolio.share"),
             "reconcile",
             "Resolve a partial publication reported as `unknown`.",
             Portfolio,
             Workspace,
-            LocalWrite,
-            NotYetWeb,
+            Risk::LocalWrite,
+            WEB_ROUTE_DELIVERY_RECONCILE,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.share"),
             "audit",
             "Show the approval and publication audit trail.",
             Portfolio,
             Workspace,
-            Read,
-            NotYetWeb,
+            Risk::Read,
+            WEB_ROUTE_DELIVERY_OVERVIEW,
             caps_registry,
         );
         self.group(
@@ -2310,6 +2334,18 @@ mod tests {
                 ("fleet.list", WEB_ROUTE_PROJECTS),
                 ("fleet.status", WEB_ROUTE_PROJECTS),
                 ("inventory.show", WEB_ROUTE_PROJECTS),
+                ("portfolio.share.set", WEB_ROUTE_DELIVERY_ALLOWLIST),
+                (
+                    "portfolio.share.remove",
+                    WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE
+                ),
+                ("portfolio.share.show", WEB_ROUTE_DELIVERY_OVERVIEW),
+                ("portfolio.share.list", WEB_ROUTE_DELIVERY_OVERVIEW),
+                ("portfolio.share.preview", WEB_ROUTE_DELIVERY_PREVIEW),
+                ("portfolio.share.approve", WEB_ROUTE_DELIVERY_APPROVE),
+                ("portfolio.share.publish", WEB_ROUTE_DELIVERY_PUBLISH),
+                ("portfolio.share.reconcile", WEB_ROUTE_DELIVERY_RECONCILE),
+                ("portfolio.share.audit", WEB_ROUTE_DELIVERY_OVERVIEW),
             ]
         );
     }

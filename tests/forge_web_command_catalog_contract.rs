@@ -228,14 +228,22 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
         match availability {
             "web" => {
                 // A web row must resolve to one of the typed routes the API
-                // actually implements: the fleet read, or the workbench
-                // detail / plan endpoints. No web row may name a shell.
+                // actually implements: the fleet read, the workbench detail /
+                // plan endpoints, or the delivery share pipeline. No web row
+                // may name a shell.
                 let route = row["route"].as_str().unwrap_or("");
                 assert!(
                     [
                         "GET /v1/admin/projects",
                         "GET /v1/admin/projects/{id}",
                         "GET /v1/admin/projects/{id}/plan",
+                        "GET /v1/admin/delivery",
+                        "GET /v1/admin/delivery/preview",
+                        "POST /v1/admin/delivery/allowlist/{id}",
+                        "POST /v1/admin/delivery/allowlist/{id}/remove",
+                        "POST /v1/admin/delivery/approve",
+                        "POST /v1/admin/delivery/publish",
+                        "POST /v1/admin/delivery/reconcile",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -297,8 +305,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
 
     // Web availability is evidence-based: only routes that really exist. The
     // workbench (`forge-web-project-workbench`) turns inspect, doctor and
-    // upgrade into typed single-project workflows, so they now join the
-    // fleet read rows as `web`.
+    // upgrade into typed single-project workflows; the delivery package
+    // (`forge-web-delivery-controls`) turns the portfolio share pipeline
+    // (allowlist, preview, approve, publish, reconcile, status) into typed
+    // confirm- and digest-bound routes. Both now join the fleet read rows as
+    // `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
         .filter(|row| row["availability"] == "web")
@@ -314,6 +325,15 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "fleet.list",
             "fleet.status",
             "inventory.show",
+            "portfolio.share.set",
+            "portfolio.share.remove",
+            "portfolio.share.show",
+            "portfolio.share.list",
+            "portfolio.share.preview",
+            "portfolio.share.approve",
+            "portfolio.share.publish",
+            "portfolio.share.reconcile",
+            "portfolio.share.audit",
         ])
     );
 }

@@ -108,6 +108,14 @@ mod admin;
 /// `command_catalog` because `catalog` already refers to the project
 /// catalog (`forge-project-catalog/0.1.0`) in this module.
 pub mod command_catalog;
+/// Session-gated, confirm- and digest-bound delivery controls
+/// (`forge-web-delivery-controls/0.1.0`) backing `/v1/admin/delivery*`:
+/// the share allowlist → preview → approve → publish pipeline through the
+/// crate's typed in-process Core functions. Every mutation requires an
+/// explicit confirmation bound to the reviewed manifest digest; the
+/// browser never supplies a path, and the subprocess publication adapter
+/// stays CLI-only.
+mod delivery;
 mod fleet;
 /// Session-gated portfolio controls and cross-project evidence views
 /// (`forge-web-portfolio-controls/0.1.0`) backing `/v1/admin/portfolio*`.
@@ -490,6 +498,42 @@ pub enum Route {
         id: String,
         action: String,
     },
+    /// `GET /v1/admin/delivery` — the delivery overview: share allowlist,
+    /// manifest preview digest, approval/publication trail, unreconciled
+    /// attempts and non-live provider state
+    /// (`forge-web-delivery-controls/0.1.0`). Session-gated, no probe,
+    /// no write.
+    AdminDelivery,
+    /// `GET /v1/admin/delivery/preview` — the side-effect-free manifest
+    /// plan every delivery mutation binds its digest to.
+    AdminDeliveryPreview,
+    /// `GET /v1/admin/delivery/operation/{key}` — journal-backed status of
+    /// one publication by its validated operation key. The key is a
+    /// validated token, never a path.
+    AdminDeliveryOperation {
+        key: String,
+    },
+    /// `POST /v1/admin/delivery/allowlist/{id}` — confirm- and
+    /// digest-bound allowlist set/replace of one project's share record.
+    AdminDeliveryAllowlist {
+        id: String,
+    },
+    /// `POST /v1/admin/delivery/allowlist/{id}/remove` — confirm- and
+    /// digest-bound withdrawal of one share record.
+    AdminDeliveryAllowlistRemove {
+        id: String,
+    },
+    /// `POST /v1/admin/delivery/approve` — approval of the exact reviewed
+    /// manifest digest; a stale or mismatched digest creates no approval.
+    AdminDeliveryApprove,
+    /// `POST /v1/admin/delivery/publish` — publication of the approved
+    /// manifest through the default-safe local export, bound to the
+    /// approved digest plus an idempotent operation key. The artifact
+    /// target is server-configured; the browser never names a path.
+    AdminDeliveryPublish,
+    /// `POST /v1/admin/delivery/reconcile` — operator-recorded resolution
+    /// of an `unknown` publication attempt, bound to its exact digest.
+    AdminDeliveryReconcile,
     AdminOptions,
     /// `GET /ui` — in-process portal UI fleet list.
     UiFleet,
@@ -686,6 +730,31 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             id: (*id).to_string(),
             action: (*action).to_string(),
         }),
+        // Delivery controls: `preview`, `approve`, `publish` and
+        // `reconcile` are reserved literal segments under
+        // `/v1/admin/delivery`; `allowlist/{id}` and `operation/{key}`
+        // capture only validated opaque tokens — never a path the server
+        // would open. The arms precede the generic OPTIONS wildcards.
+        ("GET", ["v1", "admin", "delivery"]) => Some(Route::AdminDelivery),
+        ("GET", ["v1", "admin", "delivery", "preview"]) => Some(Route::AdminDeliveryPreview),
+        ("GET", ["v1", "admin", "delivery", "operation", key]) => {
+            Some(Route::AdminDeliveryOperation {
+                key: (*key).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "delivery", "approve"]) => Some(Route::AdminDeliveryApprove),
+        ("POST", ["v1", "admin", "delivery", "publish"]) => Some(Route::AdminDeliveryPublish),
+        ("POST", ["v1", "admin", "delivery", "reconcile"]) => Some(Route::AdminDeliveryReconcile),
+        ("POST", ["v1", "admin", "delivery", "allowlist", id]) => {
+            Some(Route::AdminDeliveryAllowlist {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "delivery", "allowlist", id, "remove"]) => {
+            Some(Route::AdminDeliveryAllowlistRemove {
+                id: (*id).to_string(),
+            })
+        }
         // CORS preflight for the deeper admin paths: the generic
         // `["v1","admin",_]` arm below only matches the three-segment admin
         // paths, so the workbench's four- and five-segment paths need their
@@ -694,6 +763,10 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("OPTIONS", ["v1", "admin", "projects", _, _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _, _]) => Some(Route::AdminOptions),
+        // Delivery preflights run at three to six segments
+        // (`allowlist/{id}/remove`), so one slice-tail arm covers them
+        // before the generic three-segment admin wildcard below.
+        ("OPTIONS", ["v1", "admin", "delivery", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
@@ -891,6 +964,14 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminPortfolioProject { .. }
         | Route::AdminPortfolioRead { .. }
         | Route::AdminPortfolioWrite { .. }
+        | Route::AdminDelivery
+        | Route::AdminDeliveryPreview
+        | Route::AdminDeliveryOperation { .. }
+        | Route::AdminDeliveryAllowlist { .. }
+        | Route::AdminDeliveryAllowlistRemove { .. }
+        | Route::AdminDeliveryApprove
+        | Route::AdminDeliveryPublish
+        | Route::AdminDeliveryReconcile
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -1026,6 +1107,14 @@ pub fn handle(
             | Route::AdminPortfolioProject { .. }
             | Route::AdminPortfolioRead { .. }
             | Route::AdminPortfolioWrite { .. }
+            | Route::AdminDelivery
+            | Route::AdminDeliveryPreview
+            | Route::AdminDeliveryOperation { .. }
+            | Route::AdminDeliveryAllowlist { .. }
+            | Route::AdminDeliveryAllowlistRemove { .. }
+            | Route::AdminDeliveryApprove
+            | Route::AdminDeliveryPublish
+            | Route::AdminDeliveryReconcile
     ) {
         return admin::handle(config, db_path, request, &route);
     }
@@ -1163,7 +1252,15 @@ pub fn handle(
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
         | Route::AdminPortfolioRead { .. }
-        | Route::AdminPortfolioWrite { .. } => not_found(),
+        | Route::AdminPortfolioWrite { .. }
+        | Route::AdminDelivery
+        | Route::AdminDeliveryPreview
+        | Route::AdminDeliveryOperation { .. }
+        | Route::AdminDeliveryAllowlist { .. }
+        | Route::AdminDeliveryAllowlistRemove { .. }
+        | Route::AdminDeliveryApprove
+        | Route::AdminDeliveryPublish
+        | Route::AdminDeliveryReconcile => not_found(),
     }
 }
 
@@ -1242,6 +1339,14 @@ fn authorize(
         | Route::AdminPortfolioProject { .. }
         | Route::AdminPortfolioRead { .. }
         | Route::AdminPortfolioWrite { .. }
+        | Route::AdminDelivery
+        | Route::AdminDeliveryPreview
+        | Route::AdminDeliveryOperation { .. }
+        | Route::AdminDeliveryAllowlist { .. }
+        | Route::AdminDeliveryAllowlistRemove { .. }
+        | Route::AdminDeliveryApprove
+        | Route::AdminDeliveryPublish
+        | Route::AdminDeliveryReconcile
         | Route::AdminOptions
         | Route::UiSignIn
         | Route::UiAuthCallback

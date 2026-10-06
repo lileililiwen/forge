@@ -21,32 +21,98 @@ use crate::studio::{PreviewEnvelope, StudioSession};
 // --- shared chrome ----------------------------------------------------
 
 pub fn style_sheet() -> PreEscaped<&'static str> {
+    // The inline stylesheet is the one trusted raw string in the
+    // tree. Layout is fluid and token-driven so every page family
+    // reflows at 320 CSS px, honours the system light/dark
+    // preference, keeps visible focus, and meets the WCAG 2.2 AA
+    // contrast/target thresholds. No client JavaScript is used.
     PreEscaped(
         "<style>\
-:root { color-scheme: light dark; }\
-html, body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; line-height: 1.4; }\
-header { padding: 1rem 1.25rem; border-bottom: 1px solid #ccc; }\
-header h1 { margin: 0; font-size: 1.05rem; }\
-main { padding: 1rem 1.25rem; }\
-footer { padding: 0.5rem 1.25rem; border-top: 1px solid #ccc; color: #666; }\
+:root {\
+  color-scheme: light dark;\
+  --surface: #ffffff;\
+  --surface-alt: #f4f5f7;\
+  --text: #16181a;\
+  --muted: #565c63;\
+  --border: #8a9199;\
+  --link: #0b4fbf;\
+  --focus: #b3490a;\
+  --ok: #0a6b23;\
+  --warn: #7a5400;\
+  --fail: #b00020;\
+  --skip: #565c63;\
+  --min-target: 1.5rem;\
+  --primary-target: 2.75rem;\
+  --radius: 0.4rem;\
+  --max-width: 72rem;\
+}\
+@media (prefers-color-scheme: dark) {\
+  :root {\
+    --surface: #101214;\
+    --surface-alt: #1c2024;\
+    --text: #f3f5f7;\
+    --muted: #b6bdc5;\
+    --border: #6b737b;\
+    --link: #93c0ff;\
+    --focus: #ffb066;\
+    --ok: #74d68f;\
+    --warn: #eec24d;\
+    --fail: #ff9d9d;\
+    --skip: #b6bdc5;\
+  }\
+}\
+*, *::before, *::after { box-sizing: border-box; }\
+html { -webkit-text-size-adjust: 100%; }\
+html, body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; line-height: 1.5; background: var(--surface); color: var(--text); }\
+body { min-height: 100vh; }\
+a { color: var(--link); }\
+a:hover { text-decoration-thickness: 0.14em; }\
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }\
+.skip-link { position: absolute; left: 0.5rem; top: -4rem; z-index: 100; padding: 0.5rem 0.75rem; background: var(--surface-alt); color: var(--text); border: 2px solid var(--focus); border-radius: var(--radius); }\
+.skip-link:focus { top: 0.5rem; }\
+header { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; align-items: baseline; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: var(--surface-alt); }\
+header h1 { margin: 0; font-size: 1.2rem; }\
+nav { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }\
+nav a { white-space: nowrap; }\
+main { width: min(100% - 1.5rem, var(--max-width)); margin-inline: auto; padding: 1rem 0 2.5rem; }\
+footer { width: min(100% - 1.5rem, var(--max-width)); margin-inline: auto; padding: 1rem 0; border-top: 1px solid var(--border); color: var(--muted); }\
+h1, h2, h3, h4 { line-height: 1.25; margin: 1.25rem 0 0.5rem; }\
+h2 { font-size: 1.35rem; }\
+h3 { font-size: 1.15rem; }\
+h4 { font-size: 1rem; }\
+p { margin: 0.5rem 0; }\
+ul, ol { padding-left: 1.4rem; }\
+.field-row { margin: 0.3rem 0; overflow-wrap: anywhere; }\
+.field-label { display: inline-block; min-width: 9rem; color: var(--muted); font-weight: 600; }\
+.table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }\
 table { border-collapse: collapse; width: 100%; }\
-th, td { border-bottom: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; }\
-th { background: #f5f5f5; }\
-.row-ok { color: #0a7a0a; }\
-.row-fail { color: #a02020; }\
-.row-warn { color: #8a6a00; }\
-.row-stale { color: #8a6a00; }\
-.row-skip { color: #666; }\
-pre { background: #f5f5f5; padding: 0.5rem; overflow-x: auto; }\
-form { margin: 0.5rem 0; }\
-button { padding: 0.3rem 0.7rem; }\
-nav a { margin-right: 0.5rem; }\
-.field-row { margin: 0.25rem 0; }\
-.field-label { display: inline-block; min-width: 9rem; color: #444; }\
-.tag { display: inline-block; margin-right: 0.25rem; padding: 0 0.35rem; border: 1px solid #bbb; border-radius: 0.6rem; font-size: 0.85rem; }\
-fieldset { margin: 0.75rem 0; }\
-label { margin-right: 0.75rem; }\
-@media (prefers-color-scheme: dark) { th { background: #2a2a2a; } pre { background: #2a2a2a; } }\
+caption { text-align: left; padding: 0.5rem 0.6rem; color: var(--muted); font-size: 0.9rem; }\
+th, td { border-bottom: 1px solid var(--border); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }\
+th { background: var(--surface-alt); font-weight: 600; }\
+.row-ok { color: var(--ok); }\
+.row-fail { color: var(--fail); }\
+.row-warn, .row-stale { color: var(--warn); }\
+.row-skip { color: var(--skip); }\
+pre { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem; overflow-x: auto; }\
+code { overflow-wrap: anywhere; }\
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }\
+form { margin: 0.75rem 0; }\
+fieldset { margin: 0.75rem 0; border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem; }\
+legend { font-weight: 600; padding: 0 0.25rem; }\
+label { display: inline-block; margin: 0 0.9rem 0.6rem 0; }\
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.35rem 0.5rem; min-height: var(--min-target); min-width: var(--min-target); max-width: 100%; }\
+input[type=\"text\"], input[type=\"url\"], select { width: min(22rem, 100%); }\
+button, input[type=\"submit\"] { font: inherit; color: var(--surface); background: var(--link); border: 1px solid var(--link); border-radius: var(--radius); padding: 0.5rem 0.95rem; min-height: var(--primary-target); min-width: var(--min-target); cursor: pointer; }\
+button:hover, input[type=\"submit\"]:hover { opacity: 0.92; }\
+.tag { display: inline-block; margin: 0 0.25rem 0.25rem 0; padding: 0.1rem 0.45rem; border: 1px solid var(--border); border-radius: 0.6rem; font-size: 0.85rem; }\
+@media (max-width: 40rem) {\
+  header { flex-direction: column; align-items: flex-start; }\
+  .field-label { display: block; min-width: 0; }\
+  main, footer { width: calc(100% - 1.25rem); }\
+}\
+@media (prefers-reduced-motion: reduce) {\
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }\
+}\
 </style>",
     )
 }
@@ -62,44 +128,68 @@ fn head(title: &str) -> Markup {
     }
 }
 
-fn fleet_frame(title: &str, contract: &str, body: Markup) -> Markup {
+/// The one document shell every portal page shares. It guarantees
+/// the accessibility structure the contract tests assert: a
+/// language-tagged document, a skip link, one labelled `<header>`
+/// with a named navigation landmark, exactly one
+/// `<main id="main-content">` (the skip link target), and one
+/// `<footer>`. Page bodies supply only their inner content; the
+/// page-level `<h1>` is always the header heading so a page never
+/// renders two level-one headings.
+fn chrome(title: &str, contract: &str, heading: &str, nav: Markup, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
             (head(title))
             body {
+                a class="skip-link" href="#main-content" { "Skip to main content" }
                 header {
-                    h1 { "Forge fleet" }
-                    nav {
-                        a href="/ui" { "Refresh" }
-                        " · "
-                        a href="/healthz" { "API health" }
-                    }
+                    h1 { (heading) }
+                    nav aria-label="Primary" { (nav) }
                 }
-                (body)
+                main id="main-content" { (body) }
                 footer { small { "forge api ui · " (contract) } }
             }
         }
     }
 }
 
+fn fleet_frame(title: &str, contract: &str, body: Markup) -> Markup {
+    chrome(
+        title,
+        contract,
+        "Forge fleet",
+        html! {
+            a href="/ui" { "Refresh" }
+            " · "
+            a href="/healthz" { "API health" }
+        },
+        body,
+    )
+}
+
 fn project_frame(title: &str, project_id: &str, contract: &str, body: Markup) -> Markup {
+    chrome(
+        title,
+        contract,
+        &format!("Project — {project_id}"),
+        html! {
+            a href="/ui" { "Fleet" }
+            " · "
+            a href={ "/ui/projects/" (project_id) } { "Refresh" }
+        },
+        body,
+    )
+}
+
+/// Place a data table inside a named, keyboard-focusable scroll
+/// region. The table keeps its own `<caption>`; the region label
+/// tells a screen-reader user which table they have entered when
+/// the table has to scroll horizontally on narrow screens.
+fn table_scroll(label: &str, table: Markup) -> Markup {
     html! {
-        (DOCTYPE)
-        html lang="en" {
-            (head(title))
-            body {
-                header {
-                    h1 { "Project — " (project_id) }
-                    nav {
-                        a href="/ui" { "Fleet" }
-                        " · "
-                        a href={ "/ui/projects/" (project_id) } { "Refresh" }
-                    }
-                }
-                (body)
-                footer { small { "forge api ui · " (contract) } }
-            }
+        div class="table-scroll" role="region" aria-label=(label) tabindex="0" {
+            (table)
         }
     }
 }
@@ -157,28 +247,29 @@ fn portfolio_filter_form(filter: &PortfolioFilter) -> Markup {
 
 fn fleet_list_body(rows: &[FleetRow], skipped: &[SkippedRow], filter: &PortfolioFilter) -> Markup {
     html! {
-        main {
-            h2 { "Fleet" }
-            (portfolio_filter_form(filter))
-            @if rows.is_empty() {
-                @if filter.is_empty() && skipped.is_empty() {
-                    p { "no projects in the fleet registry" }
-                } @else {
-                    p { "no project matches the active portfolio filter" }
-                }
+        h2 { "Fleet" }
+        (portfolio_filter_form(filter))
+        @if rows.is_empty() {
+            @if filter.is_empty() && skipped.is_empty() {
+                p { "no projects in the fleet registry" }
             } @else {
+                p { "no project matches the active portfolio filter" }
+            }
+        } @else {
+            (table_scroll("Fleet projects", html! {
                 table {
+                    caption class="visually-hidden" { "Fleet projects and their latest state" }
                     thead {
                         tr {
-                            th { "Project" }
-                            th { "Profile" }
-                            th { "Lifecycle" }
-                            th { "Confidence" }
-                            th { "Tags" }
-                            th { "Evidence" }
-                            th { "Last publish" }
-                            th { "State" }
-                            th { "Subdomain" }
+                            th scope="col" { "Project" }
+                            th scope="col" { "Profile" }
+                            th scope="col" { "Lifecycle" }
+                            th scope="col" { "Confidence" }
+                            th scope="col" { "Tags" }
+                            th scope="col" { "Evidence" }
+                            th scope="col" { "Last publish" }
+                            th scope="col" { "State" }
+                            th scope="col" { "Subdomain" }
                         }
                     }
                     tbody {
@@ -187,14 +278,17 @@ fn fleet_list_body(rows: &[FleetRow], skipped: &[SkippedRow], filter: &Portfolio
                         }
                     }
                 }
-                @if !skipped.is_empty() {
-                    h2 { "Skipped" }
+            }))
+            @if !skipped.is_empty() {
+                h2 { "Skipped" }
+                (table_scroll("Skipped projects", html! {
                     table {
+                        caption class="visually-hidden" { "Projects skipped during fleet loading" }
                         thead {
                             tr {
-                                th { "Project" }
-                                th { "Classification" }
-                                th { "Reason" }
+                                th scope="col" { "Project" }
+                                th scope="col" { "Classification" }
+                                th scope="col" { "Reason" }
                             }
                         }
                         tbody {
@@ -207,10 +301,10 @@ fn fleet_list_body(rows: &[FleetRow], skipped: &[SkippedRow], filter: &Portfolio
                             }
                         }
                     }
-                }
-                p { small { "Liveness per row lives behind " code { "forge fleet online" } "; the browser UI shows the latest journal state so no target access is required." } }
-                p { small { "Lifecycle, confidence and tags are user-owned portfolio metadata (" code { "forge portfolio" } "). Evidence states are imported from their own source systems; an " code { "unavailable" } " or " code { "stale" } " row never means the check passed." } }
+                }))
             }
+            p { small { "Liveness per row lives behind " code { "forge fleet online" } "; the browser UI shows the latest journal state so no target access is required." } }
+            p { small { "Lifecycle, confidence and tags are user-owned portfolio metadata (" code { "forge portfolio" } "). Evidence states are imported from their own source systems; an " code { "unavailable" } " or " code { "stale" } " row never means the check passed." } }
         }
     }
 }
@@ -306,39 +400,40 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
     let token = args.token;
     let origin = args.origin;
     html! {
-        main {
-            h2 { "Project — " (identity.id) }
-            div class="field-row" { span class="field-label" { "Profile" } (identity.profile) }
-            div class="field-row" { span class="field-label" { "Maturity" } (identity.maturity) }
-            div class="field-row" { span class="field-label" { "Manifest" } code { (identity.manifest_path) } }
-            div class="field-row" { span class="field-label" { "Doctor" } (doctor_summary(doctor)) }
-            @if !inventory_subdomain.is_empty() {
-                div class="field-row" { span class="field-label" { "Subdomain" } (inventory_subdomain) }
-            }
+        h2 { "Project — " (identity.id) }
+        div class="field-row" { span class="field-label" { "Profile" } (identity.profile) }
+        div class="field-row" { span class="field-label" { "Maturity" } (identity.maturity) }
+        div class="field-row" { span class="field-label" { "Manifest" } code { (identity.manifest_path) } }
+        div class="field-row" { span class="field-label" { "Doctor" } (doctor_summary(doctor)) }
+        @if !inventory_subdomain.is_empty() {
+            div class="field-row" { span class="field-label" { "Subdomain" } (inventory_subdomain) }
+        }
 
-            (delivery_section(delivery))
+        (delivery_section(delivery))
 
-            (portfolio_section(portfolio, identity, token, origin))
+        (portfolio_section(portfolio, identity, token, origin))
 
-            h3 { "Republish" }
-            p { "Dry-run preview, then confirm. The publish enqueues the same " code { "RemoteComposeAdapter" } " lane as " code { "forge publish all" } "." }
-            form method="post" action={ "/ui/projects/" (identity.id) "/publish" } {
-                input type="hidden" name="token" value={ (token) } {}
-                input type="hidden" name="origin" value={ (origin) } {}
-                button type="submit" { "Preview plan" }
-            }
+        h3 { "Republish" }
+        p { "Dry-run preview, then confirm. The publish enqueues the same " code { "RemoteComposeAdapter" } " lane as " code { "forge publish all" } "." }
+        form method="post" action={ "/ui/projects/" (identity.id) "/publish" } {
+            input type="hidden" name="token" value={ (token) } {}
+            input type="hidden" name="origin" value={ (origin) } {}
+            button type="submit" { "Preview plan" }
+        }
 
-            h3 { "Recent operations" }
-            @if journal.is_empty() {
-                p { "no journal rows recorded for this project" }
-            } @else {
+        h3 { "Recent operations" }
+        @if journal.is_empty() {
+            p { "no journal rows recorded for this project" }
+        } @else {
+            (table_scroll("Recent operations", html! {
                 table {
+                    caption class="visually-hidden" { "Recent operations for this project" }
                     thead {
                         tr {
-                            th { "When" }
-                            th { "Kind" }
-                            th { "State" }
-                            th { "Detail" }
+                            th scope="col" { "When" }
+                            th scope="col" { "Kind" }
+                            th scope="col" { "State" }
+                            th scope="col" { "Detail" }
                         }
                     }
                     tbody {
@@ -347,7 +442,7 @@ fn project_detail_body(args: ProjectDetailArgs<'_>) -> Markup {
                         }
                     }
                 }
-            }
+            }))
         }
     }
 }
@@ -402,21 +497,24 @@ fn portfolio_section(
         @if portfolio.relations.is_empty() {
             p { "no declared relation for this project" }
         } @else {
-            table {
-                thead {
-                    tr {
-                        th { "Direction" }
-                        th { "Relation" }
-                        th { "Project" }
-                        th { "Note" }
+            (table_scroll("Declared relations", html! {
+                table {
+                    caption class="visually-hidden" { "Relations declared for this project" }
+                    thead {
+                        tr {
+                            th scope="col" { "Direction" }
+                            th scope="col" { "Relation" }
+                            th scope="col" { "Project" }
+                            th scope="col" { "Note" }
+                        }
+                    }
+                    tbody {
+                        @for relation in &portfolio.relations {
+                            (relation_row(relation))
+                        }
                     }
                 }
-                tbody {
-                    @for relation in &portfolio.relations {
-                        (relation_row(relation))
-                    }
-                }
-            }
+            }))
         }
 
         h4 { "Imported evidence" }
@@ -424,42 +522,48 @@ fn portfolio_section(
         @if portfolio.evidence.is_empty() {
             p { "no source observation imported for this project" }
         } @else {
-            table {
-                thead {
-                    tr {
-                        th { "Source" }
-                        th { "Source revision" }
-                        th { "Observed at" }
-                        th { "Stale after" }
-                        th { "State" }
+            (table_scroll("Imported evidence", html! {
+                table {
+                    caption class="visually-hidden" { "Evidence imported for this project" }
+                    thead {
+                        tr {
+                            th scope="col" { "Source" }
+                            th scope="col" { "Source revision" }
+                            th scope="col" { "Observed at" }
+                            th scope="col" { "Stale after" }
+                            th scope="col" { "State" }
+                        }
+                    }
+                    tbody {
+                        @for row in &portfolio.evidence {
+                            (evidence_row(row))
+                        }
                     }
                 }
-                tbody {
-                    @for row in &portfolio.evidence {
-                        (evidence_row(row))
-                    }
-                }
-            }
+            }))
         }
 
         h4 { "Review history" }
         @if portfolio.reviews.is_empty() {
             p { "no review recorded for this project" }
         } @else {
-            table {
-                thead {
-                    tr {
-                        th { "When" }
-                        th { "Confidence" }
-                        th { "Note" }
+            (table_scroll("Review history", html! {
+                table {
+                    caption class="visually-hidden" { "Review history for this project" }
+                    thead {
+                        tr {
+                            th scope="col" { "When" }
+                            th scope="col" { "Confidence" }
+                            th scope="col" { "Note" }
+                        }
+                    }
+                    tbody {
+                        @for row in &portfolio.reviews {
+                            (review_row(row))
+                        }
                     }
                 }
-                tbody {
-                    @for row in &portfolio.reviews {
-                        (review_row(row))
-                    }
-                }
-            }
+            }))
         }
 
         h4 { "Edit portfolio metadata" }
@@ -550,18 +654,16 @@ pub fn portfolio_saved(
     contract: &str,
 ) -> String {
     let body = html! {
-        main {
-            h2 { "Portfolio — " (project_id) }
-            p class="row-ok" { "Saved portfolio metadata." }
-            ul {
-                @for edit in edits {
-                    li { strong { (edit.action) } " — " (edit.detail) }
-                }
+        h2 { "Portfolio — " (project_id) }
+        p class="row-ok" { "Saved portfolio metadata." }
+        ul {
+            @for edit in edits {
+                li { strong { (edit.action) } " — " (edit.detail) }
             }
-            p { "Imported evidence was not touched; source-owned snapshots are append-only." }
-            p { a href={ "/ui/projects/" (project_id) } { "← Back to project" } }
-            p { a href="/ui" { "← Back to fleet" } }
         }
+        p { "Imported evidence was not touched; source-owned snapshots are append-only." }
+        p { a href={ "/ui/projects/" (project_id) } { "← Back to project" } }
+        p { a href="/ui" { "← Back to fleet" } }
     };
     project_frame(title, project_id, contract, body).into_string()
 }
@@ -688,21 +790,29 @@ pub fn studio_page(
                 @if journal_rows.is_empty() {
                     p { "No studio.* journal rows yet." }
                 } @else {
-                    table {
-                        thead {
-                            tr { th { "kind" } th { "state" } th { "started_at" } th { "detail" } }
-                        }
-                        tbody {
-                            @for row in journal_rows {
+                    (table_scroll("Studio journal", html! {
+                        table {
+                            caption class="visually-hidden" { "Recent studio operations" }
+                            thead {
                                 tr {
-                                    td { (row.kind.clone()) }
-                                    td { (row.state.clone()) }
-                                    td { (row.started_at.clone()) }
-                                    td { (row.detail.clone().unwrap_or_else(|| "-".to_string())) }
+                                    th scope="col" { "kind" }
+                                    th scope="col" { "state" }
+                                    th scope="col" { "started_at" }
+                                    th scope="col" { "detail" }
+                                }
+                            }
+                            tbody {
+                                @for row in journal_rows {
+                                    tr {
+                                        td { (row.kind.clone()) }
+                                        td { (row.state.clone()) }
+                                        td { (row.started_at.clone()) }
+                                        td { (row.detail.clone().unwrap_or_else(|| "-".to_string())) }
+                                    }
                                 }
                             }
                         }
-                    }
+                    }))
                 }
             }
         }))
@@ -731,21 +841,22 @@ fn publish_plan_body(
     origin: &str,
 ) -> Markup {
     html! {
-        main {
-            h2 { "Republish — " (project_id) }
-            p { "Dry-run plan. Nothing is enqueued until you confirm." }
-            @if let Some(pre) = precondition {
-                p class="row-fail" { (pre) }
-            }
-            @if steps.is_empty() {
-                p { "no stages would run for this plan." }
-            } @else {
+        h2 { "Republish — " (project_id) }
+        p { "Dry-run plan. Nothing is enqueued until you confirm." }
+        @if let Some(pre) = precondition {
+            p class="row-fail" { (pre) }
+        }
+        @if steps.is_empty() {
+            p { "no stages would run for this plan." }
+        } @else {
+            (table_scroll("Publish plan stages", html! {
                 table {
+                    caption class="visually-hidden" { "Publish plan stages" }
                     thead {
                         tr {
-                            th { "Stage" }
-                            th { "Status" }
-                            th { "Note" }
+                            th scope="col" { "Stage" }
+                            th scope="col" { "Status" }
+                            th scope="col" { "Note" }
                         }
                     }
                     tbody {
@@ -760,15 +871,15 @@ fn publish_plan_body(
                         }
                     }
                 }
-            }
-            form method="post" action={ "/ui/projects/" (project_id) "/publish" } {
-                input type="hidden" name="token" value={ (token) } {}
-                input type="hidden" name="origin" value={ (origin) } {}
-                input type="hidden" name="confirm" value="yes" {}
-                button type="submit" { "Confirm republish" }
-            }
-            p { a href={ "/ui/projects/" (project_id) } { "← Back to project" } }
+            }))
         }
+        form method="post" action={ "/ui/projects/" (project_id) "/publish" } {
+            input type="hidden" name="token" value={ (token) } {}
+            input type="hidden" name="origin" value={ (origin) } {}
+            input type="hidden" name="confirm" value="yes" {}
+            button type="submit" { "Confirm republish" }
+        }
+        p { a href={ "/ui/projects/" (project_id) } { "← Back to project" } }
     }
 }
 
@@ -779,16 +890,14 @@ pub fn operation_accepted(
     contract: &str,
 ) -> String {
     let body = html! {
-        main {
-            h2 { "Republish — " (project_id) }
-            p class="row-ok" { "Republish enqueued." }
-            div class="field-row" { span class="field-label" { "Operation id" } code { (operation.op_id) } }
-            div class="field-row" { span class="field-label" { "Revision" } code { (operation.revision) } }
-            div class="field-row" { span class="field-label" { "Container identity" } code { (operation.container_identity) } }
-            div class="field-row" { span class="field-label" { "State" } span class="row-warn" { "pending" } }
-            p { "Track at " a href={ "/ui/projects/" (project_id) } { "/ui/projects/" (project_id) } " or via " code { "forge deploy status" } "." }
-            p { a href="/ui" { "← Back to fleet" } }
-        }
+        h2 { "Republish — " (project_id) }
+        p class="row-ok" { "Republish enqueued." }
+        div class="field-row" { span class="field-label" { "Operation id" } code { (operation.op_id) } }
+        div class="field-row" { span class="field-label" { "Revision" } code { (operation.revision) } }
+        div class="field-row" { span class="field-label" { "Container identity" } code { (operation.container_identity) } }
+        div class="field-row" { span class="field-label" { "State" } span class="row-warn" { "pending" } }
+        p { "Track at " a href={ "/ui/projects/" (project_id) } { "/ui/projects/" (project_id) } " or via " code { "forge deploy status" } "." }
+        p { a href="/ui" { "← Back to fleet" } }
     };
     project_frame(title, project_id, contract, body).into_string()
 }
@@ -811,31 +920,24 @@ pub fn sign_in_page(
     contract: &str,
 ) -> String {
     let body = html! {
-        main {
-            h2 { (title) }
-            @if !project_id.is_empty() {
-                p { "Sign in to " code { (project_id) } " via the configured OIDC provider." }
-                p { a href=(auth_url) { "Continue to provider" } }
-            } @else {
-                p { "Sign out complete. " a href="/ui/sign-in" { "Sign in again" } "." }
-            }
-            @if !return_path.is_empty() && return_path != "/ui" {
-                p { small { "After sign-in you will return to " code { (return_path) } "." } }
-            }
+        @if !project_id.is_empty() {
+            h2 { "Continue sign-in" }
+            p { "Sign in to " code { (project_id) } " via the configured OIDC provider." }
+            p { a href=(auth_url) { "Continue to provider" } }
+        } @else {
+            h2 { "Signed out" }
+            p { "Sign out complete. " a href="/ui/sign-in" { "Sign in again" } "." }
+        }
+        @if !return_path.is_empty() && return_path != "/ui" {
+            p { small { "After sign-in you will return to " code { (return_path) } "." } }
         }
     };
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            (head(title))
-            body {
-                header { h1 { (title) } }
-                (body)
-                footer { small { "forge api ui · " (contract) } }
-            }
-        }
-    }
-    .into_string()
+    let nav = html! {
+        a href="/ui" { "Fleet" }
+        " · "
+        a href="/ui/sign-in" { "Sign in" }
+    };
+    chrome(title, contract, title, nav, body).into_string()
 }
 
 // --- error pages ------------------------------------------------------
@@ -848,20 +950,10 @@ pub fn error_page(
     contract: &str,
 ) -> String {
     let body = error_body(code, message, kind);
-    html! {
-        (DOCTYPE)
-        html lang="en" {
-            (head(title))
-            body {
-                header {
-                    h1 { (error_heading(kind)) }
-                }
-                (body)
-                footer { small { "forge api ui · " (contract) } }
-            }
-        }
-    }
-    .into_string()
+    let nav = html! {
+        a href="/ui" { "Fleet" }
+    };
+    chrome(title, contract, error_heading(kind), nav, body).into_string()
 }
 
 fn error_heading(kind: ErrorKind) -> &'static str {
@@ -874,14 +966,13 @@ fn error_heading(kind: ErrorKind) -> &'static str {
 
 fn error_body(code: &str, message: &str, kind: ErrorKind) -> Markup {
     html! {
-        main {
-            p class="row-fail" { "code: " code { (code) } }
-            p { (message) }
-            @if matches!(kind, ErrorKind::Auth) {
-                p { "Provide a session id through " code { "Authorization: Bearer <id>" } " or include it in the form field " code { "token" } "." }
-            }
-            p { a href="/ui" { "← Back to fleet" } }
+        h2 { "What happened" }
+        p class="row-fail" { "code: " code { (code) } }
+        p { (message) }
+        @if matches!(kind, ErrorKind::Auth) {
+            p { "Provide a session id through " code { "Authorization: Bearer <id>" } " or include it in the form field " code { "token" } "." }
         }
+        p { a href="/ui" { "← Back to fleet" } }
     }
 }
 

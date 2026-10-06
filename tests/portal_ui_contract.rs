@@ -1134,3 +1134,301 @@ fn extract_cookie_value(cookie: &str, name: &str) -> Option<String> {
     }
     None
 }
+
+// --- responsive / accessible portal contract --------------------------
+//
+// These are markup-level checks. The browser harness in
+// `tests/browser/portal-a11y-check.mjs` (driven by
+// `tests/portal_browser_a11y.rs`) is the rendered-behavior oracle for
+// reflow, keyboard focus and measured contrast; these tests only prove
+// the structural hooks that oracle relies on are present.
+
+fn get_page(config: &ApiConfig, path: &PathBuf, url: &str) -> (u16, String) {
+    let req = make_request(
+        "GET",
+        url,
+        html_accept(),
+        Some(BEARER.to_string()),
+        Vec::new(),
+    );
+    let resp = drive(config, path, &req);
+    (resp.status, String::from_utf8_lossy(&resp.body).to_string())
+}
+
+fn post_form(config: &ApiConfig, path: &PathBuf, url: &str, body: String) -> (u16, String) {
+    let mut headers = html_accept();
+    headers.insert("origin".to_string(), LOOPBACK_ORIGIN.to_string());
+    headers.insert(
+        "content-type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
+    let req = make_request(
+        "POST",
+        url,
+        headers,
+        Some(BEARER.to_string()),
+        body.into_bytes(),
+    );
+    let resp = drive(config, path, &req);
+    (resp.status, String::from_utf8_lossy(&resp.body).to_string())
+}
+
+fn heading_levels(body: &str) -> Vec<u32> {
+    let mut levels = Vec::new();
+    for (idx, _) in body.match_indices("<h") {
+        let rest = &body[idx + 2..];
+        if let Some(level) = rest.chars().next().and_then(|c| c.to_digit(10)) {
+            if (1..=4).contains(&level) && rest.as_bytes().get(1) == Some(&b'>') {
+                levels.push(level);
+            }
+        }
+    }
+    levels
+}
+
+fn assert_heading_order(body: &str) {
+    let levels = heading_levels(body);
+    assert!(!levels.is_empty(), "page has no headings");
+    assert_eq!(levels[0], 1, "first heading must be h1, got h{}", levels[0]);
+    let mut previous = 1;
+    for level in levels {
+        assert!(
+            level <= previous + 1,
+            "skipped heading level: h{previous} -> h{level}"
+        );
+        previous = level;
+    }
+}
+
+fn assert_document_shell(body: &str) {
+    let lower = body.to_lowercase();
+    assert!(lower.contains("<!doctype"), "missing doctype");
+    assert!(
+        body.contains("<html lang=\"en\">"),
+        "missing lang-tagged html"
+    );
+    assert!(body.contains("charset=\"utf-8\""), "missing utf-8 charset");
+    assert!(body.contains("name=\"viewport\""), "missing viewport");
+    assert_eq!(
+        body.matches("<main").count(),
+        1,
+        "expected exactly one main"
+    );
+    assert_eq!(
+        body.matches("id=\"main-content\"").count(),
+        1,
+        "expected exactly one main target"
+    );
+    assert!(
+        body.contains("class=\"skip-link\" href=\"#main-content\""),
+        "missing skip link"
+    );
+    assert!(body.contains("<header>"), "missing header landmark");
+    assert!(
+        body.contains("<nav aria-label=\"Primary\">"),
+        "missing named navigation"
+    );
+    assert!(body.contains("<footer>"), "missing footer");
+    assert_eq!(body.matches("<h1").count(), 1, "expected exactly one h1");
+    let skip = body.find("skip-link").expect("skip link element");
+    let main = body.find("<main").expect("main element");
+    assert!(skip < main, "skip link must precede the main landmark");
+    assert!(
+        !lower.contains("<script"),
+        "portal must not use client script"
+    );
+    assert!(
+        !body.contains("onclick="),
+        "portal must not use inline handlers"
+    );
+    assert!(body.contains("<style>"), "stylesheet must stay inline");
+    assert_heading_order(body);
+}
+
+fn assert_tables_accessible(body: &str) -> usize {
+    let mut count = 0;
+    for (idx, _) in body.match_indices("<table") {
+        count += 1;
+        let end = body[idx..]
+            .find("</table>")
+            .map(|offset| idx + offset)
+            .unwrap_or(body.len());
+        let table = &body[idx..end];
+        assert!(table.contains("<caption"), "table {count} missing caption");
+        assert!(table.contains("<thead>"), "table {count} missing thead");
+        assert!(
+            table.contains("scope=\"col\""),
+            "table {count} missing scoped column headers"
+        );
+        let before = &body[..idx];
+        let region = before
+            .rfind("<div class=\"table-scroll\"")
+            .unwrap_or_else(|| panic!("table {count} is not inside a scroll region"));
+        let opening = &before[region..];
+        assert!(
+            opening.contains("role=\"region\""),
+            "table {count} region missing role"
+        );
+        assert!(
+            opening.contains("aria-label="),
+            "table {count} region missing accessible name"
+        );
+        assert!(
+            opening.contains("tabindex=\"0\""),
+            "table {count} region is not keyboard reachable"
+        );
+    }
+    count
+}
+
+fn assert_named_control_labelled(body: &str, name: &str) {
+    let needle = format!("name=\"{name}\"");
+    let Some(position) = body.find(&needle) else {
+        return;
+    };
+    let before = &body[..position];
+    let label_open = before
+        .rfind("<label")
+        .unwrap_or_else(|| panic!("control `{name}` has no label element"));
+    let label_close = before.rfind("</label>");
+    assert!(
+        label_close.is_none_or(|close| close < label_open),
+        "control `{name}` is not wrapped in its label"
+    );
+}
+
+#[test]
+fn fleet_page_has_accessible_shell_and_named_tables() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    seed_project(&path, "forge", "rust-web", "L2");
+    let config = ApiConfig::default();
+    let (status, body) = get_page(&config, &path, "/ui");
+    assert_eq!(status, 200);
+    assert_document_shell(&body);
+    assert!(assert_tables_accessible(&body) >= 1, "fleet table missing");
+    for name in ["tag", "lifecycle", "confidence"] {
+        assert_named_control_labelled(&body, name);
+    }
+    assert!(body.contains("<legend>Portfolio filter</legend>"));
+}
+
+#[test]
+fn project_detail_page_has_accessible_shell_and_labelled_forms() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    let config = ApiConfig::default();
+    let (status, body) = get_page(&config, &path, "/ui/projects/alethefy");
+    assert_eq!(status, 200);
+    assert_document_shell(&body);
+    for name in [
+        "lifecycle",
+        "confidence",
+        "next_action",
+        "blocker",
+        "tag",
+        "remove_tag",
+    ] {
+        assert_named_control_labelled(&body, name);
+    }
+    assert!(body.contains("<legend>Classification</legend>"));
+    assert!(body.contains("<legend>Notes</legend>"));
+    assert!(body.contains("<legend>Tags</legend>"));
+}
+
+#[test]
+fn publish_plan_has_named_scoped_table() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    let config = ApiConfig::default();
+    let body = format!("token={BEARER}&origin={LOOPBACK_ORIGIN}");
+    let (status, page) = post_form(&config, &path, "/ui/projects/alethefy/publish", body);
+    assert_eq!(status, 200);
+    assert_document_shell(&page);
+    assert!(assert_tables_accessible(&page) >= 1, "plan table missing");
+    assert!(page.contains("Confirm republish"));
+}
+
+#[test]
+fn accepted_operation_reports_state_as_text() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    let config = ApiConfig::default();
+    let body = format!("token={BEARER}&origin={LOOPBACK_ORIGIN}&confirm=yes");
+    let (status, page) = post_form(&config, &path, "/ui/projects/alethefy/publish", body);
+    assert_eq!(status, 202);
+    assert_document_shell(&page);
+    assert!(page.contains("Republish enqueued"));
+    // Colour is supplementary: the state is also the cell text.
+    assert!(
+        page.contains("class=\"row-warn\">pending</span>"),
+        "pending state must be rendered as text, not colour alone"
+    );
+}
+
+#[test]
+fn studio_page_uses_the_accessible_shell() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    let config = ApiConfig::default();
+    let (status, body) = get_page(&config, &path, "/ui/studio/alethefy");
+    assert_eq!(status, 200);
+    assert_document_shell(&body);
+}
+
+#[test]
+fn error_page_uses_the_accessible_shell() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    let config = ApiConfig::default();
+    let req = make_request("GET", "/ui", html_accept(), None, Vec::new());
+    let resp = drive(&config, &path, &req);
+    assert_eq!(resp.status, 401);
+    let body = String::from_utf8_lossy(&resp.body);
+    assert_document_shell(&body);
+    assert!(body.contains("Sign in required"));
+    assert!(body.contains("api-unauthorized"));
+}
+
+#[test]
+fn sign_in_page_uses_the_accessible_shell() {
+    let path = tmp_db_path();
+    let _dir = seed_identity_project(&path, SIGN_IN_PROJECT);
+    let config = config_with_verifier(Arc::new(FakeBrowserAuthVerifier::new()));
+    let req = make_request_with_query(
+        "GET",
+        "/ui/sign-in",
+        Some(&format!("project={SIGN_IN_PROJECT}&return=/ui")),
+        html_accept(),
+        Vec::new(),
+    );
+    let resp = drive(&config, &path, &req);
+    assert_eq!(resp.status, 303);
+    let body = String::from_utf8_lossy(&resp.body);
+    assert_document_shell(&body);
+    assert!(body.contains("Continue to provider"));
+}
+
+#[test]
+fn stylesheet_exposes_responsive_focus_and_reduced_motion_hooks() {
+    let path = tmp_db_path();
+    seed_project(&path, "alethefy", "rust-web", "L3");
+    let config = ApiConfig::default();
+    let (_, body) = get_page(&config, &path, "/ui");
+    for needle in [
+        "--surface:",
+        "--text:",
+        "--border:",
+        "--focus:",
+        "--primary-target:",
+        "@media (prefers-color-scheme: dark)",
+        "@media (prefers-reduced-motion: reduce)",
+        "@media (max-width: 40rem)",
+        ":focus-visible",
+        "min-height: var(--primary-target)",
+        "overflow-x: auto",
+        ".visually-hidden",
+    ] {
+        assert!(body.contains(needle), "stylesheet is missing `{needle}`");
+    }
+}

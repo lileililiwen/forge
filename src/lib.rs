@@ -49,3 +49,4 @@ pub mod studio;
 pub mod ui_pattern;
 pub mod upgrade;
 pub mod vocabulary;
+pub mod web;

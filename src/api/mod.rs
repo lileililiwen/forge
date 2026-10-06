@@ -101,6 +101,7 @@ use crate::spec::{ensure_single_project, generate_spec, FindingSource, SpecReque
 use crate::studio::PreviewSession;
 use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
 
+mod admin;
 /// Sub-module that serves the in-process portal UI on the
 /// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
 /// `POST /ui/projects/{id}/publish`). Rendered with
@@ -160,6 +161,8 @@ pub struct ApiConfig {
     pub bind: IpAddr,
     pub port: u16,
     pub max_body_bytes: usize,
+    /// Exact browser origin allowed to call the Forge-wide admin API.
+    pub frontend_origin: String,
     /// Live Studio preview sessions keyed by project id. Only the
     /// long-lived `serve` loop can host a running preview, so the map
     /// lives on the configuration and drops — killing each child —
@@ -185,6 +188,7 @@ impl std::fmt::Debug for ApiConfig {
             .field("bind", &bind_label(self.bind))
             .field("port", &self.port)
             .field("max_body_bytes", &self.max_body_bytes)
+            .field("frontend_origin", &self.frontend_origin)
             .finish_non_exhaustive()
     }
 }
@@ -199,6 +203,7 @@ impl Default for ApiConfig {
             bind: DEFAULT_BIND_ADDR,
             port: DEFAULT_PORT,
             max_body_bytes: MAX_BODY_BYTES,
+            frontend_origin: "http://127.0.0.1:4173".to_string(),
             previews: Arc::new(Mutex::new(HashMap::new())),
             browser_auth_verifier: Arc::new(crate::identity::LibraryBrowserAuthVerifier),
         }
@@ -221,6 +226,12 @@ impl ApiConfig {
         if let Ok(value) = std::env::var("FORGE_API_PORT") {
             if let Ok(parsed) = value.trim().parse::<u16>() {
                 cfg.port = parsed;
+            }
+        }
+        if let Ok(value) = std::env::var("FORGE_FRONTEND_ORIGIN") {
+            let value = value.trim().trim_end_matches('/');
+            if value.starts_with("http://") || value.starts_with("https://") {
+                cfg.frontend_origin = value.to_string();
             }
         }
         cfg
@@ -416,6 +427,11 @@ pub enum Route {
     GetOperation {
         op_id: i64,
     },
+    AdminSessionGet,
+    AdminSessionPost,
+    AdminSessionDelete,
+    AdminProjects,
+    AdminOptions,
     /// `GET /ui` — in-process portal UI fleet list.
     UiFleet,
     /// `GET /ui/sign-in?project=<id>&return=<path>` —
@@ -577,6 +593,11 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
     let normalized = if path.is_empty() { "/" } else { path };
     let segments: Vec<&str> = normalized.trim_start_matches('/').split('/').collect();
     match (method, segments.as_slice()) {
+        ("GET", ["v1", "admin", "session"]) => Some(Route::AdminSessionGet),
+        ("POST", ["v1", "admin", "session"]) => Some(Route::AdminSessionPost),
+        ("DELETE", ["v1", "admin", "session"]) => Some(Route::AdminSessionDelete),
+        ("GET", ["v1", "admin", "projects"]) => Some(Route::AdminProjects),
+        ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
         ("POST", ["v1", "projects"]) => Some(Route::CreateProject),
@@ -760,6 +781,11 @@ fn bad_request(reason: &str) -> ApiResponse {
 fn required_permission(route: &Route) -> Option<&'static str> {
     match route {
         Route::Healthz | Route::GetOperation { .. } | Route::GitHubPush => None,
+        Route::AdminSessionGet
+        | Route::AdminSessionPost
+        | Route::AdminSessionDelete
+        | Route::AdminProjects
+        | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
         | Route::Doctor { .. }
@@ -875,6 +901,20 @@ pub fn handle(
         }
     };
 
+    if matches!(route, Route::AdminOptions) {
+        return admin::handle_preflight(config, request);
+    }
+
+    if matches!(
+        route,
+        Route::AdminSessionGet
+            | Route::AdminSessionPost
+            | Route::AdminSessionDelete
+            | Route::AdminProjects
+    ) {
+        return admin::handle(config, db_path, request, &route);
+    }
+
     // 1. Authorization: every route (other than /healthz
     // and /v1/operations/{id}) demands a session. Read
     // routes demand any valid session; mutating routes
@@ -927,6 +967,11 @@ pub fn handle(
                     .unwrap_or_default(),
             }),
         ),
+        Route::AdminSessionGet
+        | Route::AdminSessionPost
+        | Route::AdminSessionDelete
+        | Route::AdminProjects
+        | Route::AdminOptions => admin::handle(config, db_path, request, &route),
         Route::ListProjects => handle_list_projects(db_path),
         Route::CreateProject => handle_create_project(db_path, request, now),
         Route::InspectProject { id } => handle_inspect_project(db_path, &id),
@@ -1054,6 +1099,11 @@ fn authorize(
         // sign-out handler resolves the cookie to the
         // owning project itself.
         Route::UiFleet
+        | Route::AdminSessionGet
+        | Route::AdminSessionPost
+        | Route::AdminSessionDelete
+        | Route::AdminProjects
+        | Route::AdminOptions
         | Route::UiSignIn
         | Route::UiAuthCallback
         | Route::UiSignOut

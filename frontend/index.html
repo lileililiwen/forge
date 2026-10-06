@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Projects · Forge</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="config.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body data-page="dashboard">
+    <a class="skip-link" href="#main-content">Skip to projects</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Forge navigation">
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
+        <p class="side-label">WORKSPACE</p>
+        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a></nav>
+        <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
+      </aside>
+      <main id="main-content" class="main-area">
+        <header class="topbar">
+          <p>Workspace <span aria-hidden="true">/</span> <strong>All projects</strong></p>
+          <button id="sign-out" class="button button-quiet" type="button">Sign out</button>
+        </header>
+        <section class="content-wrap" aria-labelledby="page-title">
+          <div class="page-heading">
+            <div><p class="eyebrow">Forge workspace</p><h1 id="page-title">Project command center</h1><p class="muted">Your registered projects and their latest activity.</p></div>
+            <label class="search-box"><span class="sr-only">Search projects</span><span aria-hidden="true">⌕</span><input id="project-search" type="search" placeholder="Search projects" autocomplete="off"></label>
+          </div>
+          <div id="dashboard-error" class="notice notice-error" role="alert" hidden></div>
+          <section class="summary-grid" aria-label="Project summary">
+            <article class="summary-card"><span class="summary-icon icon-blue" aria-hidden="true">▦</span><div><p>Registered projects</p><strong id="summary-total">—</strong></div></article>
+            <article class="summary-card"><span class="summary-icon icon-violet" aria-hidden="true">◈</span><div><p>Profiles in use</p><strong id="summary-profiles">—</strong></div></article>
+            <article class="summary-card"><span class="summary-icon icon-green" aria-hidden="true">⌁</span><div><p>Projects with evidence</p><strong id="summary-evidence">—</strong></div></article>
+          </section>
+          <section class="project-panel" aria-labelledby="projects-title">
+            <div class="panel-heading"><div><h2 id="projects-title">All projects</h2><p id="project-count" class="muted">Loading your projects…</p></div><span id="updated-label" class="updated-label"></span></div>
+            <div id="empty-state" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">▦</span><h3>No projects yet</h3><p>Your registered projects will appear here once they are added to Forge.</p><p class="next-action">Start with <code>forge import ./your-project --accept</code></p></div>
+            <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name or profile.</p></div>
+            <div class="table-scroll" tabindex="0" role="region" aria-label="Registered projects" hidden>
+              <table><thead><tr><th scope="col">Project</th><th scope="col">Profile</th><th scope="col">Latest state</th><th scope="col">Evidence</th><th scope="col">Lifecycle</th></tr></thead><tbody id="project-rows"></tbody></table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <footer class="app-footer">Forge <span aria-hidden="true">·</span> Project operations</footer>
+  </body>
+</html>

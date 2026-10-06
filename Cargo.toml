@@ -27,6 +27,7 @@ sha2 = "0.10"
 rand = "0.8"
 maud = "0.27"
 libc = "0.2"
+argon2 = "0.5"
 openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest-blocking", "rustls-tls"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
@@ -51,5 +52,6 @@ sha2.workspace = true
 rand.workspace = true
 maud.workspace = true
 libc.workspace = true
+argon2.workspace = true
 openidconnect.workspace = true
 reqwest.workspace = true

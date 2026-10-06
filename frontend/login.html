@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Sign in · Forge</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="config.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body data-page="login">
+    <a class="skip-link" href="#login-email">Skip to sign in form</a>
+    <main class="auth-layout">
+      <section class="auth-story" aria-labelledby="story-title">
+        <a class="brand" href="index.html" aria-label="Forge home"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
+        <div class="story-copy">
+          <p class="eyebrow">Your project workspace</p>
+          <h1 id="story-title">Every project.<br>One clear view.</h1>
+          <p class="story-description">A home for the projects you build, maintain, and ship.</p>
+          <ul class="story-points">
+            <li>See your complete project fleet</li>
+            <li>Review real project and delivery evidence</li>
+            <li>Move between projects from one workspace</li>
+          </ul>
+        </div>
+        <p class="story-foot">Forge <span aria-hidden="true">·</span> Project operations</p>
+      </section>
+      <section class="auth-panel" aria-labelledby="login-title">
+        <div class="auth-card">
+          <p class="eyebrow">Welcome back</p>
+          <h2 id="login-title">Sign in to Forge</h2>
+          <p class="muted">Use your Forge administrator account to continue.</p>
+          <div id="setup-state" class="notice" role="status" hidden></div>
+          <form id="login-form" class="login-form">
+            <label for="login-email">Email address</label>
+            <input id="login-email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required>
+            <label for="login-password">Password</label>
+            <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+            <p id="login-error" class="form-error" role="alert" hidden></p>
+            <button class="button button-primary" type="submit">Sign in to your workspace <span aria-hidden="true">→</span></button>
+          </form>
+          <p class="security-note"><span class="lock-icon" aria-hidden="true">●</span> Forge-wide access. Project IDs stay inside your workspace.</p>
+        </div>
+      </section>
+    </main>
+    <footer class="page-footer">Forge <span aria-hidden="true">·</span> Project operations</footer>
+  </body>
+</html>

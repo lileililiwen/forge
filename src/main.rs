@@ -457,6 +457,11 @@ enum Commands {
         #[command(subcommand)]
         command: ApiCommands,
     },
+    /// Serve standalone Forge browser assets from the Rust static web server.
+    Web {
+        #[command(subcommand)]
+        command: WebCommands,
+    },
     /// Render the optional control-plane portal dashboard and per-section views.
     Portal {
         #[command(subcommand)]
@@ -1278,6 +1283,12 @@ enum ProcedureCommands {
 #[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum IdentityCommands {
+    /// Initialize the one Forge-wide portal administrator (password is read without terminal echo).
+    Setup {
+        /// Administrator email used by the Forge browser login.
+        #[arg(long)]
+        email: String,
+    },
     /// Validate the manifest's `identity:` block without contacting any provider.
     ValidateConfig {
         /// Registered project id or filesystem path (default: current directory).
@@ -1408,6 +1419,22 @@ enum ApiCommands {
         /// Maximum request body size in bytes (default 1 MiB).
         #[arg(long)]
         max_body_bytes: Option<usize>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum WebCommands {
+    /// Serve files from `frontend/` on an independent loopback web listener.
+    Serve {
+        /// Bind address (default `127.0.0.1`).
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: std::net::IpAddr,
+        /// TCP port (default `4173`).
+        #[arg(long, default_value_t = 4173)]
+        port: u16,
+        /// Standalone frontend directory (default `frontend`).
+        #[arg(long, default_value = "frontend")]
+        root: PathBuf,
     },
 }
 
@@ -2726,6 +2753,7 @@ fn main() -> ExitCode {
         Commands::Identity { command } => cmd_identity(&db_path, command, cli.format),
         Commands::Analytics { command } => cmd_analytics(&db_path, command, cli.format),
         Commands::Api { command } => cmd_api(&db_path, command, cli.format),
+        Commands::Web { command } => cmd_web(command, cli.format),
         Commands::Portal { command } => cmd_portal(&db_path, command, cli.format),
         Commands::Portfolio { command } => cmd_portfolio(&db_path, command, cli.format),
         Commands::Readiness { command } => cmd_readiness(command, cli.format),
@@ -9124,6 +9152,25 @@ fn cmd_identity(
     format: Format,
 ) -> Result<Output, ForgeError> {
     match command {
+        IdentityCommands::Setup { email } => {
+            let password = read_secret("New Forge password: ")?;
+            let confirmation = read_secret("Confirm password: ")?;
+            if password != confirmation {
+                return Err(ForgeError::IdentityInvalid {
+                    reason: "password confirmation does not match".to_string(),
+                });
+            }
+            forge::identity::global::setup(db_path, email, &password)
+                .map_err(|reason| ForgeError::IdentityInvalid { reason })?;
+            Ok(as_output(
+                format,
+                format!(
+                    "Forge administrator `{}` initialized",
+                    email.trim().to_ascii_lowercase()
+                ),
+                serde_json::json!({ "contract": "forge-admin-login/1.0.0", "email": email.trim().to_ascii_lowercase(), "initialized": true }),
+            ))
+        }
         IdentityCommands::ValidateConfig { target } => {
             let (dir, project_id) = resolve_identity_target(db_path, target)?;
             let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&dir, None)?;
@@ -9555,6 +9602,50 @@ fn cmd_identity(
     }
 }
 
+/// Read a secret from an interactive Unix terminal with echo disabled.
+fn read_secret(prompt: &str) -> Result<String, ForgeError> {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        return Err(ForgeError::IdentityInvalid {
+            reason: "administrator setup requires an interactive terminal".to_string(),
+        });
+    }
+    #[cfg(unix)]
+    unsafe {
+        let fd = libc::STDIN_FILENO;
+        let mut original: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(fd, &mut original) != 0 {
+            return Err(ForgeError::IdentityInvalid {
+                reason: "cannot read terminal settings".to_string(),
+            });
+        }
+        let mut hidden = original;
+        hidden.c_lflag &= !libc::ECHO;
+        if libc::tcsetattr(fd, libc::TCSANOW, &hidden) != 0 {
+            return Err(ForgeError::IdentityInvalid {
+                reason: "cannot disable terminal echo".to_string(),
+            });
+        }
+        print!("{prompt}");
+        let _ = std::io::stdout().flush();
+        let mut value = String::new();
+        let read = std::io::stdin().read_line(&mut value);
+        let _ = libc::tcsetattr(fd, libc::TCSANOW, &original);
+        println!();
+        read.map_err(|_| ForgeError::IdentityInvalid {
+            reason: "cannot read password".to_string(),
+        })?;
+        Ok(value.trim_end_matches(['\r', '\n']).to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = prompt;
+        Err(ForgeError::IdentityInvalid {
+            reason: "hidden password setup is unsupported on this platform".to_string(),
+        })
+    }
+}
+
 fn delete_session_file_at(
     dir: &Path,
     project_id: &str,
@@ -9602,6 +9693,29 @@ fn cmd_api(db_path: &Path, command: &ApiCommands, format: Format) -> Result<Outp
             port,
             max_body_bytes,
         } => cmd_api_serve(db_path, *bind, *port, *max_body_bytes, format),
+    }
+}
+
+fn cmd_web(command: &WebCommands, _format: Format) -> Result<Output, ForgeError> {
+    match command {
+        WebCommands::Serve { bind, port, root } => {
+            let root = root
+                .canonicalize()
+                .map_err(|_| ForgeError::PathUnavailable {
+                    path: root.display().to_string(),
+                })?;
+            println!(
+                "forge web serving frontend at http://{}:{}/ (static files from {}) — Ctrl-C to stop",
+                bind,
+                port,
+                root.display()
+            );
+            let accepted = forge::web::serve(*bind, *port, &root)
+                .map_err(|reason| ForgeError::ApiInvalid { reason })?;
+            Ok(Output::Human(format!(
+                "forge web stopped after {accepted} request(s)"
+            )))
+        }
     }
 }
 

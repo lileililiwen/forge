@@ -70,6 +70,7 @@
 //! `policy::redact_credentials` consumed by every other
 //! adapter.
 
+pub mod global;
 mod oidc;
 
 pub use oidc::LibraryBrowserAuthVerifier;

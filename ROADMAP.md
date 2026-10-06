@@ -67,6 +67,30 @@ catalog chain runs `project-catalog-query-contract` →
 `project-evidence-gap-assessment` → `project-local-remediation-plans` /
 `project-semantic-description-review` / `project-query-consumer-surfaces`.
 
+### Proposed authenticated web command center
+
+The active `forge-global-admin-portal` change supplies global sign-in and the
+initial dashboard. After that change is implemented and archived, continue in
+this dependency order; each package has independent requirements and an
+acceptance oracle:
+
+1. `forge-web-project-fleet` — combine the local registry and explicitly
+   selected inventory sources; always include Forge itself.
+2. `forge-web-command-catalog` — enumerate every top-level and nested Rust CLI
+   command and map it to a web workflow or a reasoned CLI-only state.
+3. `forge-web-project-workbench` — project setup, identity, planning and quality
+   workflows, depending on fleet and command catalog.
+4. `forge-web-portfolio-controls` — cross-project metadata and evidence views,
+   depending on fleet and command catalog.
+5. `forge-web-delivery-controls` — confirmed repository, provider and delivery
+   operations, depending on command catalog, workbench and portfolio controls.
+
+These are planning packages, not implementation evidence. The web frontend
+remains standalone HTML/CSS/JavaScript served by Forge's Rust web listener;
+the API remains JSON-only. Every CLI command stays discoverable, including
+transport/build commands that receive explicit CLI-only guidance rather than
+unsafe generic shell execution.
+
 - **Publish and release:** [platform-contract-consumption](openspec/specs/platform-contract-consumption/spec.md), [artifact-and-ci-baseline](openspec/specs/artifact-and-ci-baseline/spec.md), [publish-commands](openspec/specs/publish-commands/spec.md), [forge-publish-plugin-orchestration](openspec/specs/forge-publish-plugin-orchestration/spec.md), [sibling-cwd-publish](openspec/specs/sibling-cwd-publish/spec.md), [forge-publish-queue-status](openspec/specs/forge-publish-queue-status/spec.md), [forge-publish-observability-revision-containers](openspec/specs/forge-publish-observability-revision-containers/spec.md), [decoupled-remote-publish](openspec/specs/decoupled-remote-publish/spec.md), [fleet-live-rollout](openspec/specs/fleet-live-rollout/spec.md), [fleet-liveness-status](openspec/specs/fleet-liveness-status/spec.md).
 - **Portal, portfolio and delivery:** [portal-web-ui](openspec/specs/portal-web-ui/spec.md) (promoting the `portal-browser-sign-in` OIDC sign-in and `portal-accessible-responsive-ui` responsive/accessibility work), [portfolio-metadata-and-review](openspec/specs/portfolio-metadata-and-review/spec.md), [interest-snapshots](openspec/specs/interest-snapshots/spec.md), [portfolio-share](openspec/specs/portfolio-share/spec.md), [portfolio-activation-readiness](openspec/specs/portfolio-activation-readiness/spec.md), [project-to-production-workflow](openspec/specs/project-to-production-workflow/spec.md), [hypora-graduation-import](openspec/specs/hypora-graduation-import/spec.md).
 - **Catalog, remediation and provider:** [project-catalog-query-contract](openspec/specs/project-catalog-query-contract/spec.md), [project-evidence-gap-assessment](openspec/specs/project-evidence-gap-assessment/spec.md), [project-local-remediation-plans](openspec/specs/project-local-remediation-plans/spec.md), [project-query-consumer-surfaces](openspec/specs/project-query-consumer-surfaces/spec.md), [project-semantic-description-review](openspec/specs/project-semantic-description-review/spec.md), [github-project-metadata-adapter](openspec/specs/github-project-metadata-adapter/spec.md), [github-cli-project-workflows](openspec/specs/github-cli-project-workflows/spec.md).

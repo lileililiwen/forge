@@ -1,0 +1,122 @@
+//! Source-level contract for the standalone Forge portal frontend.
+//!
+//! The browser pages are owned by `frontend/` and served by the Rust static
+//! web listener; the API returns JSON only. These assertions pin the split
+//! that `forge-global-admin-portal` requires: the login has no project-id
+//! control and no fake actions, the dashboard drives the authenticated JSON
+//! API, the stylesheet keeps the accessibility contract, and no page markup
+//! is embedded in Rust.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+}
+
+fn read(relative: &str) -> String {
+    fs::read_to_string(repo_root().join(relative))
+        .unwrap_or_else(|err| panic!("missing {relative}: {err}"))
+}
+
+#[test]
+fn all_browser_assets_live_under_frontend() {
+    for name in [
+        "frontend/login.html",
+        "frontend/index.html",
+        "frontend/styles.css",
+        "frontend/config.js",
+        "frontend/app.js",
+        "frontend/README.md",
+    ] {
+        assert!(
+            repo_root().join(name).is_file(),
+            "expected standalone asset {name}"
+        );
+    }
+}
+
+#[test]
+fn login_page_has_only_email_and_password_and_no_project_id() {
+    let login = read("frontend/login.html");
+    assert!(login.contains("type=\"email\""), "email control required");
+    assert!(
+        login.contains("type=\"password\""),
+        "password control required"
+    );
+    assert!(!login.contains("name=\"project\""), "no project-id control");
+    assert!(
+        !login.contains("name=\"project_id\""),
+        "no project-id control"
+    );
+    // Exactly the two credential inputs are present.
+    assert_eq!(
+        login.matches("<input").count(),
+        2,
+        "login must offer only email and password fields"
+    );
+    // Credentials never travel in the URL; the form posts via app.js.
+    assert!(!login.contains("action=\"http"), "no credential URL action");
+}
+
+#[test]
+fn dashboard_drives_the_json_api_with_credentials_and_honest_states() {
+    let index = read("frontend/index.html");
+    let app = read("frontend/app.js");
+    assert!(index.contains("type=\"search\""), "project search control");
+    assert!(index.contains("<table"), "project roster table");
+    assert!(index.contains("id=\"sign-out\""), "sign-out control");
+    assert!(
+        app.contains("credentials: \"include\""),
+        "credentialed fetch"
+    );
+    assert!(app.contains("/v1/admin/session"), "session endpoint");
+    assert!(app.contains("/v1/admin/projects"), "fleet endpoint");
+    assert!(app.contains("empty-state"), "honest empty fleet state");
+    assert!(
+        app.contains("Forge API is unavailable"),
+        "honest unavailable state"
+    );
+    // No fabricated metrics or fake project actions: the summary values come
+    // from the authenticated API, and no password/token is persisted.
+    assert!(!app.contains("localStorage"), "no credential/token storage");
+    assert!(
+        !app.contains("sessionStorage"),
+        "no credential/token storage"
+    );
+}
+
+#[test]
+fn stylesheet_keeps_the_accessibility_and_responsive_contract() {
+    let css = read("frontend/styles.css");
+    assert!(css.contains("min-width:320px"), "320px readability floor");
+    assert!(
+        css.contains("@media(max-width:560px)") || css.contains("@media (max-width: 560px)"),
+        "narrow reflow breakpoint"
+    );
+    assert!(css.contains(":focus-visible"), "visible focus indicator");
+    assert!(css.contains("skip-link"), "skip-to-content affordance");
+    assert!(
+        css.contains("prefers-reduced-motion"),
+        "reduced-motion support"
+    );
+}
+
+#[test]
+fn rust_sources_embed_no_browser_markup() {
+    // The change must keep HTML/CSS/JS out of the Rust API and web server.
+    for source in ["src/api/admin.rs", "src/web.rs", "src/identity/global.rs"] {
+        let text = read(source);
+        let lower = text.to_ascii_lowercase();
+        assert!(
+            !lower.contains("<html") && !lower.contains("<body") && !text.contains("html!"),
+            "{source} must not render browser markup; frontend owns the pages"
+        );
+    }
+    // The API admin handler is JSON-only.
+    let admin = read("src/api/admin.rs");
+    assert!(
+        admin.contains("ApiResponse::json"),
+        "admin API returns JSON"
+    );
+}

@@ -1289,6 +1289,14 @@ enum IdentityCommands {
         #[arg(long)]
         email: String,
     },
+    /// Replace the Forge-wide administrator password without changing the email; revokes every active browser session (new password read without terminal echo).
+    ChangePassword,
+    /// Print one strong random password from operating-system entropy without reading or writing the registry.
+    GeneratePassword {
+        /// Password length in characters (default 20; accepted 12 to 128).
+        #[arg(long, default_value_t = 20)]
+        length: usize,
+    },
     /// Validate the manifest's `identity:` block without contacting any provider.
     ValidateConfig {
         /// Registered project id or filesystem path (default: current directory).
@@ -9169,6 +9177,32 @@ fn cmd_identity(
                     email.trim().to_ascii_lowercase()
                 ),
                 serde_json::json!({ "contract": "forge-admin-login/1.0.0", "email": email.trim().to_ascii_lowercase(), "initialized": true }),
+            ))
+        }
+        IdentityCommands::ChangePassword => {
+            let password = read_secret("New Forge password: ")?;
+            let confirmation = read_secret("Confirm password: ")?;
+            if password != confirmation {
+                return Err(ForgeError::IdentityInvalid {
+                    reason: "password confirmation does not match".to_string(),
+                });
+            }
+            forge::identity::global::change_password(db_path, &password)
+                .map_err(|reason| ForgeError::IdentityInvalid { reason })?;
+            Ok(as_output(
+                format,
+                "Forge administrator password updated; every existing browser session was revoked"
+                    .to_string(),
+                serde_json::json!({ "contract": "forge-admin-login/1.0.0", "changed": true }),
+            ))
+        }
+        IdentityCommands::GeneratePassword { length } => {
+            let password = forge::identity::global::generate_password(*length)
+                .map_err(|reason| ForgeError::IdentityInvalid { reason })?;
+            Ok(as_output(
+                format,
+                password.clone(),
+                serde_json::json!({ "contract": "forge-admin-login/1.0.0", "length": *length, "password": password }),
             ))
         }
         IdentityCommands::ValidateConfig { target } => {

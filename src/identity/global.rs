@@ -7,6 +7,7 @@
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use chrono::Utc;
+use rand::Rng;
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
@@ -154,6 +155,72 @@ pub fn revoke(db_path: &Path, token: &str) -> Result<(), String> {
     .map_err(|err| err.to_string())
 }
 
+/// Replace the single administrator password in place — the stored email is
+/// untouched — and revoke every outstanding session so no cookie issued before
+/// the rotation survives it. Validation matches [`setup`]; a registry with no
+/// configured administrator is refused rather than silently initialized.
+pub fn change_password(db_path: &Path, password: &str) -> Result<(), String> {
+    if password.chars().count() < 12 || password.len() > 1024 {
+        return Err("password must contain 12 to 1024 characters".into());
+    }
+    let db = connection(db_path)?;
+    let configured: Option<i64> = db
+        .query_row("SELECT 1 FROM forge_admin WHERE singleton = 1", [], |_| {
+            Ok(1)
+        })
+        .optional()
+        .map_err(|err| err.to_string())?;
+    if configured.is_none() {
+        return Err(
+            "no Forge administrator is configured; run `forge identity setup` first".into(),
+        );
+    }
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|_| "password hashing failed".to_string())?
+        .to_string();
+    db.execute(
+        "UPDATE forge_admin SET password_hash = ?1 WHERE singleton = 1",
+        params![password_hash],
+    )
+    .map_err(|err| err.to_string())?;
+    revoke_all_sessions_in(&db)?;
+    Ok(())
+}
+
+pub fn revoke_all_sessions(db_path: &Path) -> Result<(), String> {
+    let db = connection(db_path)?;
+    revoke_all_sessions_in(&db)
+}
+
+fn revoke_all_sessions_in(db: &Connection) -> Result<(), String> {
+    db.execute(
+        "UPDATE forge_admin_sessions SET revoked = 1 WHERE revoked = 0",
+        [],
+    )
+    .map(|_| ())
+    .map_err(|err| err.to_string())
+}
+
+/// Generate one cryptographically strong password from operating-system
+/// entropy. Registry-free and TTY-free: it never opens the database and never
+/// logs the value, so the caller prints it once. The alphabet omits look-alike
+/// characters (`0/O`, `1/l/I`) so a pasted password stays reliable, and the
+/// default range always satisfies the [`setup`] minimum.
+pub fn generate_password(length: usize) -> Result<String, String> {
+    if length < 12 || length > 128 {
+        return Err("password length must be between 12 and 128 characters".into());
+    }
+    const ALPHABET: &[u8] =
+        b"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*-_=+";
+    let mut rng = rand::thread_rng();
+    let password: String = (0..length)
+        .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
+        .collect();
+    Ok(password)
+}
+
 fn token_digest(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -241,5 +308,97 @@ mod tests {
         .unwrap();
         drop(db);
         assert!(!session_valid(&db_path, &token).unwrap());
+    }
+
+    #[test]
+    fn change_password_rotates_hash_and_revokes_sessions() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("registry.db");
+        setup(
+            &db_path,
+            "operator@example.test",
+            "a-long-password-for-review",
+        )
+        .unwrap();
+        let token = authenticate(
+            &db_path,
+            "operator@example.test",
+            "a-long-password-for-review",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(session_valid(&db_path, &token).unwrap());
+        let before = Connection::open(&db_path)
+            .unwrap()
+            .query_row::<String, _, _>(
+                "SELECT email FROM forge_admin WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        change_password(&db_path, "a-different-long-password").unwrap();
+        // Old password stops working; the new one authenticates.
+        assert!(authenticate(
+            &db_path,
+            "operator@example.test",
+            "a-long-password-for-review"
+        )
+        .unwrap()
+        .is_none());
+        assert!(authenticate(
+            &db_path,
+            "operator@example.test",
+            "a-different-long-password"
+        )
+        .unwrap()
+        .is_some());
+        // Email is preserved and the pre-rotation session is revoked.
+        let after = Connection::open(&db_path)
+            .unwrap()
+            .query_row::<String, _, _>(
+                "SELECT email FROM forge_admin WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(before, after);
+        assert!(!session_valid(&db_path, &token).unwrap());
+    }
+
+    #[test]
+    fn change_password_refuses_weak_input_and_missing_administrator() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("registry.db");
+        // No administrator yet: refused, and none is created.
+        assert!(change_password(&db_path, "a-different-long-password").is_err());
+        assert!(!is_configured(&db_path).unwrap());
+        setup(
+            &db_path,
+            "operator@example.test",
+            "a-long-password-for-review",
+        )
+        .unwrap();
+        // Weak input is refused and leaves the current hash usable.
+        assert!(change_password(&db_path, "short12").is_err());
+        assert!(authenticate(
+            &db_path,
+            "operator@example.test",
+            "a-long-password-for-review"
+        )
+        .unwrap()
+        .is_some());
+    }
+
+    #[test]
+    fn generate_password_respects_bounds_and_is_random() {
+        assert!(generate_password(11).is_err());
+        assert!(generate_password(129).is_err());
+        let first = generate_password(20).unwrap();
+        let second = generate_password(20).unwrap();
+        assert_eq!(first.chars().count(), 20);
+        assert_eq!(second.chars().count(), 20);
+        assert_ne!(first, second);
+        // Meets the administrator minimum without a registry present.
+        assert!(generate_password(12).unwrap().chars().count() >= 12);
     }
 }

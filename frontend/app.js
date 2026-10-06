@@ -71,6 +71,20 @@
   const SOURCE_LABELS = { self: "Forge (self)", registry: "Registered", inventory: "Inventory", fleet: "Workspace" };
   const SOURCE_BADGE = { self: "self", registry: "registry", inventory: "inventory", fleet: "workspace" };
   const FLEET_STATUS_LABELS = { available: "Available", stale: "Stale", unconfigured: "Not configured", unavailable: "Unavailable" };
+  const CATEGORY_LABELS = {
+    registry: "Registry", creation: "Creation", quality: "Quality", release: "Release",
+    delivery: "Delivery", portfolio: "Portfolio", identity: "Identity", transports: "Transports", reference: "Reference",
+  };
+  const AVAILABILITY_LABELS = {
+    web: "Web", cli_only: "CLI only", provider_required: "Provider required",
+    project_capability_required: "Project capability required", disabled: "Disabled", not_yet_web: "Not in web yet",
+  };
+  const AVAILABILITY_BADGE = {
+    web: "cat-web", cli_only: "cat-cli", provider_required: "cat-provider",
+    project_capability_required: "cat-capability", disabled: "cat-disabled", not_yet_web: "cat-gap",
+  };
+  const RISK_LABELS = { read: "Read", local_write: "Local write", remote_write: "Remote write", session_admin: "Session admin" };
+  const RISK_BADGE = { read: "risk-read", local_write: "risk-local", remote_write: "risk-remote", session_admin: "risk-session" };
 
   function renderSources(sources) {
     const list = document.getElementById("source-list");
@@ -153,11 +167,105 @@
     document.getElementById("project-count").textContent = `${filtered.length} of ${projects.length} project${projects.length === 1 ? "" : "s"}`;
   }
 
+  function renderCommands(commands) {
+    const body = document.getElementById("command-rows");
+    const query = document.getElementById("command-search").value.trim().toLowerCase();
+    const categoryFilter = document.getElementById("category-filter").value;
+    const availabilityFilter = document.getElementById("availability-filter").value;
+    const filtered = commands.filter((command) => {
+      if (categoryFilter && command.category !== categoryFilter) return false;
+      if (availabilityFilter && command.availability !== availabilityFilter) return false;
+      return `${command.id} ${command.summary} ${command.cli_invocation}`.toLowerCase().includes(query);
+    });
+    body.replaceChildren();
+    for (const command of filtered) {
+      const row = document.createElement("tr");
+
+      const name = document.createElement("td");
+      const idWrap = document.createElement("div");
+      idWrap.className = `command-id depth-${(command.id.match(/\./g) || []).length}`;
+      const idLabel = document.createElement("span");
+      idLabel.textContent = command.label;
+      const pathNote = document.createElement("span");
+      pathNote.className = "command-path";
+      pathNote.textContent = command.parent_id ? `${command.parent_id} › ` : "";
+      idWrap.append(pathNote, idLabel);
+      name.append(idWrap);
+      row.append(name);
+
+      const category = document.createElement("td");
+      category.append(makeBadge(CATEGORY_LABELS[command.category] || command.category, "category"));
+      row.append(category);
+
+      const risk = document.createElement("td");
+      risk.append(makeBadge(RISK_LABELS[command.risk] || command.risk, RISK_BADGE[command.risk] || "risk-read"));
+      row.append(risk);
+
+      const state = document.createElement("td");
+      state.append(makeBadge(AVAILABILITY_LABELS[command.availability] || command.availability, AVAILABILITY_BADGE[command.availability] || "cat-gap"));
+      row.append(state);
+
+      // The CLI invocation is display-only text inside <code>: the browser
+      // never executes it and the API has no shell/eval route to run it.
+      const invocation = document.createElement("td");
+      const code = document.createElement("code");
+      code.textContent = command.cli_invocation;
+      invocation.append(code);
+      row.append(invocation);
+
+      const guidance = document.createElement("td");
+      const guidanceText = document.createElement("p");
+      guidanceText.className = "command-guidance";
+      guidanceText.textContent = command.availability === "web"
+        ? `Available through this dashboard (${command.route}).`
+        : command.reason || "—";
+      guidance.append(guidanceText);
+      row.append(guidance);
+
+      body.append(row);
+    }
+    document.getElementById("command-no-results").hidden = commands.length === 0 || filtered.length > 0;
+    document.getElementById("commands-table").hidden = filtered.length === 0;
+    document.getElementById("command-count").textContent = `${filtered.length} of ${commands.length} CLI command${commands.length === 1 ? "" : "s"}`;
+  }
+
+  function showCommandsError(message) {
+    const error = document.getElementById("commands-error");
+    error.textContent = message;
+    error.hidden = false;
+    document.getElementById("commands-table").hidden = true;
+    document.getElementById("command-no-results").hidden = true;
+    document.getElementById("command-count").textContent = "Command catalog unavailable";
+  }
+
+  function loadCommands() {
+    // The catalog is static descriptive metadata. A failure here never
+    // hides the project fleet, and it shows an honest unavailable state.
+    return request("/v1/admin/commands", { headers: { Accept: "application/json" } })
+      .then((data) => {
+        const commands = data.commands || [];
+        const select = document.getElementById("category-filter");
+        for (const category of data.categories || []) {
+          const option = document.createElement("option");
+          option.value = category.id;
+          option.textContent = `${category.label} (${category.count})`;
+          select.append(option);
+        }
+        const refresh = () => renderCommands(commands);
+        document.getElementById("command-search").addEventListener("input", refresh);
+        document.getElementById("category-filter").addEventListener("change", refresh);
+        document.getElementById("availability-filter").addEventListener("change", refresh);
+        refresh();
+      })
+      .catch(() => showCommandsError("Command catalog unavailable. Start the Forge API and reload; every CLI command stays discoverable in the terminal meanwhile."));
+  }
+
   async function dashboardPage() {
     let state;
     try { state = await session(); }
     catch (_) { showDashboardError("Forge API is unavailable. Start the API and reload this page."); return; }
     if (!state.authenticated) { window.location.replace("login.html"); return; }
+    loadCommands();
     let projects = [];
     try {
       const data = await request("/v1/admin/projects", { headers: { Accept: "application/json" } });

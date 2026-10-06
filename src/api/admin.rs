@@ -39,6 +39,7 @@ pub(super) fn handle(
         Route::AdminSessionPost => sign_in(config, db_path, request),
         Route::AdminSessionDelete => sign_out(config, db_path, request),
         Route::AdminProjects => projects(db_path, request),
+        Route::AdminCommands => commands(db_path, request),
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)
@@ -214,6 +215,30 @@ fn projects(db_path: &Path, request: &ApiRequest) -> ApiResponse {
         Ok(envelope) => ApiResponse::json(200, envelope),
         Err(_) => unavailable(),
     }
+}
+
+/// `GET /v1/admin/commands`: the typed CLI command catalog. Same global
+/// session gate as [`projects`]; the body is static metadata only — the
+/// catalog describes commands and never executes anything, and the API
+/// exposes no shell/eval route anywhere.
+fn commands(db_path: &Path, request: &ApiRequest) -> ApiResponse {
+    let token = request
+        .cookies
+        .get(COOKIE)
+        .map(String::as_str)
+        .unwrap_or("");
+    match global::session_valid(db_path, token) {
+        Ok(true) => {}
+        Ok(false) => {
+            return error(
+                401,
+                "api-unauthorized",
+                "Forge administrator session is required",
+            )
+        }
+        Err(_) => return unavailable(),
+    }
+    ApiResponse::json(200, super::command_catalog::envelope())
 }
 
 fn allowed_origin(config: &ApiConfig, origin: Option<&str>) -> bool {

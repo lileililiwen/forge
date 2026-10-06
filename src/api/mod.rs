@@ -102,6 +102,12 @@ use crate::studio::PreviewSession;
 use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
 
 mod admin;
+/// Typed CLI command-catalog metadata (`forge-command-catalog/0.1.0`)
+/// backing `GET /v1/admin/commands`. Metadata only: the catalog never
+/// executes anything and the API exposes no shell/eval route. Named
+/// `command_catalog` because `catalog` already refers to the project
+/// catalog (`forge-project-catalog/0.1.0`) in this module.
+pub mod command_catalog;
 mod fleet;
 /// Sub-module that serves the in-process portal UI on the
 /// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
@@ -432,6 +438,7 @@ pub enum Route {
     AdminSessionPost,
     AdminSessionDelete,
     AdminProjects,
+    AdminCommands,
     AdminOptions,
     /// `GET /ui` — in-process portal UI fleet list.
     UiFleet,
@@ -598,6 +605,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["v1", "admin", "session"]) => Some(Route::AdminSessionPost),
         ("DELETE", ["v1", "admin", "session"]) => Some(Route::AdminSessionDelete),
         ("GET", ["v1", "admin", "projects"]) => Some(Route::AdminProjects),
+        ("GET", ["v1", "admin", "commands"]) => Some(Route::AdminCommands),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
@@ -786,6 +794,7 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
         | Route::AdminProjects
+        | Route::AdminCommands
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -912,6 +921,7 @@ pub fn handle(
             | Route::AdminSessionPost
             | Route::AdminSessionDelete
             | Route::AdminProjects
+            | Route::AdminCommands
     ) {
         return admin::handle(config, db_path, request, &route);
     }
@@ -972,6 +982,7 @@ pub fn handle(
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
         | Route::AdminProjects
+        | Route::AdminCommands
         | Route::AdminOptions => admin::handle(config, db_path, request, &route),
         Route::ListProjects => handle_list_projects(db_path),
         Route::CreateProject => handle_create_project(db_path, request, now),
@@ -1104,6 +1115,7 @@ fn authorize(
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
         | Route::AdminProjects
+        | Route::AdminCommands
         | Route::AdminOptions
         | Route::UiSignIn
         | Route::UiAuthCallback

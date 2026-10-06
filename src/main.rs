@@ -14404,3 +14404,59 @@ fn cmd_fleet_online(
     }
     Ok(output)
 }
+
+#[cfg(test)]
+mod command_catalog_tests {
+    use super::*;
+    use clap::CommandFactory;
+    use std::collections::BTreeSet;
+
+    fn walk(cmd: &clap::Command, prefix: &str, out: &mut BTreeSet<String>) {
+        for sub in cmd.get_subcommands() {
+            let name = sub.get_name();
+            let path = if prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{prefix}.{name}")
+            };
+            out.insert(path.clone());
+            walk(sub, &path, out);
+        }
+    }
+
+    #[test]
+    fn catalog_has_exactly_one_row_per_clap_path() {
+        let root = <Cli as CommandFactory>::command();
+        let mut clap_paths = BTreeSet::new();
+        walk(&root, "", &mut clap_paths);
+        // Clap adds `help` only at build time, so the catalog carries it
+        // explicitly.
+        clap_paths.insert("help".to_string());
+
+        let catalog_ids: BTreeSet<String> = forge::api::command_catalog::rows()
+            .iter()
+            .map(|row| row.id.clone())
+            .collect();
+        let missing: Vec<&str> = clap_paths
+            .difference(&catalog_ids)
+            .map(String::as_str)
+            .collect();
+        let extra: Vec<&str> = catalog_ids
+            .difference(&clap_paths)
+            .map(String::as_str)
+            .collect();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "catalog drifted from the Clap tree: missing={missing:?} extra={extra:?}",
+        );
+    }
+
+    #[test]
+    fn catalog_integrity_is_clean() {
+        let problems = forge::api::command_catalog::problems();
+        assert!(
+            problems.is_empty(),
+            "catalog integrity problems: {problems:?}"
+        );
+    }
+}

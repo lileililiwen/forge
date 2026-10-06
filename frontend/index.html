@@ -15,7 +15,7 @@
       <aside class="sidebar" aria-label="Forge navigation">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
         <p class="side-label">WORKSPACE</p>
-        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a></nav>
+        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a></nav>
         <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
       </aside>
       <main id="main-content" class="main-area">
@@ -57,6 +57,32 @@
             <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name, profile or source filter.</p></div>
             <div class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
               <table><thead><tr><th scope="col">Project</th><th scope="col">Source</th><th scope="col">Profile</th><th scope="col">Latest state</th><th scope="col">Evidence</th><th scope="col">Lifecycle</th><th scope="col">Access</th></tr></thead><tbody id="project-rows"></tbody></table>
+            </div>
+          </section>
+          <section id="commands" class="project-panel" aria-labelledby="commands-title">
+            <div class="panel-heading"><div><h2 id="commands-title">Command catalog</h2><p id="command-count" class="muted">Loading the CLI command catalog…</p></div>
+              <div class="panel-tools">
+                <label class="search-box"><span class="sr-only">Search commands</span><span aria-hidden="true">⌕</span><input id="command-search" type="search" placeholder="Search commands" autocomplete="off"></label>
+                <label class="filter-box"><span class="sr-only">Filter by category</span>
+                  <select id="category-filter"><option value="">All categories</option></select>
+                </label>
+                <label class="filter-box"><span class="sr-only">Filter by state</span>
+                  <select id="availability-filter">
+                    <option value="">All states</option>
+                    <option value="web">Web</option>
+                    <option value="not_yet_web">Not in web yet</option>
+                    <option value="cli_only">CLI only</option>
+                    <option value="provider_required">Provider required</option>
+                    <option value="project_capability_required">Project capability required</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="commands-error" class="notice notice-error" role="alert" hidden></div>
+            <div id="command-no-results" class="empty-state compact" hidden><h3>No matching commands</h3><p>Try a different command name, category or state filter.</p></div>
+            <div id="commands-table" class="table-scroll" tabindex="0" role="region" aria-label="Forge CLI command catalog" hidden>
+              <table><thead><tr><th scope="col">Command</th><th scope="col">Category</th><th scope="col">Risk</th><th scope="col">State</th><th scope="col">CLI invocation</th><th scope="col">Guidance</th></tr></thead><tbody id="command-rows"></tbody></table>
             </div>
           </section>
         </section>

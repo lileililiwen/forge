@@ -3,7 +3,7 @@ schema: spec-driven
 context: |
   Forge is a language-agnostic developer control plane and deterministic software assembly platform.
   requirement.md is the authoritative full product brief; ROADMAP.md orders bounded changes.
-  Repository status: implemented baseline with 71 archived changes, 63 canonical specs and no active packages; runtime, native-toolchain and external-provider evidence remain separately qualified.
+  Repository status: implemented baseline with 73 archived changes, 63 canonical specs and no active packages; runtime, native-toolchain and external-provider evidence remain separately qualified.
   Recommended baseline: Rust Core/CLI, SQLite, YAML, stdio MCP; confirm in the foundation ADR.
   v0.1 is manifest, project/profile registries, import/list/inspect/new/doctor, and five MVP profiles.
   Generated projects must work without Forge; reuse DriftWatch and the existing PTY agent manager.

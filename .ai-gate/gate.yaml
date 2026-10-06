@@ -8,6 +8,7 @@ checks:
   tests: true
   security: true
   declared-verification: true
+  governance-quality: true
 blocking:
   - FAIL
   - REVIEW_REQUIRED
@@ -26,3 +27,4 @@ commands:
   build: 'dotnet build Platform.sln'
   tests: 'dotnet test Platform.sln'
   security: 'dotnet list Platform.sln package --vulnerable --include-transitive --no-restore'
+  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project dotnet-platform-libs --json'

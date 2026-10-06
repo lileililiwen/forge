@@ -15,5 +15,49 @@
     "deployable": false,
     "jenkins_job": null,
     "compose_file": null
+  },
+  "discoverability": {
+    "description": "Small, opt-in .NET libraries for the shared technical concerns repeated across the local application portfolio: identity, billing, tenants, jobs, storage, caching, eventing, mailing, and AI.",
+    "keywords": [
+      "dotnet",
+      "csharp",
+      "shared library",
+      "platform",
+      "nuget",
+      "architecture testing",
+      "provider neutral",
+      "opt in"
+    ],
+    "topics": [
+      "dotnet",
+      "csharp",
+      "shared-library",
+      "platform",
+      "nuget",
+      "architecture-testing",
+      "provider-neutral",
+      "opt-in",
+      "cross-product",
+      "identity",
+      "billing",
+      "ai"
+    ],
+    "audience": [
+      ".NET application teams",
+      "platform engineers"
+    ],
+    "use_cases": [
+      "adopt small opt-in .NET packages for repeated cross-product concerns",
+      "share provider-neutral adapters for mail, jobs, storage, AI, identity, billing",
+      "enforce architecture direction with workspace-level tests"
+    ],
+    "search_phrases": [
+      "shared .NET libraries for repeated cross-product concerns",
+      "small opt-in .NET packages",
+      "provider-neutral adapters for mail jobs storage AI"
+    ],
+    "homepage": "https://github.com/lileililiwen/dotnet-platform-libs",
+    "license_spdx": "MIT",
+    "visibility": "private"
   }
 }

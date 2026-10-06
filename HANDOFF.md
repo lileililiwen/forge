@@ -1,20 +1,34 @@
 # Forge handoff
 
-current_spec: forge-web-portfolio-controls
+current_spec: forge-web-delivery-controls
 
 ## Current state
 
-`forge-web-project-workbench` is implemented, verified and archived as
-`openspec/changes/archive/2026-10-06-forge-web-project-workbench`, promoting
+`forge-web-portfolio-controls` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-portfolio-controls`, promoting
+three `forge-web-portfolio-controls` requirements into a new canonical spec. It
+adds cross-project portfolio metadata controls and truthful evidence views to the
+session-gated, exact-origin admin surface: Forge-owned tags, relations, reviews
+and goals are managed through typed in-process Core writes, while imported
+source-owned evidence stays read-only and append-only. The cross-project evidence
+bundle projects catalog, gap, fleet, inventory, governance, analytics, provider
+matrix and readiness with source, freshness and honest per-source status,
+performing no provider probe on load (each row `not_run`) and enforcing the
+interest cohort threshold. Every projection is scrubbed of absolute filesystem
+paths, and nothing runs `sh -c`, a generic shell or interpolated argv. Portfolio
+sharing (allowlist, preview and digest-bound approval) and its publication are
+owned by the delivery package. The next eligible change from `openspec list` and
+the roadmap is `forge-web-delivery-controls`.
+
+Before that, `forge-web-project-workbench` is implemented, verified and archived
+as `openspec/changes/archive/2026-10-06-forge-web-project-workbench`, promoting
 four `forge-web-project-workbench` requirements into a new canonical spec. The
 workbench deep-dives a single managed project from the dashboard: session-gated
 detail, side-effect-free plan and confirmed apply, where every triggered
 workflow goes through the crate's own typed in-process functions or a strict
 fixed allowlist of design-scoped command ids — never `sh -c`, a generic shell
 or interpolated user-controlled argv — and anything unsafe or not yet web
-available renders the catalog's honest disposition instead of a fake
-execution. The next eligible change from `openspec list` and the roadmap is
-`forge-web-portfolio-controls`.
+available renders the catalog's honest disposition instead of a fake execution.
 
 Before that, `forge-web-command-catalog` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-command-catalog`, promoting three
@@ -63,7 +77,95 @@ archive checkpoint, `openspec list` reported none active and the repository held
 71 archived changes and 63 canonical specs; the portal packages below were
 authored afterward.
 
-### forge-web-command-catalog delivered and archived (2026-10-06)
+### forge-web-portfolio-controls delivered and archived (2026-10-06)
+
+`forge-web-portfolio-controls` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-portfolio-controls`, promoting three
+`forge-web-portfolio-controls` requirements into a new canonical spec (3 added, 0
+modified). Cross-project portfolio metadata controls and truthful evidence views
+now sit behind the same session-gated, exact-origin admin boundary as the other
+`/v1/admin` routes:
+
+- `src/api/portfolio.rs` (new, private, JSON-only, no markup): five typed,
+  in-process Core projections — `GET /v1/admin/portfolio` (fleet of Forge-owned
+  records with `tag`/`lifecycle`/`confidence` filters),
+  `GET /v1/admin/portfolio/evidence` (a cross-project bundle projecting catalog,
+  gap report, fleet, portable inventory, governance selection, analytics support,
+  a **non-live** provider matrix and readiness — each labelled with source,
+  freshness and its real status; no probe runs on load, every provider/readiness
+  row is `not_run`), `GET /v1/admin/portfolio/{id}` (per-project detail),
+  `GET /v1/admin/portfolio/{id}/evidence` (read-only source-owned snapshots with
+  provenance and `effective_status`, `editable: false`) and
+  `POST /v1/admin/portfolio/{id}/{action}` where `action` is one of the fixed
+  vocabulary `tags`/`relations`/`reviews`/`goals` — each mapping to exactly one
+  Forge-owned Core write that records actor and timestamp. The `evidence` action
+  is the honest refusal path (`403 portfolio-source-owned`, `effect: none`) that
+  leaves the imported snapshot byte-unchanged. Reuses only the crate's own typed
+  functions (`Registry` portfolio ops, `catalog::collect`, `doctor::gaps`,
+  `fleet::load`, governance constants, `analytics::*`, `provider::matrix(false)`,
+  `readiness`, `portfolio::interest`); nothing spawns a shell, reads a path from
+  the request, or interpolates argv.
+- Path and privacy boundaries: every projected string is recursively scrubbed of
+  absolute filesystem-path tokens before it leaves the module, Core `Display`
+  text is never echoed, invalid ids (including shell metacharacters, `..`/`%2e`
+  traversal, uppercase) are typed `400`/`404` refusals that never echo the input,
+  the interest aggregate is withheld (with a named reason) below the configured
+  cohort threshold, and stale/unavailable/invalid evidence renders its honest
+  state while retaining the other sources.
+- `src/api/mod.rs` + `src/api/admin.rs`: the five `Route::AdminPortfolio*`
+  variants are wired into the existing global-session cookie gate, exact-origin
+  CORS, `415` on non-JSON bodies, and the exhaustive `authorize()`/dispatch
+  match — the `evidence` collection segment is matched before the generic `{id}`
+  to avoid collision. `mod portfolio;` is a private module.
+- `frontend/index.html` + `frontend/app.js`: a standalone Portfolio section
+  (project roster, a read-only cross-project evidence view, and accessible tag +
+  review controls) rendered via `textContent` only; the only browser writes are
+  the typed metadata POSTs. No markup/eval/shell sink and no new file; the
+  `forge web serve` allowlist is unchanged.
+- Scope reconciliation: the change's spec, proposal and design listed
+  share/allowlist/preview/approval among this surface, but the design also assigns
+  the sharing→approve-digest→**publish** flow to the delivery package and the spec
+  scenarios cover only review recording and refusing source-owned edits. This
+  package therefore delivers the mandatory, scenario-backed metadata + evidence
+  controls; the sharing/preview/approval record and its publication are owned by
+  the delivery package. Requirement #1 of the promoted spec was aligned to that
+  delivered scope so the canonical spec does not over-claim; tasks 2.4 and 4.2
+  are left unticked to reflect the deferral (archive reported 10/12).
+
+Evidence at archive (commands run, real output):
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; only the three pre-existing warnings — `ShareSurface` in `src/portfolio/share/validation.rs`, `journal` field / `Published` variant in `src/main.rs` — none added; portfolio code warning-free) |
+| `cargo fmt --check` | clean |
+| `cargo test --test forge_web_portfolio_controls_contract` | **11 passed / 0 failed** (anon `401` with no data leak on list/evidence/detail/read/tags-write; hostile origin `403` incl. every deep-path `OPTIONS` `403` from an untrusted origin and `204` from the configured origin; shell-metacharacter/cross-path ids `400`/`404` with the input never echoed and no absolute path serialized; unmanaged/observed-only id honest `404 portfolio-unmanaged-project` `effect: none`; empty registry honest-empty with every provider row `not-run`, readiness `not_run`, interest `no_projects`; Forge-owned tag/review/goal mutations recorded and read back in both list and detail with `effect: forge-owned-write` + `actor: global-admin`; source-owned evidence edit `403 portfolio-source-owned` leaving the snapshot byte-unchanged and an unknown read kind `404`; a seeded stale/unavailable/invalid/fresh evidence set renders each honest `effective_status` (with observation time) while retaining all four sources; interest aggregate withheld with a named reason below threshold; per-source states reported independently; frontend standalone + JSON-only, no `eval(`/`new Function`/`child_process`/`innerHTML`/`sh -c` in the portfolio region) |
+| `cargo test --test forge_admin_api_contract` / `forge_web_fleet_contract` / `forge_web_command_catalog_contract` / `forge_web-project-workbench_contract` | **4 / 11 / 8 / 11 passed, 0 failed** (compatibility intact) |
+| `cargo test --test forge_portal_frontend_contract` / `portal_ui_contract` | **5 / 39 passed, 0 failed** |
+| `cargo test --test api_contract` / `identity_contract` | **11 / 19 passed, 0 failed** (no loopback-bind flake this run) |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate --all --strict --no-interactive` | **69 passed / 0 failed** (before and after archive) |
+| `git diff --check` | PASS (after removing the single trailing blank line `openspec` wrote into the promoted spec) |
+| `openspec archive forge-web-portfolio-controls --yes` | **10/12 tasks**, warning for the 2 intentionally-deferred tasks honored via `--yes`; `forge-web-portfolio-controls: create`, **3 requirements added / 0 modified** into `openspec/specs/forge-web-portfolio-controls/spec.md`; **no `--skip-specs`**; archived as `2026-10-06-forge-web-portfolio-controls` |
+
+Honest scope of verification: the portfolio DOM roster, evidence rendering and the
+tag/review controls are pinned by the standalone frontend source contract and the
+typed admin-route contract tests at the HTTP/JSON level, but were **not** rendered
+in an interactive headless browser here — the browser-coverage task (4.2) is left
+unticked. No live provider/readiness probe is performed or wired in this package
+(every row is `not_run` on load); the explicit live opt-in and the
+share/preview/approval/publish record belong to the delivery controls package
+(task 2.4 left unticked). This change did **not** run `cargo clippy` (it was not
+in the mandated verification set) nor a full-workspace `cargo test`; verification
+was the focused new contract suite plus the directly relevant existing suites above,
+per the delivery's effort budget. The security file-scan hook repeatedly flagged
+`eval(`, `sh -c` and `innerHTML` in the contract test — these appear only as
+literal forbidden-substring assertions that prove the frontend is XSS/shell-free and
+are never executed; recorded here as a deliberate false positive. Pre-existing
+conditions from prior entries (untouched clippy lints, the
+`artifact_baseline_contract` changelog check, the `Text file busy` test-harness
+race) were neither re-run nor altered by this change.
+
+
 
 `forge-web-command-catalog` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-command-catalog`, promoting three

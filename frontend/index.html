@@ -34,12 +34,29 @@
             <article class="summary-card"><span class="summary-icon icon-violet" aria-hidden="true">◈</span><div><p>Profiles in use</p><strong id="summary-profiles">—</strong></div></article>
             <article class="summary-card"><span class="summary-icon icon-green" aria-hidden="true">⌁</span><div><p>Projects with evidence</p><strong id="summary-evidence">—</strong></div></article>
           </section>
+          <section id="source-panel" class="source-panel" aria-labelledby="sources-title">
+            <div class="panel-heading"><div><h2 id="sources-title">Data sources</h2><p class="muted">Each source is read explicitly; a source that cannot be read never hides the others.</p></div></div>
+            <ul id="source-list" class="source-list" role="status" aria-live="polite" aria-label="Fleet source status"></ul>
+          </section>
           <section class="project-panel" aria-labelledby="projects-title">
-            <div class="panel-heading"><div><h2 id="projects-title">All projects</h2><p id="project-count" class="muted">Loading your projects…</p></div><span id="updated-label" class="updated-label"></span></div>
-            <div id="empty-state" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">▦</span><h3>No projects yet</h3><p>Your registered projects will appear here once they are added to Forge.</p><p class="next-action">Start with <code>forge import ./your-project --accept</code></p></div>
-            <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name or profile.</p></div>
-            <div class="table-scroll" tabindex="0" role="region" aria-label="Registered projects" hidden>
-              <table><thead><tr><th scope="col">Project</th><th scope="col">Profile</th><th scope="col">Latest state</th><th scope="col">Evidence</th><th scope="col">Lifecycle</th></tr></thead><tbody id="project-rows"></tbody></table>
+            <div class="panel-heading"><div><h2 id="projects-title">All projects</h2><p id="project-count" class="muted">Loading your projects…</p></div>
+              <div class="panel-tools">
+                <label class="filter-box"><span class="sr-only">Filter by source</span>
+                  <select id="source-filter">
+                    <option value="">All sources</option>
+                    <option value="self">Forge (self)</option>
+                    <option value="registry">Registered</option>
+                    <option value="inventory">Inventory</option>
+                    <option value="fleet">Workspace</option>
+                  </select>
+                </label>
+                <span id="updated-label" class="updated-label"></span>
+              </div>
+            </div>
+            <div id="empty-state" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">▦</span><h3>No registered projects</h3><p>Forge is always listed here; your registered and observed projects appear once they are added or read from an explicit source.</p><p class="next-action">Start with <code>forge import ./your-project --accept</code></p></div>
+            <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name, profile or source filter.</p></div>
+            <div class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
+              <table><thead><tr><th scope="col">Project</th><th scope="col">Source</th><th scope="col">Profile</th><th scope="col">Latest state</th><th scope="col">Evidence</th><th scope="col">Lifecycle</th><th scope="col">Access</th></tr></thead><tbody id="project-rows"></tbody></table>
             </div>
           </section>
         </section>

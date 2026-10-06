@@ -102,6 +102,7 @@ use crate::studio::PreviewSession;
 use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
 
 mod admin;
+mod fleet;
 /// Sub-module that serves the in-process portal UI on the
 /// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
 /// `POST /ui/projects/{id}/publish`). Rendered with

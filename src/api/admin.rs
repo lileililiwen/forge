@@ -210,33 +210,10 @@ fn projects(db_path: &Path, request: &ApiRequest) -> ApiResponse {
         }
         Err(_) => return unavailable(),
     }
-    let fleet = match super::ui::data::load_fleet_list(db_path) {
-        Ok(value) => value,
-        Err(_) => return unavailable(),
-    };
-    let projects: Vec<_> = fleet.rows.iter().map(|row| json!({
-        "id": row.id,
-        "profile": row.profile,
-        "state": row.last_state,
-        "updated_at": row.last_at,
-        "lifecycle": row.lifecycle.map(|value| format!("{value:?}").to_ascii_lowercase()),
-        "confidence": row.confidence.map(|value| format!("{value:?}").to_ascii_lowercase()),
-        "tags": row.tags,
-        "evidence": row.evidence.iter().map(|(source, status)| json!({"source": source, "status": status.label()})).collect::<Vec<_>>(),
-    })).collect();
-    let with_evidence = fleet
-        .rows
-        .iter()
-        .filter(|row| !row.evidence.is_empty())
-        .count();
-    ApiResponse::json(
-        200,
-        json!({
-            "projects": projects,
-            "summary": { "registered": projects.len(), "with_evidence": with_evidence },
-            "contract": API_CONTRACT_VERSION,
-        }),
-    )
+    match super::fleet::load(db_path) {
+        Ok(envelope) => ApiResponse::json(200, envelope),
+        Err(_) => unavailable(),
+    }
 }
 
 fn allowed_origin(config: &ApiConfig, origin: Option<&str>) -> bool {

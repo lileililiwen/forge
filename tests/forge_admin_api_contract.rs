@@ -65,7 +65,23 @@ fn admin_login_fleet_and_logout_use_a_forge_wide_cookie() {
     let response = handle(&config, &db, &projects, Utc::now());
     assert_eq!(response.status, 200);
     let json: serde_json::Value = serde_json::from_slice(&response.body).unwrap();
-    assert_eq!(json["projects"].as_array().unwrap().len(), 0);
+    // An empty registry still reports the guaranteed Forge-self record exactly
+    // once, with zero registered projects and no operation capability.
+    let rows = json["projects"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "empty registry still yields the self row");
+    let self_row = &rows[0];
+    assert_eq!(self_row["is_self"], serde_json::Value::Bool(true));
+    assert_eq!(self_row["source"], serde_json::Value::String("self".into()));
+    assert_eq!(
+        self_row["management"],
+        serde_json::Value::String("self".into())
+    );
+    assert!(self_row["capabilities"].as_array().unwrap().is_empty());
+    assert_eq!(json["summary"]["registered"], serde_json::Value::from(0u64));
+    assert_eq!(
+        json["summary"]["self_present"],
+        serde_json::Value::Bool(true)
+    );
 
     let mut logout = request("DELETE", "/v1/admin/session", &config.frontend_origin);
     logout

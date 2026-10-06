@@ -15,7 +15,7 @@
       <aside class="sidebar" aria-label="Forge navigation">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
         <p class="side-label">WORKSPACE</p>
-        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a></nav>
+        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a></nav>
         <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
       </aside>
       <main id="main-content" class="main-area">
@@ -83,6 +83,57 @@
             <div id="command-no-results" class="empty-state compact" hidden><h3>No matching commands</h3><p>Try a different command name, category or state filter.</p></div>
             <div id="commands-table" class="table-scroll" tabindex="0" role="region" aria-label="Forge CLI command catalog" hidden>
               <table><thead><tr><th scope="col">Command</th><th scope="col">Category</th><th scope="col">Risk</th><th scope="col">State</th><th scope="col">CLI invocation</th><th scope="col">Guidance</th></tr></thead><tbody id="command-rows"></tbody></table>
+            </div>
+          </section>
+          <section id="workbench" class="project-panel" aria-labelledby="workbench-title">
+            <div class="panel-heading">
+              <div><h2 id="workbench-title">Project workbench</h2><p class="muted">Inspect one managed project and run its typed upgrade workflow. Every action runs through the crate's own validated in-process operations — never a shell.</p></div>
+              <div class="panel-tools">
+                <label class="filter-box"><span class="sr-only">Select a managed project</span>
+                  <select id="workbench-project"><option value="">Choose a managed project…</option></select>
+                </label>
+                <button id="workbench-load" class="button button-quiet" type="button">Open project</button>
+              </div>
+            </div>
+            <div id="workbench-notice" class="notice notice-error" role="alert" hidden></div>
+            <p id="workbench-empty" class="empty-state compact">Select a managed project to load its manifest, health, evidence and available workflows.</p>
+            <div id="workbench-body" hidden>
+              <div class="workbench-grid">
+                <section class="wb-card" aria-labelledby="wb-manifest-title">
+                  <h3 id="wb-manifest-title">Manifest &amp; profile</h3>
+                  <dl id="wb-manifest" class="detail-list"></dl>
+                  <p class="wb-subtitle">Installed features</p>
+                  <div id="wb-features" class="evidence-list"></div>
+                </section>
+                <section class="wb-card" aria-labelledby="wb-health-title">
+                  <h3 id="wb-health-title">Health (doctor)</h3>
+                  <div id="wb-health" class="wb-health"></div>
+                </section>
+                <section class="wb-card" aria-labelledby="wb-workflows-title">
+                  <h3 id="wb-workflows-title">Workflows</h3>
+                  <p class="muted">Honest availability from the command catalog: only wired actions are actionable; others show why they stay in the terminal.</p>
+                  <ul id="wb-workflows" class="workflow-list" role="status" aria-live="polite"></ul>
+                </section>
+                <section class="wb-card" aria-labelledby="wb-evidence-title">
+                  <h3 id="wb-evidence-title">Journal evidence</h3>
+                  <div class="table-scroll compact" tabindex="0" role="region" aria-label="Project journal evidence">
+                    <table><thead><tr><th scope="col">Operation</th><th scope="col">Kind</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Detail</th></tr></thead><tbody id="wb-operations"></tbody></table>
+                  </div>
+                </section>
+              </div>
+              <section class="wb-card wb-plan" aria-labelledby="wb-upgrade-title">
+                <div class="panel-heading"><div><h3 id="wb-upgrade-title">Upgrade workflow</h3><p class="muted">Plan first — it changes nothing. Confirm applies the exact plan you reviewed; a stale or changed plan is refused and nothing is written.</p></div></div>
+                <div class="wb-plan-tools">
+                  <label class="filter-box"><span class="sr-only">Target one feature (optional)</span>
+                    <select id="wb-feature"><option value="">All outdated features</option></select>
+                  </label>
+                  <button id="wb-plan" class="button button-quiet" type="button">Plan upgrade (read-only)</button>
+                  <button id="wb-apply" class="button" type="button" disabled>Apply confirmed plan</button>
+                </div>
+                <label id="wb-confirm-wrap" class="wb-confirm" hidden><input id="wb-confirm" type="checkbox"> I confirm this will write to the project files.</label>
+                <div id="wb-plan-result" class="wb-plan-result" hidden></div>
+                <div id="wb-apply-result" class="wb-plan-result" hidden></div>
+              </section>
             </div>
           </section>
         </section>

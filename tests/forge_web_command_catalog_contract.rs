@@ -227,7 +227,19 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
         let availability = row["availability"].as_str().unwrap();
         match availability {
             "web" => {
-                assert_eq!(row["route"], "GET /v1/admin/projects", "{id}");
+                // A web row must resolve to one of the typed routes the API
+                // actually implements: the fleet read, or the workbench
+                // detail / plan endpoints. No web row may name a shell.
+                let route = row["route"].as_str().unwrap_or("");
+                assert!(
+                    [
+                        "GET /v1/admin/projects",
+                        "GET /v1/admin/projects/{id}",
+                        "GET /v1/admin/projects/{id}/plan",
+                    ]
+                    .contains(&route),
+                    "web row {id} points at unexpected route `{route}`"
+                );
             }
             "cli_only"
             | "provider_required"
@@ -283,7 +295,10 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
         assert!(ids.contains(path), "nested `{path}` missing");
     }
 
-    // Web availability is evidence-based: only routes that really exist.
+    // Web availability is evidence-based: only routes that really exist. The
+    // workbench (`forge-web-project-workbench`) turns inspect, doctor and
+    // upgrade into typed single-project workflows, so they now join the
+    // fleet read rows as `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
         .filter(|row| row["availability"] == "web")
@@ -291,7 +306,15 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
         .collect();
     assert_eq!(
         web_ids,
-        BTreeSet::from(["list", "fleet.list", "fleet.status", "inventory.show"])
+        BTreeSet::from([
+            "list",
+            "inspect",
+            "doctor",
+            "upgrade",
+            "fleet.list",
+            "fleet.status",
+            "inventory.show",
+        ])
     );
 }
 

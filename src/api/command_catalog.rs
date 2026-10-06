@@ -28,9 +28,24 @@ pub const CONTRACT_VERSION: &str = "forge-command-catalog/0.1.0";
 /// source health and inventory classification from this one endpoint.
 pub const WEB_ROUTE_PROJECTS: &str = "GET /v1/admin/projects";
 
+/// Workbench typed routes (`forge-project-workbench/0.1.0`). These reference
+/// the workbench module's own route constants so the catalog and the live
+/// endpoints can never name different paths: `inspect`/`doctor` resolve to the
+/// project detail projection (health is embedded there) and `upgrade` resolves
+/// to the side-effect-free plan endpoint whose confirm-gated continuation is
+/// the apply route.
+const WEB_ROUTE_PROJECT_DETAIL: &str = super::workbench::ROUTE_PROJECT_DETAIL;
+const WEB_ROUTE_PROJECT_PLAN: &str = super::workbench::ROUTE_PROJECT_PLAN;
+const WEB_ROUTE_PROJECT_APPLY: &str = super::workbench::ROUTE_PROJECT_APPLY;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
-const IMPLEMENTED_WEB_ROUTES: &[&str] = &[WEB_ROUTE_PROJECTS];
+const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
+    WEB_ROUTE_PROJECTS,
+    WEB_ROUTE_PROJECT_DETAIL,
+    WEB_ROUTE_PROJECT_PLAN,
+    WEB_ROUTE_PROJECT_APPLY,
+];
 
 /// Plain-language reasons shared by rows in the same family. Each one names
 /// why browser execution is not available and the operator's next step.
@@ -285,6 +300,36 @@ impl CatalogBuilder {
         );
     }
 
+    /// A `web` row that resolves to an explicit typed route with its own
+    /// risk. Used by the workbench commands, whose endpoints carry a project
+    /// id and (for `upgrade`) a genuine local-write risk that the read-only
+    /// [`web`](Self::web) helper must not understate.
+    #[allow(clippy::too_many_arguments)]
+    fn web_at(
+        &mut self,
+        parent: Option<&str>,
+        name: &str,
+        summary: &'static str,
+        category: Category,
+        scope: Scope,
+        risk: Risk,
+        route: &'static str,
+        capabilities: &'static [&'static str],
+    ) {
+        self.push(
+            parent,
+            name,
+            summary,
+            category,
+            scope,
+            risk,
+            Availability::Web,
+            Some(route),
+            None,
+            capabilities,
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn cli_only(
         &mut self,
@@ -378,6 +423,10 @@ impl CatalogBuilder {
         let caps_provider_gh: &[&str] = &["external_provider", "github_cli"];
         let caps_loopback: &[&str] = &["loopback_bind"];
         let caps_web: &[&str] = &["admin_session", "projects_read"];
+        // The workbench upgrade is a genuine local write gated by a
+        // confirm + plan-digest round trip, so it declares its own capability
+        // rather than reusing the read-only project label.
+        let caps_workbench_write: &[&str] = &["admin_session", "project_upgrade"];
         let none: &[&str] = &[];
 
         // ---------------------------------------------------------------- registry
@@ -389,15 +438,15 @@ impl CatalogBuilder {
             Workspace,
             caps_web,
         );
-        self.leaf(
+        self.web_at(
             None,
             "inspect",
             "Inspect one registered project by id or path.",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
-            caps_registry,
+            WEB_ROUTE_PROJECT_DETAIL,
+            caps_web,
         );
         self.cli_only(
             None,
@@ -589,15 +638,15 @@ impl CatalogBuilder {
             caps_local,
         );
 
-        self.leaf(
+        self.web_at(
             None,
             "upgrade",
             "Plan and apply deterministic project/fleet upgrades with conflict handoff.",
             Creation,
             Workspace,
             LocalWrite,
-            NotYetWeb,
-            caps_local,
+            WEB_ROUTE_PROJECT_PLAN,
+            caps_workbench_write,
         );
 
         // component
@@ -804,15 +853,15 @@ impl CatalogBuilder {
         self.leaf(Some("standard"), "upgrade", "Upgrade a project's snapshot to a pack version; refuses modified files without `--confirm`.", Creation, Project, LocalWrite, NotYetWeb, caps_local);
 
         // ---------------------------------------------------------------- quality
-        self.cli_only(
+        self.web_at(
             None,
             "doctor",
             "Inspect project health and evidence-based maturity without changing files.",
             Quality,
             Project,
             Read,
-            REASON_LOCAL_FS,
-            caps_local,
+            WEB_ROUTE_PROJECT_DETAIL,
+            caps_web,
         );
         self.cli_only(
             None,
@@ -2237,18 +2286,31 @@ mod tests {
     }
 
     #[test]
-    fn web_rows_only_point_at_the_projects_route() {
+    fn web_rows_only_point_at_implemented_routes() {
         for row in rows().iter().filter(|row| row.availability == "web") {
-            assert_eq!(row.route, Some(WEB_ROUTE_PROJECTS), "row {}", row.id);
+            let route = row.route.expect("web row must name a route");
+            assert!(
+                IMPLEMENTED_WEB_ROUTES.contains(&route),
+                "row {} points at unimplemented route {route}",
+                row.id
+            );
         }
-        let web_ids: Vec<&str> = rows()
+        let web: Vec<(&str, &str)> = rows()
             .iter()
             .filter(|row| row.availability == "web")
-            .map(|row| row.id.as_str())
+            .map(|row| (row.id.as_str(), row.route.expect("web row route")))
             .collect();
         assert_eq!(
-            web_ids,
-            vec!["list", "fleet.list", "fleet.status", "inventory.show"]
+            web,
+            vec![
+                ("list", WEB_ROUTE_PROJECTS),
+                ("inspect", WEB_ROUTE_PROJECT_DETAIL),
+                ("upgrade", WEB_ROUTE_PROJECT_PLAN),
+                ("doctor", WEB_ROUTE_PROJECT_DETAIL),
+                ("fleet.list", WEB_ROUTE_PROJECTS),
+                ("fleet.status", WEB_ROUTE_PROJECTS),
+                ("inventory.show", WEB_ROUTE_PROJECTS),
+            ]
         );
     }
 

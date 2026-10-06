@@ -114,6 +114,11 @@ mod fleet;
 /// `POST /ui/projects/{id}/publish`). Rendered with
 /// [`maud`](https://docs.rs/maud).
 pub mod ui;
+/// Typed, session-gated single-project workbench (`forge-project-workbench/
+/// 0.1.0`) backing `GET /v1/admin/projects/{id}`, its `/plan` and `/apply`
+/// subroutes. Reuses typed in-process Core functions only — never a shell —
+/// and never serializes an absolute filesystem path.
+mod workbench;
 
 /// Contract data version for the API surface. The version
 /// is the source of truth for `/healthz` and the response
@@ -439,6 +444,22 @@ pub enum Route {
     AdminSessionDelete,
     AdminProjects,
     AdminCommands,
+    /// `GET /v1/admin/projects/{id}` — typed single-project workbench
+    /// detail (`forge-project-workbench/0.1.0`): manifest + doctor health
+    /// + journal evidence + honest workflow dispositions. Session-gated.
+    AdminProjectDetail {
+        id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/plan` — side-effect-free upgrade plan
+    /// plus the digest a later confirmation must echo.
+    AdminProjectPlan {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/apply` — confirm- and digest-bound
+    /// upgrade apply, journaled through the shared operation boundary.
+    AdminProjectApply {
+        id: String,
+    },
     AdminOptions,
     /// `GET /ui` — in-process portal UI fleet list.
     UiFleet,
@@ -606,6 +627,25 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("DELETE", ["v1", "admin", "session"]) => Some(Route::AdminSessionDelete),
         ("GET", ["v1", "admin", "projects"]) => Some(Route::AdminProjects),
         ("GET", ["v1", "admin", "commands"]) => Some(Route::AdminCommands),
+        // Workbench routes are addressed by a validated project id resolved
+        // server-side; the browser never sends a filesystem path. These arms
+        // precede the generic admin OPTIONS handling so a `{id}` segment is
+        // captured rather than swallowed by the `_` wildcard below.
+        ("GET", ["v1", "admin", "projects", id]) => Some(Route::AdminProjectDetail {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "admin", "projects", id, "plan"]) => Some(Route::AdminProjectPlan {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "admin", "projects", id, "apply"]) => Some(Route::AdminProjectApply {
+            id: (*id).to_string(),
+        }),
+        // CORS preflight for the deeper admin paths: the generic
+        // `["v1","admin",_]` arm below only matches the three-segment admin
+        // paths, so the workbench's four- and five-segment paths need their
+        // own OPTIONS arms.
+        ("OPTIONS", ["v1", "admin", "projects", _]) => Some(Route::AdminOptions),
+        ("OPTIONS", ["v1", "admin", "projects", _, _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
@@ -795,6 +835,9 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminProjectDetail { .. }
+        | Route::AdminProjectPlan { .. }
+        | Route::AdminProjectApply { .. }
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -922,6 +965,9 @@ pub fn handle(
             | Route::AdminSessionDelete
             | Route::AdminProjects
             | Route::AdminCommands
+            | Route::AdminProjectDetail { .. }
+            | Route::AdminProjectPlan { .. }
+            | Route::AdminProjectApply { .. }
     ) {
         return admin::handle(config, db_path, request, &route);
     }
@@ -1046,6 +1092,15 @@ pub fn handle(
             handle_studio_preview_post(config, db_path, request, &id, now)
         }
         Route::StudioRefine { id } => handle_studio_refine(db_path, request, &id, now),
+        // The workbench admin routes are dispatched by the `admin::handle`
+        // short-circuit above (after the global-session gate and exact-origin
+        // CORS check), so these arms are unreachable in practice. They exist
+        // for exhaustiveness and answer `404` rather than a bearer-scoped
+        // handler, since a request that reached here did not go through the
+        // admin session gate and must not be served workbench data.
+        Route::AdminProjectDetail { .. }
+        | Route::AdminProjectPlan { .. }
+        | Route::AdminProjectApply { .. } => not_found(),
     }
 }
 
@@ -1116,6 +1171,9 @@ fn authorize(
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminProjectDetail { .. }
+        | Route::AdminProjectPlan { .. }
+        | Route::AdminProjectApply { .. }
         | Route::AdminOptions
         | Route::UiSignIn
         | Route::UiAuthCallback

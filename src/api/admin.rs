@@ -40,9 +40,78 @@ pub(super) fn handle(
         Route::AdminSessionDelete => sign_out(config, db_path, request),
         Route::AdminProjects => projects(db_path, request),
         Route::AdminCommands => commands(db_path, request),
+        Route::AdminProjectDetail { id } => {
+            guarded(db_path, request, |_| super::workbench::detail(db_path, id))
+        }
+        Route::AdminProjectPlan { id } => guarded(db_path, request, |req| {
+            let feature = req.query.as_deref().and_then(parse_feature_query);
+            super::workbench::plan(db_path, id, feature.as_deref())
+        }),
+        Route::AdminProjectApply { id } => {
+            if !is_json(request) {
+                return cors(
+                    config,
+                    request,
+                    error(
+                        415,
+                        "admin-content-type-required",
+                        "apply requires application/json",
+                    ),
+                );
+            }
+            guarded(db_path, request, |req| {
+                let body = req.json_body();
+                super::workbench::apply(db_path, id, &body, req)
+            })
+        }
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)
+}
+
+/// Run `f` only after the same global-admin session gate every other admin
+/// read/write uses. A missing or expired session is a `401`, never a partial
+/// workbench projection; a registry failure is an honest `503`. The workbench
+/// `f` closures perform only typed in-process Core calls — no shell.
+fn guarded<F>(db_path: &Path, request: &ApiRequest, f: F) -> ApiResponse
+where
+    F: FnOnce(&ApiRequest) -> ApiResponse,
+{
+    let token = request
+        .cookies
+        .get(COOKIE)
+        .map(String::as_str)
+        .unwrap_or("");
+    match global::session_valid(db_path, token) {
+        Ok(true) => f(request),
+        Ok(false) => error(
+            401,
+            "api-unauthorized",
+            "Forge administrator session is required",
+        ),
+        Err(_) => unavailable(),
+    }
+}
+
+/// True when the request declares a JSON content type, so a mutating apply
+/// never parses a body of an unexpected media type.
+fn is_json(request: &ApiRequest) -> bool {
+    request
+        .header("content-type")
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("application/json"))
+}
+
+/// Extract the optional `feature` query parameter (the one catalog feature id
+/// to upgrade). It is percent-decoded like every other browser query value and
+/// used only as a catalog feature key by Core — never as a path or argument.
+fn parse_feature_query(query: &str) -> Option<String> {
+    for pair in query.split('&').filter(|part| !part.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if key == "feature" && !value.is_empty() {
+            return Some(super::percent_decode(value));
+        }
+    }
+    None
 }
 
 pub(super) fn handle_preflight(config: &ApiConfig, request: &ApiRequest) -> ApiResponse {
@@ -271,7 +340,7 @@ fn cors_headers(
         ),
         (
             "access-control-allow-headers".to_string(),
-            "Content-Type".to_string(),
+            "Content-Type, Idempotency-Key".to_string(),
         ),
         ("vary".to_string(), "Origin".to_string()),
     ])

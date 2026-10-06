@@ -1,3 +1,5 @@
+current_spec: portal-accessible-responsive-ui
+
 # Forge handoff
 
 ## Current state
@@ -6,12 +8,53 @@
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
 
-**No active changes remain.** The seven in-flight packages were consolidated into
-`runtime-hardening-and-contract-closure` and archived on 2026-10-05 as
+**`portal-accessible-responsive-ui` is the current dependency-ready package.**
+It is the second and last active portal change; the sign-in package it was
+authored alongside is now closed. The seven earlier in-flight packages were
+consolidated into `runtime-hardening-and-contract-closure` and archived on
+2026-10-05 as
 `openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
-promoting 11 requirements and modifying 1 across five canonical specs.
-`openspec list` reports none active; the repository now holds 71 archived changes
-and 63 canonical specs.
+promoting 11 requirements and modifying 1 across five canonical specs. At that
+archive checkpoint, `openspec list` reported none active and the repository held
+71 archived changes and 63 canonical specs; the two portal packages above were
+authored afterward.
+
+### portal-browser-sign-in delivered and archived (2026-10-06)
+
+`portal-browser-sign-in` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-portal-browser-sign-in`, promoting one
+`central-admin-identity` requirement and four `portal-web-ui` requirements into
+the canonical specs. The browser round trip runs through the `openidconnect`
+crate's discovery, PKCE exchange and ID-token verification behind a
+`BrowserAuthVerifier` trait (`LibraryBrowserAuthVerifier` in production, a
+fake verifier in tests). The pin moved from the drafted `3.5.0` to `4.0.1`
+because the 3.x `reqwest` 0.11 / `rustls` 0.21 stack carries open
+`rustls-webpki`/`h2` advisories; the unavoidable `rsa` timing advisory is a
+reasoned exception in `deny.toml` and `.cargo/audit.toml`.
+
+Evidence at archive: `cargo test --test portal_ui_contract` (31 passed),
+`cargo test --test identity_contract` (19 passed), `cargo build`,
+`cargo fmt --check`, `cargo deny check` (all four policies ok), `cargo audit`,
+`openspec validate --all --strict --no-interactive`,
+`node scripts/check-openspec-change-names.mjs` and `git diff --check`.
+
+Pre-existing conditions, not regressions (all present on `HEAD` before this
+change, in files it does not touch):
+
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` fails
+  under the host's newer clippy on `src/gate/evidence.rs`,
+  `src/publish/fleet.rs`, `src/publish/mod.rs`, `src/api/ui/auth.rs` and
+  `src/portfolio/share/validation.rs`. Every file this change touches is clean.
+- `tests/artifact_baseline_contract.rs::reported_manifest_changelog_versions_agree`
+  fails because `c2ef70b` opened `CHANGELOG.md` with `## [Unreleased]` while the
+  test asserts the newest heading equals the `Cargo.toml` version (`0.1.0`). The
+  test reads only `CHANGELOG.md` (unmodified) and the `Cargo.toml` version, so the
+  outcome is independent of this change. Not repaired here: the fix belongs with
+  the changelog convention, not this package.
+- Live-provider OIDC acceptance is unavailable in this environment.
+  Deterministic coverage sits at the `BrowserAuthVerifier` seam plus the real
+  verifier's pre-network refusals (provider error, empty code, expired
+  challenge).
 
 ### Fresh clones did not build
 

@@ -2,6 +2,42 @@
 
 ## Current state
 
+### forge-web-command-execution delivered and archived (2026-10-07)
+
+`forge-web-command-execution` is implemented, browser-verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-command-execution`, promoting one
+modified `forge-web-command-catalog` requirement and three new
+`forge-web-command-execution` requirements. It closes the requirement.md §36
+gap the user reported ("the web UI is not reflect the command, and cannot do the
+forge cli command things") for the project authoring commands that already have
+typed in-process Core handlers: `POST /v1/admin/projects/{id}/feature`
+(`forge feature add` → `handle_add_feature`) and
+`/v1/admin/projects/{id}/spec` (`forge spec generate` →
+`handle_generate_spec`) are now session-gated, structured-field-only, two-step
+preview-then-confirm routes. A no-`confirm` request returns a path-free
+descriptor and a SHA-256 `plan_digest` and writes nothing; a confirmed request
+runs the Core handler only when the supplied digest still matches the reviewed
+fields, else a fresh digest is returned and nothing is written. There is no
+generic shell/argv/path endpoint. The `feature.add` and `spec.generate` catalog
+rows moved `not_yet_web` → `web` with routes exported from `admin.rs`
+(`ROUTE_ADMIN_FEATURE`/`ROUTE_ADMIN_SPEC`) so router and catalog cannot diverge,
+and a new `frontend/` Authoring-actions panel drives preview → confirm → typed
+result. `doctor`/`inspect`/`upgrade` stay on the existing workbench routes, and
+transport/build/PTY/interactive `agent` commands keep their honest CLI-only
+disposition — publish/deploy remain in the delivery controls.
+
+Evidence: `cargo build` clean; `cargo test` 1212 passed, 0 failed; new
+`tests/forge_web_command_execution_contract.rs` (5) plus catalog (8) and adjacent
+workbench/delivery/portfolio (11) green; `openspec validate --all --strict
+--no-interactive` 70 items pass; name preflight and `cargo fmt --check` pass. A
+headless-Chromium run against a throwaway temp registry (never the user's real
+projects) signed in, previewed `feature add`, confirmed with the exact digest,
+showed "Accepted as journaled operation … Core handler", wrote `auth: 0.1.0` to
+the temp manifest, produced no console errors, and read the authenticated
+`/v1/admin/commands` catalog showing `feature.add` and `spec.generate` as `web`.
+Two commits: backend routes + catalog (`377c335`), then frontend panel + archive
++ this handoff. Nothing pushed.
+
 ### forge-identity-password-management delivered and archived (2026-10-07)
 
 `forge-identity-password-management` is implemented, verified and archived as

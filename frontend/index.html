@@ -134,6 +134,24 @@
                 <div id="wb-plan-result" class="wb-plan-result" hidden></div>
                 <div id="wb-apply-result" class="wb-plan-result" hidden></div>
               </section>
+              <section class="wb-card wb-plan" aria-labelledby="wb-authoring-title">
+                <div class="panel-heading"><div><h3 id="wb-authoring-title">Authoring actions</h3><p class="muted">Run the typed <code>feature add</code> and <code>spec generate</code> Core commands. Preview returns a digest and changes nothing; confirming runs the same in-process operation the CLI does. Only structured fields are accepted — never a shell command or a path you type.</p></div></div>
+                <div class="wb-plan-tools">
+                  <label class="search-box"><span class="sr-only">Feature id to add</span><input id="aw-feature" type="text" placeholder="feature id (e.g. auth)" autocomplete="off"></label>
+                  <label class="search-box"><span class="sr-only">Feature version (optional)</span><input id="aw-feature-version" type="text" placeholder="version (optional)" autocomplete="off"></label>
+                  <button id="aw-preview-feature" class="button button-quiet" type="button">Preview add feature</button>
+                </div>
+                <div class="wb-plan-tools">
+                  <label class="search-box"><span class="sr-only">Finding ids, comma separated</span><input id="aw-findings" type="text" placeholder="finding ids, comma-separated" autocomplete="off"></label>
+                  <label class="search-box"><span class="sr-only">Reason (optional)</span><input id="aw-reason" type="text" placeholder="reason (optional)" autocomplete="off"></label>
+                  <button id="aw-preview-spec" class="button button-quiet" type="button">Preview generate spec</button>
+                </div>
+                <label id="aw-confirm-wrap" class="wb-confirm" hidden><input id="aw-confirm" type="checkbox"> I confirm this will write to the project.</label>
+                <div class="wb-plan-tools">
+                  <button id="aw-confirm-run" class="button" type="button" disabled>Run confirmed action</button>
+                </div>
+                <div id="aw-result" class="wb-plan-result" hidden></div>
+              </section>
             </div>
           </section>
           <section id="portfolio" class="project-panel" aria-labelledby="portfolio-title">

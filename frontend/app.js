@@ -409,6 +409,7 @@
   async function loadWorkbenchDetail(id) {
     clearWorkbenchNotice();
     resetPlanState();
+    resetAuthoring();
     let data;
     try {
       data = await request(`/v1/admin/projects/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } });
@@ -540,6 +541,149 @@
     renderApplyError(body, status);
   }
 
+  // ---- Authoring actions (feature add / spec generate)
+  // These run the typed, session-gated Core handlers behind
+  // `POST /v1/admin/projects/{id}/feature` and `/spec`. The two-step
+  // preview-then-confirm flow mirrors the upgrade workflow: a preview returns
+  // a path-free descriptor and its digest and writes nothing; the confirmed
+  // run sends `confirm: true` with that exact digest and delegates to the same
+  // in-process handler the CLI uses. Only structured fields are sent — the
+  // browser never composes a command or a path.
+  const authoring = { digest: null, kind: null, payload: null, idempotencyKey: null };
+
+  function resetAuthoring() {
+    authoring.digest = null;
+    authoring.kind = null;
+    authoring.payload = null;
+    authoring.idempotencyKey = null;
+    document.getElementById("aw-result").hidden = true;
+    document.getElementById("aw-result").replaceChildren();
+    document.getElementById("aw-confirm-wrap").hidden = true;
+    document.getElementById("aw-confirm").checked = false;
+    document.getElementById("aw-confirm-run").disabled = true;
+  }
+
+  function renderAuthoringPreview(result) {
+    const box = document.getElementById("aw-result");
+    box.replaceChildren();
+    box.hidden = false;
+    const head = document.createElement("p"); head.className = "wb-plan-head";
+    head.textContent = "Preview — nothing has been written yet. Confirm to run this exact action.";
+    box.append(head);
+    const preview = result.preview || {};
+    const line = document.createElement("p"); line.className = "wb-plan-steps";
+    if (preview.action === "feature-add") {
+      line.textContent = `Add feature “${preview.feature || ""}”${preview.version ? ` at version ${preview.version}` : ""}.`;
+    } else if (preview.action === "spec-generate") {
+      const findings = (preview.findings || []).join(", ");
+      line.textContent = `Generate a spec for findings: ${findings}${preview.reason ? ` — reason: ${preview.reason}` : ""}.`;
+    }
+    box.append(line);
+    const digest = document.createElement("p"); digest.className = "wb-digest";
+    digest.textContent = `Action digest: ${result.plan_digest}`;
+    box.append(digest);
+    authoring.digest = result.plan_digest;
+    document.getElementById("aw-confirm-wrap").hidden = false;
+    document.getElementById("aw-confirm-run").disabled = false;
+  }
+
+  function renderAuthoringError(result, status) {
+    const box = document.getElementById("aw-result");
+    box.replaceChildren();
+    box.hidden = false;
+    const head = document.createElement("p"); head.className = "wb-plan-head";
+    head.textContent = (result.error && result.error.message) || "The action was refused. Nothing was written.";
+    box.append(head);
+    // A stale digest (409) returns a refreshed preview so the operator can
+    // re-review and re-confirm rather than acting blind.
+    if (result.preview && result.plan_digest) {
+      authoring.payload = result.preview;
+      renderAuthoringPreview(result);
+    } else if (status === 409) {
+      document.getElementById("aw-confirm-run").disabled = true;
+    }
+  }
+
+  function renderAuthoringSuccess(result) {
+    const message = result.operation_id
+      ? `Accepted as journaled operation ${result.operation_id}. The action ran through Forge's in-process Core handler.`
+      : "The action ran through Forge's in-process Core handler.";
+    // Drop the reviewed digest and the confirmation controls so the action
+    // cannot be blindly re-armed.
+    authoring.digest = null;
+    authoring.kind = null;
+    authoring.payload = null;
+    authoring.idempotencyKey = null;
+    document.getElementById("aw-confirm-wrap").hidden = true;
+    document.getElementById("aw-confirm").checked = false;
+    document.getElementById("aw-confirm-run").disabled = true;
+    // Refresh the workbench (reloading it clears the result box), then re-show
+    // the confirmation once the refreshed state has rendered.
+    const show = () => {
+      const box = document.getElementById("aw-result");
+      box.replaceChildren();
+      box.hidden = false;
+      const head = document.createElement("p"); head.className = "wb-plan-head";
+      head.textContent = message;
+      box.append(head);
+    };
+    if (workbench.id) loadWorkbenchDetail(workbench.id).then(show).catch(show);
+    else show();
+  }
+
+  async function previewAuthoring(kind) {
+    if (!workbench.id) { showWorkbenchNotice("Open a managed project first."); return; }
+    resetAuthoring();
+    clearWorkbenchNotice();
+    let path, payload;
+    if (kind === "feature") {
+      const feature = document.getElementById("aw-feature").value.trim();
+      const version = document.getElementById("aw-feature-version").value.trim();
+      if (!feature) { showWorkbenchNotice("Enter a feature id to add."); return; }
+      payload = { feature };
+      if (version) payload.version = version;
+      path = `/v1/admin/projects/${encodeURIComponent(workbench.id)}/feature`;
+    } else {
+      const findings = document.getElementById("aw-findings").value
+        .split(",").map((value) => value.trim()).filter(Boolean);
+      const reason = document.getElementById("aw-reason").value.trim();
+      if (!findings.length) { showWorkbenchNotice("Enter at least one finding id."); return; }
+      payload = { findings };
+      if (reason) payload.reason = reason;
+      path = `/v1/admin/projects/${encodeURIComponent(workbench.id)}/spec`;
+    }
+    authoring.kind = kind;
+    authoring.payload = payload;
+    const { ok, body } = await requestStatus(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (ok) renderAuthoringPreview(body);
+    else renderAuthoringError(body, undefined);
+  }
+
+  async function confirmAuthoring() {
+    if (!workbench.id || !authoring.kind || !authoring.digest) { showWorkbenchNotice("Produce a preview before running."); return; }
+    if (!document.getElementById("aw-confirm").checked) { showWorkbenchNotice("Tick the confirmation box — this writes to the project."); return; }
+    if (!authoring.idempotencyKey) {
+      authoring.idempotencyKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+    }
+    const path = `/v1/admin/projects/${encodeURIComponent(workbench.id)}/${authoring.kind === "feature" ? "feature" : "spec"}`;
+    const body = { ...authoring.payload, confirm: true, plan_digest: authoring.digest };
+    document.getElementById("aw-confirm-run").disabled = true;
+    const { status, ok, body: result } = await requestStatus(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "Idempotency-Key": authoring.idempotencyKey },
+      body: JSON.stringify(body),
+    });
+    document.getElementById("aw-confirm-run").disabled = false;
+    if (ok) { authoring.idempotencyKey = null; renderAuthoringSuccess(result); return; }
+    if (result && result.replay) { renderAuthoringSuccess({ operation_id: result.operation_id }); return; }
+    authoring.idempotencyKey = null;
+    renderAuthoringError(result, status);
+  }
+
   function initWorkbench(projects) {
     const select = document.getElementById("workbench-project");
     select.replaceChildren();
@@ -558,6 +702,9 @@
     });
     document.getElementById("wb-plan").addEventListener("click", planUpgrade);
     document.getElementById("wb-apply").addEventListener("click", applyUpgrade);
+    document.getElementById("aw-preview-feature").addEventListener("click", () => previewAuthoring("feature"));
+    document.getElementById("aw-preview-spec").addEventListener("click", () => previewAuthoring("spec"));
+    document.getElementById("aw-confirm-run").addEventListener("click", confirmAuthoring);
   }
 
   // ---- Portfolio controls

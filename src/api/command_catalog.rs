@@ -2338,8 +2338,10 @@ mod tests {
             vec![
                 ("list", WEB_ROUTE_PROJECTS),
                 ("inspect", WEB_ROUTE_PROJECT_DETAIL),
+                ("feature.add", WEB_ROUTE_ADMIN_FEATURE),
                 ("upgrade", WEB_ROUTE_PROJECT_PLAN),
                 ("doctor", WEB_ROUTE_PROJECT_DETAIL),
+                ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
                 ("fleet.list", WEB_ROUTE_PROJECTS),
                 ("fleet.status", WEB_ROUTE_PROJECTS),
                 ("inventory.show", WEB_ROUTE_PROJECTS),

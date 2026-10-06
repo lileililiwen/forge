@@ -67,5 +67,47 @@
       "todo!"
     ],
     "placeholder_threshold": 0
+  },
+  "discoverability": {
+    "description": "Language-agnostic developer control plane and software assembly platform. Coordinates heterogeneous projects, resolves reusable parts, generates ordinary source deterministically, and uses AI for interpretation and project-specific work.",
+    "keywords": [
+      "control plane",
+      "developer tools",
+      "multi-language",
+      "project management",
+      "scaffolding",
+      "registry",
+      "software assembly"
+    ],
+    "topics": [
+      "control-plane",
+      "developer-tools",
+      "multi-language",
+      "project-management",
+      "scaffolding",
+      "registry",
+      "cli",
+      "rust",
+      "software-assembly",
+      "openspec"
+    ],
+    "audience": [
+      "developers",
+      "platform engineers",
+      "AI coding agents"
+    ],
+    "use_cases": [
+      "adopt and register an existing multi-language repository",
+      "generate ordinary source from a profile-aware template",
+      "coordinate identity, jobs, storage, and release capabilities across products"
+    ],
+    "search_phrases": [
+      "language-agnostic dev control plane",
+      "registry for multi-project portfolios",
+      "deterministic source generation"
+    ],
+    "homepage": "https://github.com/lileililiwen/forge",
+    "license_spdx": "MIT",
+    "visibility": "private"
   }
 }

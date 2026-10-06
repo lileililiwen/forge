@@ -16,6 +16,8 @@
 /coverage/
 /test-results/
 /playwright-report/
+# Screenshots emitted when the portal a11y harness runs with an in-tree output dir
+/tests/browser/screenshots/
 /.pytest_cache/
 /.mypy_cache/
 /.ruff_cache/

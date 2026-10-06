@@ -1,14 +1,29 @@
 # Forge handoff
 
+current_spec: forge-web-project-fleet
+
 ## Current state
+
+`forge-global-admin-portal` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-global-admin-portal`, promoting four
+`forge-admin-login` requirements (new canonical spec) and four `portal-web-ui`
+requirements. The next eligible change from `openspec list` and the roadmap is
+`forge-web-project-fleet`.
+
+The delivered portal gives one Forge-wide administrator email/password login and
+an all-project dashboard, independent of each project's `forge.yaml` `identity:`
+block. Browser HTML/CSS/JS live under `frontend/` and are served by the
+standalone Rust `forge web serve` listener; the separate `forge api serve`
+listener serves admin auth and the fleet as JSON only. The pointer above names
+the next active change.
 
 `scaffold-prewires-shared-layer` is implemented, verified and archived. Its
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
 
-**No active changes remain.** The three portal packages authored after the queue
-closed are now implemented and archived, so `openspec list` reports none active
-and the `current_spec` pointer is removed. The seven earlier in-flight packages
+At the prior archive checkpoint, no active changes remained. The three portal
+packages authored after the queue closed were implemented and archived. The
+seven earlier in-flight packages
 were consolidated into `runtime-hardening-and-contract-closure` and archived on
 2026-10-05 as
 `openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
@@ -98,6 +113,55 @@ the suite binds ephemeral loopback ports), `cargo fmt --check`, `cargo build`
 (0 errors; three pre-existing warnings), `openspec validate --all --strict
 --no-interactive` (64 passed), `node scripts/check-openspec-change-names.mjs`,
 and `git diff --check`.
+
+### forge-global-admin-portal delivered and archived (2026-10-06)
+
+`forge-global-admin-portal` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-global-admin-portal`, promoting four
+`forge-admin-login` requirements into a new canonical spec and four
+`portal-web-ui` requirements into the existing one (8 added, 0 modified). One
+Forge-wide administrator account and browser session now authenticate the fleet
+independently of per-project OIDC:
+
+- `src/identity/global.rs`: Argon2id PHC hashes, opaque 256-bit CSPRNG tokens,
+  12-hour bounded sessions persisted only as SHA-256 digests, plus revoke/expiry.
+- `src/api/admin.rs` and the `Route::Admin*` routing in `src/api/mod.rs`: JSON
+  `GET/POST/DELETE /v1/admin/session` and authenticated `GET /v1/admin/projects`,
+  with exact-`frontend_origin` CORS and Origin checks. The session cookie is
+  `forge_admin_session` (distinct from project `forge_session`), `HttpOnly;
+  SameSite=Lax; Path=/`, `Secure` only for an `https` frontend origin. Existing
+  `/v1` bearer and project OIDC behavior is unchanged.
+- `src/web.rs` + `forge web serve`: Rust static listener serving only the
+  allowlisted `frontend/` assets (no directory traversal, GET/HEAD only).
+- `forge identity setup --email`: interactive hidden-password CLI (libc termios),
+  refusing non-TTY, weak password (<12 chars), bad email and duplicate setup.
+- `frontend/`: standalone `login.html`, `index.html`, `styles.css`, `config.js`,
+  `app.js` and a README documenting the separate API and web preview commands. No
+  page markup, style or script was added to Rust.
+
+Evidence at archive (commands run, real output):
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; three pre-existing warnings: `ShareSurface` in `src/portfolio/share/validation.rs`, `journal` field / `Published` variant in `src/main.rs` `FleetEntryOutcome`, none added by this change) |
+| `cargo fmt --check` | clean |
+| `cargo test --test forge_admin_api_contract` | **4 passed / 0 failed** (login+cookie+fleet+revoke, bad creds/untrusted origin, anonymous+expired+OIDC-cookie isolation, logout-origin-mismatch does not revoke) |
+| `cargo test --test forge_portal_frontend_contract` | **5 passed / 0 failed** (standalone assets, login has only email/password and no project-id, dashboard drives JSON API with honest empty/unavailable states, a11y/responsive stylesheet, no markup in Rust) |
+| `cargo test --lib identity::global` | **3 passed / 0 failed** (lifecycle, weak/bad-email refusal, expiry) |
+| `cargo test --lib web::tests` | **1 passed / 0 failed** (allowlist, root serves login) |
+| `cargo test --test identity_contract` / `portal_ui_contract` / `api_contract` | **19 / 39 / 11 passed, 0 failed** (compatibility intact; `api_contract` run outside the sandbox for loopback binds) |
+| live loopback round-trip | real `api serve` + `web serve`: configured/unconfigured session JSON, bad login → generic `401`, successful login → `HttpOnly; SameSite=Lax; Max-Age=43200` cookie (no `Secure` on loopback), `GET /v1/admin/projects` returns the real registered `forge-demo-proj` row plus empty/`registered:0` states, DELETE → `Max-Age=0` then `401`, hostile origin → `403`; web server serves `/`,`index.html`,`app.js` and rejects traversal/`POST`/unknown with `404`/`405`; `identity setup` refused on non-TTY stdin and succeeded through a pty without echoing the password |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate --all --strict --no-interactive` | **69 passed / 0 failed** (before and after archive) |
+| `cargo deny check advisories licenses` | **advisories ok, licenses ok** (argon2 0.5.3); only benign unmatched-license-allowance warnings |
+| `git diff --check` | PASS |
+
+Honest scope of verification: the browser keyboard-navigation and 320px-reflow
+visual experience and the login/dashboard DOM rendering are covered by the
+markup/source contract above and were exercised at the HTTP/JSON level against
+the running listeners, but were **not** rendered in an interactive headless
+browser here; that visual pass remains for the operator. No shared Gate Runtime
+is configured; no Gate pass is claimed.
 
 ### Fresh clones did not build
 

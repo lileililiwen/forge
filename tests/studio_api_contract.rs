@@ -134,6 +134,7 @@ fn make_request(method: &str, path: &str, body: Vec<u8>) -> ApiRequest {
         body,
         idempotency_key: None,
         bearer_token: Some(TOKEN.to_string()),
+        cookies: BTreeMap::new(),
         remote_addr: Some("127.0.0.1:9999".parse().unwrap()),
         started_at: Utc::now(),
     }

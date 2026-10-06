@@ -111,6 +111,7 @@ fn make_request(
         body,
         idempotency_key: None,
         bearer_token: bearer,
+        cookies: BTreeMap::new(),
         remote_addr: Some("127.0.0.1:9999".parse().unwrap()),
         started_at: Utc::now(),
     }

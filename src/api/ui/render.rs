@@ -793,6 +793,51 @@ pub fn operation_accepted(
     project_frame(title, project_id, contract, body).into_string()
 }
 
+// --- sign-in / callback / sign-out pages --------------------------------
+
+/// Render the sign-in page. The page is rendered in two
+/// shapes: the issuing form on `GET /ui/sign-in?project=…`
+/// (a short page that links to the provider) and a
+/// follow-up page on the callback handler that explains
+/// the failure in redacted terms and points the operator
+/// back to the sign-in form. The page never reflects a
+/// state value, a code value, or any provider error
+/// verbatim.
+pub fn sign_in_page(
+    title: &str,
+    project_id: &str,
+    auth_url: &str,
+    return_path: &str,
+    contract: &str,
+) -> String {
+    let body = html! {
+        main {
+            h2 { (title) }
+            @if !project_id.is_empty() {
+                p { "Sign in to " code { (project_id) } " via the configured OIDC provider." }
+                p { a href=(auth_url) { "Continue to provider" } }
+            } @else {
+                p { "Sign out complete. " a href="/ui/sign-in" { "Sign in again" } "." }
+            }
+            @if !return_path.is_empty() && return_path != "/ui" {
+                p { small { "After sign-in you will return to " code { (return_path) } "." } }
+            }
+        }
+    };
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            (head(title))
+            body {
+                header { h1 { (title) } }
+                (body)
+                footer { small { "forge api ui · " (contract) } }
+            }
+        }
+    }
+    .into_string()
+}
+
 // --- error pages ------------------------------------------------------
 
 pub fn error_page(

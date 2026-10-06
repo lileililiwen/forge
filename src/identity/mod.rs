@@ -60,13 +60,21 @@
 //!
 //! ## Risk model
 //!
-//! A real OIDC round trip is out of scope for the local
-//! sandbox: the contract is validated through fixture
-//! claims, fixture callbacks and the typed rejection
-//! codes. The redaction rule set is the same
+//! The browser sign-in path verifies a real OIDC provider
+//! response through the pinned `openidconnect` crate
+//! (discovery, PKCE code exchange, signed ID-token
+//! verification) before minting a session; see
+//! [`oidc`]. The contract tests drive a deterministic fake
+//! verifier so the local gate never depends on a public
+//! provider. The redaction rule set is the same
 //! `policy::redact_credentials` consumed by every other
-//! adapter. A real provider round trip is a downstream
-//! integration step.
+//! adapter.
+
+mod oidc;
+
+pub use oidc::LibraryBrowserAuthVerifier;
+
+use std::sync::Mutex;
 
 use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
@@ -817,7 +825,15 @@ pub fn validate_claims(
 /// `identity-permission-denied`).
 pub fn admin_claim_grants(claims: &ProviderClaims, config: &IdentityConfig) -> bool {
     match claims.claim(&config.admin_claim) {
-        Some(value) => config.admin_values.iter().any(|v| v == value),
+        // The claim may be a scalar (exact match) or a
+        // comma-joined list of group/role values produced by
+        // the OIDC verifier from an array claim; every
+        // configured allow-list value is checked against each
+        // element.
+        Some(value) => value
+            .split(',')
+            .map(str::trim)
+            .any(|part| config.admin_values.iter().any(|v| v == part)),
         None => false,
     }
 }
@@ -1367,6 +1383,123 @@ pub fn render_outcome_human(outcome: &IdentityOutcome) -> String {
             rejection.code, rejection.reason
         ),
     }
+}
+
+/// Browser authentication verifier. The HTTP callback handler
+/// hands the verifier the parsed [`AuthCallback`] and the
+/// originating [`AuthChallenge`]; the verifier performs the
+/// OIDC code exchange and ID-token verification and returns
+/// the normalised [`ProviderClaims`]. The trait abstracts
+/// the OIDC client so tests can supply a deterministic fake
+/// without touching the network, and so a future live
+/// provider implementation can be swapped in without
+/// changing the call sites.
+pub trait BrowserAuthVerifier {
+    /// Exchange the authorization code for tokens and verify
+    /// the ID-token cryptographically against the project's
+    /// configured issuer, audience, redirect URI, PKCE
+    /// challenge, nonce, time bounds, and admin-claim
+    /// allowlist. The returned claims are the typed surface
+    /// [`validate_claims`] and [`mint_session`] consume.
+    fn exchange_and_verify(
+        &self,
+        callback: &AuthCallback,
+        challenge: &AuthChallenge,
+        config: &IdentityConfig,
+        now: DateTime<Utc>,
+    ) -> Result<ProviderClaims, ForgeError>;
+}
+
+/// Test-only verifier that pops pre-canned outcomes off a
+/// queue. Every `exchange_and_verify` call consumes one
+/// queued outcome; a missing queued outcome produces a
+/// `identity-auth-failed` refusal so a stale test fixture
+/// cannot quietly mint a session.
+pub struct FakeBrowserAuthVerifier {
+    queue: Mutex<Vec<Result<ProviderClaims, ForgeError>>>,
+}
+
+impl FakeBrowserAuthVerifier {
+    /// Empty queue. Every call returns the typed
+    /// `identity-auth-failed` refusal until at least one
+    /// outcome is queued.
+    pub fn new() -> Self {
+        Self {
+            queue: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Queue a successful outcome. The most recent
+    /// `queue_success`/`queue_error` is consumed first.
+    pub fn queue_success(&self, claims: ProviderClaims) {
+        self.queue
+            .lock()
+            .expect("fake verifier mutex")
+            .push(Ok(claims));
+    }
+
+    /// Queue a failure outcome. The verifier returns the
+    /// queued [`ForgeError`] on the next call.
+    pub fn queue_error(&self, err: ForgeError) {
+        self.queue
+            .lock()
+            .expect("fake verifier mutex")
+            .push(Err(err));
+    }
+}
+
+impl Default for FakeBrowserAuthVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BrowserAuthVerifier for FakeBrowserAuthVerifier {
+    fn exchange_and_verify(
+        &self,
+        _callback: &AuthCallback,
+        _challenge: &AuthChallenge,
+        _config: &IdentityConfig,
+        _now: DateTime<Utc>,
+    ) -> Result<ProviderClaims, ForgeError> {
+        let mut queue = self.queue.lock().expect("fake verifier mutex");
+        match queue.pop() {
+            Some(outcome) => outcome,
+            None => Err(ForgeError::IdentityAuthFailed {
+                reason: "FakeBrowserAuthVerifier has no queued outcome; queue a \
+                         success or error before driving the callback"
+                    .to_string(),
+            }),
+        }
+    }
+}
+
+/// Complete a browser OIDC round trip. Validates the
+/// callback against the persisted challenge, asks the
+/// verifier to exchange the code and verify the ID-token,
+/// validates the claims against the project's identity
+/// configuration, mints a session, persists it, and removes
+/// the consumed challenge so a replay attempt finds no
+/// challenge to consume. The trait parameter makes the
+/// network-free fake usable in tests while production uses
+/// [`LibraryBrowserAuthVerifier`], which performs the real
+/// discovery/code-exchange/ID-token verification through
+/// the `openidconnect` crate.
+pub fn complete_browser_auth<V: BrowserAuthVerifier + ?Sized>(
+    project_dir: &Path,
+    config: &IdentityConfig,
+    callback: &AuthCallback,
+    challenge: &AuthChallenge,
+    verifier: &V,
+    now: DateTime<Utc>,
+) -> Result<AdminSession, ForgeError> {
+    validate_callback(callback, challenge, now)?;
+    let claims = verifier.exchange_and_verify(callback, challenge, config, now)?;
+    validate_claims(&claims, challenge, config, now)?;
+    let session = mint_session(config, &claims, challenge, now)?;
+    save_session(project_dir, &challenge.project_id, &session)?;
+    delete_challenge_file(project_dir, &challenge.project_id, &challenge.state)?;
+    Ok(session)
 }
 
 #[cfg(test)]
@@ -1923,5 +2056,151 @@ mod tests {
         ];
         assert_eq!(SUPPORTED_PROVIDERS, expected);
         assert_eq!(SUPPORTED_CODE_CHALLENGE_METHODS, &["S256"]);
+    }
+
+    /// The verified round trip consumes the challenge and
+    /// persists exactly one session for the project. The
+    /// verifier is the network-free fake so the test is
+    /// deterministic.
+    #[test]
+    fn complete_browser_auth_mints_and_consumes_challenge() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        save_challenge(dir.path(), "forge-admin", &challenge).unwrap();
+        let verifier = FakeBrowserAuthVerifier::new();
+        verifier.queue_success(sample_claims(&challenge, &cfg));
+        let callback = AuthCallback {
+            project_id: "forge-admin".to_string(),
+            state: challenge.state.clone(),
+            code: "abcd1234".to_string(),
+            error: None,
+            error_description: None,
+        };
+        let session =
+            complete_browser_auth(dir.path(), &cfg, &callback, &challenge, &verifier, now())
+                .expect("verified round trip");
+        assert_eq!(session.project_id, "forge-admin");
+        assert_eq!(session.state, SessionState::Active);
+        assert!(
+            !challenge_path_for(dir.path(), "forge-admin", &challenge.state)
+                .unwrap()
+                .exists(),
+            "the consumed challenge file must be removed"
+        );
+        let session_path =
+            session_path_for(dir.path(), "forge-admin", &session.session_id).unwrap();
+        assert!(session_path.exists(), "session file must be persisted");
+    }
+
+    #[test]
+    fn complete_browser_auth_refuses_verifier_error() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let verifier = FakeBrowserAuthVerifier::new();
+        verifier.queue_error(ForgeError::IdentityAuthFailed {
+            reason: "provider rejected the exchange".to_string(),
+        });
+        let callback = AuthCallback {
+            project_id: "forge-admin".to_string(),
+            state: challenge.state.clone(),
+            code: "abcd1234".to_string(),
+            error: None,
+            error_description: None,
+        };
+        let err = complete_browser_auth(dir.path(), &cfg, &callback, &challenge, &verifier, now())
+            .unwrap_err();
+        assert_eq!(err.code(), "identity-auth-failed");
+        // No session was persisted on a failed verification.
+        let sessions_dir = dir.path().join(".forge/identity/forge-admin/sessions");
+        assert!(!sessions_dir.exists() || sessions_dir.read_dir().unwrap().next().is_none());
+    }
+
+    #[test]
+    fn complete_browser_auth_refuses_non_admin_claim() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let verifier = FakeBrowserAuthVerifier::new();
+        let mut claims = sample_claims(&challenge, &cfg);
+        claims
+            .claims
+            .insert(cfg.admin_claim.clone(), "intern".to_string());
+        verifier.queue_success(claims);
+        let callback = AuthCallback {
+            project_id: "forge-admin".to_string(),
+            state: challenge.state.clone(),
+            code: "abcd1234".to_string(),
+            error: None,
+            error_description: None,
+        };
+        let err = complete_browser_auth(dir.path(), &cfg, &callback, &challenge, &verifier, now())
+            .unwrap_err();
+        assert_eq!(err.code(), "identity-permission-denied");
+    }
+
+    #[test]
+    fn library_verifier_refuses_provider_error_without_network() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let callback = AuthCallback {
+            project_id: "forge-admin".to_string(),
+            state: challenge.state.clone(),
+            code: String::new(),
+            error: Some("access_denied".to_string()),
+            error_description: Some("user denied".to_string()),
+        };
+        let err = LibraryBrowserAuthVerifier
+            .exchange_and_verify(&callback, &challenge, &cfg, now())
+            .unwrap_err();
+        assert_eq!(err.code(), "identity-auth-failed");
+    }
+
+    #[test]
+    fn library_verifier_refuses_expired_challenge_without_network() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let callback = AuthCallback {
+            project_id: "forge-admin".to_string(),
+            state: challenge.state.clone(),
+            code: "abcd1234".to_string(),
+            error: None,
+            error_description: None,
+        };
+        let later = challenge.expires_at + Duration::seconds(1);
+        let err = LibraryBrowserAuthVerifier
+            .exchange_and_verify(&callback, &challenge, &cfg, later)
+            .unwrap_err();
+        assert_eq!(err.code(), "identity-auth-failed");
+    }
+
+    #[test]
+    fn library_verifier_refuses_empty_code_without_network() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let callback = AuthCallback {
+            project_id: "forge-admin".to_string(),
+            state: challenge.state.clone(),
+            code: "   ".to_string(),
+            error: None,
+            error_description: None,
+        };
+        let err = LibraryBrowserAuthVerifier
+            .exchange_and_verify(&callback, &challenge, &cfg, now())
+            .unwrap_err();
+        assert_eq!(err.code(), "identity-auth-failed");
+    }
+
+    #[test]
+    fn admin_claim_grants_matches_any_array_element() {
+        let cfg = IdentityConfig::from_manifest("forge-admin", &sample_meta()).unwrap();
+        let challenge = build_challenge("forge-admin", &cfg, now()).unwrap();
+        let mut claims = sample_claims(&challenge, &cfg);
+        claims.claims.insert(
+            cfg.admin_claim.clone(),
+            "intern,forge-admins,operators".to_string(),
+        );
+        assert!(admin_claim_grants(&claims, &cfg));
     }
 }

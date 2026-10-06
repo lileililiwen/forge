@@ -108,6 +108,7 @@ pub fn api_request(method: &str, path: &str, bearer: Option<&str>, body: &str) -
         body: body.as_bytes().to_vec(),
         idempotency_key: None,
         bearer_token: bearer.map(|v| v.to_string()),
+        cookies: BTreeMap::new(),
         remote_addr: Some("127.0.0.1:9999".parse().unwrap()),
         started_at: Utc::now(),
     }

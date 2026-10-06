@@ -7,6 +7,18 @@
 yanked = "deny"
 unmaintained = "all"
 unsound = "all"
+# RUSTSEC-2023-0071 (Marvin Attack: potential key recovery through timing
+# sidechannels) is the `rsa` crate's private-key decryption timing leak. It is
+# pulled transitively by `openidconnect` (browser OIDC ID-token verification,
+# `portal-browser-sign-in`). Forge only performs RSA signature *verification*
+# with the provider's public key; no RSA private-key operation is reachable, so
+# the timing oracle this advisory describes cannot be exercised. No fixed
+# release exists upstream. The dependency is pinned to `openidconnect` 4.x,
+# which also removes the older `rustls-webpki`/`h2` advisories from the
+# `reqwest` 0.11 stack.
+ignore = [
+  { id = "RUSTSEC-2023-0071", reason = "rsa private-key decryption timing leak; Forge only does public-key signature verification, so the affected code path is unreachable" },
+]
 
 [licenses]
 allow = [
@@ -23,6 +35,12 @@ allow = [
   "Zlib",
   "BSL-1.0",
   "Unlicense",
+  # webpki-roots (the Mozilla CA bundle consumed by rustls through
+  # `reqwest`'s rustls-tls transport, `portal-browser-sign-in`) ships the
+  # trust-anchor data under CDLA-Permissive-2.0. That is a permissive data
+  # licence with no copyleft obligation; recorded explicitly rather than via a
+  # wildcard so the closure change stays visible.
+  "CDLA-Permissive-2.0",
   # r-efi (via getrandom/wasm transitive deps) is LGPL-2.1-or-later. It is a
   # target-specific UEFI shim never linked into the Linux binary; allowed
   # explicitly here rather than by a blanket copyleft wildcard.

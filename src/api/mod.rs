@@ -166,16 +166,31 @@ pub struct ApiConfig {
     /// when the server shuts down. The CLI is a bounded probe and
     /// never stores here.
     pub previews: Arc<Mutex<HashMap<String, PreviewSession>>>,
+    /// Browser OIDC verifier. The default is
+    /// [`LibraryBrowserAuthVerifier`], a stub that fails
+    /// closed; tests inject a [`FakeBrowserAuthVerifier`]
+    /// so the in-process transport can complete a
+    /// deterministic round trip without contacting a
+    /// provider. The field lives on the configuration so
+    /// `ApiConfig::default()` stays a single-line
+    /// constructor and so the test surface can swap the
+    /// verifier without threading a new parameter
+    /// through every handler.
+    pub browser_auth_verifier: Arc<dyn crate::identity::BrowserAuthVerifier + Send + Sync>,
 }
 
 impl std::fmt::Debug for ApiConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApiConfig")
-            .field("bind", &self.bind)
+            .field("bind", &bind_label(self.bind))
             .field("port", &self.port)
             .field("max_body_bytes", &self.max_body_bytes)
             .finish_non_exhaustive()
     }
+}
+
+fn bind_label(bind: IpAddr) -> String {
+    bind.to_string()
 }
 
 impl Default for ApiConfig {
@@ -185,6 +200,7 @@ impl Default for ApiConfig {
             port: DEFAULT_PORT,
             max_body_bytes: MAX_BODY_BYTES,
             previews: Arc::new(Mutex::new(HashMap::new())),
+            browser_auth_verifier: Arc::new(crate::identity::LibraryBrowserAuthVerifier),
         }
     }
 }
@@ -229,13 +245,23 @@ pub struct ApiRequest {
     pub body: Vec<u8>,
     pub idempotency_key: Option<String>,
     pub bearer_token: Option<String>,
+    /// Cookies parsed from the `Cookie` header, keyed by
+    /// attribute name. The map is the source of truth for
+    /// the browser session id on `/ui` routes; `/v1`
+    /// requests intentionally ignore it.
+    pub cookies: BTreeMap<String, String>,
     pub remote_addr: Option<SocketAddr>,
     pub started_at: DateTime<Utc>,
 }
 
 impl ApiRequest {
-    #[allow(dead_code)]
-    fn header(&self, name: &str) -> Option<&str> {
+    /// Case-insensitive header lookup. Returns the first
+    /// matching value, or `None` for unknown names. The
+    /// method is `pub(crate)` so the in-process portal UI
+    /// handlers can read the same headers the JSON API
+    /// already exposes; the wire transport still does its
+    /// own case-insensitive parsing in [`parse_request`].
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(name))
@@ -392,6 +418,18 @@ pub enum Route {
     },
     /// `GET /ui` — in-process portal UI fleet list.
     UiFleet,
+    /// `GET /ui/sign-in?project=<id>&return=<path>` —
+    /// anonymous sign-in start; builds a challenge and
+    /// redirects to the configured provider.
+    UiSignIn,
+    /// `GET /ui/auth/callback?code=…&state=…` — anonymous
+    /// OIDC callback; consumes the challenge and mints a
+    /// browser session.
+    UiAuthCallback,
+    /// `POST /ui/sign-out` — same-origin sign-out that
+    /// revokes only the calling project's session and
+    /// clears the browser cookie.
+    UiSignOut,
     /// `GET /ui/projects/{id}` — project detail.
     UiProjectDetail {
         id: String,
@@ -577,6 +615,9 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             .ok()
             .map(|id| Route::GetOperation { op_id: id }),
         ("GET", ["ui"]) => Some(Route::UiFleet),
+        ("GET", ["ui", "sign-in"]) => Some(Route::UiSignIn),
+        ("GET", ["ui", "auth", "callback"]) => Some(Route::UiAuthCallback),
+        ("POST", ["ui", "sign-out"]) => Some(Route::UiSignOut),
         ("GET", ["ui", "projects", id]) => Some(Route::UiProjectDetail {
             id: (*id).to_string(),
         }),
@@ -724,6 +765,9 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::Doctor { .. }
         | Route::Governance { .. }
         | Route::UiFleet
+        | Route::UiSignIn
+        | Route::UiAuthCallback
+        | Route::UiSignOut
         | Route::UiProjectDetail { .. }
         | Route::UiStudioProject { .. } => None,
         Route::PortfolioProject { .. } => None,
@@ -838,16 +882,26 @@ pub fn handle(
     // authorize project B.
     //
     // The in-process portal UI routes (`Route::UiFleet`,
-    // `Route::UiProjectDetail`, `Route::UiProjectPublish`)
-    // carry their own auth flow: the existing
-    // `authorize()` helper looks for the bearer in
+    // `Route::UiProjectDetail`, `Route::UiProjectPublish`,
+    // `Route::UiProjectPortfolio`, the new
+    // `Route::UiSignIn`, `Route::UiAuthCallback`,
+    // `Route::UiSignOut`) carry their own auth flow: the
+    // existing `authorize()` helper looks for the bearer in
     // `request.bearer_token` (the JSON transport) but the
     // UI accepts it through `?token=<id>` as well, so we
     // short-circuit before `authorize()` and let the UI
     // handlers do the bearer/origin checks themselves.
+    // `Route::UiSignIn` and `Route::UiAuthCallback` are
+    // anonymous by design (the challenge is the proof-in-
+    // progress); `Route::UiSignOut` runs its own session
+    // lookup so it can revoke the owning project's session
+    // regardless of the route's permission posture.
     let actor = if !matches!(
         route,
         Route::UiFleet
+            | Route::UiSignIn
+            | Route::UiAuthCallback
+            | Route::UiSignOut
             | Route::UiProjectDetail { .. }
             | Route::UiProjectPublish { .. }
             | Route::UiProjectPortfolio { .. }
@@ -886,6 +940,9 @@ pub fn handle(
         Route::GitHubPush => handle_github_push(db_path, request),
         Route::GetOperation { op_id } => handle_get_operation(db_path, op_id),
         Route::UiFleet => ui::routes::handle_fleet(db_path, config, request),
+        Route::UiSignIn => ui::routes::handle_sign_in(db_path, config, request),
+        Route::UiAuthCallback => ui::routes::handle_auth_callback(db_path, config, request, now),
+        Route::UiSignOut => ui::routes::handle_sign_out(db_path, config, request, now),
         Route::UiProjectDetail { id } => {
             ui::routes::handle_project_detail(db_path, config, request, &id)
         }
@@ -991,8 +1048,15 @@ fn authorize(
         Route::GitHubPush => Ok(String::new()),
         // UI routes do their own auth flow; the dispatch
         // short-circuits before reaching this match, but
-        // Rust requires the arms anyway.
+        // Rust requires the arms anyway. The new sign-in,
+        // callback, and sign-out routes are explicit: the
+        // sign-in/callback handlers are anonymous, and the
+        // sign-out handler resolves the cookie to the
+        // owning project itself.
         Route::UiFleet
+        | Route::UiSignIn
+        | Route::UiAuthCallback
+        | Route::UiSignOut
         | Route::UiProjectDetail { .. }
         | Route::UiProjectPublish { .. }
         | Route::UiProjectPortfolio { .. }
@@ -3943,6 +4007,10 @@ pub fn parse_request(
             None
         }
     });
+    let cookies = headers
+        .get("cookie")
+        .map(|raw| parse_cookie_header(raw))
+        .unwrap_or_default();
     Ok(ApiRequest {
         method,
         path,
@@ -3951,9 +4019,37 @@ pub fn parse_request(
         body,
         idempotency_key,
         bearer_token,
+        cookies,
         remote_addr,
         started_at: Utc::now(),
     })
+}
+
+/// Parse a `Cookie:` header into a name→value map. The
+/// header is a `;`-separated list of `name=value` pairs;
+/// whitespace is trimmed and the value is returned
+/// undecoded because session cookies are hex tokens that
+/// never need URL escaping. Duplicate names keep the first
+/// occurrence so a forged `Cookie:` header cannot smuggle
+/// a second `forge_session` value past the dispatch.
+pub fn parse_cookie_header(raw: &str) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for pair in raw.split(';') {
+        let trimmed = pair.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (name, value) = match trimmed.split_once('=') {
+            Some((n, v)) => (n.trim(), v.trim()),
+            None => continue,
+        };
+        if name.is_empty() {
+            continue;
+        }
+        out.entry(name.to_string())
+            .or_insert_with(|| value.to_string());
+    }
+    out
 }
 
 fn find_header_end(raw: &[u8]) -> Option<usize> {

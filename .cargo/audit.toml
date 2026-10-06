@@ -1,0 +1,12 @@
+# cargo-audit policy for Forge. Mirrors the exception recorded in
+# deny.toml so the `deny` CI job's `cargo audit` step agrees with
+# `cargo deny check`.
+#
+# RUSTSEC-2023-0071 (Marvin Attack: potential key recovery through timing
+# sidechannels) is the `rsa` crate's private-key decryption timing leak, pulled
+# transitively by `openidconnect` for OIDC ID-token verification
+# (`portal-browser-sign-in`). Forge only performs RSA signature *verification*
+# with the provider's public key; no RSA private-key operation is reachable, so
+# the timing oracle cannot be exercised. No fixed release exists upstream.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

@@ -2,6 +2,29 @@
 
 ## Current state
 
+### forge-identity-password-management delivered and archived (2026-10-07)
+
+`forge-identity-password-management` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-identity-password-management`, adding
+two `forge-admin-login` requirements. `forge identity change-password` rotates
+the single administrator password in place (Argon2id re-hash, email preserved),
+refuses weak/mismatched input and a change before any administrator exists, and
+revokes every outstanding browser session on success. `forge identity
+generate-password [--length]` prints one OS-entropy password (default 20,
+accepted 12–128) without touching the registry. New functions
+`global::change_password` / `revoke_all_sessions` / `generate_password` reuse the
+existing `argon2` and `rand` dependencies — no new crate, no schema change.
+
+Evidence: `cargo test --lib identity::global` (6 passed — 3 new),
+`cargo test --test identity_contract` (19 passed), `cargo fmt --check` clean,
+`cargo build` 0 errors (2 pre-existing warnings), name preflight PASS,
+`openspec validate --all --strict --no-interactive` (70 passed), `git diff
+--check` clean. Live round trip against the running API: `generate-password`
+emitted a value, `change-password` (PTY) reported success, the old password then
+returned `401` and the new one `200` at `POST /v1/admin/session`.
+
+No active changes remain, so this handoff carries no `current_spec` pointer.
+
 `forge-web-delivery-controls` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-delivery-controls`, promoting four
 `forge-web-delivery-controls` requirements into a new canonical spec. It delivers

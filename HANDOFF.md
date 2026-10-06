@@ -1,6 +1,46 @@
 # Handoff
 
-## Current: platform-privacy (COMPLETE, archived 2026-10-05)
+## Current: platform-shared-auth-pages (COMPLETE, archived 2026-10-06)
+
+New `ui/packages/react-auth` composing the existing `Field`/`Button`/`Card`/`State`
+primitives instead of declaring a second input layer; `ThemeProvider`/`useTheme`
+that set `data-theme` and let generated `tokens.css` supply the dark palette, so no
+color literal exists in the component layer; `ui/schemas/branding.schema.json` plus a
+typed loader so a product replaces logo, navigation, and footer links as
+configuration. Missing `Register.cshtml` added to the application starter so the
+`EnableSiteUsers` symbol's documented self-registration is finally true. Feed
+repacked to 4 tarballs. Commit: `a306418`.
+
+**Verification:** `verify-ui.mjs` 49 tokens, 38 baselined; `verify-ui-feed.mjs --self`
+4 tarballs; `react-auth` tests 34 measured pairs; `react-ui` regression clean;
+`openspec validate --specs --strict` 55/55; rendered app `dotnet build -c Release`
+0 warnings 0 errors and 12 tests pass. Contrast proved load-bearing: reverting
+`theme.dark.color.onPrimary` to `color.white` fails with `measures 1.80:1, below the
+4.5:1 minimum`. Lowest text ratio 5.02:1 (min 4.5), lowest non-text 4.55:1 (min 3).
+
+**Not done:** `Platform.sln` full build/test not run (large). `Platform.Template.Tests`
+not run — its fixture packs the whole solution; verified by hand instead (rendered
+`EnableSiteUsers=true` builds and tests, `false` diffs identical to the pre-change
+render). `src/Platform.UI.Razor/wwwroot/platform-tokens.css` is hand-authored and does
+not carry `--color-on-primary` / `--color-border`; that boundary is already recorded
+in `ui/README.md`. Form and theme behavior is covered by source-contract assertions,
+not runtime rendering — the `ui` harness has no JSX transform and this change adds no
+dependency; `branding.ts` logic is executed for real.
+
+**Pre-existing, not this change:** 3 `SPEC_PURPOSE_PLACEHOLDER` errors from older
+archives (`platform-build-policy`, `platform-test-web-factory`,
+`platform-ui-token-distribution`); the 2 `UiDistributionTests` failures recorded
+below; `PUBLICATION_UNVERIFIED`. `dotnet build` on the template source alone fails
+NU1504 (duplicate `PackageReference` in both `//#if` branches pre-render), which is
+why the template is verified by rendering.
+
+**Next:** wave 1 adoption — the first real consumer. `somodanote` (12 razor files,
+hand-written `Login.cshtml` + `Logout.cshtml`) is the measured smallest candidate.
+See `../workspace-governance/ui-adoption-migration.json` for the wave plan and the
+four settled rulings (vendor the feed; local form plus forge OIDC; Flutter exempt;
+branding.json owned by each repo).
+
+## Previous: platform-privacy (COMPLETE, archived 2026-10-05)
 
 New packages `Platform.Privacy` (consent vocabulary, version-gated
 fail-closed evaluation, in-memory store, subject-rights contracts +

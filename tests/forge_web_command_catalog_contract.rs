@@ -229,7 +229,8 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "web" => {
                 // A web row must resolve to one of the typed routes the API
                 // actually implements: the fleet read, the workbench detail /
-                // plan endpoints, or the delivery share pipeline. No web row
+                // plan endpoints, the authoring `feature add` / `spec generate`
+                // admin routes, or the delivery share pipeline. No web row
                 // may name a shell.
                 let route = row["route"].as_str().unwrap_or("");
                 assert!(
@@ -237,6 +238,8 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/projects",
                         "GET /v1/admin/projects/{id}",
                         "GET /v1/admin/projects/{id}/plan",
+                        "POST /v1/admin/projects/{id}/feature",
+                        "POST /v1/admin/projects/{id}/spec",
                         "GET /v1/admin/delivery",
                         "GET /v1/admin/delivery/preview",
                         "POST /v1/admin/delivery/allowlist/{id}",
@@ -308,7 +311,10 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // upgrade into typed single-project workflows; the delivery package
     // (`forge-web-delivery-controls`) turns the portfolio share pipeline
     // (allowlist, preview, approve, publish, reconcile, status) into typed
-    // confirm- and digest-bound routes. Both now join the fleet read rows as
+    // confirm- and digest-bound routes; and the command-execution package
+    // (`forge-web-command-execution`) turns the handler-backed authoring
+    // commands `feature add` and `spec generate` into typed, session-gated,
+    // confirm/digest-bound browser routes. All now join the fleet read rows as
     // `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
@@ -322,6 +328,8 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "inspect",
             "doctor",
             "upgrade",
+            "feature.add",
+            "spec.generate",
             "fleet.list",
             "fleet.status",
             "inventory.show",

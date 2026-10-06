@@ -38,6 +38,13 @@ const WEB_ROUTE_PROJECT_DETAIL: &str = super::workbench::ROUTE_PROJECT_DETAIL;
 const WEB_ROUTE_PROJECT_PLAN: &str = super::workbench::ROUTE_PROJECT_PLAN;
 const WEB_ROUTE_PROJECT_APPLY: &str = super::workbench::ROUTE_PROJECT_APPLY;
 
+/// Authoring-command typed routes (`forge-web-command-execution`). These name
+/// the exact admin paths the router registers so the catalog and the live
+/// endpoints can never diverge: `forge feature add` and `forge spec generate`
+/// as session-gated, confirm/digest-bound browser-executable actions.
+const WEB_ROUTE_ADMIN_FEATURE: &str = super::admin::ROUTE_ADMIN_FEATURE;
+const WEB_ROUTE_ADMIN_SPEC: &str = super::admin::ROUTE_ADMIN_SPEC;
+
 /// Delivery-control typed routes (`forge-web-delivery-controls/0.1.0`).
 /// These reference the delivery module's own route constants so the
 /// catalog and the live endpoints can never name different paths: the
@@ -58,6 +65,8 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_PROJECT_DETAIL,
     WEB_ROUTE_PROJECT_PLAN,
     WEB_ROUTE_PROJECT_APPLY,
+    WEB_ROUTE_ADMIN_FEATURE,
+    WEB_ROUTE_ADMIN_SPEC,
     WEB_ROUTE_DELIVERY_OVERVIEW,
     WEB_ROUTE_DELIVERY_PREVIEW,
     WEB_ROUTE_DELIVERY_ALLOWLIST,
@@ -627,14 +636,14 @@ impl CatalogBuilder {
             none,
         );
         self.leaf(Some("feature"), "resolve", "Resolve requested capabilities into a deterministic install plan without changing files.", Creation, Profile, Read, NotYetWeb, none);
-        self.leaf(
+        self.web_at(
             Some("feature"),
             "add",
             "Add a feature (plus missing dependencies) to a project.",
             Creation,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_FEATURE,
             caps_local,
         );
         self.leaf(
@@ -926,14 +935,14 @@ impl CatalogBuilder {
 
         // spec
         self.group(None, "spec", "Generate bounded spec proposals and route findings to deterministic, semantic or manual remediation.", Quality, Project);
-        self.leaf(
+        self.web_at(
             Some("spec"),
             "generate",
             "Generate a bounded spec for the named project and finding set.",
             Quality,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_SPEC,
             caps_local,
         );
         self.leaf(

@@ -473,6 +473,22 @@ pub enum Route {
     AdminProjectApply {
         id: String,
     },
+    /// `POST /v1/admin/projects/{id}/feature` — the `forge feature add`
+    /// authoring command, exposed as a session-gated, preview + confirm- and
+    /// digest-bound typed call to the same `handle_add_feature` Core handler
+    /// the bearer `/v1` route and CLI use. The `feature`/`version` fields are
+    /// structured values, never a path or argv.
+    AdminProjectFeature {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/spec` — the `forge spec generate`
+    /// authoring command, exposed as a session-gated, preview + confirm- and
+    /// digest-bound typed call to the same `handle_generate_spec` Core handler
+    /// the bearer `/v1` route and CLI use. The `findings`/`reason` fields are
+    /// structured values, never a path or argv.
+    AdminProjectSpec {
+        id: String,
+    },
     /// `GET /v1/admin/portfolio` — cross-project portfolio fleet: each
     /// registered project's user-owned record, tags and read-only evidence
     /// states (`forge-web-portfolio-controls/0.1.0`). Session-gated.
@@ -712,6 +728,12 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             id: (*id).to_string(),
         }),
         ("POST", ["v1", "admin", "projects", id, "apply"]) => Some(Route::AdminProjectApply {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "admin", "projects", id, "feature"]) => Some(Route::AdminProjectFeature {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "admin", "projects", id, "spec"]) => Some(Route::AdminProjectSpec {
             id: (*id).to_string(),
         }),
         // Portfolio routes: `/evidence` is a reserved second segment and is
@@ -959,6 +981,8 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
+        | Route::AdminProjectFeature { .. }
+        | Route::AdminProjectSpec { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1102,6 +1126,8 @@ pub fn handle(
             | Route::AdminProjectDetail { .. }
             | Route::AdminProjectPlan { .. }
             | Route::AdminProjectApply { .. }
+            | Route::AdminProjectFeature { .. }
+            | Route::AdminProjectSpec { .. }
             | Route::AdminPortfolioList
             | Route::AdminPortfolioEvidence
             | Route::AdminPortfolioProject { .. }
@@ -1248,6 +1274,8 @@ pub fn handle(
         Route::AdminProjectDetail { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
+        | Route::AdminProjectFeature { .. }
+        | Route::AdminProjectSpec { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1334,6 +1362,8 @@ fn authorize(
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
+        | Route::AdminProjectFeature { .. }
+        | Route::AdminProjectSpec { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }

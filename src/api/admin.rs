@@ -2,13 +2,24 @@
 
 use std::path::Path;
 
+use chrono::Utc;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
 use crate::identity::global;
 
 const COOKIE: &str = "forge_admin_session";
+
+/// The `forge feature add` authoring command exposed as a session-gated,
+/// preview + confirm/digest-bound admin route. Exported so the command catalog
+/// can name the exact path the router registers, keeping the two in lockstep.
+pub const ROUTE_ADMIN_FEATURE: &str = "POST /v1/admin/projects/{id}/feature";
+
+/// The `forge spec generate` authoring command exposed as a session-gated,
+/// preview + confirm/digest-bound admin route.
+pub const ROUTE_ADMIN_SPEC: &str = "POST /v1/admin/projects/{id}/spec";
 
 #[derive(Deserialize)]
 struct LoginBody {
@@ -119,9 +130,179 @@ pub(super) fn handle(
         Route::AdminDeliveryReconcile => delivery_write(config, db_path, request, |req, body| {
             super::delivery::reconcile(db_path, &body, req)
         }),
+        Route::AdminProjectFeature { id } => {
+            authoring_write(config, db_path, request, id, Authoring::FeatureAdd)
+        }
+        Route::AdminProjectSpec { id } => {
+            authoring_write(config, db_path, request, id, Authoring::SpecGenerate)
+        }
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)
+}
+
+/// Which handler-backed authoring command a `/v1/admin/projects/{id}/…` write
+/// runs. A closed enum — the browser picks one of these by the URL segment, and
+/// no free-form command, path or argv ever reaches the handler.
+#[derive(Clone, Copy)]
+enum Authoring {
+    FeatureAdd,
+    SpecGenerate,
+}
+
+/// Build the canonical, path-free descriptor of an authoring action from its
+/// structured fields, refusing (via `Err`) when a required field is missing or
+/// malformed so a preview never reports a digest for an action that cannot run.
+fn authoring_descriptor(
+    kind: Authoring,
+    id: &str,
+    body: &Value,
+) -> Result<Value, (&'static str, &'static str)> {
+    match kind {
+        Authoring::FeatureAdd => {
+            let feature = body
+                .get("feature")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or((
+                    "admin-feature-required",
+                    "feature add requires a `feature` field",
+                ))?;
+            let mut descriptor = json!({
+                "action": "feature-add",
+                "project_id": id,
+                "feature": feature,
+            });
+            if let Some(version) = body.get("version").and_then(Value::as_str) {
+                descriptor["version"] = json!(version);
+            }
+            Ok(descriptor)
+        }
+        Authoring::SpecGenerate => {
+            let findings: Vec<&str> = body
+                .get("findings")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if findings.is_empty() {
+                return Err((
+                    "admin-findings-required",
+                    "spec generate requires at least one finding id",
+                ));
+            }
+            let mut descriptor = json!({
+                "action": "spec-generate",
+                "project_id": id,
+                "findings": findings,
+            });
+            if let Some(reason) = body.get("reason").and_then(Value::as_str) {
+                descriptor["reason"] = json!(reason);
+            }
+            Ok(descriptor)
+        }
+    }
+}
+
+/// Hex SHA-256 of the canonical descriptor bytes, matching the workbench plan
+/// digest. The descriptor carries no absolute path, so the digest binds
+/// confirmation to the exact project, action and structured field set.
+fn authoring_digest(descriptor: &Value) -> String {
+    let bytes = serde_json::to_vec(descriptor).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let out = hasher.finalize();
+    let mut hex = String::with_capacity(out.len() * 2);
+    for byte in out {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+/// One JSON-only, session-gated, preview-then-confirm authoring mutation. It
+/// never trusts a browser to run the action implicitly: without `confirm: true`
+/// it returns only the canonical descriptor plus its `plan_digest` and runs no
+/// Core write; with `confirm: true` it recomputes the digest and, only if the
+/// supplied digest still matches, delegates to the same in-process Core handler
+/// the CLI and `/v1` bearer route use. A stale or forged digest is refused with
+/// a fresh digest and no write. Structured fields only — never a shell, argv or
+/// browser-supplied path.
+fn authoring_write(
+    config: &ApiConfig,
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    kind: Authoring,
+) -> ApiResponse {
+    if !is_json(request) {
+        return cors(
+            config,
+            request,
+            error(
+                415,
+                "admin-content-type-required",
+                "authoring mutations require application/json",
+            ),
+        );
+    }
+    cors(
+        config,
+        request,
+        guarded(db_path, request, |req| {
+            let body = req.json_body();
+            let descriptor = match authoring_descriptor(kind, id, &body) {
+                Ok(value) => value,
+                Err((code, message)) => return error(400, code, message),
+            };
+            let digest = authoring_digest(&descriptor);
+            let confirm = body
+                .get("confirm")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !confirm {
+                return ApiResponse::json(
+                    200,
+                    json!({
+                        "preview": descriptor,
+                        "plan_digest": digest,
+                        "confirmation": {
+                            "requires": ["confirm", "plan_digest"],
+                            "note": "This preview writes nothing. To run the action, send `confirm: true` with this exact `plan_digest`; a changed or stale digest is refused.",
+                        },
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                );
+            }
+            let supplied = body
+                .get("plan_digest")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if supplied != digest {
+                return ApiResponse::json(
+                    409,
+                    json!({
+                        "error": {
+                            "code": "admin-digest-mismatch",
+                            "message": "the confirmed digest does not match this action's current preview; nothing was written. Review the refreshed preview and confirm its new digest.",
+                        },
+                        "preview": descriptor,
+                        "plan_digest": digest,
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                );
+            }
+            let now = Utc::now();
+            match kind {
+                Authoring::FeatureAdd => super::handle_add_feature(db_path, id, req, now),
+                Authoring::SpecGenerate => super::handle_generate_spec(db_path, id, req, now),
+            }
+        }),
+    )
 }
 
 /// One JSON-only, session-gated delivery mutation: a non-JSON content type

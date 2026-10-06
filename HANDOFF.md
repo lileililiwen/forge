@@ -6,7 +6,7 @@
 requirements were promoted into
 [openspec/specs/scaffold-prewires-shared-layer/spec.md](openspec/specs/scaffold-prewires-shared-layer/spec.md).
 
-**No active changes remain.** Both portal packages authored after the queue
+**No active changes remain.** The three portal packages authored after the queue
 closed are now implemented and archived, so `openspec list` reports none active
 and the `current_spec` pointer is removed. The seven earlier in-flight packages
 were consolidated into `runtime-hardening-and-contract-closure` and archived on
@@ -14,7 +14,7 @@ were consolidated into `runtime-hardening-and-contract-closure` and archived on
 `openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
 promoting 11 requirements and modifying 1 across five canonical specs. At that
 archive checkpoint, `openspec list` reported none active and the repository held
-71 archived changes and 63 canonical specs; the two portal packages above were
+71 archived changes and 63 canonical specs; the portal packages below were
 authored afterward.
 
 ### portal-browser-sign-in delivered and archived (2026-10-06)
@@ -81,6 +81,23 @@ file this change touches; the same pre-existing lints remain elsewhere. The
 browser harness requires `node`, the pinned `tests/browser/node_modules`
 install and a Chromium engine; when any is absent it reports `UNVERIFIED` and
 the markup contract layer remains the always-run evidence.
+
+### portal-login-entry-flow delivered and archived (2026-10-06)
+
+`portal-login-entry-flow` is implemented and archived as
+`openspec/changes/archive/2026-10-06-portal-login-entry-flow`, promoting the
+unauthenticated portal-entry behavior into `portal-web-ui`. Anonymous HTML
+requests to `/ui` now redirect to `/ui/sign-in`; that route renders a required
+project-id form and continues through the existing project-scoped OIDC flow.
+The form does not enumerate the registry or accept credentials.
+
+Evidence: `cargo test --test portal_ui_contract` (39 passed),
+`cargo test --test identity_contract` (19 passed),
+`cargo test --test api_contract` (11 passed; run outside the sandbox because
+the suite binds ephemeral loopback ports), `cargo fmt --check`, `cargo build`
+(0 errors; three pre-existing warnings), `openspec validate --all --strict
+--no-interactive` (64 passed), `node scripts/check-openspec-change-names.mjs`,
+and `git diff --check`.
 
 ### Fresh clones did not build
 

@@ -1,19 +1,29 @@
 # Forge handoff
 
-current_spec: forge-web-command-catalog
+current_spec: forge-web-project-workbench
 
 ## Current state
 
-`forge-web-project-fleet` is implemented, verified and archived as
+`forge-web-command-catalog` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-command-catalog`, promoting three
+`forge-web-command-catalog` requirements into a new canonical spec. Every
+top-level and nested Rust CLI command (225 rows, including `help`) is now
+discoverable through the authenticated `GET /v1/admin/commands` JSON endpoint
+and a searchable Commands section of the standalone frontend, each mapped to a
+truthful availability state (`web`, `cli_only`, `provider_required`,
+`project_capability_required`, `not_yet_web`) with plain-language guidance; no
+shell/eval route exists anywhere and Clap-tree parity is a hard test failure on
+drift. The next eligible change from `openspec list` and the roadmap is
+`forge-web-project-workbench`.
+
+Before that, `forge-web-project-fleet` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-web-project-fleet`, promoting three
 `forge-web-project-fleet` requirements into a new canonical spec. The dashboard's
 `GET /v1/admin/projects` now returns a normalized fleet envelope that combines the
 local registry, an explicitly selected portable inventory source and the workspace
 fleet observer, and always includes a guaranteed Forge-self record; the standalone
 `frontend/` renders the sources and per-project rows with honest
-healthy-empty/stale/malformed/unavailable/conflict states and no fake actions. The
-next eligible change from `openspec list` and the roadmap is
-`forge-web-command-catalog`.
+healthy-empty/stale/malformed/unavailable/conflict states and no fake actions.
 
 Before that, `forge-global-admin-portal` is implemented, verified and archived as
 `openspec/changes/archive/2026-10-06-forge-global-admin-portal`, promoting four
@@ -41,6 +51,75 @@ promoting 11 requirements and modifying 1 across five canonical specs. At that
 archive checkpoint, `openspec list` reported none active and the repository held
 71 archived changes and 63 canonical specs; the portal packages below were
 authored afterward.
+
+### forge-web-command-catalog delivered and archived (2026-10-06)
+
+`forge-web-command-catalog` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-06-forge-web-command-catalog`, promoting three
+`forge-web-command-catalog` requirements into a new canonical spec (3 added, 0
+modified). The complete CLI surface is now browser-discoverable as static
+metadata:
+
+- `src/api/command_catalog.rs` (new): typed rows
+  `{id,parent_id,label,summary,category,scope,risk,availability,route,cli_invocation,reason,capabilities}`
+  — 225 rows, one per Clap path (47 top-level + 138 second-level + 39
+  third-level) plus the explicit top-level `help` row clap only generates at
+  build time. IDs are Clap dot paths (`project.github.observe`); categories
+  are the nine derived groups; availability/risk/scope are closed vocabularies
+  enforced by `problems()`. Contract is versioned separately as
+  `forge-command-catalog/0.1.0`. Web availability is evidence-based: exactly
+  four rows (`list`, `fleet.list`, `fleet.status`, `inventory.show`) point at
+  the implemented `GET /v1/admin/projects`; every other row carries a
+  plain-language reason and next step (transports, native build/test, hidden
+  TTY input, local git, provider credentials and manual OIDC callbacks stay
+  `cli_only`/`provider_required`/`project_capability_required`; planned web
+  workflows are honestly `not_yet_web` tracked gaps, never "supported").
+  `disabled` is kept in the vocabulary but unused today.
+- `src/api/mod.rs` + `src/api/admin.rs`: `Route::AdminCommands` behind the
+  same global-session cookie gate and exact-origin CORS as the other admin
+  routes; `GET /v1/admin/commands` returns the envelope or 401/403/503 JSON.
+  POST → 405 via the existing alt-method rule. No shell/eval route exists or
+  is added anywhere; the catalog is descriptive and authorization stays with
+  each invoked operation.
+- `src/main.rs`: parity oracle `command_catalog_tests` walks the real
+  `Cli::command()` tree (plus `help`) and fails if the catalog and the CLI
+  ever drift — the enumeration cannot go stale silently.
+- `frontend/index.html`, `app.js`, `styles.css`: a Commands section with
+  literal search (search terms only — never shell input), category and state
+  filters, availability/risk badges rendered via `textContent`, the CLI
+  invocation shown as inert `<code>` guidance, an empty-result state and an
+  honest "Command catalog unavailable" state. No new files; the `forge web
+  serve` allowlist is unchanged.
+
+Evidence at archive (commands run, real output):
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; only the same three pre-existing warnings — none added) |
+| `cargo fmt --check` | clean |
+| `cargo test --bin forge command_catalog_tests` | **2 passed / 0 failed** (full Clap-tree set equality; `problems()` empty) |
+| `cargo test --lib api::command_catalog` | **4 passed / 0 failed** (integrity, 225-row count, web-route allowlist, id/parent shape) |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed / 0 failed** (anon 401 without data leak; hostile origin 403 with valid session; authenticated 200 envelope: unique ids, valid parents, reason on every non-web row, vocabulary closure, all 48 top-level names incl. `help`, nested spot checks, exactly 4 web rows; POST → 405; seven exec/shell/run-style paths → 404; shell-metacharacter query never echoed or applied; real-binary `forge --help`/`forge project --help`/`forge portfolio --help` name parity; frontend source contract: catalog fetch, textContent labels, no `eval(`, no markup in Rust) |
+| `cargo test --lib` (full) | **1204 passed / 0 failed / 1 ignored** (`generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain` ran and passed here, not skipped) |
+| `cargo test --test forge_admin_api_contract` / `forge_web_fleet_contract` / `identity_contract` / `portal_ui_contract` / `forge_portal_frontend_contract` | **4 / 11 / 19 / 39 / 5 passed, 0 failed** (compatibility intact) |
+| `cargo test --test api_contract` | **11 passed / 0 failed** on rerun (first run: 10/11 — `healthz` failed to bind an ephemeral loopback port, the documented sandbox flake, not a regression) |
+| live loopback round-trip | real `api serve` (18777) + `web serve` (18778) with a PTY-seeded admin: anonymous `GET /v1/admin/commands` → `401`; login → `200`; catalog → `200` with **225 rows / 9 categories / 4 web rows / reason on every non-web row**; POST → `405`; `/v1/admin/exec` → `404`; `/index.html` → `200`; smoke servers stopped afterwards; the pre-existing `api serve` on 8765 was left untouched |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate --all --strict --no-interactive` | **69 passed / 0 failed** (before and after archive) |
+| `git diff --check` | PASS |
+
+Honest scope of verification: catalog DOM rendering, filtering and the empty
+state are pinned by the frontend source contract and the live HTTP smoke, but
+were **not** exercised in an interactive headless browser here; that visual
+pass remains for the operator. Pre-existing conditions re-captured during this
+delivery (none added by it): `cargo clippy --all-targets -- -D warnings` still
+fails only on untouched files — `src/gate/evidence.rs` (5),
+`src/publish/fleet.rs` (2), `src/publish/mod.rs` (2), `src/api/ui/auth.rs` (2),
+`src/portfolio/share/validation.rs` (1) and `src/api/fleet.rs` (2) — with
+`command_catalog.rs` and its contract tests clippy-clean;
+`tests/artifact_baseline_contract.rs::reported_manifest_changelog_versions_agree`
+still fails pre-existing (5 passed / 1 failed). Per-user role filtering is
+deferred (single global administrator).
 
 ### forge-web-project-fleet delivered and archived (2026-10-06)
 

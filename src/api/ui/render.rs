@@ -904,6 +904,27 @@ pub fn operation_accepted(
 
 // --- sign-in / callback / sign-out pages --------------------------------
 
+/// Render the anonymous portal entry point. The operator supplies a project
+/// id so Forge does not disclose its registered project inventory before
+/// authentication; the existing sign-in route validates the submitted id and
+/// performs the configured OIDC round trip.
+pub fn sign_in_entry_page(title: &str, return_path: &str, contract: &str) -> String {
+    let body = html! {
+        h2 { "Choose a project to sign in" }
+        p { "Enter a registered project id. Forge will use that project's configured identity provider." }
+        form method="get" action="/ui/sign-in" {
+            input type="hidden" name="return" value=(return_path) {};
+            label for="project-id" { "Project id" }
+            input id="project-id" type="text" name="project" required="required" autocomplete="off" {};
+            button type="submit" { "Continue" }
+        }
+    };
+    let nav = html! {
+        a href="/healthz" { "API health" }
+    };
+    chrome(title, contract, "Sign in", nav, body).into_string()
+}
+
 /// Render the sign-in page. The page is rendered in two
 /// shapes: the issuing form on `GET /ui/sign-in?project=…`
 /// (a short page that links to the provider) and a

@@ -148,17 +148,13 @@ fn html_accept() -> BTreeMap<String, String> {
 }
 
 #[test]
-fn list_without_auth_returns_401_html() {
+fn list_without_auth_redirects_to_sign_in_entry() {
     let path = tmp_db_path();
-    seed_project(&path, "alethefy", "rust-web", "L3");
     let config = ApiConfig::default();
     let req = make_request("GET", "/ui", html_accept(), None, Vec::new());
     let resp = drive(&config, &path, &req);
-    assert_eq!(resp.status, 401);
-    let body = String::from_utf8_lossy(&resp.body);
-    assert!(body.contains("api-unauthorized"));
-    // Never leaks a JSON envelope to the browser.
-    assert!(!body.starts_with("{"));
+    assert_eq!(resp.status, 303);
+    assert_eq!(location(&resp), "/ui/sign-in?return=%2Fui");
 }
 
 #[test]
@@ -590,14 +586,15 @@ fn sign_in_unknown_project_returns_404() {
 }
 
 #[test]
-fn sign_in_without_project_param_returns_400() {
+fn sign_in_without_project_param_renders_entry_form() {
     let path = tmp_db_path();
     let config = config_with_verifier(Arc::new(FakeBrowserAuthVerifier::new()));
     let req = make_request_with_query("GET", "/ui/sign-in", None, html_accept(), Vec::new());
     let resp = drive(&config, &path, &req);
-    assert_eq!(resp.status, 400);
+    assert_eq!(resp.status, 200);
     let body = String::from_utf8_lossy(&resp.body);
-    assert!(body.contains("ui-sign-in-missing-project"));
+    assert!(body.contains("name=\"project\""));
+    assert!(body.contains("required"));
 }
 
 #[test]
@@ -1100,8 +1097,8 @@ fn query_token_in_url_is_rejected() {
     let config = ApiConfig::default();
     // The legacy `?token=` escape hatch is removed. A
     // request that supplies it without an `Authorization:`
-    // header or a `forge_session` cookie must be refused
-    // as if no credential was supplied.
+    // header or a `forge_session` cookie must enter the normal
+    // sign-in flow; the credential must not be reflected or used.
     let req = make_request_with_query(
         "GET",
         "/ui",
@@ -1110,9 +1107,9 @@ fn query_token_in_url_is_rejected() {
         Vec::new(),
     );
     let resp = drive(&config, &path, &req);
-    assert_eq!(resp.status, 401);
-    let body = String::from_utf8_lossy(&resp.body);
-    assert!(body.contains("api-unauthorized"));
+    assert_eq!(resp.status, 303);
+    assert_eq!(location(&resp), "/ui/sign-in?return=%2Fui");
+    assert!(!location(&resp).contains("cafebabe"));
 }
 
 fn extract_query_value(url: &str, key: &str) -> Option<String> {
@@ -1377,17 +1374,17 @@ fn studio_page_uses_the_accessible_shell() {
 }
 
 #[test]
-fn error_page_uses_the_accessible_shell() {
+fn sign_in_entry_form_uses_the_accessible_shell() {
     let path = tmp_db_path();
-    seed_project(&path, "alethefy", "rust-web", "L3");
     let config = ApiConfig::default();
-    let req = make_request("GET", "/ui", html_accept(), None, Vec::new());
+    let req = make_request("GET", "/ui/sign-in", html_accept(), None, Vec::new());
     let resp = drive(&config, &path, &req);
-    assert_eq!(resp.status, 401);
+    assert_eq!(resp.status, 200);
     let body = String::from_utf8_lossy(&resp.body);
     assert_document_shell(&body);
-    assert!(body.contains("Sign in required"));
-    assert!(body.contains("api-unauthorized"));
+    assert!(body.contains("name=\"project\""));
+    assert!(body.contains("required"));
+    assert!(body.contains("action=\"/ui/sign-in\""));
 }
 
 #[test]

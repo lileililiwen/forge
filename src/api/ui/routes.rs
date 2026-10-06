@@ -232,7 +232,14 @@ pub fn handle_fleet(db_path: &Path, _config: &ApiConfig, request: &ApiRequest) -
     }
     let token = match extract_token(request) {
         Some(t) => t,
-        None => return require_token(None).unwrap(),
+        None => {
+            let mut response = html_response(303, String::new());
+            response.headers.insert(
+                "location".to_string(),
+                "/ui/sign-in?return=%2Fui".to_string(),
+            );
+            return response;
+        }
     };
     if let Some(resp) = require_token(Some(&token)) {
         return resp;
@@ -589,16 +596,12 @@ pub fn handle_sign_in(db_path: &Path, config: &ApiConfig, request: &ApiRequest) 
     if !wants_html(request) {
         return json_only_response();
     }
-    let project_id = match parse_query_project_id(request.query.as_deref()) {
-        Some(id) => id,
-        None => {
-            return render_error(
-                400,
-                "ui-sign-in-missing-project",
-                "sign-in requires a `project` query parameter naming a registered project",
-                ErrorKind::Auth,
-            );
-        }
+    let Some(project_id) = parse_query_project_id(request.query.as_deref()) else {
+        let return_path = safe_return_path(request.query.as_deref(), "/ui");
+        return html_response(
+            200,
+            super::render::sign_in_entry_page("Forge sign-in", &return_path, API_CONTRACT_VERSION),
+        );
     };
     if let Err(err) = validate_project_id(&project_id) {
         return render_error(

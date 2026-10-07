@@ -2,6 +2,60 @@
 
 ## Current state
 
+### forge-web-publish-fleet delivered and archived (2026-10-07)
+
+`forge-web-publish-fleet` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-publish-fleet`, adding one
+requirement to the canonical `forge-web-project-fleet` spec. The web fleet
+now projects the **local publish journal**, so the projects the operator
+ships to the Mac server but never registered locally appear in the portal's
+project list instead of being silently absent. This is tier 1 of the
+operator's three-part gap report ("the project list is wrong", "i can still
+not manage project", "find the project status"); tiers 2 and 3
+(`forge-web-project-management`, `forge-web-project-status`) remain
+unstarted.
+
+The change is a pure read + aggregation extension, no new mutation,
+subprocess, network or credential surface:
+
+- `src/registry/mod.rs`: new `PublishedOperation` + bounded
+  `Registry::latest_publishes(limit)` — one `GROUP BY project_id` over
+  `kind IN ('publish','publish.github')` selecting each project's newest
+  `op_id`, ordered newest-first with a `LIMIT`. Legacy rows with `NULL`
+  phase columns project as absent, never guessed.
+- `src/api/fleet.rs`: new `RowSource::Published` / `PublishProjection`; a
+  `publish: Option<PublishProjection>` field on `CandidateRow`; a
+  `redact_local_paths` copy (mirroring the workbench discipline) plus
+  `crate::policy::redact_credentials` on every `detail`; `parse_healthy` /
+  `parse_stages` for the `healthy=`/`stages=` tokens; `read_published`
+  honours `FORGE_PUBLISH_HISTORY` (default **on**; `0`/`false`/`off`
+  disables) and `FORGE_PUBLISH_HISTORY_LIMIT` (default 200, clamped
+  `1..=1000`). A published id that is already registered (or the self id)
+  is **merged** into its managed row, so no false identity conflict is
+  introduced and the row keeps `inspect`; only published-only ids become
+  new `observed` rows. `WEB_FLEET_CONTRACT_VERSION` bumped
+  `forge-web-fleet/0.1.0` → `0.2.0`; `summary.by_source` gains `published`.
+- `frontend/app.js` + `frontend/index.html`: a `Published (Mac)` source
+  label, badge, and filter option, plus a publish chip on the row
+  (state + health; run id / revision / stages / redacted detail in the
+  tooltip). No bespoke control; the renderer stays catalog-driven.
+
+New `tests/forge_web_publish_fleet_contract.rs` (7 tests) drives the real
+`handle()` against a throwaway registry seeded through the public registry
+API (`record_publish_phase`): empty-journal available/0; published-only
+observed row with no capability; registered+published stays managed and
+merged with `inspect` retained and no conflict; newest publish wins;
+`FORGE_PUBLISH_HISTORY=0` reports unconfigured and contributes nothing;
+`detail` absolute paths become `[local path]`; anonymous is 401 with no
+rows. `forge_web_fleet_contract` (11) stays green because its fixtures
+write no publish operations.
+
+Live smoke against a **copy** of the operator's real registry (never the
+original): the copy's 3,109 publish rows / 25 distinct projects projected
+to 25 observed rows with their latest `done`/`failed` state and
+`healthy`/`stages`, the `published` source reported `available, count 25`,
+and zero `/home/`, `/Users/`, or temp paths in the response.
+
 ### forge-web-project-deployment delivered and archived (2026-10-07)
 
 `forge-web-project-deployment` is implemented, verified and archived as

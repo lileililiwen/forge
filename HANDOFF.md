@@ -1,5 +1,42 @@
 # Handoff
 
+current_spec: none
+
+## Current: public-static-nuget-feed (COMPLETE, archived 2026-10-07)
+
+`Platform.*` IDs remain unchanged. Releases now build an immutable Sleet NuGet
+v3 tree on the persistent `gh-pages` branch and deploy it through GitHub Pages;
+consumers map `Platform.*` to the anonymous platform endpoint and everything
+else to NuGet.org. No consumer PAT, GitHub Packages credential, sibling checkout
+or committed local path is part of restore. Unpublished work uses a unique
+prerelease from the user's `platform-local` source. Commit: `fd1a918`.
+
+Legacy consumers have an idempotent check/apply migration that centralizes the
+exact version, installs the canonical mapping, and removes recognized
+`PlatformAsSource` project-reference branches. The retained source bootstrap is
+compatibility-only. `dotnet-platform-adoption` now enforces the same package-only
+boundary for agents.
+
+**Verification:** `scripts/quality-gate.sh` passed after repairing three stale
+CI blockers (locale-dependent API ordering, archived UI path/package count, and
+a lost-signal race in the Hangfire test); Hangfire 69/69 and architecture
+376/376. Consumer conformance passed including package restore/build and legacy
+fixtures. Audit reported `AUDIT_STATUS=VERIFIED`. Seven focused Python tests
+passed, including real NuGet restore with merged repository/user mappings.
+Sleet push/validate passed against a generated local static feed. OpenSpec strict
+validation passed for all 56 specs; `git diff --check` was clean.
+
+**External verification still required:** enable **Pages -> Source -> GitHub
+Actions**, push these commits, and manually dispatch `platform-release` with an
+unused SemVer. Until that run succeeds, the public endpoint is configured but
+not claimed live.
+
+**Next:** update Forge's new-project generator in its own OpenSpec change so new
+.NET projects receive `eng/consumer/NuGet.config` semantics and one exact
+`PlatformPackageVersion`; migrate legacy product repositories individually and
+verify each without its user-level local source. `driftwatch.toml` remains
+untracked and untouched.
+
 ## Current: platform-shared-auth-pages (COMPLETE, archived 2026-10-06)
 
 New `ui/packages/react-auth` composing the existing `Field`/`Button`/`Card`/`State`

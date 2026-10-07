@@ -16,10 +16,6 @@ use std::process::{Child, Command, Stdio};
 
 const EMAIL: &str = "operator@example.test";
 const PASSWORD: &str = "a-long-test-password";
-const DIR_ONE: &str = "alpha-proj";
-const DIR_TWO: &str = "beta-app";
-const ID_ONE: &str = "alpha-proj";
-const ID_TWO: &str = "beta-app";
 
 fn forge_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_forge"))
@@ -88,23 +84,36 @@ fn dashboard_onboards_workspace_siblings_in_chromium() {
     forge::identity::global::setup(&db, EMAIL, PASSWORD).expect("admin setup");
 
     let root = dir.path().join("workspace");
-    let alpha = root.join(DIR_ONE);
-    std::fs::create_dir_all(&alpha).expect("alpha dir");
-    std::fs::write(
-        alpha.join("forge.yaml"),
-        format!(
-            "schema: 1\nproject:\n  id: {ID_ONE}\n  name: Browser {ID_ONE}\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nfeatures: {{}}\n"
-        ),
-    )
-    .expect("manifest");
-    let beta = root.join(DIR_TWO);
-    std::fs::create_dir_all(beta.join("src")).expect("beta dir");
-    std::fs::write(
-        beta.join("Cargo.toml"),
-        "[package]\nname = \"beta-app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .expect("cargo manifest");
-    std::fs::write(beta.join("src").join("main.rs"), "fn main() {}\n").expect("main");
+    // 27 onboardable siblings: 25 importable Cargo projects (first chunk)
+    // plus 2 manifest projects (second chunk with the 25-item server cap).
+    let mut dirs: Vec<String> = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    for index in 0..25 {
+        let name = format!("wsub{index:02}");
+        let proj = root.join(&name);
+        std::fs::create_dir_all(proj.join("src")).expect("cargo dir");
+        std::fs::write(
+            proj.join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        )
+        .expect("cargo manifest");
+        std::fs::write(proj.join("src").join("main.rs"), "fn main() {}\n").expect("main");
+        dirs.push(name.clone());
+        ids.push(name);
+    }
+    for name in ["mman-a", "mman-b"] {
+        let proj = root.join(name);
+        std::fs::create_dir_all(&proj).expect("manifest dir");
+        std::fs::write(
+            proj.join("forge.yaml"),
+            format!(
+                "schema: 1\nproject:\n  id: {name}\n  name: Browser {name}\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nfeatures: {{}}\n"
+            ),
+        )
+        .expect("manifest");
+        dirs.push(name.to_string());
+        ids.push(name.to_string());
+    }
 
     let api_port = free_port();
     let web_port = free_port();
@@ -172,10 +181,8 @@ fn dashboard_onboards_workspace_siblings_in_chromium() {
         .arg(&web_origin)
         .arg(EMAIL)
         .arg(PASSWORD)
-        .arg(DIR_ONE)
-        .arg(DIR_TWO)
-        .arg(ID_ONE)
-        .arg(ID_TWO)
+        .arg(dirs.join(","))
+        .arg(ids.join(","))
         .arg(dir.path())
         .output()
         .expect("spawn browser harness");

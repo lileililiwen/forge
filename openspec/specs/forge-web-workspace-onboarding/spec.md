@@ -1,7 +1,7 @@
 # forge-web-workspace-onboarding Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-workspace-onboarding. Update Purpose after archive.
+Dynamic browser onboarding of workspace sibling projects: live read-only candidate discovery over the operator-configured root plus bulk preview/confirm/digest-bound import and registration with honest per-item results.
 ## Requirements
 ### Requirement: Live candidate discovery without host coupling
 

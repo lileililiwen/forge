@@ -3,24 +3,26 @@
 //
 // Usage:
 //   node workspace-onboarding-check.mjs <web-base> <email> <password> \
-//     <dir-one> <dir-two> <id-one> <id-two> <fixture-root>
+//     <dirs-csv> <ids-csv> <fixture-root>
 //
-// The harness signs in through the shipped login page, opens the workspace
-// onboarding panel, discovers the two fixture directories, selects and
-// previews them, confirms the batch, then reloads and verifies both projects
-// appear in the fleet. It also checks keyboard entry, measured text contrast
-// on the onboarding panel, and that the absolute fixture root is never
-// rendered.
+// The harness signs in through the shipped login page, expects the onboarding
+// table to populate itself, selects everything, previews (one combined plan
+// with one digest per 25-item chunk), confirms once, then reloads and
+// verifies the new projects appear in the fleet. It also checks dashboard
+// section order, keyboard entry, measured text contrast, and that the
+// absolute fixture root is never rendered.
 //
 // Exit codes: 0 verified, 1 a check failed, 2 Playwright or a browser engine
 // is unavailable (`UNVERIFIED`). The Rust caller reports exit 2 as
 // UNVERIFIED, never a pass.
 
-const [webBase, email, password, dirOne, dirTwo, idOne, idTwo, fixtureRoot] =
+const [webBase, email, password, dirsCsv, idsCsv, fixtureRoot] =
   process.argv.slice(2);
+const dirs = (dirsCsv || '').split(',').filter(Boolean);
+const ids = (idsCsv || '').split(',').filter(Boolean);
 
-if (!webBase || !email || !password || !dirOne || !dirTwo || !idOne || !idTwo || !fixtureRoot) {
-  console.error('usage: workspace-onboarding-check.mjs <web-base> <email> <password> <dir-one> <dir-two> <id-one> <id-two> <fixture-root>');
+if (!webBase || !email || !password || !dirs.length || !ids.length || !fixtureRoot) {
+  console.error('usage: workspace-onboarding-check.mjs <web-base> <email> <password> <dirs-csv> <ids-csv> <fixture-root>');
   process.exit(2);
 }
 
@@ -75,13 +77,29 @@ try {
   await page.waitForURL('**/index.html', { timeout: 30000 });
   note('signed in');
 
-  await page.getByRole('button', { name: 'Discover workspace' }).click();
+  // Dashboard order: work comes before reference.
+  const positions = await page.evaluate(() => {
+    const out = {};
+    for (const id of ['workbench-title', 'management-title', 'commands-title']) {
+      const el = document.getElementById(id);
+      out[id] = el ? el.getBoundingClientRect().top : -1;
+    }
+    return out;
+  });
+  if (!(positions['workbench-title'] < positions['management-title'] && positions['management-title'] < positions['commands-title'])) {
+    fail(`dashboard order is not workbench < management < commands: ${JSON.stringify(positions)}`);
+  }
+  note('order ok');
+
+  // Auto-discovery: no Discover click. The table populates itself.
   const rows = page.locator('#ws-rows tr');
   await rows.first().waitFor({ timeout: 30000 });
   const tableText = await page.locator('#ws-rows').innerText();
-  for (const dir of [dirOne, dirTwo]) {
-    if (!tableText.includes(dir)) fail(`discovery did not list ${dir}: ${tableText}`);
+  for (const dir of dirs) {
+    if (!tableText.includes(dir)) fail(`auto-discovery did not list ${dir}: ${tableText}`);
   }
+  const hint = await page.locator('#ws-fleet-hint').innerText();
+  if (!hint.includes('not yet onboarded')) fail(`fleet hint missing: ${hint}`);
   note('discovered');
 
   // Keyboard-driven preview: focus the preview control and activate it.
@@ -90,28 +108,31 @@ try {
   await previewBtn.focus();
   await page.keyboard.press('Enter');
   const preview = page.locator('#ws-preview-result');
-  await preview.getByText('Action digest:', { exact: false }).waitFor({ timeout: 30000 });
+  await preview.getByText('Batch 1 digest:', { exact: false }).waitFor({ timeout: 30000 });
+  await preview.getByText('Batch 2 digest:', { exact: false }).waitFor({ timeout: 30000 });
   const previewText = await preview.innerText();
-  for (const id of [idOne, idTwo]) {
-    if (!previewText.includes(id)) fail(`preview did not plan ${id}: ${previewText}`);
+  for (const id of ids) {
+    if (!previewText.includes(id)) fail(`preview did not plan ${id}`);
   }
+  const planLines = await preview.locator('li').count();
+  if (planLines !== dirs.length) fail(`preview shows ${planLines} plans for ${dirs.length} dirs`);
   note('previewed');
 
   await page.locator('#ws-confirm').check();
   await page.getByRole('button', { name: 'Run confirmed onboarding' }).click();
   const result = page.locator('#ws-apply-result');
-  await result.getByText('Onboarded 2 of 2', { exact: false }).waitFor({ timeout: 30000 });
+  await result.getByText(`Onboarded ${dirs.length} of ${dirs.length}`, { exact: false }).waitFor({ timeout: 60000 });
   note('applied');
 
   await page.getByRole('button', { name: 'Reload project list' }).click();
   await page.waitForLoadState('networkidle', { timeout: 30000 });
   const fleet = page.locator('#project-rows');
-  await fleet.getByText(idOne, { exact: false }).waitFor({ timeout: 30000 });
+  await fleet.getByText(ids[0], { exact: false }).waitFor({ timeout: 30000 });
   const fleetText = await fleet.innerText();
-  for (const id of [idOne, idTwo]) {
+  for (const id of ids) {
     if (!fleetText.includes(id)) fail(`fleet does not list ${id} after reload`);
   }
-  note('fleet lists both');
+  note('fleet lists all');
 
   const bodyText = await page.locator('#main-content').innerText();
   if (bodyText.includes(fixtureRoot)) {

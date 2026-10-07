@@ -111,6 +111,30 @@ fn workbench_has_a_delivery_status_card_with_next_confirmation() {
 }
 
 #[test]
+fn dashboard_orders_work_before_reference_with_live_onboarding() {
+    let index = read("frontend/index.html");
+    let app = read("frontend/app.js");
+    let pos = |id: &str| index.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(
+        pos("workbench-title") < pos("management-title")
+            && pos("management-title") < pos("commands-title"),
+        "dashboard order must be workbench < management < commands"
+    );
+    assert!(
+        index.contains("id=\"ws-fleet-hint\""),
+        "unonboarded count line"
+    );
+    assert!(
+        app.contains("wsDiscover();") && app.contains("not yet onboarded"),
+        "discovery auto-runs and reports the unonboarded count"
+    );
+    assert!(
+        app.contains("WS_CHUNK = 25"),
+        "chunked one-confirm onboarding bound to the server batch cap"
+    );
+}
+
+#[test]
 fn management_has_a_workspace_onboarding_panel() {
     let index = read("frontend/index.html");
     let app = read("frontend/app.js");

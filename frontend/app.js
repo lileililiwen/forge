@@ -793,7 +793,8 @@
   // request, so an expanding workspace needs no other change. Selection is
   // previewed as one digest-bound batch, then confirmed; per-item results
   // are reported honestly and the fleet is reloaded on demand.
-  const ws = { candidates: [], digest: null, payload: null };
+  const WS_CHUNK = 25;
+  const ws = { candidates: [], digests: null, payload: null };
 
   function wsNotice(message) {
     const box = document.getElementById("ws-notice");
@@ -835,9 +836,26 @@
     document.getElementById("ws-preview").disabled = !chosen;
   }
 
+  function renderWsFleetHint(candidates) {
+    const hint = document.getElementById("ws-fleet-hint");
+    if (!hint) return;
+    if (!candidates) { hint.hidden = true; hint.replaceChildren(); return; }
+    const onboardable = candidates.filter((c) => c.selectable).length;
+    hint.replaceChildren();
+    if (!onboardable) { hint.hidden = true; return; }
+    hint.hidden = false;
+    hint.append(
+      document.createTextNode(`${onboardable} of ${candidates.length} workspace directories are not yet onboarded — `),
+    );
+    const link = document.createElement("a");
+    link.href = "#management";
+    link.textContent = "open Workspace onboarding";
+    hint.append(link);
+  }
+
   async function wsDiscover() {
     wsClear();
-    ws.digest = null; ws.payload = null;
+    ws.digests = null; ws.payload = null;
     document.getElementById("ws-preview-result").hidden = true;
     document.getElementById("ws-confirm-wrap").hidden = true;
     document.getElementById("ws-confirm").checked = false;
@@ -847,8 +865,9 @@
     try {
       data = await request("/v1/admin/workspace/candidates?limit=100", { headers: { Accept: "application/json" } });
     } catch (err) {
+      renderWsFleetHint(null);
       if (err && err.status === 409) {
-        wsError(`${err.message} Set FORGE_ADMIN_PROJECTS_ROOT in the API server environment and restart it; see README “Running the web portal”.`);
+        wsNotice("Workspace onboarding needs FORGE_ADMIN_PROJECTS_ROOT set in the API server environment — see README “Running the web portal”. Single-project controls above keep working.");
       } else {
         wsError(err.message || "Workspace discovery is unavailable right now.");
       }
@@ -901,6 +920,7 @@
     document.getElementById("ws-table-wrap").hidden = ws.candidates.length === 0;
     document.getElementById("ws-empty").hidden = ws.candidates.length > 0;
     wsNotice(`Found ${ws.candidates.length} directories (${onboardable} onboardable) of ${data.total} total. New siblings appear here on Refresh.`);
+    renderWsFleetHint(ws.candidates);
     wsRefreshButtons();
   }
 
@@ -911,74 +931,84 @@
     wsRefreshButtons();
   }
 
-  async function wsPreview() {
-    wsClear();
-    const items = wsSelected();
-    if (!items.length) { wsError("Tick at least one onboardable directory first."); return; }
-    if (items.length > 25) { wsError("Select at most 25 directories per batch; repeat the flow for the rest."); return; }
-    const { status, ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
+  async function wsPostChunk(items) {
+    return requestStatus("/v1/admin/workspace/onboard", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ items }),
     });
+  }
+
+  async function wsPreview() {
+    wsClear();
+    const items = wsSelected();
+    if (!items.length) { wsError("Tick at least one onboardable directory first."); return; }
+    const chunks = [];
+    for (let i = 0; i < items.length; i += WS_CHUNK) chunks.push(items.slice(i, i + WS_CHUNK));
     const box = document.getElementById("ws-preview-result");
     box.replaceChildren(); box.hidden = false;
-    if (!ok) {
-      const head = el("p", "wb-plan-head", (body && body.error && body.error.message) || "The selection was refused. Nothing was written.");
-      box.append(head);
-      ws.digest = null; ws.payload = null;
-      document.getElementById("ws-run").disabled = true;
-      return;
-    }
-    const head = el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to onboard exactly this selection.");
-    box.append(head);
+    box.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to onboard exactly this selection."));
     const list = el("ul", "wb-plan-steps");
-    for (const plan of body.preview || []) {
-      const line = plan.blocked
-        ? `${plan.directory}: BLOCKED — ${plan.blocked}`
-        : `${plan.directory}: ${plan.action} as ${plan.id} (${plan.profile})`;
-      list.append(el("li", null, line));
-    }
     box.append(list);
-    box.append(el("p", "wb-digest", `Action digest: ${body.plan_digest}`));
-    ws.digest = body.plan_digest;
-    ws.payload = { items };
+    const digests = [];
+    for (const [index, chunk] of chunks.entries()) {
+      const { ok, body } = await wsPostChunk(chunk);
+      if (!ok) {
+        box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || `Batch ${index + 1} was refused. Nothing was written.`));
+        ws.digests = null; ws.payload = null;
+        document.getElementById("ws-run").disabled = true;
+        return;
+      }
+      for (const plan of body.preview || []) {
+        const line = plan.blocked
+          ? `${plan.directory}: BLOCKED — ${plan.blocked}`
+          : `${plan.directory}: ${plan.action} as ${plan.id} (${plan.profile})`;
+        list.append(el("li", null, line));
+      }
+      box.append(el("p", "wb-digest", `Batch ${index + 1} digest: ${body.plan_digest}`));
+      digests.push({ items: chunk, digest: body.plan_digest });
+    }
+    ws.digests = digests;
+    ws.payload = { chunks: digests.map((d) => d.items) };
     document.getElementById("ws-confirm-wrap").hidden = false;
     document.getElementById("ws-run").disabled = false;
   }
 
   async function wsRun() {
     wsClear();
-    if (!ws.payload || !ws.digest) { wsError("Preview the selection before running."); return; }
+    if (!ws.payload || !ws.digests || !ws.digests.length) { wsError("Preview the selection before running."); return; }
     if (!document.getElementById("ws-confirm").checked) { wsError("Tick the confirmation box — this writes manifests and registry rows."); return; }
     document.getElementById("ws-run").disabled = true;
-    const { status, ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ ...ws.payload, confirm: true, plan_digest: ws.digest }),
-    });
-    document.getElementById("ws-run").disabled = false;
     const box = document.getElementById("ws-apply-result");
     box.replaceChildren(); box.hidden = false;
-    if (!ok && !(body && body.results)) {
-      box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "Onboarding was refused. Nothing was written."));
-      if (body && body.preview && body.plan_digest) {
-        ws.digest = body.plan_digest;
-        box.append(el("p", "muted", "The selection changed: review the refreshed preview and confirm again."));
-      }
-      return;
-    }
-    const succeeded = body.succeeded ?? 0;
-    const failed = body.failed ?? 0;
-    box.append(el("p", "wb-plan-head", `Onboarded ${succeeded} of ${succeeded + failed} selected directories${failed ? ` — ${failed} failed, see below` : ""}.`));
+    let succeeded = 0;
+    let failed = 0;
     const list = el("ul", "wb-plan-steps");
-    for (const result of body.results || []) {
-      list.append(el("li", null, result.ok
-        ? `${result.directory}: onboarded as ${result.id}`
-        : `${result.directory}: FAILED (${(result.code || "error")}) — ${result.message || "see journal"}`));
-    }
     box.append(list);
-    ws.digest = null; ws.payload = null;
+    for (const [index, chunk] of ws.digests.entries()) {
+      const { ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ items: chunk.items, confirm: true, plan_digest: chunk.digest }),
+      });
+      if (!ok && !(body && body.results)) {
+        list.append(el("li", null, `Batch ${index + 1} refused: ${(body && body.error && body.error.message) || "nothing was written."}`));
+        if (body && body.preview && body.plan_digest) {
+          list.append(el("li", null, "The selection changed: review a refreshed preview and confirm again."));
+        }
+        failed += chunk.items.length;
+        break;
+      }
+      for (const result of body.results || []) {
+        list.append(el("li", null, result.ok
+          ? `${result.directory}: onboarded as ${result.id}`
+          : `${result.directory}: FAILED (${(result.code || "error")}) — ${result.message || "see journal"}`));
+      }
+      succeeded += body.succeeded ?? 0;
+      failed += body.failed ?? 0;
+    }
+    box.prepend(el("p", "wb-plan-head", `Onboarded ${succeeded} of ${succeeded + failed} selected directories${failed ? ` — ${failed} failed, see above` : ""}.`));
+    ws.digests = null; ws.payload = null;
     document.getElementById("ws-confirm").checked = false;
     document.getElementById("ws-confirm-wrap").hidden = true;
     document.getElementById("ws-reload").hidden = false;
@@ -1772,6 +1802,7 @@
       initPortfolio();
       initDelivery(projects);
       initWorkspaceOnboarding();
+      wsDiscover();
       const refresh = () => renderProjects(projects);
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);

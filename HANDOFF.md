@@ -2,6 +2,41 @@
 
 ## Current state
 
+### forge-web-human-dashboard delivered and archived (2026-10-07)
+
+`forge-web-human-dashboard` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-human-dashboard`,
+creating the `forge-web-human-dashboard` spec (three requirements). The
+dashboard now speaks human: fleet rows lead with display names and one
+plain status line (no source/lifecycle/access/evidence code columns);
+previews, results and confirmations read as sentences with no rendered
+hashes, digests, op-ids or full revisions (values stay in JS state and
+wire bodies; staged delivery confirmations arrive pre-filled); failures
+are plain instructions with a next step; onboarding success re-fetches
+the fleet in place with results still visible. The visual system is one
+dark command-center theme meeting WCAG 2.2 AA (browser contrast checks
+green). Routes, codes, statuses, digests, journals and catalog rows are
+unchanged.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` / `cargo build` / `git diff --check` | clean / 0 errors / clean |
+| portal frontend (new readability/token/no-hash/in-place tests) | **12 passed / 0 failed** |
+| delivery browser (prefill rewrite, real Chromium) | **1 passed / 0 failed** |
+| management / onboarding contract / onboarding browser | **9 / 10 / 1 passed, 0 failed** |
+| portal UI / fleet / admin API | **39 / 11 / 4 passed, 0 failed** |
+| `lib api::` | **49 passed / 0 failed** |
+| `check-openspec-change-names` | PASS |
+| `openspec validate --all --strict` | **81 passed / 0 failed** |
+| `openspec archive` | archived as `2026-10-07-forge-web-human-dashboard`, canonical create (+3), no `--skip-specs` |
+| `forge gate` (mandatory local run) | **BLOCKED baseline-identical** — 14 governance errors with 0 attributable (evidence-store run 10), size 50/119 unchanged, 2 environmental unresolved |
+| `openspec list` | only parked `forge-workspace-sync` remains (proposal/design/tasks/spec authored, unimplemented) |
+
+Implementation commit: `17e923f`. Nothing pushed. No `current_spec`
+pointer remains because no change is actively being worked.
+
 ### forge-web-command-workflows delivered and archived (2026-10-07)
 
 `forge-web-command-workflows` is implemented, verified and archived as

@@ -30,6 +30,12 @@
 .wb-confirm{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:11px;color:#38445c}
 .wb-confirm input{width:15px;height:15px}
 .wb-plan-result{margin-top:12px;padding:12px 14px;border:1px solid #dce6ff;border-radius:9px;background:#f2f6ff;font-size:11px;color:#354979;line-height:1.6}
+.wb-actions-list{display:flex;flex-direction:column;gap:14px}
+.wb-action-card{border:1px solid #dce6ff;border-radius:10px;background:#fff;padding:14px 16px}
+.wb-action-title{margin:0 0 4px;font-size:13px}
+.wb-action-card .wb-plan-tools{margin-top:10px}
+.wb-action-card input[type=text]{min-width:180px}
+.wb-action-card input[type=checkbox]{width:15px;height:15px}
 .wb-plan-head{margin:0 0 8px;font-weight:700}
 .wb-plan-steps{margin:0;padding-left:18px}
 .wb-digest{margin:10px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;color:#505a70;word-break:break-all}

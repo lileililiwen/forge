@@ -251,6 +251,10 @@
     return request("/v1/admin/commands", { headers: { Accept: "application/json" } })
       .then((data) => {
         const commands = data.commands || [];
+        // Keep the executable rows (those carrying an `execution` block)
+        // available to the workbench so it can render a runnable control
+        // per row generically, straight from the catalog contract.
+        catalogCommands = commands;
         const select = document.getElementById("category-filter");
         for (const category of data.categories || []) {
           const option = document.createElement("option");
@@ -263,6 +267,7 @@
         document.getElementById("category-filter").addEventListener("change", refresh);
         document.getElementById("availability-filter").addEventListener("change", refresh);
         refresh();
+        if (workbench.id) renderProjectActions();
       })
       .catch(() => showCommandsError("Command catalog unavailable. Start the Forge API and reload; every CLI command stays discoverable in the terminal meanwhile."));
   }
@@ -278,6 +283,10 @@
   const HEALTH_LABELS = { healthy: "Healthy", stale: "Stale", issues: "Has issues", unavailable: "Unavailable" };
   const HEALTH_BADGE = { healthy: "state-done", stale: "state-stale", issues: "state-failed", unavailable: "state-observed" };
   const workbench = { id: null, digest: null, idempotencyKey: null };
+  // The catalog rows fetched once by `loadCommands`; the workbench renders a
+  // runnable confirm-gated control for every row that carries an `execution`
+  // block, so the inventory itself — not a hard-wired widget — is actionable.
+  let catalogCommands = [];
 
   function managedProjects(projects) {
     return projects.filter((project) => project.management === "managed" || project.management === "self");
@@ -409,7 +418,7 @@
   async function loadWorkbenchDetail(id) {
     clearWorkbenchNotice();
     resetPlanState();
-    resetAuthoring();
+    resetProjectActions();
     let data;
     try {
       data = await request(`/v1/admin/projects/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } });
@@ -427,6 +436,7 @@
     renderWorkflows(data.workflows || []);
     renderOperations(data.operations || []);
     populateFeatures(data.manifest || {});
+    renderProjectActions();
     document.getElementById("workbench-title").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -541,147 +551,193 @@
     renderApplyError(body, status);
   }
 
-  // ---- Authoring actions (feature add / spec generate)
-  // These run the typed, session-gated Core handlers behind
-  // `POST /v1/admin/projects/{id}/feature` and `/spec`. The two-step
-  // preview-then-confirm flow mirrors the upgrade workflow: a preview returns
-  // a path-free descriptor and its digest and writes nothing; the confirmed
-  // run sends `confirm: true` with that exact digest and delegates to the same
-  // in-process handler the CLI uses. Only structured fields are sent — the
-  // browser never composes a command or a path.
-  const authoring = { digest: null, kind: null, payload: null, idempotencyKey: null };
-
-  function resetAuthoring() {
-    authoring.digest = null;
-    authoring.kind = null;
-    authoring.payload = null;
-    authoring.idempotencyKey = null;
-    document.getElementById("aw-result").hidden = true;
-    document.getElementById("aw-result").replaceChildren();
-    document.getElementById("aw-confirm-wrap").hidden = true;
-    document.getElementById("aw-confirm").checked = false;
-    document.getElementById("aw-confirm-run").disabled = true;
+  // ---- Project lifecycle actions (generic, catalog-driven)
+  //
+  // Every executable catalog row — a `web` row whose `execution` block declares
+  // a typed admin route and its parameter schema — renders a runnable
+  // preview→confirm→apply control here, generated from the catalog rather than
+  // a hard-wired per-command widget. The control builds one typed field per
+  // declared parameter, so the browser can never send a shell command, argv
+  // vector or filesystem path. The two-step flow mirrors the shipped
+  // `feature add` gate: a preview returns a path-free descriptor plus its
+  // digest and writes nothing; the confirmed run re-posts the same structured
+  // fields with `confirm: true`, the exact `plan_digest` and an Idempotency-Key
+  // header, delegating to the same in-process Core handler the CLI runs.
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
   }
 
-  function renderAuthoringPreview(result) {
-    const box = document.getElementById("aw-result");
-    box.replaceChildren();
-    box.hidden = false;
-    const head = document.createElement("p"); head.className = "wb-plan-head";
-    head.textContent = "Preview — nothing has been written yet. Confirm to run this exact action.";
-    box.append(head);
-    const preview = result.preview || {};
-    const line = document.createElement("p"); line.className = "wb-plan-steps";
-    if (preview.action === "feature-add") {
-      line.textContent = `Add feature “${preview.feature || ""}”${preview.version ? ` at version ${preview.version}` : ""}.`;
-    } else if (preview.action === "spec-generate") {
-      const findings = (preview.findings || []).join(", ");
-      line.textContent = `Generate a spec for findings: ${findings}${preview.reason ? ` — reason: ${preview.reason}` : ""}.`;
+  function resetProjectActions() {
+    const box = document.getElementById("wb-actions");
+    if (box) box.replaceChildren();
+  }
+
+  // Summarize the path-free preview descriptor generically from its structured
+  // fields (never a per-command template), so a newly-executable row renders
+  // correctly without bespoke wiring.
+  function summarizeDescriptor(descriptor) {
+    const parts = [];
+    for (const key of Object.keys(descriptor || {})) {
+      if (key === "action" || key === "project_id") continue;
+      const value = descriptor[key];
+      parts.push(`${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`);
     }
-    box.append(line);
-    const digest = document.createElement("p"); digest.className = "wb-digest";
-    digest.textContent = `Action digest: ${result.plan_digest}`;
-    box.append(digest);
-    authoring.digest = result.plan_digest;
-    document.getElementById("aw-confirm-wrap").hidden = false;
-    document.getElementById("aw-confirm-run").disabled = false;
+    const action = descriptor && descriptor.action ? descriptor.action : "action";
+    return `${action} — ${parts.join("; ") || "no parameters"}`;
   }
 
-  function renderAuthoringError(result, status) {
-    const box = document.getElementById("aw-result");
+  function renderProjectActions() {
+    const box = document.getElementById("wb-actions");
+    if (!box) return;
     box.replaceChildren();
-    box.hidden = false;
-    const head = document.createElement("p"); head.className = "wb-plan-head";
-    head.textContent = (result.error && result.error.message) || "The action was refused. Nothing was written.";
-    box.append(head);
-    // A stale digest (409) returns a refreshed preview so the operator can
-    // re-review and re-confirm rather than acting blind.
-    if (result.preview && result.plan_digest) {
-      authoring.payload = result.preview;
-      renderAuthoringPreview(result);
-    } else if (status === 409) {
-      document.getElementById("aw-confirm-run").disabled = true;
+    if (!workbench.id) return;
+    const rows = catalogCommands.filter((command) => command.execution);
+    if (!rows.length) {
+      box.append(el("p", "muted", "No browser-executable actions are available for this project yet."));
+      return;
     }
+    for (const command of rows) box.append(buildActionControl(command));
   }
 
-  function renderAuthoringSuccess(result) {
-    const message = result.operation_id
-      ? `Accepted as journaled operation ${result.operation_id}. The action ran through Forge's in-process Core handler.`
-      : "The action ran through Forge's in-process Core handler.";
-    // Drop the reviewed digest and the confirmation controls so the action
-    // cannot be blindly re-armed.
-    authoring.digest = null;
-    authoring.kind = null;
-    authoring.payload = null;
-    authoring.idempotencyKey = null;
-    document.getElementById("aw-confirm-wrap").hidden = true;
-    document.getElementById("aw-confirm").checked = false;
-    document.getElementById("aw-confirm-run").disabled = true;
-    // Refresh the workbench (reloading it clears the result box), then re-show
-    // the confirmation once the refreshed state has rendered.
-    const show = () => {
-      const box = document.getElementById("aw-result");
-      box.replaceChildren();
-      box.hidden = false;
-      const head = document.createElement("p"); head.className = "wb-plan-head";
-      head.textContent = message;
-      box.append(head);
+  function buildActionControl(command) {
+    const execution = command.execution;
+    const method = (execution.method || "POST").toUpperCase();
+    const card = el("div", "wb-action-card");
+    card.append(el("h4", "wb-action-title", `${command.label} — forge ${command.id.replace(/\./g, " ")}`));
+    card.append(el("p", "muted", command.summary));
+
+    // One typed control per declared parameter (a closed scalar kind maps to a
+    // matching input); there is deliberately no free-text command/path/argv.
+    const inputs = [];
+    const tools = el("div", "wb-plan-tools");
+    for (const param of execution.parameters || []) {
+      const label = el("label", "search-box");
+      label.append(el("span", "sr-only", `${param.name}${param.required ? " (required)" : " (optional)"}`));
+      let field;
+      if (param.kind === "boolean") {
+        field = el("input"); field.type = "checkbox"; field.checked = false;
+      } else {
+        field = el("input"); field.type = "text"; field.autocomplete = "off";
+        field.placeholder = param.kind === "string_array" ? `${param.name}, comma-separated` : param.name;
+      }
+      label.append(field);
+      tools.append(label);
+      inputs.push({ param, field });
+    }
+    card.append(tools);
+
+    const state = { digest: null, payload: null, idempotencyKey: null };
+    const result = el("div", "wb-plan-result"); result.hidden = true;
+    const confirmWrap = el("label", "wb-confirm");
+    const confirmBox = el("input"); confirmBox.type = "checkbox";
+    confirmWrap.append(confirmBox, document.createTextNode(" I confirm this will write to the project."));
+    confirmWrap.hidden = true;
+    const runWrap = el("div", "wb-plan-tools");
+    const previewBtn = el("button", "button button-quiet"); previewBtn.type = "button";
+    previewBtn.textContent = `Preview ${command.label}`;
+    const runBtn = el("button", "button"); runBtn.type = "button"; runBtn.disabled = true;
+    runBtn.textContent = "Run confirmed action";
+    runWrap.append(previewBtn, runBtn);
+
+    // Resolve the row's declared route to a concrete path for the open project;
+    // the browser only ever substitutes the validated id, never a path it typed.
+    const routePath = () => {
+      const template = execution.route.split(" ").slice(1).join(" ");
+      return template.replace("{id}", encodeURIComponent(workbench.id));
     };
-    if (workbench.id) loadWorkbenchDetail(workbench.id).then(show).catch(show);
-    else show();
-  }
 
-  async function previewAuthoring(kind) {
-    if (!workbench.id) { showWorkbenchNotice("Open a managed project first."); return; }
-    resetAuthoring();
-    clearWorkbenchNotice();
-    let path, payload;
-    if (kind === "feature") {
-      const feature = document.getElementById("aw-feature").value.trim();
-      const version = document.getElementById("aw-feature-version").value.trim();
-      if (!feature) { showWorkbenchNotice("Enter a feature id to add."); return; }
-      payload = { feature };
-      if (version) payload.version = version;
-      path = `/v1/admin/projects/${encodeURIComponent(workbench.id)}/feature`;
-    } else {
-      const findings = document.getElementById("aw-findings").value
-        .split(",").map((value) => value.trim()).filter(Boolean);
-      const reason = document.getElementById("aw-reason").value.trim();
-      if (!findings.length) { showWorkbenchNotice("Enter at least one finding id."); return; }
-      payload = { findings };
-      if (reason) payload.reason = reason;
-      path = `/v1/admin/projects/${encodeURIComponent(workbench.id)}/spec`;
-    }
-    authoring.kind = kind;
-    authoring.payload = payload;
-    const { ok, body } = await requestStatus(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (ok) renderAuthoringPreview(body);
-    else renderAuthoringError(body, undefined);
-  }
+    const gatherPayload = () => {
+      const payload = {};
+      for (const { param, field } of inputs) {
+        if (param.kind === "boolean") {
+          if (field.checked) payload[param.name] = true;
+        } else if (param.kind === "string_array") {
+          const values = field.value.split(",").map((v) => v.trim()).filter(Boolean);
+          if (param.required && !values.length) { showWorkbenchNotice(`Enter at least one ${param.name}.`); return null; }
+          if (values.length) payload[param.name] = values;
+        } else {
+          const value = field.value.trim();
+          if (param.required && !value) { showWorkbenchNotice(`Enter a ${param.name}.`); return null; }
+          if (value) payload[param.name] = value;
+        }
+      }
+      return payload;
+    };
 
-  async function confirmAuthoring() {
-    if (!workbench.id || !authoring.kind || !authoring.digest) { showWorkbenchNotice("Produce a preview before running."); return; }
-    if (!document.getElementById("aw-confirm").checked) { showWorkbenchNotice("Tick the confirmation box — this writes to the project."); return; }
-    if (!authoring.idempotencyKey) {
-      authoring.idempotencyKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
-    }
-    const path = `/v1/admin/projects/${encodeURIComponent(workbench.id)}/${authoring.kind === "feature" ? "feature" : "spec"}`;
-    const body = { ...authoring.payload, confirm: true, plan_digest: authoring.digest };
-    document.getElementById("aw-confirm-run").disabled = true;
-    const { status, ok, body: result } = await requestStatus(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json", "Idempotency-Key": authoring.idempotencyKey },
-      body: JSON.stringify(body),
+    const showPreview = (body) => {
+      result.replaceChildren(); result.hidden = false;
+      result.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to run this exact action."));
+      result.append(el("p", "wb-plan-steps", summarizeDescriptor(body.preview)));
+      result.append(el("p", "wb-digest", `Action digest: ${body.plan_digest}`));
+      state.digest = body.plan_digest;
+      confirmWrap.hidden = false;
+      runBtn.disabled = false;
+    };
+    const showError = (body, status) => {
+      result.replaceChildren(); result.hidden = false;
+      result.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "The action was refused. Nothing was written."));
+      // A stale digest (409) returns a refreshed preview so the operator can
+      // re-review and re-confirm rather than acting blind.
+      if (body && body.preview && body.plan_digest) showPreview(body);
+      else if (status === 409) runBtn.disabled = true;
+    };
+    const showSuccess = (body) => {
+      const message = body && body.operation_id
+        ? `Accepted as journaled operation ${body.operation_id}. The action ran through Forge's in-process Core handler.`
+        : "The action ran through Forge's in-process Core handler.";
+      // Drop the reviewed digest and confirmation controls so the action cannot
+      // be blindly re-armed, then refresh the workbench to show the new state.
+      state.digest = null; state.payload = null; state.idempotencyKey = null;
+      confirmWrap.hidden = true; confirmBox.checked = false; runBtn.disabled = true;
+      const show = () => {
+        result.replaceChildren(); result.hidden = false;
+        result.append(el("p", "wb-plan-head", message));
+      };
+      if (workbench.id) loadWorkbenchDetail(workbench.id).then(show).catch(show);
+      else show();
+    };
+
+    previewBtn.addEventListener("click", async () => {
+      if (!workbench.id) { showWorkbenchNotice("Open a managed project first."); return; }
+      clearWorkbenchNotice();
+      result.hidden = true; result.replaceChildren();
+      confirmWrap.hidden = true; confirmBox.checked = false; runBtn.disabled = true;
+      const payload = gatherPayload();
+      if (!payload) return;
+      state.payload = payload;
+      const { ok, body } = await requestStatus(routePath(), {
+        method,
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (ok) showPreview(body); else showError(body, undefined);
     });
-    document.getElementById("aw-confirm-run").disabled = false;
-    if (ok) { authoring.idempotencyKey = null; renderAuthoringSuccess(result); return; }
-    if (result && result.replay) { renderAuthoringSuccess({ operation_id: result.operation_id }); return; }
-    authoring.idempotencyKey = null;
-    renderAuthoringError(result, status);
+
+    runBtn.addEventListener("click", async () => {
+      if (!state.payload || !state.digest) { showWorkbenchNotice("Produce a preview before running."); return; }
+      if (!confirmBox.checked) { showWorkbenchNotice("Tick the confirmation box — this writes to the project."); return; }
+      if (!state.idempotencyKey) {
+        state.idempotencyKey = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now());
+      }
+      runBtn.disabled = true;
+      const body = { ...state.payload, confirm: true, plan_digest: state.digest };
+      const { status, ok, body: applied } = await requestStatus(routePath(), {
+        method,
+        headers: { "Content-Type": "application/json", Accept: "application/json", "Idempotency-Key": state.idempotencyKey },
+        body: JSON.stringify(body),
+      });
+      runBtn.disabled = false;
+      if (ok) { state.idempotencyKey = null; showSuccess(applied); return; }
+      if (applied && applied.replay) { state.idempotencyKey = null; showSuccess({ operation_id: applied.operation_id }); return; }
+      state.idempotencyKey = null;
+      showError(applied, status);
+    });
+
+    card.append(confirmWrap, runWrap, result);
+    return card;
   }
 
   function initWorkbench(projects) {
@@ -702,9 +758,6 @@
     });
     document.getElementById("wb-plan").addEventListener("click", planUpgrade);
     document.getElementById("wb-apply").addEventListener("click", applyUpgrade);
-    document.getElementById("aw-preview-feature").addEventListener("click", () => previewAuthoring("feature"));
-    document.getElementById("aw-preview-spec").addEventListener("click", () => previewAuthoring("spec"));
-    document.getElementById("aw-confirm-run").addEventListener("click", confirmAuthoring);
   }
 
   // ---- Portfolio controls

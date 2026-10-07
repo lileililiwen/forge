@@ -2,6 +2,64 @@
 
 ## Current state
 
+### forge-web-project-actions delivered and archived (2026-10-07)
+
+`forge-web-project-actions` is implemented, browser-verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-actions`, creating the
+`forge-web-project-actions` spec (three requirements) and modifying one
+`forge-web-command-catalog` requirement. It closes the gap the user reported
+("the command inventory ... i need also it can work, not just a list") at the
+Core-only tier they chose: the browser now actually executes the registered-
+project lifecycle writes whose operation is already an in-process Core function
+keyed by a validated project id — `forge feature remove`, `forge feature
+upgrade` and `forge spec apply` — alongside the two authoring commands delivered
+by the previous change.
+
+The catalog row, not bespoke frontend wiring, drives each action: a `web_exec`
+row serializes a structured `execution` block (route, method, ordered typed
+`parameters` with name/kind/required, `confirm_required`, `digest_bound`, risk)
+and `frontend/app.js` renders a generic preview → confirm → run control from it,
+with no free-text command/path/argv field. `admin.rs` widened the single
+`Authoring` enum to `{FeatureAdd, FeatureRemove, FeatureUpgrade, SpecGenerate,
+SpecApply}` (no parallel implementation), gates each command's fields into a
+path-free canonical descriptor, and on a matching digest delegates to
+`remove_feature` / `upgrade_feature` / `apply_routing` — the same Core handlers
+the CLI runs. No subprocess, provider or PTY surface crosses into the browser.
+
+While running the full suite, a pre-existing catalog↔Clap drift surfaced: the
+`identity change-password` and `identity generate-password` commands added by
+`forge-identity-password-management` had no catalog rows, so
+`catalog_has_exactly_one_row_per_clap_path` (a `--bin` test) was already red on
+the delivered HEAD; both commands' authoring routes were covered but that test
+had never been run. This change adds both as truthful `cli_only` rows (a new
+`REASON_LOCAL_SECRET` for the generate-password stdout secret) and updates the
+`catalog_covers_every_clap_path` count to 227, restoring the catalog↔Clap
+parity invariant. A second pre-existing red the fuller run then exposed was
+`artifact_baseline_contract::reported_manifest_changelog_versions_agree`: its
+`changelog_newest()` helper took the first `## [` heading — the standard
+Keep-a-Changelog `## [Unreleased]` bucket — as the versioned entry, so it
+compared `0.1.0` against `Unreleased`. The real invariant (Cargo.toml == newest
+*released* CHANGELOG version == `forge --version`, all `0.1.0`) holds; the helper
+now skips headings that name no version.
+
+Evidence: `cargo build` 0 errors; `cargo fmt --check` clean;
+`node scripts/check-openspec-change-names.mjs` PASS;
+`openspec validate --all --strict --no-interactive` 71 items pass. New
+`tests/forge_web_project_actions_contract.rs` (6) asserts 401/415 before any
+Core call, preview-writes-nothing with a path-free 64-hex digest, wrong-digest
+409 refusal, confirmed-run reaching the Core handler, typed 400/404 with no echo
+for hostile/unmanaged ids, and that the three lifecycle rows are `web` with an
+`execution` block; the catalog contract (8), command-execution contract (5) and
+`--bin forge` catalog parity/integrity (7) are green. A headless-Chromium run
+against a throwaway temp registry (never the user's real registry) signed in,
+opened a managed project, rendered the five catalog-driven action cards, then
+preview → confirm → run for `feature.remove` (HTTP 202 and the `auth` feature
+actually removed from the temp manifest), `feature.upgrade` (reached Core,
+returned a typed 400 the page surfaced without crashing) and `spec.apply` (HTTP
+202); zero app console errors, zero uncaught page errors, zero network failures,
+and no absolute filesystem path in the actions UI. Two commits: implementation +
+catalog/tests, then frontend panel + archive + this handoff. Nothing pushed.
+
 ### forge-web-command-execution delivered and archived (2026-10-07)
 
 `forge-web-command-execution` is implemented, browser-verified and archived as

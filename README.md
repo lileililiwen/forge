@@ -102,6 +102,62 @@ scripts/release-check.sh --gate-profile rust-web --gate-profile nextjs-web --gat
 
 ## Running the web portal
 
+### Normal user quickstart (just run it)
+
+Build once, then run two small server processes: the API (data) and the web
+page. Open two terminals in the Forge checkout.
+
+```sh
+cargo build
+```
+
+Terminal 1 — the API. Replace `/path/to/your/workspace` with the folder
+holding your projects (this is what enables the dashboard's “Workspace
+onboarding” panel; without it, project creation from the browser is
+refused):
+
+```sh
+FORGE_ADMIN_PROJECTS_ROOT=/path/to/your/workspace \
+  ./target/debug/forge api serve --bind 127.0.0.1 --port 8766
+```
+
+Terminal 2 — the web page:
+
+```sh
+./target/debug/forge web serve --bind 127.0.0.1 --port 4173 --root frontend
+```
+
+Then open <http://127.0.0.1:4173/> and sign in. First ever run? Create the
+one administrator account first (type the password twice when asked):
+
+```sh
+./target/debug/forge identity setup --email you@example.com
+```
+
+Forgot the password later? Reset it (no email needed, existing sessions are
+revoked, then sign in again):
+
+```sh
+./target/debug/forge identity change-password
+```
+
+**Restart** (for example after updating Forge): stop both servers, rebuild,
+start them again:
+
+```sh
+pkill -f "forge api serve"; pkill -f "forge web serve"
+cargo build
+# then run the two commands above again
+```
+
+**Stop**: `pkill -f "forge api serve"; pkill -f "forge web serve"`.
+
+In the dashboard, “Workspace onboarding” discovers every sibling directory
+automatically — tick what you want, Preview, tick confirm, Run, and the
+projects appear in the fleet.
+
+### How the portal fits together (details)
+
 Forge ships a standalone browser portal that signs in one Forge-wide
 administrator and renders the dashboard, fleet, commands, workbench,
 portfolio, delivery and deploy panels — all from the same `/v1/admin` JSON
@@ -120,34 +176,10 @@ serve the two halves of that round trip:
 Both listeners read the same registry database. The resolution order
 (`src/registry/mod.rs` `default_registry_path`) is `$FORGE_REGISTRY` →
 `$XDG_DATA_HOME/forge/registry.db` → `~/.local/share/forge/registry.db`. For
-a normal local preview, leave the registry on the default path. For a
-throwaway preview that leaves your real data untouched, set
-`FORGE_REGISTRY` to a scratch file (e.g.
-`export FORGE_REGISTRY="$PWD/.preview-registry.db"`) for **all three**
-commands below.
-
-### Local preview (three steps, default registry)
-
-From the repository root, in three terminals:
-
-```sh
-# 1. Initialize the one Forge-wide administrator (password is read without
-#    terminal echo; minimum 12 characters; typed twice). Skip this if an
-#    administrator already exists on this registry.
-forge identity setup --email you@example.com
-
-# 2. Serve the JSON API. Port 8766 matches the committed frontend/config.js.
-forge api serve --bind 127.0.0.1 --port 8766
-
-# 3. Serve the standalone frontend on its own listener.
-forge web serve --bind 127.0.0.1 --port 4173 --root frontend
-```
-
-Open <http://127.0.0.1:4173/> and sign in with the email and password from
-step 1. After sign-in the dashboard lists your registered projects (the
-Forge-self row is always present, even on an empty registry), and the
-Workbench, Portfolio, Commands, Delivery and Deploy sections read the
-same registry the CLI does.
+normal use, leave the registry on the default path. For a throwaway preview
+that leaves your real data untouched, set `FORGE_REGISTRY` to a scratch file
+(e.g. `export FORGE_REGISTRY="$PWD/.preview-registry.db"`) in each terminal
+before the serve commands above.
 
 ### Managing sibling projects from the browser
 

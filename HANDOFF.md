@@ -2,6 +2,101 @@
 
 ## Current state
 
+### forge-web-project-release delivered and archived (2026-10-07)
+
+`forge-web-project-release` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-release`, creating the
+`forge-web-project-release` spec (three requirements) and modifying one
+`forge-web-command-catalog` requirement and one `forge-web-command-execution`
+requirement. The project's release workflow now runs end to end through the same
+session-gated, exact-origin, JSON-only `/v1/admin` boundary the deploy and
+lifecycle actions use: a read-only
+`GET /v1/admin/projects/{id}/release/plan?version=` and the confirm-then-digest
+`POST /v1/admin/projects/{id}/release`. Both delegate to the in-process
+`release::engine::{prepare_release, apply_release}` the CLI runs — no subprocess,
+provider or PTY surface crosses into the browser. This closes the release
+follow-on the deployment package deferred.
+
+The implementation reuses the engine unchanged and stays within the established
+patterns:
+
+- `src/api/admin.rs`: new route consts `ROUTE_ADMIN_RELEASE_PLAN` /
+  `ROUTE_ADMIN_RELEASE`; helpers `parse_release_version` /
+  `release_version_from_query` / `release_gate` / `release_request` /
+  `release_plan` / `release_write` / `run_release_plan_view` plus
+  `release_plan_view` / `release_report_view` projections and a
+  `typed_release_error` mapper. The `version` parameter is a typed semver parsed
+  with `Semver::parse` and normalized to `.label()` (a missing or non-semver
+  value is a typed `400`); the path-free descriptor/digest is
+  `authoring_digest(json!({"project_id": id, "version": label}))`, and the
+  browser never supplies release stages — `config.stages` decides. No absolute
+  project path, adapter binary, git credential or secret is serialized
+  (`redact_local_paths` + `scrub_json`, and `ReleaseReport.state_path` is
+  omitted).
+- Boundary shape mirrors `deploy_write`: 415 JSON gate, `guarded` session cookie
+  `forge_admin_session`, `validate_project_id` → 400 with no echo,
+  `registry.inspect(id)` → 404, version parse → 400 before any digest; no-`confirm`
+  returns a 200 preview + fresh digest and writes nothing; a mismatched digest is
+  a typed `409 admin-digest-mismatch` with a refreshed digest and still no write;
+  only a matching `confirm: true` reaches
+  `run_with_operation(db, "release", id, || apply_release(...))`, journals
+  `admin.project.release` and returns a 202 path-free typed report. Git/subprocess
+  /stage failures stay typed, journaled and honest (real stage state, never a
+  fake success).
+- `src/api/mod.rs`: `Route::AdminProjectReleasePlan` and
+  `Route::AdminProjectRelease` variants wired into the router arms and all four
+  exhaustive match lists (short-circuit, `required_permission`, dispatch,
+  authorize) so the five- and six-segment admin release paths share the existing
+  `/v1/admin/projects/{id}/*` session, permission and CORS group.
+- `src/api/command_catalog.rs`: `release.prepare` recatalogued from
+  `not_yet_web` to a `web` read row pointing at the plan route;
+  `release.apply` recatalogued as a `web_exec` row (POST, `confirm_required:
+  true`, `digest_bound: true`, `risk: remote_write`, parameter
+  `version: string` required) pointing at the apply route. `release.list` and
+  `release.inspect` stay honest `not_yet_web`. The pinned `executable_ids` set
+  moves 6 → 7, the catalog row count stays at 227, and the in-source allowlist +
+  pins and the external `tests/forge_web_command_catalog_contract.rs` allowlist /
+  `web_ids` set are updated to include the two new routes and their web ids.
+- `frontend/app.js` + `frontend/index.html`: untouched. The shipped
+  `buildActionControl` already renders any `execution` block generically, so the
+  release row joins the same preview → confirm → typed result control as the
+  lifecycle and deploy actions.
+
+New `tests/forge_web_project_release_contract.rs` (8 tests) drives the real
+`handle()` against a throwaway git fixture with a local bare `origin` (no real
+network push) and a failing `FORGE_NOTES_BIN` stub for the honest-failure path:
+
+| Scenario | Asserts |
+|---|---|
+| `catalog_reports_release_plan_and_apply_as_web_with_an_execution_block` | both rows are `web`; plan row has no `execution`; apply row has route/method/parameter/confirm/digest/risk; `executable_ids` set contains `release.apply` |
+| `anonymous_and_non_json_are_refused_before_any_core_call` | anonymous plan → 401; non-JSON body → 415; no `.forge` / registry write before any Core call |
+| `hostile_id_is_refused_and_unmanaged_id_is_not_found` | traversal id → 400 typed `admin-invalid-project-id` with no echo; unmanaged id → 404; no path/token leakage |
+| `missing_or_non_semver_version_is_refused` | absent or non-semver `version` → typed 400, never a digest |
+| `plan_route_reads_no_write_and_returns_a_path_free_preview` | GET plan → 200; 64-hex `plan_digest`; `.forge` and registry journal byte-unchanged; no absolute path or adapter binary in the body |
+| `apply_preview_writes_nothing_and_wrong_digest_is_refused` | no-`confirm` → 200 with fresh digest and zero writes; mismatched digest → 409 `admin-digest-mismatch` + refreshed digest, still no write |
+| `confirmed_apply_with_a_local_origin_reaches_the_core_handler` | confirmed + matching digest → 202 path-free report; `release` operation journaled; project path and adapter binary never serialized; local `origin` receives the tag with no network push |
+| `adapter_failure_is_reported_honestly_never_as_success` | a failing `FORGE_NOTES_BIN` stub still returns 202 (HTTP success for a confirmed matching digest) while the report's `healthy: false` + failed stage + journal entry remain observable; the failure is never papered over |
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; 2 pre-existing warnings, none added) |
+| `cargo fmt --check` | clean |
+| `cargo test --test forge_web_project_release_contract` | **8 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` / `forge_web_command_execution_contract` / `forge_web_project_deployment_contract` / `forge_web_project_actions_contract` / `forge_web_project_workbench_contract` | **8 / 5 / 8 / 6 / 11 passed, 0 failed** |
+| `cargo test --test forge_admin_api_contract` / `forge_web_fleet_contract` / `forge_web_portfolio_controls_contract` / `forge_web_delivery_controls_contract` / `forge_portal_frontend_contract` | **4 / 11 / 11 / 10 / 5 passed, 0 failed** |
+| `cargo test --test portal_ui_contract` / `catalog_contract` / `release_contract` / `release_cross_surface` | **39 / 17 / 10 / 4 passed, 0 failed** |
+| `cargo test --bin forge` | **7 passed / 0 failed** (catalog integrity/coverage/`executable_ids`/route-allowlist) |
+| `cargo test --lib api::` | **47 passed / 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate --all --strict --no-interactive` | **75 passed / 0 failed** (before and after archive) |
+| `git diff --check` | PASS |
+| `openspec archive forge-web-project-release --yes` | **21/21 tasks**; `forge-web-project-release: create` (3 added) and `forge-web-command-catalog: modify` (1) + `forge-web-command-execution: modify` (1); **no `--skip-specs`**; archived as `2026-10-07-forge-web-project-release`; `openspec list` subsequently reports **no active changes** |
+
+Two commits: backend routes + catalog + specs + tests, then this handoff. Nothing
+pushed.
+
 ### forge-web-project-status delivered and archived (2026-10-07)
 
 `forge-web-project-status` is implemented, verified and archived as

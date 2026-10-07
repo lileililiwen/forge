@@ -87,6 +87,30 @@ fn dashboard_drives_the_json_api_with_credentials_and_honest_states() {
 }
 
 #[test]
+fn workbench_has_a_delivery_status_card_with_next_confirmation() {
+    let index = read("frontend/index.html");
+    let app = read("frontend/app.js");
+    assert!(index.contains("id=\"wb-delivery\""), "delivery card");
+    assert!(
+        index.contains("id=\"wb-delivery-title\""),
+        "delivery card label"
+    );
+    assert!(
+        index.contains("role=\"status\"") && index.contains("aria-live=\"polite\""),
+        "delivery live region"
+    );
+    assert!(app.contains("/delivery/status"), "delivery status endpoint");
+    assert!(
+        app.contains("confirm_operation_id:") && app.contains("confirm_revision:"),
+        "next staged confirmations are shown as text"
+    );
+    assert!(
+        !app.contains("deployment_url: ${"),
+        "Hermora inputs stay inputs rather than rendered values"
+    );
+}
+
+#[test]
 fn stylesheet_keeps_the_accessibility_and_responsive_contract() {
     let css = read("frontend/styles.css");
     assert!(css.contains("min-width:320px"), "320px readability floor");

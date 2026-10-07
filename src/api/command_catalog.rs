@@ -71,6 +71,17 @@ const WEB_ROUTE_ADMIN_RELEASE: &str = super::admin::ROUTE_ADMIN_RELEASE;
 const WEB_ROUTE_ADMIN_PUBLISH_PLAN: &str = super::admin::ROUTE_ADMIN_PUBLISH_PLAN;
 const WEB_ROUTE_ADMIN_PUBLISH: &str = super::admin::ROUTE_ADMIN_PUBLISH;
 
+/// Project-delivery typed routes (`forge-web-project-delivery`). These name
+/// the exact admin paths the router registers so the catalog and the live
+/// endpoints can never diverge: read-only delivery status plus the four
+/// confirm/digest-bound staged mutations delegating to `delivery::handlers`.
+const WEB_ROUTE_ADMIN_DELIVERY_STATUS: &str = super::admin::ROUTE_ADMIN_DELIVERY_STATUS;
+const WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT: &str = super::admin::ROUTE_ADMIN_DELIVERY_PREFLIGHT;
+const WEB_ROUTE_ADMIN_DELIVERY_STAGE: &str = super::admin::ROUTE_ADMIN_DELIVERY_STAGE;
+const WEB_ROUTE_ADMIN_DELIVERY_PROMOTE: &str = super::admin::ROUTE_ADMIN_DELIVERY_PROMOTE;
+const WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY: &str =
+    super::admin::ROUTE_ADMIN_DELIVERY_HERMORA_RETRY;
+
 /// Read-only status typed routes (`forge-project-status/0.1.0`). These
 /// reference the status module's own route constants so the catalog and the
 /// live endpoints can never name different paths: the per-project status
@@ -118,6 +129,11 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_RELEASE,
     WEB_ROUTE_ADMIN_PUBLISH_PLAN,
     WEB_ROUTE_ADMIN_PUBLISH,
+    WEB_ROUTE_ADMIN_DELIVERY_STATUS,
+    WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
+    WEB_ROUTE_ADMIN_DELIVERY_STAGE,
+    WEB_ROUTE_ADMIN_DELIVERY_PROMOTE,
+    WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY,
     WEB_ROUTE_PROJECT_STATUS,
     WEB_ROUTE_FLEET_STATUS,
     WEB_ROUTE_ADMIN_PROJECT_NEW,
@@ -2114,19 +2130,22 @@ impl CatalogBuilder {
 
         // ---------------------------------------------------------------- delivery
         self.group(None, "delivery", "Coordinate the staged delivery workflow (preflight → stage → production) and the optional post-deploy Hermora onboarding.", Delivery, Project);
-        self.leaf(Some("delivery"), "status", "Read the project's current delivery phase, revision and most-recent per-verb journal evidence.", Delivery, Project, Read, NotYetWeb, caps_registry);
-        self.provider_required(
+        self.web_at(Some("delivery"), "status", "Read the project's current delivery phase, revision and most-recent per-verb journal evidence.", Delivery, Project, Read, WEB_ROUTE_ADMIN_DELIVERY_STATUS, caps_registry);
+        self.web_exec(
             Some("delivery"),
             "preflight",
             "Invoke the publish provider's `preflight` operation and record the terminal evidence.",
             Delivery,
             Project,
             LocalWrite,
+            WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
+            "POST",
+            &[],
             caps_provider,
         );
-        self.provider_required(Some("delivery"), "stage", "Invoke the provider's `publish` for the stage environment (requires `--confirm-operation-id` from a healthy preflight).", Delivery, Project, RemoteWrite, caps_provider);
-        self.provider_required(Some("delivery"), "promote", "Invoke the provider's `publish` for production (requires `--confirm-revision` matching the registered source revision).", Delivery, Project, RemoteWrite, caps_provider);
-        self.provider_required(Some("delivery"), "hermora-retry", "Retry the optional Hermora site onboarding for a healthy deployment; never republishes.", Delivery, Project, RemoteWrite, caps_provider);
+        self.web_exec(Some("delivery"), "stage", "Invoke the provider's `publish` for the stage environment (requires `confirm_operation_id` from a healthy preflight).", Delivery, Project, RemoteWrite, WEB_ROUTE_ADMIN_DELIVERY_STAGE, "POST", &[("confirm_operation_id", "string", true)], caps_provider);
+        self.web_exec(Some("delivery"), "promote", "Invoke the provider's `publish` for production (requires `confirm_revision` matching the registered source revision).", Delivery, Project, RemoteWrite, WEB_ROUTE_ADMIN_DELIVERY_PROMOTE, "POST", &[("confirm_revision", "string", true)], caps_provider);
+        self.web_exec(Some("delivery"), "hermora-retry", "Retry the optional Hermora site onboarding for a healthy deployment; never republishes.", Delivery, Project, RemoteWrite, WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY, "POST", &[("deployment_url", "string", true), ("secret_ref", "string", true)], caps_provider);
 
         // studio
         self.group(None, "studio", "Site Studio: review an AppSpec, run a bounded preview, and journal scoped refinement requests (`forge-studio-preview-refinement`).", Delivery, Project);
@@ -2569,6 +2588,14 @@ mod tests {
                 ("portfolio.share.publish", WEB_ROUTE_DELIVERY_PUBLISH),
                 ("portfolio.share.reconcile", WEB_ROUTE_DELIVERY_RECONCILE),
                 ("portfolio.share.audit", WEB_ROUTE_DELIVERY_OVERVIEW),
+                ("delivery.status", WEB_ROUTE_ADMIN_DELIVERY_STATUS),
+                ("delivery.preflight", WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT),
+                ("delivery.stage", WEB_ROUTE_ADMIN_DELIVERY_STAGE),
+                ("delivery.promote", WEB_ROUTE_ADMIN_DELIVERY_PROMOTE),
+                (
+                    "delivery.hermora-retry",
+                    WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY
+                ),
             ]
         );
     }
@@ -2587,6 +2614,25 @@ mod tests {
             IMPLEMENTED_WEB_ROUTES.contains(&WEB_ROUTE_ADMIN_PUBLISH),
             "publish apply route must be implemented"
         );
+    }
+
+    #[test]
+    fn delivery_routes_are_implemented_web_routes() {
+        // Every staged delivery route is registered by the router and listed
+        // as an implemented web route, so the recatalogued delivery rows can
+        // never name a route that does not exist.
+        for route in [
+            WEB_ROUTE_ADMIN_DELIVERY_STATUS,
+            WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
+            WEB_ROUTE_ADMIN_DELIVERY_STAGE,
+            WEB_ROUTE_ADMIN_DELIVERY_PROMOTE,
+            WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY,
+        ] {
+            assert!(
+                IMPLEMENTED_WEB_ROUTES.contains(&route),
+                "delivery route {route} must be implemented"
+            );
+        }
     }
 
     #[test]
@@ -2615,6 +2661,10 @@ mod tests {
                 "release.apply",
                 "deploy.apply",
                 "publish",
+                "delivery.preflight",
+                "delivery.stage",
+                "delivery.promote",
+                "delivery.hermora-retry",
             ]
         );
         // Each executable row's typed parameter list must match the mandatory
@@ -2668,6 +2718,23 @@ mod tests {
             // The bare publish resolves the provider, project and revision
             // server-side, so it has no browser-supplied typed parameters.
             ("publish", vec![]),
+            // Delivery preflight likewise resolves every input server-side.
+            ("delivery.preflight", vec![]),
+            (
+                "delivery.stage",
+                vec![("confirm_operation_id", "string", true)],
+            ),
+            (
+                "delivery.promote",
+                vec![("confirm_revision", "string", true)],
+            ),
+            (
+                "delivery.hermora-retry",
+                vec![
+                    ("deployment_url", "string", true),
+                    ("secret_ref", "string", true),
+                ],
+            ),
         ]);
         for row in rows() {
             match &row.execution {
@@ -2693,7 +2760,8 @@ mod tests {
                     assert!(execution.confirm_required, "row {}", row.id);
                     assert!(execution.digest_bound, "row {}", row.id);
                     assert!(
-                        !execution.parameters.is_empty() || row.id == "publish",
+                        !execution.parameters.is_empty()
+                            || matches!(row.id.as_str(), "publish" | "delivery.preflight"),
                         "row {} must carry typed parameters unless every input is server-resolved",
                         row.id
                     );

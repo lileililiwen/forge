@@ -209,10 +209,17 @@ fn populate_hermora(report: &mut DeliveryHermoraReport, row: &OperationEntry) {
     report.started_at = Some(row.started_at.clone());
     report.state = Some(row.state.clone());
     let detail = row.detail.clone().unwrap_or_default();
-    let parsed: BTreeMap<String, String> = serde_json::from_str(&detail).unwrap_or_default();
-    report.site_id = parsed.get("site_id").cloned();
-    report.environment_url = parsed.get("environment_url").cloned();
-    report.reason = parsed.get("reason").cloned();
+    let parsed: BTreeMap<String, serde_json::Value> =
+        serde_json::from_str(&detail).unwrap_or_default();
+    let text = |key: &str| {
+        parsed
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    };
+    report.site_id = text("site_id");
+    report.environment_url = text("environment_url");
+    report.reason = text("reason");
 }
 
 fn parse_evidence_and_recovery(row: &OperationEntry) -> (Vec<String>, Vec<String>) {
@@ -493,5 +500,35 @@ mod tests {
         assert_eq!(report.phase, DeliveryPhase::AwaitingStageConfirmation);
         assert_eq!(report.preflight.op_id, Some(1));
         assert_eq!(report.preflight.state.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn a_connected_hermora_row_populates_site_fields_despite_a_null_reason() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        let registry = Registry::open(&path).expect("open");
+        registry
+            .reserve_idempotent_operation(
+                "delivery.hermora",
+                "alpha",
+                "delivery.hermora.alpha:0123456789ab:production",
+                "abc",
+            )
+            .expect("reserve");
+        registry
+            .finalize_operation(
+                1,
+                "done",
+                r#"{"site_id":"site_stub","environment_url":"https://alpha.hermora.example","reason":null}"#,
+            )
+            .expect("finalize");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::HermoraConnected);
+        assert_eq!(report.hermora.site_id.as_deref(), Some("site_stub"));
+        assert_eq!(
+            report.hermora.environment_url.as_deref(),
+            Some("https://alpha.hermora.example")
+        );
+        assert_eq!(report.hermora.reason, None);
     }
 }

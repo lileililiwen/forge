@@ -585,6 +585,36 @@ pub enum Route {
     AdminProjectPublish {
         id: String,
     },
+    /// `GET /v1/admin/projects/{id}/delivery/status` — read-only project
+    /// delivery status through `delivery::handlers::run_status`. No provider,
+    /// adapter or write runs.
+    AdminProjectDeliveryStatus {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/delivery/preflight` — confirm- and
+    /// digest-bound `forge delivery preflight` through the unchanged Core
+    /// handler.
+    AdminProjectDeliveryPreflight {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/delivery/stage` — confirm- and
+    /// digest-bound `forge delivery stage` through the unchanged Core handler.
+    AdminProjectDeliveryStage {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/delivery/promote` — confirm- and
+    /// digest-bound `forge delivery promote` through the unchanged Core
+    /// handler.
+    AdminProjectDeliveryPromote {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/delivery/hermora-retry` — confirm- and
+    /// digest-bound `forge delivery hermora-retry` through the unchanged Core
+    /// handler. The adapter enrolls a healthy deployment; it never
+    /// republishes.
+    AdminProjectDeliveryHermoraRetry {
+        id: String,
+    },
     /// `POST /v1/admin/projects/new` — `forge new` exposed as a session-gated,
     /// preview + confirm/digest-bound admin route. The browser supplies only a
     /// validated project name plus typed fields; the destination is resolved
@@ -911,6 +941,34 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        // Project delivery routes: the five-segment status arm and the
+        // six-segment staged-mutation arms. The literal `delivery` segment
+        // never collides with the lifecycle arms above.
+        ("GET", ["v1", "admin", "projects", id, "delivery", "status"]) => {
+            Some(Route::AdminProjectDeliveryStatus {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "delivery", "preflight"]) => {
+            Some(Route::AdminProjectDeliveryPreflight {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "delivery", "stage"]) => {
+            Some(Route::AdminProjectDeliveryStage {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "delivery", "promote"]) => {
+            Some(Route::AdminProjectDeliveryPromote {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "delivery", "hermora-retry"]) => {
+            Some(Route::AdminProjectDeliveryHermoraRetry {
+                id: (*id).to_string(),
+            })
+        }
         // Project status is a five-segment read. Its literal `status`
         // segment never collides with the `plan`/`apply`/`feature`/`spec`/
         // `deploy` arms above, so no existing route is shadowed.
@@ -1180,6 +1238,11 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectRelease { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
+        | Route::AdminProjectDeliveryStatus { .. }
+        | Route::AdminProjectDeliveryPreflight { .. }
+        | Route::AdminProjectDeliveryStage { .. }
+        | Route::AdminProjectDeliveryPromote { .. }
+        | Route::AdminProjectDeliveryHermoraRetry { .. }
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
@@ -1339,6 +1402,11 @@ pub fn handle(
             | Route::AdminProjectRelease { .. }
             | Route::AdminProjectPublishPlan { .. }
             | Route::AdminProjectPublish { .. }
+            | Route::AdminProjectDeliveryStatus { .. }
+            | Route::AdminProjectDeliveryPreflight { .. }
+            | Route::AdminProjectDeliveryStage { .. }
+            | Route::AdminProjectDeliveryPromote { .. }
+            | Route::AdminProjectDeliveryHermoraRetry { .. }
             | Route::AdminProjectNew
             | Route::AdminProjectImport
             | Route::AdminProjectRegister
@@ -1501,6 +1569,11 @@ pub fn handle(
         | Route::AdminProjectRelease { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
+        | Route::AdminProjectDeliveryStatus { .. }
+        | Route::AdminProjectDeliveryPreflight { .. }
+        | Route::AdminProjectDeliveryStage { .. }
+        | Route::AdminProjectDeliveryPromote { .. }
+        | Route::AdminProjectDeliveryHermoraRetry { .. }
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
@@ -1603,6 +1676,11 @@ fn authorize(
         | Route::AdminProjectRelease { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
+        | Route::AdminProjectDeliveryStatus { .. }
+        | Route::AdminProjectDeliveryPreflight { .. }
+        | Route::AdminProjectDeliveryStage { .. }
+        | Route::AdminProjectDeliveryPromote { .. }
+        | Route::AdminProjectDeliveryHermoraRetry { .. }
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister

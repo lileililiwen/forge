@@ -418,6 +418,85 @@
     renderProjectStatus(status);
   }
 
+  const DELIVERY_ACTION_LABELS = {
+    "delivery-preflight": "Delivery preflight",
+    "delivery-stage": "Delivery stage",
+    "delivery-promote": "Delivery promote",
+    "delivery-hermora-retry": "Hermora retry",
+  };
+
+  function deliveryVerbSummary(name, verb) {
+    if (!verb || verb.op_id === undefined || verb.op_id === null) return `${name}: not yet recorded`;
+    const state = verb.state || "unknown";
+    const revision = verb.revision ? `, revision ${verb.revision.slice(0, 12)}` : "";
+    return `${name}: operation ${verb.op_id}, ${state}${revision}`;
+  }
+
+  function renderProjectDelivery(report, next) {
+    const box = document.getElementById("wb-delivery");
+    if (!box) return;
+    box.replaceChildren();
+    if (!report) {
+      box.append(el("p", "muted", "Delivery status is unavailable right now."));
+      return;
+    }
+    const summary = el("p", "wb-plan-head", `Phase: ${report.phase || "unknown"}`);
+    box.append(summary);
+    const facts = el("dl", "detail-list");
+    const addFact = (term, value) => {
+      const name = el("dt", null, term);
+      const detail = el("dd", null, value || "—");
+      facts.append(name, detail);
+    };
+    addFact("Revision", report.revision ? report.revision.slice(0, 12) : null);
+    addFact("Environment", report.environment || null);
+    addFact("Updated", report.updated_at || null);
+    box.append(facts);
+    const verbs = el("ul", "wb-findings");
+    for (const [name, verb] of [["Preflight", report.preflight], ["Stage", report.stage], ["Promote", report.promote]]) {
+      const item = el("li", null, deliveryVerbSummary(name, verb));
+      verbs.append(item);
+    }
+    const hermora = report.hermora || {};
+    const hermoraItem = el("li", null, hermora.op_id === undefined || hermora.op_id === null
+      ? "Hermora: not yet recorded"
+      : `Hermora: operation ${hermora.op_id}, ${hermora.state || "unknown"}`);
+    verbs.append(hermoraItem);
+    box.append(verbs);
+    if (next && next.action) {
+      const action = el("p", "muted", `Next: ${DELIVERY_ACTION_LABELS[next.action] || next.action}. ${(next.guidance || "Use the matching control below.")}`);
+      box.append(action);
+      const confirmations = [];
+      if (next.confirm_operation_id !== undefined && next.confirm_operation_id !== null) {
+        confirmations.push(`confirm_operation_id: ${next.confirm_operation_id}`);
+      }
+      if (next.confirm_revision) {
+        confirmations.push(`confirm_revision: ${next.confirm_revision}`);
+      }
+      if (Array.isArray(next.requires) && next.requires.length) {
+        confirmations.push(`Needs: ${next.requires.join(", ")}.`);
+      }
+      if (confirmations.length) {
+        box.append(el("p", "muted", confirmations.join(" ")));
+      }
+      if (next.blocked) {
+        const blocked = el("p", "muted", "This step is blocked until the failed staged evidence is resolved.");
+        box.append(blocked);
+      }
+    }
+  }
+
+  async function loadProjectDelivery(id) {
+    const box = document.getElementById("wb-delivery");
+    if (box) box.replaceChildren(el("p", "muted", "Loading delivery status…"));
+    try {
+      const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/delivery/status`, { headers: { Accept: "application/json" } });
+      renderProjectDelivery(data.delivery_status, data.next);
+    } catch (err) {
+      if (box) box.replaceChildren(el("p", "muted", (err && err.message) ? err.message : "Delivery status is unavailable right now."));
+    }
+  }
+
   function renderWorkflows(workflows) {
     const list = document.getElementById("wb-workflows");
     list.replaceChildren();
@@ -500,6 +579,7 @@
     renderManifest(data.manifest || {});
     renderHealth(data.health || { state: "unavailable" });
     loadProjectStatus(id);
+    loadProjectDelivery(id);
     renderWorkflows(data.workflows || []);
     renderOperations(data.operations || []);
     populateFeatures(data.manifest || {});
@@ -650,7 +730,10 @@
     for (const key of Object.keys(descriptor || {})) {
       if (key === "action" || key === "project_id") continue;
       const value = descriptor[key];
-      parts.push(`${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`);
+      const text = Array.isArray(value)
+        ? value.join(", ")
+        : (value !== null && typeof value === "object" ? JSON.stringify(value) : String(value));
+      parts.push(`${key}: ${text}`);
     }
     const action = descriptor && descriptor.action ? descriptor.action : "action";
     return `${action} — ${parts.join("; ") || "no parameters"}`;

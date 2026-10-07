@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
 use crate::core::manifest::Manifest;
+use crate::delivery::handlers as delivery_handlers;
 use crate::deploy::{
     engine, DeployAdapterConfig, DeployConfig, DeployPlan, DeployReport, DeployRequest,
 };
@@ -93,6 +94,40 @@ pub const ROUTE_ADMIN_PUBLISH_PLAN: &str = "GET /v1/admin/projects/{id}/publish/
 /// and the committed revision — never a path, binary, argv, host, SSH target or
 /// credential. Exported so the command catalog names the exact path.
 pub const ROUTE_ADMIN_PUBLISH: &str = "POST /v1/admin/projects/{id}/publish";
+
+/// The read-only project-delivery status, exposed as a session-gated admin
+/// route that reuses `delivery::handlers::run_status`. It invokes no provider
+/// or adapter, writes nothing and returns the path-free projection plus the
+/// next eligible staged confirmation. Exported so the command catalog names
+/// the exact path the router registers.
+pub const ROUTE_ADMIN_DELIVERY_STATUS: &str = "GET /v1/admin/projects/{id}/delivery/status";
+
+/// The `forge delivery preflight` operation, exposed as a session-gated,
+/// preview + confirm/digest-bound admin route. The descriptor binds the
+/// project id and server-resolved registered revision; the browser supplies
+/// no provider, path or credential. Exported so the command catalog names
+/// the exact path.
+pub const ROUTE_ADMIN_DELIVERY_PREFLIGHT: &str = "POST /v1/admin/projects/{id}/delivery/preflight";
+
+/// The `forge delivery stage` operation, exposed as a session-gated, preview
+/// + confirm/digest-bound admin route. The descriptor binds the project id,
+/// server-resolved revision and canonical operation id; Core independently
+/// verifies that the operation is a healthy same-revision preflight.
+pub const ROUTE_ADMIN_DELIVERY_STAGE: &str = "POST /v1/admin/projects/{id}/delivery/stage";
+
+/// The `forge delivery promote` operation, exposed as a session-gated,
+/// preview + confirm/digest-bound admin route. The descriptor binds the
+/// project id, server-resolved revision and supplied revision; Core
+/// independently requires a healthy same-revision stage row.
+pub const ROUTE_ADMIN_DELIVERY_PROMOTE: &str = "POST /v1/admin/projects/{id}/delivery/promote";
+
+/// The `forge delivery hermora-retry` operation, exposed as a session-gated,
+/// preview + confirm/digest-bound admin route. The browser supplies only an
+/// HTTP(S) deployment URL and an environment-variable secret reference; Core
+/// independently requires a healthy production row and validates the adapter
+/// envelope without republishing.
+pub const ROUTE_ADMIN_DELIVERY_HERMORA_RETRY: &str =
+    "POST /v1/admin/projects/{id}/delivery/hermora-retry";
 
 /// The `forge new` creation command exposed as a session-gated, preview +
 /// confirm/digest-bound admin route. The browser supplies only a validated
@@ -255,6 +290,19 @@ pub(super) fn handle(
         Route::AdminProjectRelease { id } => release_write(config, db_path, request, id),
         Route::AdminProjectPublishPlan { id } => publish_plan(config, db_path, request, id),
         Route::AdminProjectPublish { id } => publish_write(config, db_path, request, id),
+        Route::AdminProjectDeliveryStatus { id } => delivery_status(config, db_path, request, id),
+        Route::AdminProjectDeliveryPreflight { id } => {
+            project_delivery_write(config, db_path, request, id, DeliveryAction::Preflight)
+        }
+        Route::AdminProjectDeliveryStage { id } => {
+            project_delivery_write(config, db_path, request, id, DeliveryAction::Stage)
+        }
+        Route::AdminProjectDeliveryPromote { id } => {
+            project_delivery_write(config, db_path, request, id, DeliveryAction::Promote)
+        }
+        Route::AdminProjectDeliveryHermoraRetry { id } => {
+            project_delivery_write(config, db_path, request, id, DeliveryAction::HermoraRetry)
+        }
         Route::AdminProjectNew => {
             management_write(config, db_path, request, ProjectManagement::New)
         }
@@ -1559,6 +1607,605 @@ fn publish_write(
             }
         }),
     )
+}
+
+/// One staged browser delivery operation. The route segment selects the verb;
+/// the request body carries only that verb's documented confirmation fields.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeliveryAction {
+    Preflight,
+    Stage,
+    Promote,
+    HermoraRetry,
+}
+
+impl DeliveryAction {
+    fn name(self) -> &'static str {
+        match self {
+            DeliveryAction::Preflight => "delivery-preflight",
+            DeliveryAction::Stage => "delivery-stage",
+            DeliveryAction::Promote => "delivery-promote",
+            DeliveryAction::HermoraRetry => "delivery-hermora-retry",
+        }
+    }
+}
+
+/// Server-resolved delivery state shared by the status read and every staged
+/// mutation: the project directory plus the registered 40-hex revision Core
+/// binds all delivery idempotency keys to. Neither value is serialized.
+struct DeliveryResolution {
+    project_dir: PathBuf,
+    revision: String,
+}
+
+/// Typed staged confirmation parsed from the browser body. Only the verb's
+/// documented fields are read; every other key is ignored and can never
+/// become a provider, path, argv, host or credential.
+enum DeliveryConfirmation {
+    None,
+    OperationId(i64),
+    Revision(String),
+    Hermora {
+        deployment_url: String,
+        secret_ref: String,
+    },
+}
+
+/// Resolve a managed project id to its server-side directory and registered
+/// revision. A missing revision is a typed prerequisite because delivery
+/// idempotency and promotion are revision-bound.
+fn delivery_resolution(db_path: &Path, id: &str) -> Result<DeliveryResolution, ApiResponse> {
+    let project_dir = deploy_id_gate(db_path, id)?;
+    let registry = Registry::open_read_only(db_path).map_err(|_| unavailable())?;
+    let record = registry
+        .inspect(id)
+        .map_err(|err| typed_delivery_error(&project_dir, &[], &err))?;
+    let revision = record
+        .last_commit
+        .filter(|revision| {
+            revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+        .ok_or_else(|| {
+            error(
+                409,
+                "admin-prerequisite",
+                "delivery needs the project's registered 40-character source revision; re-run `forge register` in a terminal after committing.",
+            )
+        })?;
+    Ok(DeliveryResolution {
+        project_dir,
+        revision,
+    })
+}
+
+/// Parse the staged confirmation for one delivery verb. Malformed values are
+/// static typed refusals that never echo the offending input.
+fn delivery_confirmation(
+    action: DeliveryAction,
+    body: &Value,
+) -> Result<DeliveryConfirmation, ApiResponse> {
+    match action {
+        DeliveryAction::Preflight => Ok(DeliveryConfirmation::None),
+        DeliveryAction::Stage => {
+            let raw = body.get("confirm_operation_id");
+            let operation_id = match raw.and_then(Value::as_i64) {
+                Some(value) if value >= 0 => value,
+                Some(_) => {
+                    return Err(error(
+                        400,
+                        "delivery-invalid",
+                        "delivery stage requires `confirm_operation_id` as a non-negative operation id.",
+                    ))
+                }
+                None => match raw.and_then(Value::as_str) {
+                    Some(text) => {
+                        let text = text.trim();
+                        if text.is_empty()
+                            || !text.bytes().all(|byte| byte.is_ascii_digit())
+                        {
+                            return Err(error(
+                                400,
+                                "delivery-invalid",
+                                "delivery stage requires `confirm_operation_id` as a non-negative operation id.",
+                            ));
+                        }
+                        text.parse::<i64>().map_err(|_| {
+                            error(
+                                400,
+                                "delivery-invalid",
+                                "delivery stage requires `confirm_operation_id` as a non-negative operation id.",
+                            )
+                        })?
+                    }
+                    None => {
+                        return Err(error(
+                            400,
+                            "delivery-invalid",
+                            "delivery stage requires `confirm_operation_id` from a healthy preflight.",
+                        ))
+                    }
+                },
+            };
+            Ok(DeliveryConfirmation::OperationId(operation_id))
+        }
+        DeliveryAction::Promote => {
+            let revision = body
+                .get("confirm_revision")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if publish_providers::validate_revision(revision).is_err() {
+                return Err(error(
+                    400,
+                    "delivery-invalid",
+                    "delivery promote requires `confirm_revision` as the project's 40-character source revision.",
+                ));
+            }
+            Ok(DeliveryConfirmation::Revision(revision.to_string()))
+        }
+        DeliveryAction::HermoraRetry => {
+            let deployment_url = parse_delivery_url(body)?;
+            let secret_ref = parse_delivery_secret_ref(body)?;
+            Ok(DeliveryConfirmation::Hermora {
+                deployment_url,
+                secret_ref,
+            })
+        }
+    }
+}
+
+/// Validate an HTTP(S) deployment URL without accepting embedded credentials,
+/// control characters or credential-shaped values. The adapter receives the
+/// canonical string only after Core independently validates it.
+fn parse_delivery_url(body: &Value) -> Result<String, ApiResponse> {
+    let url = body
+        .get("deployment_url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if url.is_empty() || url.len() > 2048 {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry requires an HTTP(S) `deployment_url` of 1..=2048 characters.",
+        ));
+    }
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry requires an HTTP(S) `deployment_url`.",
+        ));
+    }
+    if url
+        .bytes()
+        .any(|byte| byte.is_ascii_control() || byte == b' ')
+    {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry requires an HTTP(S) `deployment_url` without whitespace or control characters.",
+        ));
+    }
+    let authority = url
+        .split("://")
+        .nth(1)
+        .unwrap_or("")
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry requires an HTTP(S) `deployment_url` without embedded credentials.",
+        ));
+    }
+    if crate::portfolio::share::validation::looks_like_secret(url) {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry refuses a credential-shaped `deployment_url`; supply the deployment address, never a secret.",
+        ));
+    }
+    Ok(url.to_string())
+}
+
+/// Validate an environment-variable secret reference. Only the variable name
+/// travels to the adapter; the secret value stays in server-side environment.
+/// Credential-shaped references are refused before any adapter call.
+fn parse_delivery_secret_ref(body: &Value) -> Result<String, ApiResponse> {
+    let secret_ref = body
+        .get("secret_ref")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if secret_ref.len() > 128 {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry requires `secret_ref` of 1..=128 characters.",
+        ));
+    }
+    let name = secret_ref.strip_prefix("env:").unwrap_or("");
+    let mut chars = name.chars();
+    let valid = !name.is_empty()
+        && matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|next| next.is_ascii_alphanumeric() || next == '_');
+    if !valid {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry requires `secret_ref` as an environment-variable reference such as `env:HERMORA_TOKEN`.",
+        ));
+    }
+    if crate::portfolio::share::validation::looks_like_secret(secret_ref) {
+        return Err(error(
+            400,
+            "delivery-invalid",
+            "delivery hermora-retry refuses a credential-shaped `secret_ref`; supply the variable name, never the secret.",
+        ));
+    }
+    Ok(secret_ref.to_string())
+}
+
+/// Read the delivery projection for a resolved project and scrub every
+/// absolute project path from it. Core already scrubs credential-shaped
+/// evidence before it reaches the journal.
+fn delivery_report(
+    db_path: &Path,
+    id: &str,
+    resolution: &DeliveryResolution,
+) -> Result<Value, ApiResponse> {
+    let registry = Registry::open_read_only(db_path).map_err(|_| unavailable())?;
+    let now = Utc::now();
+    let report = delivery_handlers::run_status(&registry, id, now)
+        .map_err(|err| typed_delivery_error(&resolution.project_dir, &[], &err))?;
+    let value = serde_json::to_value(&report).map_err(|_| {
+        error(
+            500,
+            "admin-delivery-unavailable",
+            "delivery status could not be encoded; nothing was changed.",
+        )
+    })?;
+    Ok(scrub_json(
+        value,
+        &[resolution.project_dir.display().to_string()],
+    ))
+}
+
+/// The path-free canonical descriptor a preview digest binds. Hermora URL and
+/// secret reference participate in the digest but are intentionally omitted
+/// from the visible preview; the digest is opaque and bound to them.
+fn delivery_descriptor(
+    action: DeliveryAction,
+    id: &str,
+    revision: &str,
+    confirmation: &DeliveryConfirmation,
+) -> Value {
+    let mut descriptor = json!({
+        "action": action.name(),
+        "project_id": id,
+        "revision": revision,
+    });
+    match confirmation {
+        DeliveryConfirmation::None => {}
+        DeliveryConfirmation::OperationId(operation_id) => {
+            descriptor["confirm_operation_id"] = json!(operation_id);
+        }
+        DeliveryConfirmation::Revision(confirm_revision) => {
+            descriptor["confirm_revision"] = json!(confirm_revision);
+        }
+        DeliveryConfirmation::Hermora {
+            deployment_url,
+            secret_ref,
+        } => {
+            descriptor["deployment_url"] = json!(deployment_url);
+            descriptor["secret_ref"] = json!(secret_ref);
+        }
+    }
+    descriptor
+}
+
+/// Flat preview fields the generic workbench renderer can print without
+/// bespoke templates. Sensitive Hermora inputs are bound into the digest but
+/// never echoed here.
+fn delivery_preview(
+    action: DeliveryAction,
+    id: &str,
+    resolution: &DeliveryResolution,
+    confirmation: &DeliveryConfirmation,
+    report: &Value,
+) -> Value {
+    let mut preview = json!({
+        "action": action.name(),
+        "project_id": id,
+        "revision": resolution.revision,
+        "phase": report.pointer("/phase").cloned().unwrap_or(Value::Null),
+        "next": delivery_next(report, &resolution.revision),
+    });
+    match confirmation {
+        DeliveryConfirmation::None => {}
+        DeliveryConfirmation::OperationId(operation_id) => {
+            preview["confirm_operation_id"] = json!(operation_id);
+        }
+        DeliveryConfirmation::Revision(confirm_revision) => {
+            preview["confirm_revision"] = json!(confirm_revision);
+        }
+        DeliveryConfirmation::Hermora { .. } => {
+            preview["deployment_url"] = json!("bound into the digest, not displayed");
+            preview["secret_ref"] = json!("bound into the digest, not displayed");
+        }
+    }
+    preview
+}
+
+/// Plain-language next staged confirmation derived from the scrubbed report.
+/// Failed or stale prerequisites report `blocked` with recovery guidance
+/// rather than suggesting the same mutation blindly.
+fn delivery_next(report: &Value, revision: &str) -> Value {
+    let verb = |name: &str| {
+        report
+            .pointer(&format!("/{name}"))
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
+    let state = |value: &Value| {
+        value
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let report_revision = |value: &Value| {
+        value
+            .get("revision")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let operation_id = |value: &Value| value.get("op_id").cloned().unwrap_or(Value::Null);
+
+    let preflight = verb("preflight");
+    let stage = verb("stage");
+    let promote = verb("promote");
+    let hermora = verb("hermora");
+    let healthy = |value: &Value| state(value) == "done" && report_revision(value) == revision;
+
+    if !healthy(&preflight) {
+        return json!({
+            "action": DeliveryAction::Preflight.name(),
+            "requires": [],
+            "blocked": state(&preflight) == "failed",
+            "guidance": "Run delivery preflight for the registered revision. A failed preflight must be resolved before stage.",
+        });
+    }
+    if !healthy(&stage) {
+        return json!({
+            "action": DeliveryAction::Stage.name(),
+            "requires": ["confirm_operation_id"],
+            "confirm_operation_id": operation_id(&preflight),
+            "blocked": state(&stage) == "failed",
+            "guidance": "Stage with the healthy preflight operation id. A failed stage blocks promotion.",
+        });
+    }
+    if !healthy(&promote) {
+        return json!({
+            "action": DeliveryAction::Promote.name(),
+            "requires": ["confirm_revision"],
+            "confirm_revision": revision,
+            "blocked": state(&promote) == "failed",
+            "guidance": "Promote with the registered revision after a healthy stage. A failed promotion blocks Hermora enrollment.",
+        });
+    }
+    json!({
+        "action": DeliveryAction::HermoraRetry.name(),
+        "requires": ["deployment_url", "secret_ref"],
+        "blocked": state(&hermora) == "failed",
+        "guidance": "Enroll the healthy deployment with Hermora using an HTTP(S) URL and environment-variable secret reference. This never republishes.",
+    })
+}
+
+/// `GET /v1/admin/projects/{id}/delivery/status`. Session-gated read-only
+/// delivery status; invokes no provider or adapter and writes nothing.
+fn delivery_status(
+    config: &ApiConfig,
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+) -> ApiResponse {
+    cors(
+        config,
+        request,
+        guarded(db_path, request, |_| {
+            let resolution = match delivery_resolution(db_path, id) {
+                Ok(resolution) => resolution,
+                Err(response) => return response,
+            };
+            match delivery_report(db_path, id, &resolution) {
+                Ok(report) => ApiResponse::json(
+                    200,
+                    json!({
+                        "delivery_status": report,
+                        "next": delivery_next(&report, &resolution.revision),
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                ),
+                Err(response) => response,
+            }
+        }),
+    )
+}
+
+/// One JSON-only, session-gated staged delivery mutation. The request is
+/// refused as non-JSON before the session gate; the managed-project,
+/// typed-confirmation and digest checks precede any Core call. Confirmed
+/// matching requests delegate to the unchanged delivery handler for the
+/// verb. Core's typed errors preserve status and code; responses are
+/// scrubbed of the project path and exact Hermora inputs.
+fn project_delivery_write(
+    config: &ApiConfig,
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    action: DeliveryAction,
+) -> ApiResponse {
+    if !is_json(request) {
+        return cors(
+            config,
+            request,
+            error(
+                415,
+                "admin-content-type-required",
+                "delivery mutations require application/json",
+            ),
+        );
+    }
+    cors(
+        config,
+        request,
+        guarded(db_path, request, |req| {
+            let resolution = match delivery_resolution(db_path, id) {
+                Ok(resolution) => resolution,
+                Err(response) => return response,
+            };
+            let body = req.json_body();
+            let confirmation = match delivery_confirmation(action, &body) {
+                Ok(confirmation) => confirmation,
+                Err(response) => return response,
+            };
+            let digest = authoring_digest(&delivery_descriptor(
+                action,
+                id,
+                &resolution.revision,
+                &confirmation,
+            ));
+            let report = match delivery_report(db_path, id, &resolution) {
+                Ok(report) => report,
+                Err(response) => return response,
+            };
+            let preview = delivery_preview(action, id, &resolution, &confirmation, &report);
+            let confirm = body
+                .get("confirm")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !confirm {
+                return ApiResponse::json(
+                    200,
+                    json!({
+                        "preview": preview,
+                        "plan_digest": digest,
+                        "confirmation": {
+                            "requires": ["confirm", "plan_digest"],
+                            "note": "This preview dispatches nothing. To run this staged delivery verb, send `confirm: true` with this exact `plan_digest`; a changed or stale digest is refused.",
+                        },
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                );
+            }
+            let supplied = body
+                .get("plan_digest")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if supplied != digest {
+                return ApiResponse::json(
+                    409,
+                    json!({
+                        "error": {
+                            "code": "admin-digest-mismatch",
+                            "message": "the confirmed digest does not match this delivery preview; nothing was dispatched. Review the refreshed preview and confirm its new digest.",
+                        },
+                        "preview": preview,
+                        "plan_digest": digest,
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                );
+            }
+
+            let mut secrets = vec![resolution.project_dir.display().to_string()];
+            if let DeliveryConfirmation::Hermora {
+                deployment_url,
+                secret_ref,
+            } = &confirmation
+            {
+                secrets.push(deployment_url.clone());
+                secrets.push(secret_ref.clone());
+            }
+            let registry = match Registry::open(db_path) {
+                Ok(registry) => registry,
+                Err(_) => return unavailable(),
+            };
+            let now = Utc::now();
+            let outcome = match (action, &confirmation) {
+                (DeliveryAction::Preflight, DeliveryConfirmation::None) => {
+                    delivery_handlers::run_preflight(&registry, id, now)
+                }
+                (DeliveryAction::Stage, DeliveryConfirmation::OperationId(operation_id)) => {
+                    delivery_handlers::run_stage(&registry, id, *operation_id, now)
+                }
+                (DeliveryAction::Promote, DeliveryConfirmation::Revision(confirm_revision)) => {
+                    delivery_handlers::run_promote(&registry, id, confirm_revision, now)
+                }
+                (
+                    DeliveryAction::HermoraRetry,
+                    DeliveryConfirmation::Hermora {
+                        deployment_url,
+                        secret_ref,
+                    },
+                ) => delivery_handlers::run_hermora_retry(
+                    &registry,
+                    id,
+                    deployment_url,
+                    secret_ref,
+                    now,
+                ),
+                _ => {
+                    return error(
+                        400,
+                        "delivery-invalid",
+                        "the staged delivery confirmation does not match this route.",
+                    )
+                }
+            };
+            match outcome {
+                Ok(outcome) => {
+                    let report = match serde_json::to_value(&outcome.report) {
+                        Ok(report) => scrub_json(report, &secrets),
+                        Err(_) => {
+                            return error(
+                                500,
+                                "admin-delivery-unavailable",
+                                "delivery completed but its report could not be encoded; check the journal directly.",
+                            )
+                        }
+                    };
+                    ApiResponse::json(
+                        202,
+                        json!({
+                            "project_id": id,
+                            "operation_id": outcome.op_id,
+                            "action": action.name(),
+                            "delivery": report,
+                            "contract": API_CONTRACT_VERSION,
+                        }),
+                    )
+                }
+                Err(err) => typed_delivery_error(&resolution.project_dir, &secrets, &err),
+            }
+        }),
+    )
+}
+
+/// Map a delivery Core error to its typed API status/code while scrubbing
+/// the project path and any exact caller-supplied Hermora inputs. The typed
+/// code and status are preserved so boundary scenarios stay honest.
+fn typed_delivery_error(
+    project_dir: &Path,
+    secrets: &[String],
+    err: &crate::core::ForgeError,
+) -> ApiResponse {
+    let mut all = vec![project_dir.display().to_string()];
+    all.extend(secrets.iter().cloned());
+    scrub_response(ApiResponse::from_error(err), &all)
 }
 
 /// Replace the raw body of an already-built error response with a scrubbed copy,

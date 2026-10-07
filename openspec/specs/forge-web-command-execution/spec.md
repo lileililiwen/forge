@@ -67,16 +67,25 @@ under the same confirm and digest discipline, delegating to the in-process
 release engine with the manifest's stages; `publish` SHALL be served by the admin
 publish routes under the same confirm and digest discipline, resolving the
 provider id, the provider configuration and the committed revision only
-server-side; `new`, `import` and `register` SHALL be served by the session-gated
-project-management routes under the same confirm and digest discipline and
-resolve their destination only from the server-side configured root; and
-`doctor`, `inspect` and `upgrade` SHALL remain served by the existing workbench
-routes.
+server-side; `delivery.status` SHALL be served by the admin delivery-status
+route; `delivery.preflight`, `delivery.stage`, `delivery.promote` and
+`delivery.hermora-retry` SHALL be served by their admin delivery routes under
+the same confirm and digest discipline, resolving the provider and revision
+only server-side; `new`, `import` and `register` SHALL be served by the
+session-gated project-management routes under the same confirm and digest
+discipline and resolve their destination only from the server-side configured
+root; and `doctor`, `inspect` and `upgrade` SHALL remain served by the
+existing workbench routes.
 
 #### Scenario: Handler-backed command becomes runnable
 
 - **WHEN** `feature add`, `spec generate`, the `deploy plan` / `deploy apply` commands, the `release plan` / `release apply` commands, the `publish` command, or the `new` / `import` / `register` creation commands gain their implemented admin route
 - **THEN** the catalog reports that command `web` with that route and omits the CLI-only next step
+
+#### Scenario: Handler-backed delivery command becomes runnable
+
+- **WHEN** `delivery.status`, `delivery.preflight`, `delivery.stage`, `delivery.promote` or `delivery.hermora-retry` gains its implemented admin route
+- **THEN** the catalog reports that command `web` with that route and omits any terminal-only next step
 
 #### Scenario: Command still has no route
 

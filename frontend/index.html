@@ -121,6 +121,11 @@
                   <p class="muted">Read-only in-process status from the doctor, checker and profile-readiness projections. No build, adapter or write runs.</p>
                   <div id="wb-status" class="wb-health"></div>
                 </section>
+                <section class="wb-card" aria-labelledby="wb-delivery-title">
+                  <h3 id="wb-delivery-title">Delivery</h3>
+                  <p class="muted">Read-only staged-delivery phase from the journal. Providers and adapters run only after you preview and confirm an action below.</p>
+                  <div id="wb-delivery" class="wb-health" role="status" aria-live="polite"></div>
+                </section>
                 <section class="wb-card" aria-labelledby="wb-workflows-title">
                   <h3 id="wb-workflows-title">Workflows</h3>
                   <p class="muted">Honest availability from the command catalog: only wired actions are actionable; others show why they stay in the terminal.</p>

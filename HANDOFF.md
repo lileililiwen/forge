@@ -2,6 +2,91 @@
 
 ## Current state
 
+### forge-web-workspace-onboarding delivered and archived (2026-10-07)
+
+`forge-web-workspace-onboarding` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-workspace-onboarding`,
+creating the `forge-web-workspace-onboarding` spec (three requirements). The
+dashboard can now discover every sibling directory under the
+operator-configured project root and bulk import/register a selection
+through preview → confirm → per-item results. Discovery re-reads the root
+live on every request, so an expanding workspace needs no code, list or
+configuration change; the fleet itself stays database-driven (onboarding
+writes registry records, the fleet reads those records, never the
+filesystem). No concrete host folder appears in code, specs, tests or
+responses — the root is runtime-only operator configuration
+(`FORGE_ADMIN_PROJECTS_ROOT`, documented in the README portal section).
+
+Delivered routes (session-gated, exact-origin `/v1/admin`):
+
+- `GET /v1/admin/workspace/candidates?limit=&cursor=` — bounded, sorted,
+  paginated candidate view per immediate child directory: leaf name,
+  derived id, manifest presence, suggested profile/confidence, live
+  registration state (`unregistered`/`registered`/`id-collision`/
+  `ambiguous`/`undecidable`/`manifest-invalid`/`unreadable`) and next
+  action. Hidden entries, files and symlinks are skipped; symlink escapes
+  are refused.
+- `POST /v1/admin/workspace/onboard` — bulk preview (per-item plans +
+  64-hex digest, no write) → `409` on mismatched digest or blocked items →
+  confirmed apply through the unchanged `adopt_import` /
+  `Registry::register` Core functions with honest per-item results (`202`
+  all ok, `207` partial) plus a counts-only `admin.workspace.onboard`
+  parent row. The digest binds the reviewed root plus the exact per-item
+  plans, so a directory set that changes between preview and confirm is
+  refused safely. Non-kebab leaves onboard via explicit `id` override;
+  at most 25 items per batch.
+
+The dashboard gains a task-oriented “Workspace onboarding” panel
+(discover/refresh, candidate table with selection and per-item profile/id
+overrides, preview, confirm, per-item results, fleet reload) rendered
+text-only with labelled controls and a live region; single-item
+new/import/register controls are unchanged. All five delivery verbs from
+the prior change keep working through the same panel patterns.
+
+Required remediation inside this change: `src/api/admin.rs` (3,822 lines)
+is split — project management moves to `src/api/project_management.rs`
+(563 lines), workspace onboarding to `src/api/workspace.rs` (728 lines),
+`admin.rs` shrinks to 2,589. Pure move, proven by unchanged green suites.
+Remaining `admin.rs`/`mod.rs` size debt stays tracked under the gate
+remediation path below.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; one pre-existing warning (`ShareSurface` unused import) |
+| new onboarding contract | **10 passed / 0 failed** |
+| new Chromium browser flow | **1 passed / 0 failed** (discover → select → preview → confirm → fleet) |
+| catalog / execution / fleet / management / workbench | **8 / 5 / 11 / 9 / 11 passed, 0 failed** |
+| admin API / portal frontend / portal UI | **4 / 7 / 39 passed, 0 failed** |
+| `cargo test --bin forge` | **7 passed / 0 failed** |
+| `cargo test --lib api::` | **49 passed / 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **78 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive forge-web-workspace-onboarding --yes` | archived as `2026-10-07-forge-web-workspace-onboarding`; canonical `forge-web-workspace-onboarding: create` (+3); no `--skip-specs` |
+| `forge gate` (mandatory local run) | **BLOCKED** — 5 pass (build, placeholder-threshold, product-code-boundary, repository, security); 2 fail, 2 unresolved, all pre-existing/environmental, zero new failures attributable to this change (see below) |
+| `openspec list` | no active changes |
+
+Gate attribution (new rule: record verdict, block only on failures
+attributable to the change):
+
+- `source-file-size` FAIL is pre-existing in cause: 50 failing files at both
+  baseline and final runs (50/117 → 50/119 evaluated; the +2 are this
+  change's two new modules, both under 1,000 lines). `admin.rs` shrank
+  3,822 → 2,589 here. Remediation path: follow-up package to continue
+  splitting `admin.rs`/`mod.rs` plus the other 48 oversized files.
+- `governance-quality` FAIL shows the identical 14 errors at baseline and
+  final runs with no other repo activity between them. Remediation path:
+  triage the 14 findings in a follow-up governance package.
+- `declared-verification` / `tests` UNRESOLVED are environmental: the
+  `project-runtime` adapter exceeded its 60s timeout in both runs.
+  Remediation path: re-run in CI / investigate the adapter environment.
+
+Implementation commit: `65b679b`. Nothing pushed. No `current_spec` pointer
+remains because no OpenSpec change is active.
+
 ### forge-web-project-delivery delivered and archived (2026-10-07)
 
 `forge-web-project-delivery` is implemented, verified and archived as

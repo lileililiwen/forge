@@ -286,6 +286,7 @@
         document.getElementById("availability-filter").addEventListener("change", refresh);
         refresh();
         if (workbench.id) renderProjectActions();
+        renderManagementActions();
       })
       .catch(() => showCommandsError("Command catalog unavailable. Start the Forge API and reload; every CLI command stays discoverable in the terminal meanwhile."));
   }
@@ -612,7 +613,12 @@
     if (!box) return;
     box.replaceChildren();
     if (!workbench.id) return;
-    const rows = catalogCommands.filter((command) => command.execution);
+    // Only rows addressed by the open project render here. The id-less
+    // creation/registration rows are dashboard-level and render in
+    // `renderManagementActions` instead.
+    const rows = catalogCommands.filter(
+      (command) => command.execution && command.execution.route.includes("{id}"),
+    );
     if (!rows.length) {
       box.append(el("p", "muted", "No browser-executable actions are available for this project yet."));
       return;
@@ -620,9 +626,39 @@
     for (const command of rows) box.append(buildActionControl(command));
   }
 
-  function buildActionControl(command) {
+  // ---- Dashboard-level project management (creation / adoption) -----------
+  //
+  // The id-less executable rows (`forge new`, `forge import`,
+  // `forge register`) resolve to routes with no `{id}` segment: the browser
+  // supplies only a validated single-segment project name plus typed fields,
+  // and the server joins that name to its own configured root. They render
+  // here, once, outside any single project.
+  function renderManagementActions() {
+    const box = document.getElementById("management-actions");
+    if (!box) return;
+    box.replaceChildren();
+    const rows = catalogCommands.filter(
+      (command) => command.execution && !command.execution.route.includes("{id}"),
+    );
+    if (!rows.length) {
+      box.append(el("p", "muted", "No project-management actions are available yet."));
+      return;
+    }
+    for (const command of rows) {
+      box.append(
+        buildActionControl(command, {
+          projectId: null,
+          onSuccess: () => window.location.reload(),
+        }),
+      );
+    }
+  }
+
+  function buildActionControl(command, scope = {}) {
     const execution = command.execution;
     const method = (execution.method || "POST").toUpperCase();
+    const scoped = execution.route.includes("{id}");
+    const projectId = scope.projectId === undefined ? workbench.id : scope.projectId;
     const card = el("div", "wb-action-card");
     card.append(el("h4", "wb-action-title", `${command.label} — forge ${command.id.replace(/\./g, " ")}`));
     card.append(el("p", "muted", command.summary));
@@ -664,7 +700,7 @@
     // the browser only ever substitutes the validated id, never a path it typed.
     const routePath = () => {
       const template = execution.route.split(" ").slice(1).join(" ");
-      return template.replace("{id}", encodeURIComponent(workbench.id));
+      return template.replace("{id}", encodeURIComponent(projectId || ""));
     };
 
     const gatherPayload = () => {
@@ -714,12 +750,13 @@
         result.replaceChildren(); result.hidden = false;
         result.append(el("p", "wb-plan-head", message));
       };
+      if (scope.onSuccess) { scope.onSuccess(); show(); return; }
       if (workbench.id) loadWorkbenchDetail(workbench.id).then(show).catch(show);
       else show();
     };
 
     previewBtn.addEventListener("click", async () => {
-      if (!workbench.id) { showWorkbenchNotice("Open a managed project first."); return; }
+      if (scoped && !projectId) { showWorkbenchNotice("Open a managed project first."); return; }
       clearWorkbenchNotice();
       result.hidden = true; result.replaceChildren();
       confirmWrap.hidden = true; confirmBox.checked = false; runBtn.disabled = true;

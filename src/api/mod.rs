@@ -534,6 +534,17 @@ pub enum Route {
     AdminProjectDeploy {
         id: String,
     },
+    /// `POST /v1/admin/projects/new` — `forge new` exposed as a session-gated,
+    /// preview + confirm/digest-bound admin route. The browser supplies only a
+    /// validated project name plus typed fields; the destination is resolved
+    /// server-side from `FORGE_ADMIN_PROJECTS_ROOT`.
+    AdminProjectNew,
+    /// `POST /v1/admin/projects/import` — `forge import`, destination resolved
+    /// server-side; the browser never supplies a path.
+    AdminProjectImport,
+    /// `POST /v1/admin/projects/register` — `forge register`, destination
+    /// resolved server-side; the browser never supplies a path.
+    AdminProjectRegister,
     /// `GET /v1/admin/portfolio` — cross-project portfolio fleet: each
     /// registered project's user-owned record, tags and read-only evidence
     /// states (`forge-web-portfolio-controls/0.1.0`). Session-gated.
@@ -762,6 +773,14 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("DELETE", ["v1", "admin", "session"]) => Some(Route::AdminSessionDelete),
         ("GET", ["v1", "admin", "projects"]) => Some(Route::AdminProjects),
         ("GET", ["v1", "admin", "commands"]) => Some(Route::AdminCommands),
+        // Project creation/registration: literal four-segment paths addressed
+        // by a validated project name that the server joins to its own
+        // configured root. The browser never supplies a filesystem path. These
+        // precede the generic `{id}` and OPTIONS wildcards so a reserved
+        // literal is never read as a project id.
+        ("POST", ["v1", "admin", "projects", "new"]) => Some(Route::AdminProjectNew),
+        ("POST", ["v1", "admin", "projects", "import"]) => Some(Route::AdminProjectImport),
+        ("POST", ["v1", "admin", "projects", "register"]) => Some(Route::AdminProjectRegister),
         // Workbench routes are addressed by a validated project id resolved
         // server-side; the browser never sends a filesystem path. These arms
         // precede the generic admin OPTIONS handling so a `{id}` segment is
@@ -1070,6 +1089,9 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectSpecApply { .. }
         | Route::AdminProjectDeployPlan { .. }
         | Route::AdminProjectDeploy { .. }
+        | Route::AdminProjectNew
+        | Route::AdminProjectImport
+        | Route::AdminProjectRegister
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1220,6 +1242,9 @@ pub fn handle(
             | Route::AdminProjectSpecApply { .. }
             | Route::AdminProjectDeployPlan { .. }
             | Route::AdminProjectDeploy { .. }
+            | Route::AdminProjectNew
+            | Route::AdminProjectImport
+            | Route::AdminProjectRegister
             | Route::AdminPortfolioList
             | Route::AdminPortfolioEvidence
             | Route::AdminPortfolioProject { .. }
@@ -1373,6 +1398,9 @@ pub fn handle(
         | Route::AdminProjectSpecApply { .. }
         | Route::AdminProjectDeployPlan { .. }
         | Route::AdminProjectDeploy { .. }
+        | Route::AdminProjectNew
+        | Route::AdminProjectImport
+        | Route::AdminProjectRegister
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1466,6 +1494,9 @@ fn authorize(
         | Route::AdminProjectSpecApply { .. }
         | Route::AdminProjectDeployPlan { .. }
         | Route::AdminProjectDeploy { .. }
+        | Route::AdminProjectNew
+        | Route::AdminProjectImport
+        | Route::AdminProjectRegister
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }

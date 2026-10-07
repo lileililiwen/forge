@@ -48,6 +48,12 @@ pub const ROUTE_PROJECT_DETAIL: &str = "GET /v1/admin/projects/{id}";
 pub const ROUTE_PROJECT_PLAN: &str = "GET /v1/admin/projects/{id}/plan";
 pub const ROUTE_PROJECT_APPLY: &str = "POST /v1/admin/projects/{id}/apply";
 
+/// Reason shown for a catalog `web` row that is global (id-less) rather than
+/// scoped to the resolved project. Such a row is executable from the
+/// dashboard's project-management section, not from one project's workbench.
+const GLOBAL_ACTION_REASON: &str =
+    "this action creates, registers or adopts a project and lives in the dashboard's \"Create or adopt a project\" section, not inside a single project's workbench.";
+
 /// Command-catalog ids that name a workflow in the project scope. Kept as
 /// data so the disposition view and the catalog never disagree: each row's
 /// availability/reason/route is read straight from the catalog.
@@ -170,14 +176,25 @@ fn plan_digest(plan: &Value) -> String {
 }
 
 /// Derive the honest workflow disposition for the scoped command set from
-/// the command catalog — a single source of truth. Web rows list their
-/// route; every other row carries the catalog's own plain-language reason.
+/// the command catalog — a single source of truth. A row is actionable here
+/// only when it is a `web` route that addresses **this** project (its route
+/// carries `{id}`); a global, id-less `web` row (project creation,
+/// registration, adoption) stays catalog-visible but reads not-actionable
+/// inside a single project, with a reason that points at the dashboard's
+/// project-management section. Every other row carries the catalog's own
+/// plain-language reason.
 fn disposition() -> Vec<Value> {
     let catalog = super::command_catalog::rows();
     let mut out = Vec::new();
     for id in SCOPED_COMMANDS {
         if let Some(row) = catalog.iter().find(|row| row.id == *id) {
-            let available = row.availability == "web";
+            let scoped = row.route.is_some_and(|route| route.contains("{id}"));
+            let available = row.availability == "web" && scoped;
+            let reason = match (available, row.reason) {
+                (true, _) => None,
+                (false, Some(reason)) => Some(reason.to_string()),
+                (false, None) => Some(GLOBAL_ACTION_REASON.to_string()),
+            };
             out.push(json!({
                 "id": row.id,
                 "label": row.label,
@@ -185,7 +202,7 @@ fn disposition() -> Vec<Value> {
                 "availability": row.availability,
                 "available": available,
                 "route": row.route,
-                "reason": row.reason,
+                "reason": reason,
             }));
         }
     }
@@ -596,7 +613,31 @@ mod tests {
                 "{web_id} must name its typed GET route: {row}"
             );
         }
-        for cli_id in ["register", "new", "gate", "test"] {
+        // Global, id-less `web` rows (creation/registration/adoption) are
+        // catalog-visible but not actionable inside one project's workbench:
+        // they resolve to a dashboard route, not a per-project one, and carry
+        // a synthesized reason that points the operator there.
+        for global_id in ["register", "import", "new"] {
+            let row = find(global_id);
+            assert_eq!(
+                row["available"],
+                json!(false),
+                "{global_id} is not per-project"
+            );
+            assert_eq!(row["availability"], json!("web"));
+            assert!(
+                row["route"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("POST /v1/admin/projects/"),
+                "{global_id} must name its global POST route: {row}"
+            );
+            assert!(
+                row["reason"].as_str().unwrap().chars().count() > 10,
+                "{global_id} must carry a plain-language reason"
+            );
+        }
+        for cli_id in ["gate", "test"] {
             let row = find(cli_id);
             assert_eq!(row["available"], json!(false), "{cli_id} must stay honest");
             assert!(!row["availability"].as_str().unwrap().eq("web"));

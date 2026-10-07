@@ -141,6 +141,12 @@
               </section>
             </div>
           </section>
+          <section id="management" class="project-panel" aria-labelledby="management-title">
+            <div class="panel-heading">
+              <div><h2 id="management-title">Create or adopt a project</h2><p class="muted">Create (<code>forge new</code>), import (<code>forge import</code>) or register (<code>forge register</code>) a project from the browser. The browser supplies only a validated project name and typed fields; the server resolves the directory from its own configured root. Nothing is written until you review the preview and confirm its digest.</p></div>
+            </div>
+            <div id="management-actions" class="wb-actions-list"></div>
+          </section>
           <section id="portfolio" class="project-panel" aria-labelledby="portfolio-title">
             <div class="panel-heading">
               <div><h2 id="portfolio-title">Portfolio &amp; evidence</h2><p class="muted">Forge-owned metadata across every project, plus cross-project source evidence. Every read runs through the crate's own typed in-process functions — no provider is probed on load, and imported evidence stays source-owned and read-only.</p></div>

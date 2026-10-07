@@ -1,21 +1,6 @@
-# forge-web-command-catalog Specification
+# forge-web-command-catalog (delta)
 
-## Purpose
-TBD - created by archiving change forge-web-command-catalog. Update Purpose after archive.
-## Requirements
-### Requirement: Exhaustive CLI command coverage
-
-Forge SHALL represent every top-level and nested CLI command in an authenticated, versioned web catalog with a stable ID, user-facing purpose, category, scope, risk, and web route or explicit CLI-only disposition.
-
-#### Scenario: New CLI command added
-
-- **WHEN** a top-level or nested Clap command is added without catalog metadata
-- **THEN** the command coverage check fails and identifies the missing command path
-
-#### Scenario: Catalog is complete
-
-- **WHEN** an authenticated operator opens command search
-- **THEN** every command path from the Rust Clap tree appears once with a valid category and disposition
+## MODIFIED Requirements
 
 ### Requirement: Truthful availability and safe navigation
 
@@ -74,18 +59,3 @@ point at a route that does not exist.
 
 - **WHEN** `deploy plan` and `deploy apply` are exposed through the implemented session-gated admin deploy routes
 - **THEN** the catalog reports `deploy plan` `web` with its read-only route and `deploy apply` `web` with a `remote_write` `execution` block, and neither keeps a CLI-only or project-capability next step
-
-### Requirement: Catalog authorization and invocation isolation
-
-Forge SHALL require a valid global admin session to read the catalog and SHALL NOT provide a generic endpoint that executes arbitrary CLI text.
-
-#### Scenario: Anonymous catalog request
-
-- **WHEN** an unauthenticated client requests the command catalog
-- **THEN** Forge returns 401 and no catalog data
-
-#### Scenario: Search text contains shell syntax
-
-- **WHEN** search text contains shell metacharacters
-- **THEN** it is treated only as literal catalog text and is never executed
-

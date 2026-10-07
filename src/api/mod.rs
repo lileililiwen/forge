@@ -127,6 +127,12 @@ mod fleet;
 /// Forge-owned metadata writes reuse registry Core only; imported,
 /// source-owned evidence is read-only and never executed live on page load.
 mod portfolio;
+/// Typed, session-gated read-only status projection (`forge-project-status/
+/// 0.1.0`) backing `GET /v1/admin/projects/{id}/status` and
+/// `GET /v1/admin/status`. Reuses the in-process doctor, checker and profile
+/// readiness projections only — never a shell, a write or an external
+/// adapter — and never serializes an absolute filesystem path.
+mod status;
 /// Sub-module that serves the in-process portal UI on the
 /// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
 /// `POST /ui/projects/{id}/publish`). Rendered with
@@ -462,10 +468,21 @@ pub enum Route {
     AdminSessionDelete,
     AdminProjects,
     AdminCommands,
+    /// `GET /v1/admin/status` — read-only fleet readiness summary
+    /// (`forge-project-status/0.1.0`): every registered project counted by
+    /// overall state, plus a bounded per-project sample. Session-gated.
+    AdminFleetStatus,
     /// `GET /v1/admin/projects/{id}` — typed single-project workbench
     /// detail (`forge-project-workbench/0.1.0`): manifest + doctor health
     /// + journal evidence + honest workflow dispositions. Session-gated.
     AdminProjectDetail {
+        id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/status` — read-only status of one
+    /// managed project (`forge-project-status/0.1.0`): its doctor, checker
+    /// and profile-readiness sub-checks reduced to one overall state.
+    /// Session-gated; the root is resolved server-side from a validated id.
+    AdminProjectStatus {
         id: String,
     },
     /// `GET /v1/admin/projects/{id}/plan` — side-effect-free upgrade plan
@@ -773,6 +790,10 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("DELETE", ["v1", "admin", "session"]) => Some(Route::AdminSessionDelete),
         ("GET", ["v1", "admin", "projects"]) => Some(Route::AdminProjects),
         ("GET", ["v1", "admin", "commands"]) => Some(Route::AdminCommands),
+        // Fleet readiness: a three-segment admin path. It precedes the
+        // generic `["v1","admin",_]` OPTIONS wildcard below, which never
+        // matches a GET anyway.
+        ("GET", ["v1", "admin", "status"]) => Some(Route::AdminFleetStatus),
         // Project creation/registration: literal four-segment paths addressed
         // by a validated project name that the server joins to its own
         // configured root. The browser never supplies a filesystem path. These
@@ -832,6 +853,12 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        // Project status is a five-segment read. Its literal `status`
+        // segment never collides with the `plan`/`apply`/`feature`/`spec`/
+        // `deploy` arms above, so no existing route is shadowed.
+        ("GET", ["v1", "admin", "projects", id, "status"]) => Some(Route::AdminProjectStatus {
+            id: (*id).to_string(),
+        }),
         // Portfolio routes: `/evidence` is a reserved second segment and is
         // matched before the generic `{id}` arm so a literal path never reads
         // as a project id. `{kind}`/`{action}` are validated keys, not paths.
@@ -1079,7 +1106,9 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
+        | Route::AdminProjectStatus { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -1232,7 +1261,9 @@ pub fn handle(
             | Route::AdminSessionDelete
             | Route::AdminProjects
             | Route::AdminCommands
+            | Route::AdminFleetStatus
             | Route::AdminProjectDetail { .. }
+            | Route::AdminProjectStatus { .. }
             | Route::AdminProjectPlan { .. }
             | Route::AdminProjectApply { .. }
             | Route::AdminProjectFeature { .. }
@@ -1388,7 +1419,9 @@ pub fn handle(
         // for exhaustiveness and answer `404` rather than a bearer-scoped
         // handler, since a request that reached here did not go through the
         // admin session gate and must not be served workbench data.
-        Route::AdminProjectDetail { .. }
+        Route::AdminFleetStatus
+        | Route::AdminProjectDetail { .. }
+        | Route::AdminProjectStatus { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -1484,7 +1517,9 @@ fn authorize(
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
+        | Route::AdminProjectStatus { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }

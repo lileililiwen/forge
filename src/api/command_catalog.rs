@@ -55,6 +55,13 @@ const WEB_ROUTE_ADMIN_SPEC_APPLY: &str = super::admin::ROUTE_ADMIN_SPEC_APPLY;
 const WEB_ROUTE_ADMIN_DEPLOY_PLAN: &str = super::admin::ROUTE_ADMIN_DEPLOY_PLAN;
 const WEB_ROUTE_ADMIN_DEPLOY: &str = super::admin::ROUTE_ADMIN_DEPLOY;
 
+/// Read-only status typed routes (`forge-project-status/0.1.0`). These
+/// reference the status module's own route constants so the catalog and the
+/// live endpoints can never name different paths: the per-project status
+/// projection and the fleet readiness summary.
+const WEB_ROUTE_PROJECT_STATUS: &str = super::status::ROUTE_PROJECT_STATUS;
+const WEB_ROUTE_FLEET_STATUS: &str = super::status::ROUTE_FLEET_STATUS;
+
 /// Project-management typed routes (`forge-web-project-management`). These name
 /// the exact admin paths the router registers so the catalog and the live
 /// endpoints can never diverge: `forge new`, `forge import` and
@@ -91,6 +98,8 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_SPEC_APPLY,
     WEB_ROUTE_ADMIN_DEPLOY_PLAN,
     WEB_ROUTE_ADMIN_DEPLOY,
+    WEB_ROUTE_PROJECT_STATUS,
+    WEB_ROUTE_FLEET_STATUS,
     WEB_ROUTE_ADMIN_PROJECT_NEW,
     WEB_ROUTE_ADMIN_PROJECT_IMPORT,
     WEB_ROUTE_ADMIN_PROJECT_REGISTER,
@@ -114,7 +123,6 @@ const REASON_NATIVE: &str = "This command invokes native build/test toolchains (
 const REASON_GIT: &str = "This command performs a local Git write (stage, commit, push, mirror distribution) with explicit interactive confirmation flags; the browser has no Git surface and the confirmation must stay human-initiated. Next step: run it in a terminal.";
 const REASON_PROVIDER: &str = "This command requires a configured external provider (Jenkins/Mac, analytics, translation, GitHub) whose credentials live in the terminal environment, never in the browser. Next step: configure the provider via `forge publish provider` or the environment and run it in a terminal.";
 const REASON_PROJECT_CAPABILITY: &str = "This command requires the project manifest to declare a deployment target and adapter; nothing can run until that capability exists for the project. Next step: declare deployment in the project, then run it in a terminal.";
-const REASON_MACHINE_STDOUT: &str = "This command emits a machine-pure stdout document for external tooling (DriftWatchdog-compatible); re-rendering it through a browser API would change the contract. Next step: pipe it to the consumer in a terminal.";
 const REASON_TTY_HIDDEN: &str = "This command reads hidden terminal input (password without echo) or pastes manual provider-callback values; neither may ever cross a browser form or the JSON API. Next step: run it in a terminal.";
 const REASON_LOCAL_SECRET: &str = "This command prints a freshly generated secret to the terminal for the operator to copy; routing that value through a browser form or the JSON API would expose it. Next step: run it in a terminal.";
 const REASON_LEGACY_HTML: &str = "The legacy portal renders server-side HTML sections; the standalone frontend (this page) replaced that surface for browsers. Next step: use this dashboard, or run it in a terminal for the HTML view.";
@@ -1035,15 +1043,15 @@ impl CatalogBuilder {
             WEB_ROUTE_PROJECT_DETAIL,
             caps_web,
         );
-        self.cli_only(
+        self.web_at(
             None,
             "check",
-            "Emit a Driftwatchdog-compatible external-checker document on stdout (machine-pure, read-only).",
+            "Report the in-process doctor, governance and readiness status for one managed project (read-only).",
             Quality,
             Project,
             Read,
-            REASON_MACHINE_STDOUT,
-            caps_local,
+            WEB_ROUTE_PROJECT_STATUS,
+            caps_web,
         );
         self.cli_only(
             None,
@@ -1676,12 +1684,14 @@ impl CatalogBuilder {
             Workspace,
         );
         self.web(Some("fleet"), "list", "List the portfolio declared by the workspace registry as timestamped fleet observations.", Registry, Workspace, caps_web);
-        self.web(
+        self.web_at(
             Some("fleet"),
             "status",
             "Report the fleet registry health only (source, freshness, counts; no entries).",
             Registry,
             Workspace,
+            Read,
+            WEB_ROUTE_FLEET_STATUS,
             caps_web,
         );
         self.leaf(Some("fleet"), "inspect", "Inspect one declared fleet entry by id (read-only; unmanaged entries can never be operated on through the mirror).", Registry, Workspace, Read, NotYetWeb, caps_registry);
@@ -2514,12 +2524,13 @@ mod tests {
                 ("feature.upgrade", WEB_ROUTE_ADMIN_FEATURE_UPGRADE),
                 ("upgrade", WEB_ROUTE_PROJECT_PLAN),
                 ("doctor", WEB_ROUTE_PROJECT_DETAIL),
+                ("check", WEB_ROUTE_PROJECT_STATUS),
                 ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
                 ("spec.apply", WEB_ROUTE_ADMIN_SPEC_APPLY),
                 ("deploy.plan", WEB_ROUTE_ADMIN_DEPLOY_PLAN),
                 ("deploy.apply", WEB_ROUTE_ADMIN_DEPLOY),
                 ("fleet.list", WEB_ROUTE_PROJECTS),
-                ("fleet.status", WEB_ROUTE_PROJECTS),
+                ("fleet.status", WEB_ROUTE_FLEET_STATUS),
                 ("inventory.show", WEB_ROUTE_PROJECTS),
                 ("portfolio.share.set", WEB_ROUTE_DELIVERY_ALLOWLIST),
                 (

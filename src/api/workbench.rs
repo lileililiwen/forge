@@ -130,7 +130,7 @@ const MAX_JOURNAL_ROWS: usize = 20;
 
 /// Result of resolving a request against the registry: the managed record,
 /// or a typed, honest refusal the handler renders verbatim.
-enum Resolved {
+pub(super) enum Resolved {
     /// Boxed: `ProjectRecord` is ~496 bytes and the refusal arm is tiny;
     /// keeping the enum narrow avoids copying the whole record on every
     /// validated-but-unmanaged request.
@@ -143,7 +143,7 @@ enum Resolved {
 /// Validate the opaque id and resolve the registered root **server-side**.
 /// A cross-project or path-bearing reference is impossible because only a
 /// validated id reaches `registry.inspect`; the browser never sends a path.
-fn resolve(registry: &Registry, id: &str) -> Resolved {
+pub(super) fn resolve(registry: &Registry, id: &str) -> Resolved {
     if validate_project_id(id).is_err() {
         return Resolved::Refused {
             status: 400,
@@ -324,7 +324,7 @@ fn journal_evidence(registry: &Registry, id: &str) -> Vec<Value> {
 /// filesystem paths (`/home/…`, `C:\…`, `key=/value`) with a fixed marker.
 /// Journal `detail` text is Core's `Display` output, which legitimately
 /// names paths on failure; the browser only ever needs the logical reason.
-fn redact_local_paths(detail: &str) -> String {
+pub(super) fn redact_local_paths(detail: &str) -> String {
     detail
         .split_whitespace()
         .map(|token| {

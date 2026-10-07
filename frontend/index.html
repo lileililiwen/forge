@@ -34,7 +34,13 @@
             <article class="summary-card"><span class="summary-icon icon-violet" aria-hidden="true">◈</span><div><p>Profiles in use</p><strong id="summary-profiles">—</strong></div></article>
             <article class="summary-card"><span class="summary-icon icon-green" aria-hidden="true">⌁</span><div><p>Projects with evidence</p><strong id="summary-evidence">—</strong></div></article>
           </section>
-          <section id="source-panel" class="source-panel" aria-labelledby="sources-title">
+          <section id="fleet-readiness" class="summary-grid" role="group" aria-label="Fleet readiness">
+            <article class="summary-card"><span class="summary-icon icon-green" aria-hidden="true">✔</span><div><p>Healthy projects</p><strong id="fleet-healthy">—</strong></div></article>
+            <article class="summary-card"><span class="summary-icon icon-violet" aria-hidden="true">!</span><div><p>Projects with issues</p><strong id="fleet-issues">—</strong></div></article>
+            <article class="summary-card"><span class="summary-icon icon-blue" aria-hidden="true">↻</span><div><p>Stale projects</p><strong id="fleet-stale">—</strong></div></article>
+            <article class="summary-card"><span class="summary-icon icon-violet" aria-hidden="true">⌀</span><div><p>Unavailable projects</p><strong id="fleet-unavailable">—</strong></div></article>
+            <article class="summary-card"><span class="summary-icon icon-blue" aria-hidden="true">Σ</span><div><p>Registered projects</p><strong id="fleet-total">—</strong></div></article>
+          </section>
             <div class="panel-heading"><div><h2 id="sources-title">Data sources</h2><p class="muted">Each source is read explicitly; a source that cannot be read never hides the others.</p></div></div>
             <ul id="source-list" class="source-list" role="status" aria-live="polite" aria-label="Fleet source status"></ul>
           </section>
@@ -109,6 +115,11 @@
                 <section class="wb-card" aria-labelledby="wb-health-title">
                   <h3 id="wb-health-title">Health (doctor)</h3>
                   <div id="wb-health" class="wb-health"></div>
+                </section>
+                <section class="wb-card" aria-labelledby="wb-status-title">
+                  <h3 id="wb-status-title">Project status</h3>
+                  <p class="muted">Read-only in-process status from the doctor, checker and profile-readiness projections. No build, adapter or write runs.</p>
+                  <div id="wb-status" class="wb-health"></div>
                 </section>
                 <section class="wb-card" aria-labelledby="wb-workflows-title">
                   <h3 id="wb-workflows-title">Workflows</h3>

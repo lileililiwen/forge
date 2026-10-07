@@ -110,9 +110,15 @@ pub(super) fn handle(
         Route::AdminSessionDelete => sign_out(config, db_path, request),
         Route::AdminProjects => projects(db_path, request),
         Route::AdminCommands => commands(db_path, request),
+        Route::AdminFleetStatus => {
+            guarded(db_path, request, |_| super::status::fleet_status(db_path))
+        }
         Route::AdminProjectDetail { id } => {
             guarded(db_path, request, |_| super::workbench::detail(db_path, id))
         }
+        Route::AdminProjectStatus { id } => guarded(db_path, request, |_| {
+            super::status::project_status(db_path, id)
+        }),
         Route::AdminProjectPlan { id } => guarded(db_path, request, |req| {
             let feature = req.query.as_deref().and_then(parse_feature_query);
             super::workbench::plan(db_path, id, feature.as_deref())

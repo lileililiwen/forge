@@ -371,6 +371,53 @@
     }
   }
 
+  // The read-only project status projection: one overall state plus its
+  // doctor/check/readiness sub-checks. Rendered as text only; the server
+  // never returns an absolute path or raw finding detail.
+  const STATUS_CHECK_LABELS = { doctor: "Doctor", check: "Checker", readiness: "Readiness" };
+
+  function renderProjectStatus(status) {
+    const box = document.getElementById("wb-status");
+    if (!box) return;
+    box.replaceChildren();
+    const state = status.state || "unavailable";
+    const head = document.createElement("div"); head.className = "wb-health-state";
+    const dot = document.createElement("span"); dot.className = `state-dot ${HEALTH_BADGE[state] || ""}`; dot.setAttribute("aria-hidden", "true");
+    const text = document.createElement("strong"); text.textContent = HEALTH_LABELS[state] || state;
+    head.append(dot, text);
+    box.append(head);
+    const checks = status.checks || [];
+    if (checks.length) {
+      const ul = document.createElement("ul"); ul.className = "wb-findings";
+      for (const check of checks) {
+        const li = document.createElement("li");
+        const name = STATUS_CHECK_LABELS[check.id] || check.id || "check";
+        const label = `${name} — ${HEALTH_LABELS[check.state] || check.state || "unavailable"}`;
+        li.textContent = check.reason ? `${label}: ${check.reason}` : `${label}: ${check.summary || "no blocking evidence"}`;
+        ul.append(li);
+      }
+      box.append(ul);
+    }
+    if (status.note) { const note = document.createElement("p"); note.className = "muted"; note.textContent = status.note; box.append(note); }
+  }
+
+  async function loadProjectStatus(id) {
+    const box = document.getElementById("wb-status");
+    if (box) box.replaceChildren();
+    let status;
+    try {
+      status = await request(`/v1/admin/projects/${encodeURIComponent(id)}/status`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      if (box) {
+        const note = document.createElement("p"); note.className = "muted";
+        note.textContent = (err && err.message) ? err.message : "Project status is unavailable right now.";
+        box.replaceChildren(note);
+      }
+      return;
+    }
+    renderProjectStatus(status);
+  }
+
   function renderWorkflows(workflows) {
     const list = document.getElementById("wb-workflows");
     list.replaceChildren();
@@ -452,6 +499,7 @@
     document.getElementById("workbench-body").hidden = false;
     renderManifest(data.manifest || {});
     renderHealth(data.health || { state: "unavailable" });
+    loadProjectStatus(id);
     renderWorkflows(data.workflows || []);
     renderOperations(data.operations || []);
     populateFeatures(data.manifest || {});
@@ -1381,6 +1429,30 @@
     loadDelivery();
   }
 
+  // The fleet readiness tile: counts of every registered project by its
+  // read-only overall status. Text-only; a failed read shows em dashes, never
+  // a stale or invented count.
+  async function loadFleetReadiness() {
+    const ids = ["fleet-healthy", "fleet-issues", "fleet-stale", "fleet-unavailable", "fleet-total"];
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = (value === undefined || value === null) ? "—" : String(value);
+    };
+    let data;
+    try {
+      data = await request("/v1/admin/status", { headers: { Accept: "application/json" } });
+    } catch (_) {
+      for (const id of ids) set(id, "—");
+      return;
+    }
+    const counts = data.counts || {};
+    set("fleet-healthy", counts.healthy ?? 0);
+    set("fleet-issues", counts.issues ?? 0);
+    set("fleet-stale", counts.stale ?? 0);
+    set("fleet-unavailable", counts.unavailable ?? 0);
+    set("fleet-total", data.total ?? 0);
+  }
+
   async function dashboardPage() {
     let state;
     try { state = await session(); }
@@ -1395,6 +1467,7 @@
       document.getElementById("summary-total").textContent = String(data.summary?.registered ?? 0);
       document.getElementById("summary-profiles").textContent = String(data.summary?.profiles ?? new Set(projects.map((project) => project.profile)).size);
       document.getElementById("summary-evidence").textContent = String(data.summary?.with_evidence ?? 0);
+      loadFleetReadiness();
       document.getElementById("updated-label").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
       const hasOthers = projects.some((project) => !project.is_self);
       if (!hasOthers && data.summary && data.summary.registered === 0) {

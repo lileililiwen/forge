@@ -149,6 +149,28 @@ Forge-self row is always present, even on an empty registry), and the
 Workbench, Portfolio, Commands, Delivery and Deploy sections read the
 same registry the CLI does.
 
+### Managing sibling projects from the browser
+
+Single-project browser management (`forge new`, `forge import`,
+`forge register` under “Create or adopt a project”) resolves every
+destination from one server-side directory. It is unset by default: start
+the API with it declared, otherwise every management call is refused with a
+typed `409 admin-prerequisite` that names the variable:
+
+```sh
+FORGE_ADMIN_PROJECTS_ROOT=/path/to/your/workspace \
+  forge api serve --bind 127.0.0.1 --port 8766
+```
+
+The browser never sends a path — it sends a validated project name and typed
+fields, and the server joins the name to that root. With the root set, the
+dashboard's “Workspace onboarding” panel discovers every sibling directory
+live (new siblings appear on Refresh with no other change), lets you tick a
+subset, previews the batch with a digest, and — only after you confirm that
+exact digest — imports or registers each selection, reporting honest
+per-item results. Directories whose names are not valid project ids can be
+onboarded with an explicit kebab-case `id` override per row.
+
 ### Non-interactive setup
 
 `forge identity setup` reads the password without terminal echo, so it

@@ -127,6 +127,11 @@ mod fleet;
 /// Forge-owned metadata writes reuse registry Core only; imported,
 /// source-owned evidence is read-only and never executed live on page load.
 mod portfolio;
+/// Session-gated project management (`forge-web-project-management`):
+/// browser `new`/`import`/`register` plus the shared
+/// `FORGE_ADMIN_PROJECTS_ROOT` confinement both this module and
+/// [`workspace`](self::workspace) build on.
+mod project_management;
 /// Typed, session-gated read-only status projection (`forge-project-status/
 /// 0.1.0`) backing `GET /v1/admin/projects/{id}/status` and
 /// `GET /v1/admin/status`. Reuses the in-process doctor, checker and profile
@@ -143,6 +148,10 @@ pub mod ui;
 /// subroutes. Reuses typed in-process Core functions only — never a shell —
 /// and never serializes an absolute filesystem path.
 mod workbench;
+/// Live workspace onboarding (`forge-web-workspace-onboarding`): read-only
+/// candidate discovery over the configured project root plus bulk
+/// preview/confirm/digest-bound onboarding.
+mod workspace;
 
 /// Contract data version for the API surface. The version
 /// is the source of truth for `/healthz` and the response
@@ -626,6 +635,12 @@ pub enum Route {
     /// `POST /v1/admin/projects/register` — `forge register`, destination
     /// resolved server-side; the browser never supplies a path.
     AdminProjectRegister,
+    /// `GET /v1/admin/workspace/candidates` — live, read-only discovery of
+    /// sibling directories under the configured project root.
+    AdminWorkspaceCandidates,
+    /// `POST /v1/admin/workspace/onboard` — confirm- and digest-bound bulk
+    /// import/register of selected workspace directories.
+    AdminWorkspaceOnboard,
     /// `GET /v1/admin/portfolio` — cross-project portfolio fleet: each
     /// registered project's user-owned record, tags and read-only evidence
     /// states (`forge-web-portfolio-controls/0.1.0`). Session-gated.
@@ -866,6 +881,10 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["v1", "admin", "projects", "new"]) => Some(Route::AdminProjectNew),
         ("POST", ["v1", "admin", "projects", "import"]) => Some(Route::AdminProjectImport),
         ("POST", ["v1", "admin", "projects", "register"]) => Some(Route::AdminProjectRegister),
+        ("GET", ["v1", "admin", "workspace", "candidates"]) => {
+            Some(Route::AdminWorkspaceCandidates)
+        }
+        ("POST", ["v1", "admin", "workspace", "onboard"]) => Some(Route::AdminWorkspaceOnboard),
         // Workbench routes are addressed by a validated project id resolved
         // server-side; the browser never sends a filesystem path. These arms
         // precede the generic admin OPTIONS handling so a `{id}` segment is
@@ -1033,6 +1052,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         // (`allowlist/{id}/remove`), so one slice-tail arm covers them
         // before the generic three-segment admin wildcard below.
         ("OPTIONS", ["v1", "admin", "delivery", ..]) => Some(Route::AdminOptions),
+        ("OPTIONS", ["v1", "admin", "workspace", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
@@ -1246,6 +1266,8 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
+        | Route::AdminWorkspaceCandidates
+        | Route::AdminWorkspaceOnboard
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1410,6 +1432,8 @@ pub fn handle(
             | Route::AdminProjectNew
             | Route::AdminProjectImport
             | Route::AdminProjectRegister
+            | Route::AdminWorkspaceCandidates
+            | Route::AdminWorkspaceOnboard
             | Route::AdminPortfolioList
             | Route::AdminPortfolioEvidence
             | Route::AdminPortfolioProject { .. }
@@ -1577,6 +1601,8 @@ pub fn handle(
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
+        | Route::AdminWorkspaceCandidates
+        | Route::AdminWorkspaceOnboard
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1684,6 +1710,8 @@ fn authorize(
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
+        | Route::AdminWorkspaceCandidates
+        | Route::AdminWorkspaceOnboard
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }

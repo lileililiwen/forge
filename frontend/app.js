@@ -785,6 +785,214 @@
     }
   }
 
+  // ---- Workspace onboarding (live discovery + bulk adopt) --------------
+  //
+  // The workspace root is server configuration, never a browser input: the
+  // panel only ever sends validated single-segment directory leaves plus
+  // typed `id`/`profile` overrides. Discovery re-reads the root on every
+  // request, so an expanding workspace needs no other change. Selection is
+  // previewed as one digest-bound batch, then confirmed; per-item results
+  // are reported honestly and the fleet is reloaded on demand.
+  const ws = { candidates: [], digest: null, payload: null };
+
+  function wsNotice(message) {
+    const box = document.getElementById("ws-notice");
+    box.textContent = message; box.hidden = false;
+    document.getElementById("ws-error").hidden = true;
+  }
+
+  function wsError(message) {
+    const box = document.getElementById("ws-error");
+    box.textContent = message; box.hidden = false;
+    document.getElementById("ws-notice").hidden = true;
+  }
+
+  function wsClear() {
+    document.getElementById("ws-notice").hidden = true;
+    document.getElementById("ws-error").hidden = true;
+  }
+
+  function wsSelected() {
+    const rows = document.querySelectorAll("#ws-rows tr");
+    const items = [];
+    for (const row of rows) {
+      const tick = row.querySelector("input[type=checkbox]");
+      if (!tick || !tick.checked) continue;
+      const item = { directory: row.dataset.directory };
+      const id = row.querySelector(".ws-id-override").value.trim();
+      const profile = row.querySelector(".ws-profile-override").value.trim();
+      if (id) item.id = id;
+      if (profile) item.profile = profile;
+      items.push(item);
+    }
+    return items;
+  }
+
+  function wsRefreshButtons() {
+    const any = ws.candidates.some((c) => c.selectable);
+    const chosen = wsSelected().length > 0;
+    document.getElementById("ws-select-all").disabled = !any;
+    document.getElementById("ws-preview").disabled = !chosen;
+  }
+
+  async function wsDiscover() {
+    wsClear();
+    ws.digest = null; ws.payload = null;
+    document.getElementById("ws-preview-result").hidden = true;
+    document.getElementById("ws-confirm-wrap").hidden = true;
+    document.getElementById("ws-confirm").checked = false;
+    document.getElementById("ws-run").disabled = true;
+    wsNotice("Reading the workspace…");
+    let data;
+    try {
+      data = await request("/v1/admin/workspace/candidates?limit=100", { headers: { Accept: "application/json" } });
+    } catch (err) {
+      if (err && err.status === 409) {
+        wsError(`${err.message} Set FORGE_ADMIN_PROJECTS_ROOT in the API server environment and restart it; see README “Running the web portal”.`);
+      } else {
+        wsError(err.message || "Workspace discovery is unavailable right now.");
+      }
+      return;
+    }
+    ws.candidates = data.candidates || [];
+    const body = document.getElementById("ws-rows");
+    body.replaceChildren();
+    for (const candidate of ws.candidates) {
+      const row = document.createElement("tr");
+      row.dataset.directory = candidate.directory;
+      const tickCell = document.createElement("td");
+      const tick = document.createElement("input");
+      tick.type = "checkbox";
+      tick.disabled = !candidate.selectable;
+      tick.setAttribute("aria-label", `Onboard ${candidate.directory}`);
+      tick.addEventListener("change", wsRefreshButtons);
+      tickCell.append(tick);
+      row.append(tickCell, textCell(candidate.directory));
+      const idCell = textCell(candidate.id || "—");
+      row.append(idCell);
+      row.append(textCell(candidate.action || "—"));
+      const signal = candidate.profile
+        ? `${candidate.profile} (${candidate.confidence || "unknown"})`
+        : (candidate.manifest ? "manifest" : "—");
+      row.append(textCell(signal));
+      const state = candidate.reason
+        ? `${candidate.state}: ${candidate.reason}`
+        : candidate.state;
+      row.append(textCell(state));
+      const idOverride = document.createElement("td");
+      const idField = document.createElement("input");
+      idField.type = "text"; idField.autocomplete = "off";
+      idField.placeholder = "id override"; idField.className = "ws-id-override";
+      idField.setAttribute("aria-label", `Id override for ${candidate.directory}`);
+      idField.disabled = !candidate.selectable;
+      idOverride.append(idField);
+      row.append(idOverride);
+      const profileOverride = document.createElement("td");
+      const profileField = document.createElement("input");
+      profileField.type = "text"; profileField.autocomplete = "off";
+      profileField.placeholder = "profile override"; profileField.className = "ws-profile-override";
+      profileField.setAttribute("aria-label", `Profile override for ${candidate.directory}`);
+      profileField.disabled = !candidate.selectable;
+      profileOverride.append(profileField);
+      row.append(profileOverride);
+      body.append(row);
+    }
+    const onboardable = ws.candidates.filter((c) => c.selectable).length;
+    document.getElementById("ws-table-wrap").hidden = ws.candidates.length === 0;
+    document.getElementById("ws-empty").hidden = ws.candidates.length > 0;
+    wsNotice(`Found ${ws.candidates.length} directories (${onboardable} onboardable) of ${data.total} total. New siblings appear here on Refresh.`);
+    wsRefreshButtons();
+  }
+
+  function wsSelectAll() {
+    for (const tick of document.querySelectorAll("#ws-rows input[type=checkbox]")) {
+      if (!tick.disabled) tick.checked = true;
+    }
+    wsRefreshButtons();
+  }
+
+  async function wsPreview() {
+    wsClear();
+    const items = wsSelected();
+    if (!items.length) { wsError("Tick at least one onboardable directory first."); return; }
+    if (items.length > 25) { wsError("Select at most 25 directories per batch; repeat the flow for the rest."); return; }
+    const { status, ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const box = document.getElementById("ws-preview-result");
+    box.replaceChildren(); box.hidden = false;
+    if (!ok) {
+      const head = el("p", "wb-plan-head", (body && body.error && body.error.message) || "The selection was refused. Nothing was written.");
+      box.append(head);
+      ws.digest = null; ws.payload = null;
+      document.getElementById("ws-run").disabled = true;
+      return;
+    }
+    const head = el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to onboard exactly this selection.");
+    box.append(head);
+    const list = el("ul", "wb-plan-steps");
+    for (const plan of body.preview || []) {
+      const line = plan.blocked
+        ? `${plan.directory}: BLOCKED — ${plan.blocked}`
+        : `${plan.directory}: ${plan.action} as ${plan.id} (${plan.profile})`;
+      list.append(el("li", null, line));
+    }
+    box.append(list);
+    box.append(el("p", "wb-digest", `Action digest: ${body.plan_digest}`));
+    ws.digest = body.plan_digest;
+    ws.payload = { items };
+    document.getElementById("ws-confirm-wrap").hidden = false;
+    document.getElementById("ws-run").disabled = false;
+  }
+
+  async function wsRun() {
+    wsClear();
+    if (!ws.payload || !ws.digest) { wsError("Preview the selection before running."); return; }
+    if (!document.getElementById("ws-confirm").checked) { wsError("Tick the confirmation box — this writes manifests and registry rows."); return; }
+    document.getElementById("ws-run").disabled = true;
+    const { status, ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...ws.payload, confirm: true, plan_digest: ws.digest }),
+    });
+    document.getElementById("ws-run").disabled = false;
+    const box = document.getElementById("ws-apply-result");
+    box.replaceChildren(); box.hidden = false;
+    if (!ok && !(body && body.results)) {
+      box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "Onboarding was refused. Nothing was written."));
+      if (body && body.preview && body.plan_digest) {
+        ws.digest = body.plan_digest;
+        box.append(el("p", "muted", "The selection changed: review the refreshed preview and confirm again."));
+      }
+      return;
+    }
+    const succeeded = body.succeeded ?? 0;
+    const failed = body.failed ?? 0;
+    box.append(el("p", "wb-plan-head", `Onboarded ${succeeded} of ${succeeded + failed} selected directories${failed ? ` — ${failed} failed, see below` : ""}.`));
+    const list = el("ul", "wb-plan-steps");
+    for (const result of body.results || []) {
+      list.append(el("li", null, result.ok
+        ? `${result.directory}: onboarded as ${result.id}`
+        : `${result.directory}: FAILED (${(result.code || "error")}) — ${result.message || "see journal"}`));
+    }
+    box.append(list);
+    ws.digest = null; ws.payload = null;
+    document.getElementById("ws-confirm").checked = false;
+    document.getElementById("ws-confirm-wrap").hidden = true;
+    document.getElementById("ws-reload").hidden = false;
+    await wsDiscover();
+  }
+
+  function initWorkspaceOnboarding() {
+    document.getElementById("ws-discover").addEventListener("click", wsDiscover);
+    document.getElementById("ws-select-all").addEventListener("click", wsSelectAll);
+    document.getElementById("ws-preview").addEventListener("click", wsPreview);
+    document.getElementById("ws-run").addEventListener("click", wsRun);
+    document.getElementById("ws-reload").addEventListener("click", () => window.location.reload());
+  }
+
   function buildActionControl(command, scope = {}) {
     const execution = command.execution;
     const method = (execution.method || "POST").toUpperCase();
@@ -1563,6 +1771,7 @@
       initWorkbench(projects);
       initPortfolio();
       initDelivery(projects);
+      initWorkspaceOnboarding();
       const refresh = () => renderProjects(projects);
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);

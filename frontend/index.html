@@ -162,6 +162,30 @@
               <div><h2 id="management-title">Create or adopt a project</h2><p class="muted">Create (<code>forge new</code>), import (<code>forge import</code>) or register (<code>forge register</code>) a project from the browser. The browser supplies only a validated project name and typed fields; the server resolves the directory from its own configured root. Nothing is written until you review the preview and confirm its digest.</p></div>
             </div>
             <div id="management-actions" class="wb-actions-list"></div>
+            <section class="wb-card wb-plan" aria-labelledby="ws-title">
+              <div class="panel-heading"><div><h3 id="ws-title">Workspace onboarding</h3><p class="muted">Discover every sibling directory under the server-configured project root, then import or register a selection in one reviewed batch. Discovery re-reads the workspace live, so newly added siblings appear on Refresh with no other change. Nothing is written until you review the preview and confirm its digest.</p></div>
+                <div class="panel-tools">
+                  <button id="ws-discover" class="button button-quiet" type="button">Discover workspace</button>
+                </div>
+              </div>
+              <div id="ws-notice" class="notice" role="status" aria-live="polite" hidden></div>
+              <div id="ws-error" class="notice notice-error" role="alert" hidden></div>
+              <div class="table-scroll compact" tabindex="0" role="region" aria-label="Workspace candidates" hidden id="ws-table-wrap">
+                <table><thead><tr><th scope="col">Onboard</th><th scope="col">Directory</th><th scope="col">Project id</th><th scope="col">Action</th><th scope="col">Profile signal</th><th scope="col">State</th><th scope="col">Id override</th><th scope="col">Profile override</th></tr></thead><tbody id="ws-rows"></tbody></table>
+              </div>
+              <p id="ws-empty" class="empty-state compact" hidden>No candidate directories found under the configured root.</p>
+              <div class="wb-plan-tools">
+                <button id="ws-select-all" class="button button-quiet" type="button" disabled>Select all onboardable</button>
+                <button id="ws-preview" class="button button-quiet" type="button" disabled>Preview selection</button>
+              </div>
+              <div id="ws-preview-result" class="wb-plan-result" hidden></div>
+              <label id="ws-confirm-wrap" class="wb-confirm" hidden><input id="ws-confirm" type="checkbox"> I confirm onboarding exactly this reviewed selection.</label>
+              <div class="wb-plan-tools">
+                <button id="ws-run" class="button" type="button" disabled>Run confirmed onboarding</button>
+                <button id="ws-reload" class="button button-quiet" type="button" hidden>Reload project list</button>
+              </div>
+              <div id="ws-apply-result" class="wb-plan-result" hidden></div>
+            </section>
           </section>
           <section id="portfolio" class="project-panel" aria-labelledby="portfolio-title">
             <div class="panel-heading">

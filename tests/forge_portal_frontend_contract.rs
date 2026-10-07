@@ -111,6 +111,35 @@ fn workbench_has_a_delivery_status_card_with_next_confirmation() {
 }
 
 #[test]
+fn management_has_a_workspace_onboarding_panel() {
+    let index = read("frontend/index.html");
+    let app = read("frontend/app.js");
+    assert!(index.contains("id=\"ws-discover\""), "discover control");
+    assert!(index.contains("id=\"ws-rows\""), "candidate table");
+    assert!(index.contains("id=\"ws-preview\""), "preview control");
+    assert!(index.contains("id=\"ws-run\""), "confirmed run control");
+    assert!(index.contains("role=\"status\""), "live status region");
+    assert!(
+        app.contains("/v1/admin/workspace/candidates"),
+        "discovery endpoint"
+    );
+    assert!(
+        app.contains("/v1/admin/workspace/onboard"),
+        "onboard endpoint"
+    );
+    assert!(
+        app.contains("wsSelected") && app.contains("plan_digest"),
+        "selection is previewed under a digest before any write"
+    );
+    // No browser-supplied path can reach the API: the panel sends directory
+    // leaves and typed overrides only.
+    assert!(
+        !app.contains("wsRoot") && !app.contains("rootPath") && !app.contains("directoryPath"),
+        "no root/path plumbing in the panel"
+    );
+}
+
+#[test]
 fn stylesheet_keeps_the_accessibility_and_responsive_contract() {
     let css = read("frontend/styles.css");
     assert!(css.contains("min-width:320px"), "320px readability floor");

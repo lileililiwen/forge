@@ -94,9 +94,17 @@ const WEB_ROUTE_FLEET_STATUS: &str = super::status::ROUTE_FLEET_STATUS;
 /// endpoints can never diverge: `forge new`, `forge import` and
 /// `forge register` as session-gated, confirm/digest-bound browser-executable
 /// creations that resolve the destination only from a server-side root.
-const WEB_ROUTE_ADMIN_PROJECT_NEW: &str = super::admin::ROUTE_ADMIN_PROJECT_NEW;
-const WEB_ROUTE_ADMIN_PROJECT_IMPORT: &str = super::admin::ROUTE_ADMIN_PROJECT_IMPORT;
-const WEB_ROUTE_ADMIN_PROJECT_REGISTER: &str = super::admin::ROUTE_ADMIN_PROJECT_REGISTER;
+const WEB_ROUTE_ADMIN_PROJECT_NEW: &str = super::project_management::ROUTE_ADMIN_PROJECT_NEW;
+const WEB_ROUTE_ADMIN_PROJECT_IMPORT: &str = super::project_management::ROUTE_ADMIN_PROJECT_IMPORT;
+const WEB_ROUTE_ADMIN_PROJECT_REGISTER: &str =
+    super::project_management::ROUTE_ADMIN_PROJECT_REGISTER;
+
+/// Workspace-onboarding typed routes (`forge-web-workspace-onboarding`).
+/// Web-only workflows with no CLI row: live candidate discovery and bulk
+/// confirm/digest-bound onboarding under the configured project root.
+const WEB_ROUTE_ADMIN_WORKSPACE_CANDIDATES: &str =
+    super::workspace::ROUTE_ADMIN_WORKSPACE_CANDIDATES;
+const WEB_ROUTE_ADMIN_WORKSPACE_ONBOARD: &str = super::workspace::ROUTE_ADMIN_WORKSPACE_ONBOARD;
 
 /// Delivery-control typed routes (`forge-web-delivery-controls/0.1.0`).
 /// These reference the delivery module's own route constants so the
@@ -139,6 +147,8 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_PROJECT_NEW,
     WEB_ROUTE_ADMIN_PROJECT_IMPORT,
     WEB_ROUTE_ADMIN_PROJECT_REGISTER,
+    WEB_ROUTE_ADMIN_WORKSPACE_CANDIDATES,
+    WEB_ROUTE_ADMIN_WORKSPACE_ONBOARD,
     WEB_ROUTE_DELIVERY_OVERVIEW,
     WEB_ROUTE_DELIVERY_PREVIEW,
     WEB_ROUTE_DELIVERY_ALLOWLIST,

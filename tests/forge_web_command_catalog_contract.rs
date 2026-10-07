@@ -230,7 +230,9 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                 // A web row must resolve to one of the typed routes the API
                 // actually implements: the fleet read, the workbench detail /
                 // plan endpoints, the authoring `feature add` / `spec generate`
-                // admin routes, or the delivery share pipeline. No web row
+                // admin routes, the `forge-web-project-actions` lifecycle
+                // writes (`feature remove` / `feature upgrade` /
+                // `spec apply`), or the delivery share pipeline. No web row
                 // may name a shell.
                 let route = row["route"].as_str().unwrap_or("");
                 assert!(
@@ -239,7 +241,10 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/projects/{id}",
                         "GET /v1/admin/projects/{id}/plan",
                         "POST /v1/admin/projects/{id}/feature",
+                        "POST /v1/admin/projects/{id}/feature/remove",
+                        "POST /v1/admin/projects/{id}/feature/upgrade",
                         "POST /v1/admin/projects/{id}/spec",
+                        "POST /v1/admin/projects/{id}/spec/apply",
                         "GET /v1/admin/delivery",
                         "GET /v1/admin/delivery/preview",
                         "POST /v1/admin/delivery/allowlist/{id}",
@@ -311,9 +316,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // upgrade into typed single-project workflows; the delivery package
     // (`forge-web-delivery-controls`) turns the portfolio share pipeline
     // (allowlist, preview, approve, publish, reconcile, status) into typed
-    // confirm- and digest-bound routes; and the command-execution package
-    // (`forge-web-command-execution`) turns the handler-backed authoring
-    // commands `feature add` and `spec generate` into typed, session-gated,
+    // confirm- and digest-bound routes; and the command-execution and
+    // project-actions packages (`forge-web-command-execution`,
+    // `forge-web-project-actions`) turn the handler-backed authoring commands
+    // (`feature add`/`spec generate`) and the lifecycle write commands
+    // (`feature remove`/`feature upgrade`/`spec apply`) into typed, session-gated,
     // confirm/digest-bound browser routes. All now join the fleet read rows as
     // `web`.
     let web_ids: BTreeSet<&str> = commands
@@ -329,7 +336,10 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "doctor",
             "upgrade",
             "feature.add",
+            "feature.remove",
+            "feature.upgrade",
             "spec.generate",
+            "spec.apply",
             "fleet.list",
             "fleet.status",
             "inventory.show",

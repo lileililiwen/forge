@@ -44,6 +44,9 @@ const WEB_ROUTE_PROJECT_APPLY: &str = super::workbench::ROUTE_PROJECT_APPLY;
 /// as session-gated, confirm/digest-bound browser-executable actions.
 const WEB_ROUTE_ADMIN_FEATURE: &str = super::admin::ROUTE_ADMIN_FEATURE;
 const WEB_ROUTE_ADMIN_SPEC: &str = super::admin::ROUTE_ADMIN_SPEC;
+const WEB_ROUTE_ADMIN_FEATURE_REMOVE: &str = super::admin::ROUTE_ADMIN_FEATURE_REMOVE;
+const WEB_ROUTE_ADMIN_FEATURE_UPGRADE: &str = super::admin::ROUTE_ADMIN_FEATURE_UPGRADE;
+const WEB_ROUTE_ADMIN_SPEC_APPLY: &str = super::admin::ROUTE_ADMIN_SPEC_APPLY;
 
 /// Delivery-control typed routes (`forge-web-delivery-controls/0.1.0`).
 /// These reference the delivery module's own route constants so the
@@ -67,6 +70,9 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_PROJECT_APPLY,
     WEB_ROUTE_ADMIN_FEATURE,
     WEB_ROUTE_ADMIN_SPEC,
+    WEB_ROUTE_ADMIN_FEATURE_REMOVE,
+    WEB_ROUTE_ADMIN_FEATURE_UPGRADE,
+    WEB_ROUTE_ADMIN_SPEC_APPLY,
     WEB_ROUTE_DELIVERY_OVERVIEW,
     WEB_ROUTE_DELIVERY_PREVIEW,
     WEB_ROUTE_DELIVERY_ALLOWLIST,
@@ -89,6 +95,7 @@ const REASON_PROVIDER: &str = "This command requires a configured external provi
 const REASON_PROJECT_CAPABILITY: &str = "This command requires the project manifest to declare a deployment target and adapter; nothing can run until that capability exists for the project. Next step: declare deployment in the project, then run it in a terminal.";
 const REASON_MACHINE_STDOUT: &str = "This command emits a machine-pure stdout document for external tooling (DriftWatchdog-compatible); re-rendering it through a browser API would change the contract. Next step: pipe it to the consumer in a terminal.";
 const REASON_TTY_HIDDEN: &str = "This command reads hidden terminal input (password without echo) or pastes manual provider-callback values; neither may ever cross a browser form or the JSON API. Next step: run it in a terminal.";
+const REASON_LOCAL_SECRET: &str = "This command prints a freshly generated secret to the terminal for the operator to copy; routing that value through a browser form or the JSON API would expose it. Next step: run it in a terminal.";
 const REASON_LEGACY_HTML: &str = "The legacy portal renders server-side HTML sections; the standalone frontend (this page) replaced that surface for browsers. Next step: use this dashboard, or run it in a terminal for the HTML view.";
 const REASON_AGENT: &str = "This command drives local agent adapter processes against a project directory (start, pause, takeover, resume, restart, new sessions); these are terminal-session operations with no typed JSON route. Next step: run it in a terminal.";
 const REASON_LOCAL_TOOLCHAIN: &str = "This command shells out to a locally installed developer CLI (gh) and its credential store; the browser cannot reach that installation. Next step: install and authenticate the CLI, then run it in a terminal.";
@@ -213,8 +220,39 @@ impl Availability {
     }
 }
 
+/// One typed parameter an executable (`web`) row accepts: a `name`, a closed
+/// scalar `kind` (`string`, `string_array` or `boolean`) and whether it is
+/// `required`. The browser renders one control per parameter and never a
+/// free-text shell/path/argv field, so this is the entire request surface of
+/// the row's route — no field here is ever interpreted as a command or path.
+#[derive(Clone, Debug, Serialize)]
+pub struct ExecParameter {
+    pub name: String,
+    pub kind: &'static str,
+    pub required: bool,
+}
+
+/// The machine-readable execution contract carried only by `web` rows so the
+/// frontend can render a runnable, confirm-gated control directly from the
+/// catalog with no bespoke per-command wiring. `route` is the exact admin
+/// route the router registers (always one of [`IMPLEMENTED_WEB_ROUTES`]);
+/// `method` is its HTTP verb; `risk` mirrors the row's risk label;
+/// `confirm_required` and `digest_bound` are always true for these session-
+/// gated mutating lifecycle actions (preview writes nothing; the confirmed
+/// run must echo the matching `plan_digest`). Non-executable rows carry
+/// `None`.
+#[derive(Clone, Debug, Serialize)]
+pub struct CommandExecution {
+    pub route: &'static str,
+    pub method: &'static str,
+    pub risk: &'static str,
+    pub confirm_required: bool,
+    pub digest_bound: bool,
+    pub parameters: Vec<ExecParameter>,
+}
+
 /// One catalog row: `{id,parent_id,label,summary,category,scope,risk,
-/// availability,route,cli_invocation,reason,capabilities}`.
+/// availability,route,cli_invocation,reason,capabilities,execution}`.
 #[derive(Clone, Debug, Serialize)]
 pub struct CommandRow {
     pub id: String,
@@ -229,6 +267,9 @@ pub struct CommandRow {
     pub cli_invocation: String,
     pub reason: Option<&'static str>,
     pub capabilities: &'static [&'static str],
+    /// Present (Some) only for `web` rows that are executable from the
+    /// portal; every other row serializes this as `null`.
+    pub execution: Option<CommandExecution>,
 }
 
 struct CatalogBuilder {
@@ -272,6 +313,7 @@ impl CatalogBuilder {
             route,
             reason,
             capabilities,
+            execution: None,
         });
     }
 
@@ -357,6 +399,65 @@ impl CatalogBuilder {
             None,
             capabilities,
         );
+    }
+
+    /// A `web` row that is executable from the portal: it resolves to an
+    /// explicit typed `POST` admin route and carries a self-describing
+    /// `execution` block (method, the row's own risk, the mandatory confirm
+    /// and digest-binding, and the ordered typed parameters) so the frontend
+    /// renders a runnable preview→confirm→apply control from the catalog with
+    /// no bespoke wiring. `parameters` is `[(name, kind, required)]` with
+    /// `kind` one of `string`, `string_array` or `boolean` — never a path or
+    /// argv. Used by the project feature/spec lifecycle write commands.
+    #[allow(clippy::too_many_arguments)]
+    fn web_exec(
+        &mut self,
+        parent: Option<&str>,
+        name: &str,
+        summary: &'static str,
+        category: Category,
+        scope: Scope,
+        risk: Risk,
+        route: &'static str,
+        method: &'static str,
+        parameters: &[(&'static str, &'static str, bool)],
+        capabilities: &'static [&'static str],
+    ) {
+        let id = match parent {
+            Some(prefix) => format!("{prefix}.{name}"),
+            None => name.to_string(),
+        };
+        let cli_invocation = format!("forge {}", id.replace('.', " "));
+        let execution = CommandExecution {
+            route,
+            method,
+            risk: risk.id(),
+            confirm_required: true,
+            digest_bound: true,
+            parameters: parameters
+                .iter()
+                .map(|(pname, kind, required)| ExecParameter {
+                    name: (*pname).to_string(),
+                    kind,
+                    required: *required,
+                })
+                .collect(),
+        };
+        self.rows.push(CommandRow {
+            label: name.to_string(),
+            cli_invocation,
+            id,
+            parent_id: parent.map(str::to_string),
+            summary,
+            category: category.id(),
+            scope: scope.id(),
+            risk: risk.id(),
+            availability: Availability::Web.id(),
+            route: Some(route),
+            reason: None,
+            capabilities,
+            execution: Some(execution),
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -636,7 +737,7 @@ impl CatalogBuilder {
             none,
         );
         self.leaf(Some("feature"), "resolve", "Resolve requested capabilities into a deterministic install plan without changing files.", Creation, Profile, Read, NotYetWeb, none);
-        self.web_at(
+        self.web_exec(
             Some("feature"),
             "add",
             "Add a feature (plus missing dependencies) to a project.",
@@ -644,26 +745,32 @@ impl CatalogBuilder {
             Project,
             LocalWrite,
             WEB_ROUTE_ADMIN_FEATURE,
+            "POST",
+            &[("feature", "string", true), ("version", "string", false)],
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("feature"),
             "remove",
             "Remove a feature from a project.",
             Creation,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_FEATURE_REMOVE,
+            "POST",
+            &[("feature", "string", true)],
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("feature"),
             "upgrade",
             "Upgrade a feature to the tested catalog version.",
             Creation,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_FEATURE_UPGRADE,
+            "POST",
+            &[("feature", "string", true), ("version", "string", false)],
             caps_local,
         );
 
@@ -935,7 +1042,7 @@ impl CatalogBuilder {
 
         // spec
         self.group(None, "spec", "Generate bounded spec proposals and route findings to deterministic, semantic or manual remediation.", Quality, Project);
-        self.web_at(
+        self.web_exec(
             Some("spec"),
             "generate",
             "Generate a bounded spec for the named project and finding set.",
@@ -943,6 +1050,11 @@ impl CatalogBuilder {
             Project,
             LocalWrite,
             WEB_ROUTE_ADMIN_SPEC,
+            "POST",
+            &[
+                ("findings", "string_array", true),
+                ("reason", "string", false),
+            ],
             caps_local,
         );
         self.leaf(
@@ -975,7 +1087,21 @@ impl CatalogBuilder {
             NotYetWeb,
             caps_local,
         );
-        self.leaf(Some("spec"), "apply", "Apply a routing decision: deterministic action is recorded, semantic produces a spec, manual is noted.", Quality, Project, LocalWrite, NotYetWeb, caps_local);
+        self.web_exec(
+            Some("spec"),
+            "apply",
+            "Apply a routing decision: deterministic action is recorded, semantic produces a spec, manual is noted.",
+            Quality,
+            Project,
+            LocalWrite,
+            WEB_ROUTE_ADMIN_SPEC_APPLY,
+            "POST",
+            &[
+                ("findings", "string_array", true),
+                ("reason", "string", false),
+            ],
+            caps_local,
+        );
 
         // remediate
         self.group(
@@ -1949,6 +2075,8 @@ impl CatalogBuilder {
             Project,
         );
         self.cli_only(Some("identity"), "setup", "Initialize the one Forge-wide portal administrator (password is read without terminal echo).", Identity, Forge, SessionAdmin, REASON_TTY_HIDDEN, none);
+        self.cli_only(Some("identity"), "change-password", "Replace the Forge-wide administrator password without changing the email; revokes every active browser session (new password read without terminal echo).", Identity, Forge, SessionAdmin, REASON_TTY_HIDDEN, none);
+        self.cli_only(Some("identity"), "generate-password", "Print one strong random password from operating-system entropy without reading or writing the registry.", Identity, Forge, Read, REASON_LOCAL_SECRET, none);
         self.leaf(
             Some("identity"),
             "validate-config",
@@ -2302,6 +2430,8 @@ pub fn envelope() -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[test]
@@ -2312,9 +2442,11 @@ mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 224 Clap paths (probe-verified from
-        // `Cli::command()`) plus the explicit top-level `help` row.
-        assert_eq!(rows().len(), 225);
+        // The row count equals the 226 Clap paths (probe-verified from
+        // `Cli::command()`, including the `identity change-password` and
+        // `identity generate-password` leaf commands) plus the explicit
+        // top-level `help` row.
+        assert_eq!(rows().len(), 227);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 
@@ -2339,9 +2471,12 @@ mod tests {
                 ("list", WEB_ROUTE_PROJECTS),
                 ("inspect", WEB_ROUTE_PROJECT_DETAIL),
                 ("feature.add", WEB_ROUTE_ADMIN_FEATURE),
+                ("feature.remove", WEB_ROUTE_ADMIN_FEATURE_REMOVE),
+                ("feature.upgrade", WEB_ROUTE_ADMIN_FEATURE_UPGRADE),
                 ("upgrade", WEB_ROUTE_PROJECT_PLAN),
                 ("doctor", WEB_ROUTE_PROJECT_DETAIL),
                 ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
+                ("spec.apply", WEB_ROUTE_ADMIN_SPEC_APPLY),
                 ("fleet.list", WEB_ROUTE_PROJECTS),
                 ("fleet.status", WEB_ROUTE_PROJECTS),
                 ("inventory.show", WEB_ROUTE_PROJECTS),
@@ -2359,6 +2494,121 @@ mod tests {
                 ("portfolio.share.audit", WEB_ROUTE_DELIVERY_OVERVIEW),
             ]
         );
+    }
+
+    #[test]
+    fn web_execution_rows_are_well_formed_and_point_at_implemented_routes() {
+        // Layer C: the catalog's `execution` block is the browser's runnable
+        // contract. Only the project feature/spec lifecycle write rows carry
+        // one in this package; every one must be a `web` row resolving to a
+        // real implemented route with a well-formed typed parameter list, and
+        // no non-`web` row may ever carry one.
+        let executable_ids: Vec<&str> = rows()
+            .iter()
+            .filter(|row| row.execution.is_some())
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(
+            executable_ids,
+            vec![
+                "feature.add",
+                "feature.remove",
+                "feature.upgrade",
+                "spec.generate",
+                "spec.apply",
+            ]
+        );
+        // Each executable row's typed parameter list must match the mandatory
+        // fields that route's `authoring_descriptor` gate accepts, in the exact
+        // order, so the browser's generated controls are the route's real input
+        // surface and nothing more.
+        let expected: BTreeMap<&str, Vec<(&str, &str, bool)>> = BTreeMap::from([
+            (
+                "feature.add",
+                vec![("feature", "string", true), ("version", "string", false)],
+            ),
+            ("feature.remove", vec![("feature", "string", true)]),
+            (
+                "feature.upgrade",
+                vec![("feature", "string", true), ("version", "string", false)],
+            ),
+            (
+                "spec.generate",
+                vec![
+                    ("findings", "string_array", true),
+                    ("reason", "string", false),
+                ],
+            ),
+            (
+                "spec.apply",
+                vec![
+                    ("findings", "string_array", true),
+                    ("reason", "string", false),
+                ],
+            ),
+        ]);
+        for row in rows() {
+            match &row.execution {
+                Some(execution) => {
+                    assert_eq!(
+                        row.availability, "web",
+                        "execution row {} must be web",
+                        row.id
+                    );
+                    assert!(
+                        IMPLEMENTED_WEB_ROUTES.contains(&execution.route),
+                        "execution row {} names unimplemented route {}",
+                        row.id,
+                        execution.route
+                    );
+                    assert_eq!(
+                        execution.route,
+                        row.route.expect("web row route"),
+                        "execution row {} route disagrees with row route",
+                        row.id
+                    );
+                    assert_eq!(execution.method, "POST", "row {}", row.id);
+                    assert!(execution.confirm_required, "row {}", row.id);
+                    assert!(execution.digest_bound, "row {}", row.id);
+                    assert!(!execution.parameters.is_empty(), "row {}", row.id);
+                    // Pin the exact typed parameter list against the route.
+                    let expected_params = expected
+                        .get(row.id.as_str())
+                        .unwrap_or_else(|| panic!("unexpected execution row {}", row.id));
+                    let actual: Vec<(&str, &str, bool)> = execution
+                        .parameters
+                        .iter()
+                        .map(|p| (p.name.as_str(), p.kind, p.required))
+                        .collect();
+                    assert_eq!(
+                        &actual, expected_params,
+                        "row {} parameters disagree with the route's typed fields",
+                        row.id
+                    );
+                    for param in &execution.parameters {
+                        assert!(!param.name.is_empty(), "row {} empty param", row.id);
+                        assert!(
+                            matches!(param.kind, "string" | "string_array" | "boolean"),
+                            "row {} parameter {} has unknown kind {}",
+                            row.id,
+                            param.name,
+                            param.kind
+                        );
+                    }
+                }
+                None => {
+                    assert!(
+                        row.availability == "web" || row.execution.is_none(),
+                        "non-web row {} must not carry execution",
+                        row.id
+                    );
+                }
+            }
+        }
+        // The execution block is purely additive: it must not introduce any
+        // catalog integrity problem.
+        let issues = problems();
+        assert!(issues.is_empty(), "catalog problems: {issues:?}");
     }
 
     #[test]

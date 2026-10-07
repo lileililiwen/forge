@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
 use crate::identity::global;
+use crate::registry::Registry;
 
 const COOKIE: &str = "forge_admin_session";
 
@@ -20,6 +21,22 @@ pub const ROUTE_ADMIN_FEATURE: &str = "POST /v1/admin/projects/{id}/feature";
 /// The `forge spec generate` authoring command exposed as a session-gated,
 /// preview + confirm/digest-bound admin route.
 pub const ROUTE_ADMIN_SPEC: &str = "POST /v1/admin/projects/{id}/spec";
+
+/// The `forge feature remove` lifecycle write, exposed as a session-gated,
+/// preview + confirm/digest-bound admin route delegating to the same
+/// `remove_feature` Core handler the CLI runs. Exported so the command
+/// catalog names the exact path the router registers.
+pub const ROUTE_ADMIN_FEATURE_REMOVE: &str = "POST /v1/admin/projects/{id}/feature/remove";
+
+/// The `forge feature upgrade` lifecycle write, exposed as a session-gated,
+/// preview + confirm/digest-bound admin route delegating to the same
+/// `upgrade_feature` Core handler the CLI runs.
+pub const ROUTE_ADMIN_FEATURE_UPGRADE: &str = "POST /v1/admin/projects/{id}/feature/upgrade";
+
+/// The `forge spec apply` lifecycle write, exposed as a session-gated,
+/// preview + confirm/digest-bound admin route delegating to the same
+/// `apply_routing` Core handler the CLI runs.
+pub const ROUTE_ADMIN_SPEC_APPLY: &str = "POST /v1/admin/projects/{id}/spec/apply";
 
 #[derive(Deserialize)]
 struct LoginBody {
@@ -133,8 +150,17 @@ pub(super) fn handle(
         Route::AdminProjectFeature { id } => {
             authoring_write(config, db_path, request, id, Authoring::FeatureAdd)
         }
+        Route::AdminProjectFeatureRemove { id } => {
+            authoring_write(config, db_path, request, id, Authoring::FeatureRemove)
+        }
+        Route::AdminProjectFeatureUpgrade { id } => {
+            authoring_write(config, db_path, request, id, Authoring::FeatureUpgrade)
+        }
         Route::AdminProjectSpec { id } => {
             authoring_write(config, db_path, request, id, Authoring::SpecGenerate)
+        }
+        Route::AdminProjectSpecApply { id } => {
+            authoring_write(config, db_path, request, id, Authoring::SpecApply)
         }
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
@@ -147,7 +173,10 @@ pub(super) fn handle(
 #[derive(Clone, Copy)]
 enum Authoring {
     FeatureAdd,
+    FeatureRemove,
+    FeatureUpgrade,
     SpecGenerate,
+    SpecApply,
 }
 
 /// Build the canonical, path-free descriptor of an authoring action from its
@@ -205,6 +234,67 @@ fn authoring_descriptor(
             }
             Ok(descriptor)
         }
+        Authoring::FeatureRemove => {
+            let feature = body
+                .get("feature")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or((
+                    "admin-feature-required",
+                    "feature remove requires a `feature` field",
+                ))?;
+            Ok(json!({
+                "action": "feature-remove",
+                "project_id": id,
+                "feature": feature,
+            }))
+        }
+        Authoring::FeatureUpgrade => {
+            let feature = body
+                .get("feature")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or((
+                    "admin-feature-required",
+                    "feature upgrade requires a `feature` field",
+                ))?;
+            let mut descriptor = json!({
+                "action": "feature-upgrade",
+                "project_id": id,
+                "feature": feature,
+            });
+            if let Some(version) = body.get("version").and_then(Value::as_str) {
+                descriptor["version"] = json!(version);
+            }
+            Ok(descriptor)
+        }
+        Authoring::SpecApply => {
+            let findings: Vec<&str> = body
+                .get("findings")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if findings.is_empty() {
+                return Err((
+                    "admin-findings-required",
+                    "spec apply requires at least one finding id",
+                ));
+            }
+            let mut descriptor = json!({
+                "action": "spec-apply",
+                "project_id": id,
+                "findings": findings,
+            });
+            if let Some(reason) = body.get("reason").and_then(Value::as_str) {
+                descriptor["reason"] = json!(reason);
+            }
+            Ok(descriptor)
+        }
     }
 }
 
@@ -254,6 +344,30 @@ fn authoring_write(
         config,
         request,
         guarded(db_path, request, |req| {
+            // Id gate (design §4): the route `{id}` must be a valid kebab-case
+            // identifier that resolves to a project managed by this registry,
+            // checked before any descriptor, digest or Core call. A hostile,
+            // path-bearing, unknown or observed-only id is refused with a
+            // static typed error — the offending input is never echoed and no
+            // absolute path is ever serialized.
+            if crate::core::validate_project_id(id).is_err() {
+                return error(
+                    400,
+                    "admin-invalid-project-id",
+                    "the project id is not a valid identifier; it may not contain a path.",
+                );
+            }
+            let managed = Registry::open(db_path)
+                .ok()
+                .and_then(|registry| registry.inspect(id).ok())
+                .is_some();
+            if !managed {
+                return error(
+                    404,
+                    "admin-project-unmanaged",
+                    "this project is not managed by this Forge registry; register it with `forge register <path>` in a terminal first.",
+                );
+            }
             let body = req.json_body();
             let descriptor = match authoring_descriptor(kind, id, &body) {
                 Ok(value) => value,
@@ -299,7 +413,10 @@ fn authoring_write(
             let now = Utc::now();
             match kind {
                 Authoring::FeatureAdd => super::handle_add_feature(db_path, id, req, now),
+                Authoring::FeatureRemove => super::handle_remove_feature(db_path, id, req, now),
+                Authoring::FeatureUpgrade => super::handle_upgrade_feature(db_path, id, req, now),
                 Authoring::SpecGenerate => super::handle_generate_spec(db_path, id, req, now),
+                Authoring::SpecApply => super::handle_apply_spec(db_path, id, req, now),
             }
         }),
     )

@@ -87,19 +87,24 @@ use crate::agent::{
 use crate::catalog;
 use crate::core::ForgeError;
 use crate::deploy::DeployRequest;
-use crate::doctor::{parse_target_level, run_doctor, RegistryObservation};
-use crate::feature::add_feature;
+use crate::doctor::{
+    parse_target_level, run_doctor, FindingStatus, RegistryObservation, Remediation,
+};
+use crate::feature::{add_feature, remove_feature, upgrade_feature};
 use crate::generate::{generate, normalize_explicit, GeneratedProject};
-use crate::policy::{run_driftwatch, DriftWatchConfig};
+use crate::policy::{run_driftwatch, DriftWatchConfig, PolicyFinding, PolicySeverity};
 use crate::publish::github::{verify_push, GitHubPushEvent};
 use crate::publish::providers::{
     invoke_provider, load_config as load_publish_provider_config, select_provider,
     ProviderOperation, PublishProviderRequest, PUBLISH_PROVIDER_CONTRACT,
 };
 use crate::registry::{Registry, ReservationOutcome};
-use crate::spec::{ensure_single_project, generate_spec, FindingSource, SpecRequest};
+use crate::spec::{
+    apply_routing, ensure_single_project, generate_spec, DoctorFindingInput, FindingSource,
+    SpecRequest,
+};
 use crate::studio::PreviewSession;
-use crate::upgrade::{apply_upgrade, plan_upgrade, UpgradeOutcome};
+use crate::upgrade::{apply_upgrade, plan_upgrade, SemanticConflict, UpgradeOutcome};
 
 mod admin;
 /// Typed CLI command-catalog metadata (`forge-command-catalog/0.1.0`)
@@ -489,6 +494,31 @@ pub enum Route {
     AdminProjectSpec {
         id: String,
     },
+    /// `POST /v1/admin/projects/{id}/feature/remove` — the `forge feature
+    /// remove` lifecycle write, exposed as a session-gated, preview +
+    /// confirm- and digest-bound typed call to the same `remove_feature` Core
+    /// handler the CLI runs. The `feature` field is a structured value, never
+    /// a path or argv.
+    AdminProjectFeatureRemove {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/feature/upgrade` — the `forge feature
+    /// upgrade` lifecycle write, exposed as a session-gated, preview +
+    /// confirm- and digest-bound typed call to the same `upgrade_feature`
+    /// Core handler the CLI runs. The `feature`/`version` fields are
+    /// structured values, never a path or argv.
+    AdminProjectFeatureUpgrade {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/spec/apply` — the `forge spec apply`
+    /// lifecycle write, exposed as a session-gated, preview + confirm- and
+    /// digest-bound typed call to the same `apply_routing` Core handler the
+    /// CLI runs. The `findings`/`reason` fields are structured values; the
+    /// finding source is synthesized server-side from the finding-name prefix,
+    /// never supplied as a path or argv by the caller.
+    AdminProjectSpecApply {
+        id: String,
+    },
     /// `GET /v1/admin/portfolio` — cross-project portfolio fleet: each
     /// registered project's user-owned record, tags and read-only evidence
     /// states (`forge-web-portfolio-controls/0.1.0`). Session-gated.
@@ -736,6 +766,26 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("POST", ["v1", "admin", "projects", id, "spec"]) => Some(Route::AdminProjectSpec {
             id: (*id).to_string(),
         }),
+        // Deeper lifecycle-write paths: `feature/remove`, `feature/upgrade`
+        // and `spec/apply` are six-segment arms. The two-segment `feature`/
+        // `spec` arms above are fixed-length slice patterns and still resolve
+        // for the five-segment paths; these longer arms match only the six-
+        // segment forms, so no existing route is shadowed.
+        ("POST", ["v1", "admin", "projects", id, "feature", "remove"]) => {
+            Some(Route::AdminProjectFeatureRemove {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "feature", "upgrade"]) => {
+            Some(Route::AdminProjectFeatureUpgrade {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "spec", "apply"]) => {
+            Some(Route::AdminProjectSpecApply {
+                id: (*id).to_string(),
+            })
+        }
         // Portfolio routes: `/evidence` is a reserved second segment and is
         // matched before the generic `{id}` arm so a literal path never reads
         // as a project id. `{kind}`/`{action}` are validated keys, not paths.
@@ -783,6 +833,11 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         // own OPTIONS arms.
         ("OPTIONS", ["v1", "admin", "projects", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "projects", _, _]) => Some(Route::AdminOptions),
+        // The lifecycle-write routes (`feature/remove`, `feature/upgrade`,
+        // `spec/apply`) are six-segment paths, so their CORS preflight needs a
+        // matching six-segment OPTIONS arm; the four- and five-segment arms
+        // above never match a six-segment request.
+        ("OPTIONS", ["v1", "admin", "projects", _, _, _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _, _]) => Some(Route::AdminOptions),
         // Delivery preflights run at three to six segments
@@ -983,6 +1038,9 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
         | Route::AdminProjectSpec { .. }
+        | Route::AdminProjectFeatureRemove { .. }
+        | Route::AdminProjectFeatureUpgrade { .. }
+        | Route::AdminProjectSpecApply { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1128,6 +1186,9 @@ pub fn handle(
             | Route::AdminProjectApply { .. }
             | Route::AdminProjectFeature { .. }
             | Route::AdminProjectSpec { .. }
+            | Route::AdminProjectFeatureRemove { .. }
+            | Route::AdminProjectFeatureUpgrade { .. }
+            | Route::AdminProjectSpecApply { .. }
             | Route::AdminPortfolioList
             | Route::AdminPortfolioEvidence
             | Route::AdminPortfolioProject { .. }
@@ -1276,6 +1337,9 @@ pub fn handle(
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
         | Route::AdminProjectSpec { .. }
+        | Route::AdminProjectFeatureRemove { .. }
+        | Route::AdminProjectFeatureUpgrade { .. }
+        | Route::AdminProjectSpecApply { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1364,6 +1428,9 @@ fn authorize(
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
         | Route::AdminProjectSpec { .. }
+        | Route::AdminProjectFeatureRemove { .. }
+        | Route::AdminProjectFeatureUpgrade { .. }
+        | Route::AdminProjectSpecApply { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -2673,6 +2740,207 @@ fn handle_generate_spec(
             let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
+            Ok((value, op_id, id.to_string()))
+        },
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "spec": value,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+/// Synthesize the in-process [`FindingSource`] for `forge spec apply` exactly
+/// as the CLI's `finding_source_for` does: it is derived solely from the
+/// finding-name prefix (a policy, semantic-conflict or doctor finding) and the
+/// server-resolved project directory — never from a caller-supplied path,
+/// argv or shell text. This keeps the portal route inside the same typed,
+/// id-scoped boundary the CLI runs.
+fn synthesize_finding_source(
+    target: &str,
+    project_path: &Path,
+    finding: &str,
+) -> Result<FindingSource, ForgeError> {
+    if let Some(stripped) = finding.strip_prefix("driftwatch-") {
+        return Ok(FindingSource::Policy(PolicyFinding {
+            id: stripped.to_string(),
+            category: "spec".to_string(),
+            severity: PolicySeverity::Fail,
+            applicable: true,
+            message: format!("policy finding `{stripped}`"),
+            evidence: Vec::new(),
+            reason: None,
+        }));
+    }
+    if let Some(stripped) = finding.strip_prefix("semantic-") {
+        let (manifest, _) = crate::core::manifest::Manifest::load_from_dir(project_path, None)?;
+        return Ok(FindingSource::Conflict(SemanticConflict {
+            project_id: manifest.project.id,
+            feature: stripped.to_string(),
+            owned_file: format!(".forge/features/{stripped}.receipt"),
+            reason: "drifted receipt reported by the portal".to_string(),
+            suggested_spec: format!("forge spec generate --project {target} --finding {finding}"),
+        }));
+    }
+    Ok(FindingSource::Doctor(DoctorFindingInput {
+        id: finding.to_string(),
+        status: FindingStatus::Fail,
+        remediation: Remediation::Manual,
+        category: "spec".to_string(),
+        detail: format!("finding `{finding}` routed by `forge spec apply`"),
+    }))
+}
+
+fn handle_remove_feature(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let feature = match body.get("feature").and_then(|v| v.as_str()) {
+        Some(value) if !value.trim().is_empty() => value,
+        _ => return bad_request("remove_feature requires a `feature` field"),
+    };
+    let (outcome, op_id, _pid) = match run_with_operation(
+        db_path,
+        "api.remove_feature",
+        id,
+        request,
+        |op_id, _registry| {
+            let mut registry = Registry::open(db_path)?;
+            let outcome = remove_feature(&mut registry, id, feature)?;
+            let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok((value, op_id, id.to_string()))
+        },
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "feature": outcome,
+            "operation_id": op_id,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_upgrade_feature(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let feature = match body.get("feature").and_then(|v| v.as_str()) {
+        Some(value) if !value.trim().is_empty() => value,
+        _ => return bad_request("upgrade_feature requires a `feature` field"),
+    };
+    let version = body.get("version").and_then(|v| v.as_str());
+    let (outcome, op_id, _pid) = match run_with_operation(
+        db_path,
+        "api.upgrade_feature",
+        id,
+        request,
+        |op_id, _registry| {
+            let mut registry = Registry::open(db_path)?;
+            let outcome = upgrade_feature(&mut registry, id, feature, version)?;
+            let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok((value, op_id, id.to_string()))
+        },
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    ApiResponse::json(
+        202,
+        serde_json::json!({
+            "feature": outcome,
+            "operation_id": op_id,
+            "contract": API_CONTRACT_VERSION,
+            "project_id": id,
+        }),
+    )
+}
+
+fn handle_apply_spec(
+    db_path: &Path,
+    id: &str,
+    request: &ApiRequest,
+    _now: DateTime<Utc>,
+) -> ApiResponse {
+    let body = request.json_body();
+    let findings: Vec<String> = body
+        .get("findings")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if findings.is_empty() {
+        return bad_request("apply_spec requires at least one finding id");
+    }
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    // Resolve the stored project directory from the validated id only; the
+    // browser never sends a path. A Core error carrying a path is scrubbed by
+    // `ApiResponse::from_error`.
+    let project_dir = match Registry::open(db_path)
+        .ok()
+        .and_then(|registry| registry.inspect(id).ok())
+        .map(|record| PathBuf::from(record.path))
+    {
+        Some(value) => value,
+        None => {
+            return ApiResponse::from_error(&ForgeError::UnknownProject {
+                query: id.to_string(),
+            });
+        }
+    };
+    let now = Utc::now();
+    let (value, _op_id, _pid) = match run_with_operation(
+        db_path,
+        "api.apply_spec",
+        id,
+        request,
+        |op_id, _registry| {
+            // Mirror the CLI `spec apply`: route each finding individually
+            // through `apply_routing`, synthesizing the same in-process
+            // finding source the CLI derives from the finding-name prefix.
+            let mut outcomes = Vec::new();
+            for finding in &findings {
+                let spec_request = SpecRequest {
+                    project_path: project_dir.clone(),
+                    finding_ids: vec![finding.clone()],
+                    reason: reason.clone(),
+                };
+                ensure_single_project(&spec_request)?;
+                let source = synthesize_finding_source(id, &project_dir, finding)?;
+                let outcome = apply_routing(&spec_request, &source, now)?;
+                outcomes.push(serde_json::to_value(&outcome).map_err(|err| {
+                    ForgeError::Registry {
+                        reason: err.to_string(),
+                    }
+                })?);
+            }
+            let value = Value::Array(outcomes);
             Ok((value, op_id, id.to_string()))
         },
     ) {

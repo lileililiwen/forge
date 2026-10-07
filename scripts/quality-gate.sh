@@ -17,6 +17,7 @@ cd "$root_dir"
 # would not block the gate at all.
 node ui/scripts/verify-ui.mjs
 node ui/scripts/selftest-verify-ui.mjs
+python3 -m unittest discover -s tests/scripts -v
 "$dotnet_cmd" restore Platform.sln --source "$nuget_source" --ignore-failed-sources -p:NuGetAudit=false --nologo -m:1
 "$dotnet_cmd" build Platform.sln -c "$configuration" --no-restore --nologo -m:1
 "$dotnet_cmd" test Platform.sln -c "$configuration" --no-build --nologo -m:1

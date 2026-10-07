@@ -6,10 +6,10 @@ native project evidence (restore, build, test, and gate runs inside that
 product's own repository).
 
 The shared contract that wires a product to the platform lives in
-[`docs/workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md):
-the `PlatformConsumerBootstrap` opt-in, the `PlatformAsSource` /
-`PlatformPackageVersion` switch, the consumer defaults, the
-`PlatformConsumerOptOut` opt-out, and the unsupported-target diagnostic.
+[`docs/platform-consumer-adoption.md`](platform-consumer-adoption.md): the
+anonymous public feed, package-source mapping, exact
+`PlatformPackageVersion`, optional user-level local source, and clean-machine
+verification. The old source bootstrap is compatibility-only.
 The .NET 10 baseline that every product must adopt first is described in
 [`docs/dotnet10-migration-contract.md`](dotnet10-migration-contract.md).
 
@@ -19,13 +19,11 @@ The .NET 10 baseline that every product must adopt first is described in
    (`Platform.Adoption.Tool` with `--project-dir`) and record the per-package
    evidence levels (`Absent`, `Configured`, `Incompatible`, `Unverified`,
    `Verified`). A package without native verification evidence stays
-   `Unverified` at most; it is never called production-ready. The
-   `PlatformConsumerBootstrap` opt-in (see
-   [`docs/workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md))
-   is the single documented entry point; adopt it before adding any other
-   platform reference.
+   `Unverified` at most; it is never called production-ready. Install the
+   canonical `NuGet.config` mapping and one exact `PlatformPackageVersion`
+   before adding platform references.
 2. **Pilot** — Adopt one package in a non-critical service with an exact
-   version pin. Copy the `nuget.config` layout and run the consumer
+   version pin. Copy the canonical `NuGet.config` and run the consumer
    conformance fixture against the pilot's services.
 3. **Verify** — Promote `Unverified` to `Verified` only with native evidence:
    the product's own tests and gates covering registration, replacement,
@@ -33,7 +31,7 @@ The .NET 10 baseline that every product must adopt first is described in
 4. **Expand** — Promote the package to other services one at a time with the
    same smoke test in each. Record each promotion in the product's
    `CHANGELOG.md`.
-5. **Rollback** — Unpin the package version and restore the previous feed
+5. **Rollback** — Re-pin `PlatformPackageVersion` to the previous exact version
    (`scripts/consumer-upgrade-rollback.sh` pattern). Uninstalling a package
    never affects application-owned users, roles, migrations, provider
    credentials, or UI, which stay application-owned throughout.

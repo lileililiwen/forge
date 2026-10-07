@@ -326,9 +326,9 @@ That is why the 25 repositories restore with no `nuget.config` change and no
 committed feed path: a machine-local absolute path is exactly what the design
 refuses to bake into a consumer.
 
-The consequence for a fresh clone or a CI runner is that **some source must
-carry the package**, and on this machine that is currently satisfied by the
-cache rather than by a feed. Publishing `Platform.Build` to the GitHub Packages
-feed named in `/home/paul/code/nuget.config` is the step that makes restore
-reproducible off this machine. It is not done by this migration, and until it
-is, a clean clone elsewhere cannot restore the reference.
+At the time of this migration, a fresh clone or CI runner could not restore the
+package because only the cache carried it. That historical limitation is now
+addressed by the anonymous static feed described in
+[`release-governance.md`](release-governance.md). Consumers use the canonical
+source mapping in [`platform-consumer-adoption.md`](platform-consumer-adoption.md);
+GitHub Packages and consumer credentials are not part of the current design.

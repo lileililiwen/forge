@@ -4,72 +4,115 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'SemVer package version'
+        description: SemVer package version
         required: true
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: platform-pages
+  cancel-in-progress: false
 
 env:
+  VERSION: ${{ inputs.version }}
   NUGET_SOURCE: https://repo.huaweicloud.com/repository/nuget/v3/index.json
+  PLATFORM_FEED_BASE_URI: https://lileililiwen.github.io/dotnet-platform-libs/nuget/
 
 jobs:
-  release-verification:
+  build-feed:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      VERSION: ${{ inputs.version }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.400
+      - name: Restore pinned feed tool
+        run: dotnet tool restore
       - name: Verify quality and API compatibility
         run: |
           ./scripts/quality-gate.sh
           ./scripts/check-public-api.sh
           ./scripts/audit-packages.sh
+          ./scripts/conformance.sh
       - name: Pack release artifacts
         run: dotnet pack Platform.sln -c Release --no-build -p:Version="$VERSION" -o artifacts/packages --nologo -m:1
-      - name: Publish to declared feed
-        if: ${{ env.GITHUB_TOKEN != '' }}
+      - name: Restore retained Pages feed tree
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NUGET_PUBLISH_SOURCE: ${{ vars.PLATFORM_PUBLISH_SOURCE || 'https://nuget.pkg.github.com/lileililiwen/index.json' }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
-          if [ -z "$NUGET_PUBLISH_SOURCE" ]; then
-            echo "::error::PLATFORM_PUBLISH_SOURCE is unset; refusing to push packages." >&2
-            exit 1
-          fi
-          if [ -z "$GITHUB_TOKEN" ]; then
-            echo "::error::GITHUB_TOKEN is unset; refusing to push packages." >&2
-            exit 1
-          fi
           set -euo pipefail
-          shopt -s nullglob
-          artifacts=(artifacts/packages/*.nupkg)
-          if [ "${#artifacts[@]}" -eq 0 ]; then
-            echo "::error::No .nupkg files were produced; refusing to push an empty set." >&2
-            exit 1
+          remote_ref="$(git ls-remote --heads origin refs/heads/gh-pages)"
+          if [ -n "$remote_ref" ]; then
+            git fetch origin refs/heads/gh-pages:refs/heads/gh-pages
+          else
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            empty_commit="$(printf '%s\n' 'Initialize static NuGet feed' | git commit-tree "$empty_tree")"
+            git branch gh-pages "$empty_commit"
           fi
-          for nupkg in "${artifacts[@]}"; do
-            dotnet nuget push "$nupkg" \
-              --source "$NUGET_PUBLISH_SOURCE" \
-              --api-key "$GITHUB_TOKEN" \
-              --skip-duplicate \
-              --no-symbols \
-              --nologo
-          done
-      - name: Publish without credentials must fail loudly
-        if: ${{ env.GITHUB_TOKEN == '' }}
+          git worktree add artifacts/site gh-pages
+      - name: Add packages to retained static feed
         run: |
-          echo "::error::GITHUB_TOKEN is not available in this run; refusing to declare the release as published." >&2
-          echo "::error::Configure the repository secret GITHUB_TOKEN (or PAT with write:packages) and re-run." >&2
-          exit 1
-      - name: Upload packages and audit evidence
+          python3 scripts/prepare-static-feed.py \
+            --packages artifacts/packages \
+            --feed-root artifacts/site/nuget \
+            --base-uri "$PLATFORM_FEED_BASE_URI" \
+            --sleet-config artifacts/sleet.json
+          dotnet sleet push artifacts/packages \
+            --config artifacts/sleet.json \
+            --source platform-pages \
+            --skip-existing \
+            --verbosity minimal
+          dotnet sleet validate \
+            --config artifacts/sleet.json \
+            --source platform-pages \
+            --verbosity minimal
+          touch artifacts/site/.nojekyll
+      - name: Persist immutable feed history
+        run: |
+          set -euo pipefail
+          git -C artifacts/site config user.name github-actions[bot]
+          git -C artifacts/site config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C artifacts/site add .nojekyll nuget
+          if git -C artifacts/site diff --cached --quiet; then
+            echo "Feed already contains identical package bytes."
+          else
+            git -C artifacts/site commit -m "release: publish platform packages $VERSION"
+            git -C artifacts/site push origin HEAD:gh-pages
+          fi
+          mkdir -p artifacts/pages
+          git -C artifacts/site archive HEAD | tar -x -C artifacts/pages
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: artifacts/pages
+      - name: Upload package and feed evidence
         uses: actions/upload-artifact@v4
         with:
           name: platform-packages-${{ inputs.version }}
-          path: artifacts/packages/
+          path: |
+            artifacts/packages/
+            artifacts/site/nuget/platform-feed-manifest.json
           if-no-files-found: error
+
+  deploy-pages:
+    needs: build-feed
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy static NuGet feed
+        id: deployment
+        uses: actions/deploy-pages@v4

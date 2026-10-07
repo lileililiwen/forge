@@ -19,7 +19,7 @@ for project in "${projects[@]}"; do
   project_name="$(basename "$project" .csproj)"
   printf '[%s]\n' "$project_name" >> "$tmp_file"
   rg -n '^[[:space:]]*public (abstract |sealed |static |readonly |partial )*(class|interface|record|struct|enum|delegate)|^[[:space:]]*public .*[({;]' "$(dirname "$project")" -g '*.cs' \
-    | sed -E 's#^[^:]+:[0-9]+:[[:space:]]*##' | sort -u >> "$tmp_file" || true
+    | sed -E 's#^[^:]+:[0-9]+:[[:space:]]*##' | LC_ALL=C sort -u >> "$tmp_file" || true
 done
 
 if [[ "$update" == "--update" ]]; then

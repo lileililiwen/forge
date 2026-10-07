@@ -1,13 +1,13 @@
 # Platform Consumer Adoption
 
 Repeatable, evidence-based adoption of the platform packages from a consumer
-repository. The adoption path uses packed NuGet artifacts (not source
-references) and exercises registration replacement, health, failure safety,
-opt-in boundaries, and upgrade/rollback before any code is shipped.
+repository. Released packages resolve anonymously from the platform-owned
+static NuGet v3 feed. Unpublished development packages use an optional
+user-level local source; no consumer commits a local path or credential.
 
 ## What this document covers
 
-- Local/private feed setup for packed artifacts.
+- Public-feed and user-level local-feed setup.
 - Exact-version pinning and the rationale for rejecting floating ranges.
 - **Shared MSBuild policy: the `Platform.Build` policy package.**
 - A pilot-consumer fixture that exercises the adoption path.
@@ -30,8 +30,8 @@ No import, no file copy, and no path to configure. The package ships
 the version a project was built against is recorded in the project's dependency
 declaration rather than in an unreviewed file.
 
-Do **not** obtain build policy from `/home/paul/code/Directory.Build.props`.
-That file lives outside any Git repository, so no commit records it and no
+Do **not** obtain build policy from an ambient workspace-root
+`Directory.Build.props`. That file lives outside the consumer repository, so no commit records it and no
 review sees it; MSBuild finds it only by walking up the directory tree, which
 means a clone on a different machine, or a repository moved one directory up,
 silently changes the build. A package reference keeps the project buildable
@@ -73,14 +73,14 @@ file, because two `== ''`-guarded files claiming one property resolve it by
 import order and the loser is silent. `BuildPolicyConformanceTests` fails the
 build if the packed props ever starts claiming one of the five.
 
-If you want that consumer bootstrap, import it by path as documented in
-[`docs/workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md). The
-two routes are complementary and are documented in both directions:
+The older import-by-path consumer bootstrap is retained only for compatibility
+with its existing conformance fixtures. New and migrated consumers use packages
+only; see [`docs/workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md).
 
 | Route | Document | Obtains |
 |---|---|---|
 | Policy package (restore-driven, versioned) | this document | code style, determinism, central pinning, CI flag |
-| Consumer bootstrap (import by path, opt-in) | [`workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md) | the five consumer defaults plus the implicit `Platform.Core` reference |
+| Legacy consumer bootstrap | [`workspace-consumer-bootstrap.md`](workspace-consumer-bootstrap.md) | compatibility reference; do not adopt in new consumers |
 
 ### Verifying the policy actually applied
 
@@ -102,25 +102,30 @@ copy under the conformance project's `.nuget-packages` directory. A missing
 extracted props file is imported as a no-op, which is the silent-degradation
 failure this route exists to remove.
 
-## Local / private feed setup
+## Public and local feed setup
 
-The platform packs every project to a local feed at
-`tests/Platform.ConsumerConformance/.local-feed` and the conformance
-project restores from that feed only. The local feed is the
-single source of truth for adoption evidence: every `dotnet pack` invocation
-produces a `.nupkg` plus a `.snupkg` symbol package and the manifest script
-captures the public metadata.
+Copy [`eng/consumer/NuGet.config`](../eng/consumer/NuGet.config) to a consumer
+repository. It maps `Platform.*` only to the anonymous platform feed and maps
+other dependencies to nuget.org, preventing the unrelated `Platform.Core` on
+nuget.org from being selected.
 
-To run the suite against a private feed, override the source:
+Configure unpublished packages once in the current user's NuGet configuration:
 
 ```bash
-NUGET_SOURCE="https://pkgs.example.com/nuget/v3/index.json" \
-  bash scripts/conformance.sh
+python3 /path/to/dotnet-platform-libs/scripts/configure-local-source.py \
+  --feed /path/to/local-feed
 ```
 
-The conformance fixture is also `nuget.config`-driven; the file is checked
-in next to the project so consumer repositories can copy the layout
-verbatim. The file ships with the local feed plus nuget.org as a fallback.
+The helper uses `dotnet nuget add source` and adds the corresponding
+`platform-local` source mapping. It never edits a consumer. Pack changed code
+with a unique prerelease version and select it without a tracked edit:
+
+```bash
+dotnet pack Platform.sln -c Release -p:Version=0.2.0-dev.<commit> -o /path/to/local-feed
+dotnet build -p:PlatformPackageVersion=0.2.0-dev.<commit>
+```
+
+Never replace the bytes of a released or previously packed ID/version.
 
 ## Exact-version pinning
 
@@ -217,8 +222,8 @@ The `Platform.Architecture.Tests` project enforces all four rules.
 1. Decide on a non-critical pilot service.
 2. Add the platform packages with exact versions and a single version
    set (no floating ranges, no per-package drift).
-3. Copy the `nuget.config` layout from the platform so the local feed is
-   the first source.
+3. Apply `scripts/migrate-consumer-nuget.py <consumer> --apply` and review its
+   repository-local diff.
 4. Copy the conformance fixture and run it against the pilot's services.
 5. Run the upgrade smoke test against the candidate and previous
    versions.
@@ -235,9 +240,8 @@ The `Platform.Architecture.Tests` project enforces all four rules.
 - "Pinned version conflict" — the consumer is using a different version
   for one of the `Platform.*` packages. Align the version in the
   consumer's `Directory.Packages.props` and rerun the suite.
-- "Local feed not found" — the conformance script is supposed to
-  populate `tests/Platform.ConsumerConformance/.local-feed`; check
-  that `dotnet pack` ran without warnings.
+- "Local feed not found" — rerun `configure-local-source.py` with an existing
+  directory; never add that directory to the consumer's tracked config.
 - "Audit unverified" — the vulnerability audit timed out. Re-run the
   audit or set `ALLOW_UNVERIFIED_AUDIT=true` only with a documented
   risk acceptance.

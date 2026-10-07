@@ -1,38 +1,32 @@
 ---
 name: dotnet-platform-adoption
-description: Use when a .NET product or Forge scaffold adopts shared platform packages, a local feed or kit, an identity starter, or a cross-project capability owned by dotnet-platform-libs.
+description: Use when a .NET product or scaffold adopts Platform packages, configures a local package source, migrates a legacy consumer, or verifies portable restore behavior.
 ---
 
 # .NET platform adoption
 
-The platform owns reusable opt-in libraries; each product owns its source,
-users, migrations, configuration, and deployment. Read `README.md` package
-matrix, `docs/packages.md`, the consumer guide, `HANDOFF.md`, and the relevant
-OpenSpec package before selecting a dependency.
+The platform owns reusable packages and its anonymous static NuGet v3 feed.
+Each product owns its package references, composition and deployment. Read the
+package matrix, consumer guide, `HANDOFF.md` and relevant OpenSpec package.
 
-## Adoption check
+## Required path
 
-1. Name the repeated capability and compare the package contract with the
-   product's actual need. Inspect transitive dependencies and consumer evidence;
-   do not impose an ORM, provider, or version floor on consumers that do not
-   need it.
-2. Choose a published, pinned package or a versioned source/template when a
-   compiled package would force incompatible dependency versions. A Forge kit
-   is a deterministic scaffold input; verify the generated project restores
-   and builds from its committed, project-relative feed without the sibling
-   checkout or Forge runtime.
-3. Record the adoption in the consumer's own manifest and composition root.
-   Check Workspace Governance's capability registry and adoption grant for
-   measured consumption; a declaration without a real manifest edge is not
-   adoption.
-4. Run the consumer's native restore/build/tests and relevant contract parity
-   checks. Verify runtime behavior separately where the capability needs it.
-   `PlatformConsumerOptOut` is an explicit consumer choice, not evidence that a
-   capability was adopted.
-5. Keep end-user identity separate from operator SSO. An identity starter is
-   opt-in and site-local unless a versioned contract and product design say
-   otherwise; it does not make this repository a central user database.
+1. Use exact `Platform.*` package versions through the consumer's single
+   defaulted `PlatformPackageVersion` property.
+2. Use the canonical repository `NuGet.config`: `Platform.*` maps to the public
+   platform feed and everything else maps to nuget.org.
+3. For a legacy consumer, run
+   `scripts/migrate-consumer-nuget.py <consumer>` first, then rerun with
+   `--apply` only when its version report is unambiguous.
+4. For unpublished development packages, pack a unique prerelease version and
+   configure the current user's source with
+   `scripts/configure-local-source.py --feed <directory>`. Pass the version as
+   `-p:PlatformPackageVersion=<version>`; do not edit tracked consumer files.
+5. Before claiming portability, restore/build with an isolated global package
+   folder and without the user-level local source. Verify Docker or CI
+   separately when the consumer ships those paths.
 
-Follow `AGENTS.md` for changes to the platform itself. Do not add a
-`ProjectReference`, absolute workspace path, or `../` sibling dependency to a
-consumer. Do not claim publication or support from an OpenSpec plan alone.
+Never commit a local feed path, credential, GitHub Packages source, sibling
+`ProjectReference`, absolute checkout path or `../` dependency. Never reuse an
+ID/version for different package bytes. A local build is development evidence,
+not proof that GitHub Actions, Docker or another computer can restore.

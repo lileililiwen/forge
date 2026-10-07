@@ -242,7 +242,7 @@ public sealed class UiDistributionTests
         Assert.True(File.Exists(Path("eng/public-api-baseline.txt")));
 
         // The gap is also named in the change's own documentation, so it stays visible.
-        var design = File.ReadAllText(Path("openspec/changes/ui-shared-layer-reachability/design.md"));
+        var design = File.ReadAllText(Path("openspec/changes/archive/2026-10-05-ui-shared-layer-reachability/design.md"));
         Assert.Contains("D14", design, StringComparison.Ordinal);
         Assert.Contains("in that scan list", design, StringComparison.Ordinal);
     }
@@ -266,10 +266,10 @@ public sealed class UiDistributionTests
         // claim, not a statement about the size of the platform, so it moves when
         // a different capability adds a package. platform-build-policy-package
         // added src/Platform.Build (a build-only policy package, no assembly and
-        // no references) taking the manifest from 75 to 76; the assertions below
-        // are what actually pin the UI capability's blast radius.
+        // no references), and later capabilities took the manifest to 78; the
+        // assertions below are what actually pin the UI capability's blast radius.
         var manifest = JsonDocument.Parse(File.ReadAllText(Path("eng/package-manifest.json"))).RootElement;
-        Assert.Equal(76, manifest.GetProperty("packages").GetArrayLength());
+        Assert.Equal(78, manifest.GetProperty("packages").GetArrayLength());
 
         var razor = manifest.GetProperty("packages").EnumerateArray()
             .Single(package => package.GetProperty("packageId").GetString() == "Platform.UI.Razor");

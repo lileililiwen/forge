@@ -35,6 +35,9 @@ public class EndToEndReliabilityTests : HangfireTest
         await host.StartAsync();
 
         var dispatcher = host.Services.GetRequiredService<IJobDispatcher>();
+        var completions = Enumerable.Range(0, 5)
+            .Select(index => handler.NextAsync(index))
+            .ToArray();
         for (var i = 0; i < 5; i++)
         {
             await dispatcher.EnqueueAsync(JobPayload.Create(
@@ -44,7 +47,7 @@ public class EndToEndReliabilityTests : HangfireTest
 
         for (var i = 0; i < 5; i++)
         {
-            var handled = await AwaitOrTimeout(handler.NextAsync(i));
+            var handled = await AwaitOrTimeout(completions[i]);
             Assert.Equal("sequential", handled.Name);
             Assert.Equal((long)i, handled.Arguments!["index"]);
         }

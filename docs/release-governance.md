@@ -24,6 +24,16 @@ evidence must be attached to the release and unavailable evidence is not a
 pass. No workflow publishes packages or changes versions without an explicit
 release trigger.
 
+The manual `platform-release` workflow publishes the unchanged `Platform.*`
+IDs to the anonymous static NuGet v3 feed at
+`https://lileililiwen.github.io/dotnet-platform-libs/nuget/index.json`.
+Sleet is pinned by `dotnet-tools.json`. The retained feed tree lives on the
+`gh-pages` branch; publication refuses different bytes for an existing
+ID/version, validates the feed, then deploys the same tree through GitHub
+Pages. Consumers need no token. The repository setting **Pages → Source →
+GitHub Actions** must be enabled before the first real dispatch; local workflow
+validation is not evidence that this remote setting or endpoint is live.
+
 ## Verification
 
 ```bash

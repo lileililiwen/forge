@@ -39,11 +39,17 @@ fn cargo_version() -> String {
 
 fn changelog_newest() -> String {
     let text = read("CHANGELOG.md");
+    // The newest *released* entry: keep-a-changelog always opens with a
+    // `## [Unreleased]` bucket, which names no version and must not be taken
+    // as the entry that Cargo.toml and `forge --version` agree with.
     let line = text
         .lines()
         .map(str::trim)
-        .find(|l| l.starts_with("## ["))
-        .expect("CHANGELOG.md carries an entry");
+        .find(|l| {
+            l.strip_prefix("## [")
+                .is_some_and(|bracket| bracket.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        })
+        .expect("CHANGELOG.md carries a versioned entry");
     line.split(['[', ']'])
         .nth(1)
         .expect("entry names a version")

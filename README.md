@@ -100,6 +100,99 @@ profile matrix and the readiness gate is:
 scripts/release-check.sh --gate-profile rust-web --gate-profile nextjs-web --gate-profile aspnet-web
 ```
 
+## Running the web portal
+
+Forge ships a standalone browser portal that signs in one Forge-wide
+administrator and renders the dashboard, fleet, commands, workbench,
+portfolio, delivery and deploy panels — all from the same `/v1/admin` JSON
+API the CLI uses. Two independent Rust listeners (no shared address space)
+serve the two halves of that round trip:
+
+- `forge api serve` — the JSON API on `http://127.0.0.1:8766` (default port;
+  `--bind 127.0.0.1` is the default; an explicit `0.0.0.0` is the operator's
+  choice and is never the default). Login, the project fleet, the command
+  catalog, every project write and all confirm-and-digest routes live here.
+- `forge web serve` — the static browser assets under `frontend/` on
+  `http://127.0.0.1:4173` (default port; `--root frontend` is the default).
+  The web listener serves no project logic and reads no database; the API is
+  the only data path.
+
+Both listeners read the same registry database. The resolution order
+(`src/registry/mod.rs` `default_registry_path`) is `$FORGE_REGISTRY` →
+`$XDG_DATA_HOME/forge/registry.db` → `~/.local/share/forge/registry.db`. For
+a normal local preview, leave the registry on the default path. For a
+throwaway preview that leaves your real data untouched, set
+`FORGE_REGISTRY` to a scratch file (e.g.
+`export FORGE_REGISTRY="$PWD/.preview-registry.db"`) for **all three**
+commands below.
+
+### Local preview (three steps, default registry)
+
+From the repository root, in three terminals:
+
+```sh
+# 1. Initialize the one Forge-wide administrator (password is read without
+#    terminal echo; minimum 12 characters; typed twice). Skip this if an
+#    administrator already exists on this registry.
+forge identity setup --email you@example.com
+
+# 2. Serve the JSON API. Port 8766 matches the committed frontend/config.js.
+forge api serve --bind 127.0.0.1 --port 8766
+
+# 3. Serve the standalone frontend on its own listener.
+forge web serve --bind 127.0.0.1 --port 4173 --root frontend
+```
+
+Open <http://127.0.0.1:4173/> and sign in with the email and password from
+step 1. After sign-in the dashboard lists your registered projects (the
+Forge-self row is always present, even on an empty registry), and the
+Workbench, Portfolio, Commands, Delivery and Deploy sections read the
+same registry the CLI does.
+
+### Non-interactive setup
+
+`forge identity setup` reads the password without terminal echo, so it
+needs a TTY. To drive it from a non-interactive shell (CI, scripts, an
+operator who already has the password on stdin), allocate a PTY with the
+standard `script` tool:
+
+```sh
+printf 'your-password\nyour-password\n' | \
+  script -qec 'forge identity setup --email you@example.com' /dev/null
+```
+
+The two `your-password\n` lines feed the "New Forge password" and
+"Confirm password" prompts in order; the empty `/dev/null` records the
+typed keys without writing a typescript file.
+
+### Using a different origin or port
+
+The API accepts exactly one browser origin for CORS and session-cookie
+issuance, and the session cookie is host-scoped. To use ports other
+than `4173` (web) and `8766` (API):
+
+1. Before starting the API, set `FORGE_FRONTEND_ORIGIN` to the **exact**
+   web origin (e.g. `http://127.0.0.1:14173`). Any other origin is
+   refused with `403`.
+2. Edit `frontend/config.js` so `window.FORGE_API_BASE` points at the
+   **exact** API origin (e.g. `http://127.0.0.1:18766`).
+3. Start both listeners on those ports:
+   `forge api serve --port 18766` and
+   `forge web serve --port 14173 --root frontend`.
+
+**Keep both listeners on the same hostname** (`127.0.0.1`) even though
+they use different ports, otherwise the session cookie is not sent.
+
+### What the two listeners refuse
+
+- The web listener serves only the files in `--root`; traversal,
+  `POST`/other methods, unknown paths, and any path outside the
+  allowlist are `404` or `405`.
+- The API listener refuses any request whose `Origin` does not match
+  `FORGE_FRONTEND_ORIGIN` with `403`, and any request without a valid
+  `forge_admin_session` cookie with `401`. The anonymous `/healthz` is
+  the only unauthenticated route.
+
 ## Installation packaging
 
 Forge ships a versioned, checksummed release archive built by

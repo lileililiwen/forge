@@ -2,6 +2,85 @@
 
 ## Current state
 
+### forge-web-project-publish delivered and archived (2026-10-07)
+
+`forge-web-project-publish` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-publish`, creating the
+`forge-web-project-publish` spec (three requirements) and modifying one
+`forge-web-command-catalog` requirement and one `forge-web-command-execution`
+requirement. The browser can now plan and run a provider publish for one
+managed project through the established session-gated, exact-origin
+`/v1/admin` boundary: read-only
+`GET /v1/admin/projects/{id}/publish/plan` and confirm-then-digest
+`POST /v1/admin/projects/{id}/publish`. Both resolve the project directory,
+provider id, provider configuration and committed revision only from
+server-side state; both delegate to the unchanged in-process
+`publish::providers::{load_config, select_provider, invoke_provider}` path
+used by the CLI. This closes the provider-publish follow-on the deployment
+package deferred. OpenPanel delivery with health-gated promotion remains the
+explicitly named `forge-web-project-delivery` follow-on.
+
+The implementation preserves the existing security and honesty boundaries:
+
+- `src/api/admin.rs`: route consts plus `publish_target`, `publish_revision`,
+  `publish_descriptor`, `publish_plan_view`, `journal_publish_phase`,
+  `publish_plan` and `publish_write`. No provider, revision, path, binary,
+  argv, host, SSH target, credential, stage list or shell text is accepted from
+  the browser; the apply body reads only `confirm` and `plan_digest`.
+- Missing sessions, non-JSON mutation bodies, hostile/unmanaged ids, missing
+  provider configuration and digest mismatches are refused before any provider
+  call or journal write. Provider spawn/timeout/non-zero/invalid-response
+  failures are journaled as `failed` and returned as typed
+  `503 publish-provider-unavailable`; unhealthy provider output is returned
+  with its real status/health/evidence and `healthy: false`.
+- Absolute project/provider/config paths, SSH targets, credentials and adapter
+  binaries are scrubbed with project-dir/provider-binary secrets plus
+  `redact_local_paths`.
+- `src/api/mod.rs`: `AdminProjectPublishPlan` / `AdminProjectPublish`
+  variants, router arms and all session/permission/dispatch/authorize lists.
+- `src/api/command_catalog.rs`: bare `publish` moves from
+  `provider_required` to a zero-parameter `web_exec` row pointing at the apply
+  route; both new routes join `IMPLEMENTED_WEB_ROUTES`, with pinned in-source
+  coverage.
+- `frontend/`: unchanged. The shipped generic `buildActionControl` already
+  renders the zero-parameter `execution` row as a preview → confirm → run
+  control with no inputs and no bespoke command/path field.
+
+New `tests/forge_web_project_publish_contract.rs` (9 tests) uses a throwaway
+registry/project and hermetic stub provider executable:
+
+| Scenario | Asserts |
+|---|---|
+| anonymous/non-JSON refused | 401/415 before any provider call or journal row |
+| plan preview | 200 path-free plan, 64-hex digest, no invocation or journal |
+| missing prerequisite | typed 409 names only the variable/configuration, no value/id/path |
+| hostile/unmanaged id | typed 400/404 with no echo, no invocation or journal |
+| apply preview/wrong digest | 200 preview then 409 mismatch, both with no invocation or journal |
+| confirmed matching digest | one provider invocation, one `publish` row with provider-reported state |
+| provider failure | typed 503, journaled `failed`, never success |
+| unhealthy provider response | 202 with real status/health/evidence and `healthy: false` |
+| catalog agreement | `publish` is `web` with an empty-parameter `execution` block |
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; existing warnings only |
+| new publish contract | **9 passed / 0 failed** |
+| catalog / execution / deployment / release / actions / workbench | **8 / 5 / 8 / 8 / 6 / 11 passed, 0 failed** |
+| admin API / publish fleet / portal UI / publish contract | **4 / 7 / 39 / 11 passed, 0 failed** |
+| `cargo test --bin forge` | **7 passed / 0 failed** |
+| `cargo test --lib api::` | **48 passed / 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **76 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive forge-web-project-publish --yes` | archived as `2026-10-07-forge-web-project-publish`; canonical `forge-web-project-publish: create` (+3), catalog/execution updates; no `--skip-specs`; one non-blocking proposal-length warning |
+| `openspec list` | no active changes |
+
+Implementation commit: `d4876de`. Nothing pushed. No `current_spec` pointer
+remains because no OpenSpec change is active.
+
 ### forge-web-project-release delivered and archived (2026-10-07)
 
 `forge-web-project-release` is implemented, verified and archived as

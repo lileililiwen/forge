@@ -2,6 +2,56 @@
 
 ## Current state
 
+### forge-web-project-management delivered and archived (2026-10-07)
+
+`forge-web-project-management` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-management`. It adds a
+new canonical `forge-web-project-management` spec (3 requirements) and updates
+the `forge-web-command-catalog` and `forge-web-command-execution` specs. The
+session-gated admin surface can now create, import and register projects from
+the browser, closing the operator's "i can still not manage project" tier.
+Release and provider publish are named follow-on packages
+(`forge-web-project-release`, `forge-web-project-publish`); `upgrade` was
+already delivered by the workbench routes and needed no new work. This is the
+bounded first slice, stated explicitly in the design decision ledger.
+
+The change lifts the three Core authoring operations the CLI already owns and
+does not fork them:
+
+- `src/api/admin.rs`: `POST /v1/admin/projects/{new,import,register}` under the
+  existing session cookie + exact-origin CORS + JSON-only 415 gate. Each route
+  is a single-request preview/confirm gate: no `confirm` returns a read-only,
+  path-free descriptor with a 64-hex `plan_digest`; a mismatched digest is a
+  typed `409 admin-digest-mismatch`; only a matching `confirm: true` reaches
+  `run_with_operation`, which delegates to `generate` / `adopt_import` /
+  `Registry::register` and journals `admin.project.{new,import,register}`.
+- The browser names a location only as one validated kebab `project`; the
+  server joins it to the unset-by-default `FORGE_ADMIN_PROJECTS_ROOT`. An unset
+  root is a typed `409 admin-prerequisite`, never a silent write to
+  `FORGE_WORKSPACE_ROOT`. No browser path, binary, argv, host or credential is
+  ever accepted, and every response is scrubbed of absolute paths and
+  credentials. Failures are typed and journaled, never a fake success.
+- `src/api/mod.rs`: the three `Route` variants, router arms and all four match
+  lists. `src/api/command_catalog.rs`: `new` / `import` / `register` move from
+  `cli_only` to `web_exec` with typed parameters (total row count stays 227).
+- `src/api/workbench.rs`: a global, id-less `web` row is honestly reported
+  not-actionable inside a single project, carrying a reason that points at the
+  dashboard's project-management section.
+- `frontend/app.js` + `frontend/index.html`: a dashboard-level "Create or adopt
+  a project" section rendered from the catalog's global `execution` rows;
+  `textContent` only, no new sink.
+
+New `tests/forge_web_project_management_contract.rs` (9 tests) drives the real
+`handle()` against a throwaway registry and covers all ten design §7 scenarios
+(anonymous 401 / non-JSON 415; hostile name 400 with no echo; unset root 409;
+path-free preview + wrong-digest 409; confirmed register/import/new 202 with
+journal rows and no path leak; honest journaled failure; catalog rows). Pass
+counts: workbench 11, management 9, command-catalog 8, command-execution 5,
+project-actions 6, admin-api 4, portal-frontend 5, portal-ui 39, catalog 17,
+`--lib api::` 47, `--bin forge` 7. `cargo fmt --check`,
+`node scripts/check-openspec-change-names.mjs` and
+`openspec validate --all --strict --no-interactive` (73 specs) are clean.
+
 ### forge-web-publish-fleet delivered and archived (2026-10-07)
 
 `forge-web-publish-fleet` is implemented, verified and archived as

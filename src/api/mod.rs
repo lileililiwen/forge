@@ -551,6 +551,23 @@ pub enum Route {
     AdminProjectDeploy {
         id: String,
     },
+    /// `GET /v1/admin/projects/{id}/release/plan` — the read-only release plan,
+    /// exposed as a session-gated admin route that renders
+    /// `release::engine::prepare_release` for one typed semver version. It
+    /// invokes no adapter, writes nothing, mutates no git state and returns a
+    /// path-free plan view plus the confirm digest.
+    AdminProjectReleasePlan {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/release` — the `forge release` apply,
+    /// exposed as a session-gated, preview + confirm- and digest-bound admin
+    /// route delegating to the same `release::engine::apply_release` the CLI
+    /// runs, using the manifest's stages. The descriptor binds the project id
+    /// and the normalized semver version — never a stage list, path, argv,
+    /// remote or shell.
+    AdminProjectRelease {
+        id: String,
+    },
     /// `POST /v1/admin/projects/new` — `forge new` exposed as a session-gated,
     /// preview + confirm/digest-bound admin route. The browser supplies only a
     /// validated project name plus typed fields; the destination is resolved
@@ -853,6 +870,18 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        // Release routes: `POST …/release` is a five-segment arm and
+        // `GET …/release/plan` a six-segment arm. The literal `release`
+        // segment never collides with the `deploy`/`feature`/`spec`/`plan`/
+        // `apply` arms above, so no existing route is shadowed.
+        ("POST", ["v1", "admin", "projects", id, "release"]) => Some(Route::AdminProjectRelease {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "admin", "projects", id, "release", "plan"]) => {
+            Some(Route::AdminProjectReleasePlan {
+                id: (*id).to_string(),
+            })
+        }
         // Project status is a five-segment read. Its literal `status`
         // segment never collides with the `plan`/`apply`/`feature`/`spec`/
         // `deploy` arms above, so no existing route is shadowed.
@@ -1118,6 +1147,8 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectSpecApply { .. }
         | Route::AdminProjectDeployPlan { .. }
         | Route::AdminProjectDeploy { .. }
+        | Route::AdminProjectReleasePlan { .. }
+        | Route::AdminProjectRelease { .. }
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
@@ -1273,6 +1304,8 @@ pub fn handle(
             | Route::AdminProjectSpecApply { .. }
             | Route::AdminProjectDeployPlan { .. }
             | Route::AdminProjectDeploy { .. }
+            | Route::AdminProjectReleasePlan { .. }
+            | Route::AdminProjectRelease { .. }
             | Route::AdminProjectNew
             | Route::AdminProjectImport
             | Route::AdminProjectRegister
@@ -1431,6 +1464,8 @@ pub fn handle(
         | Route::AdminProjectSpecApply { .. }
         | Route::AdminProjectDeployPlan { .. }
         | Route::AdminProjectDeploy { .. }
+        | Route::AdminProjectReleasePlan { .. }
+        | Route::AdminProjectRelease { .. }
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister
@@ -1529,6 +1564,8 @@ fn authorize(
         | Route::AdminProjectSpecApply { .. }
         | Route::AdminProjectDeployPlan { .. }
         | Route::AdminProjectDeploy { .. }
+        | Route::AdminProjectReleasePlan { .. }
+        | Route::AdminProjectRelease { .. }
         | Route::AdminProjectNew
         | Route::AdminProjectImport
         | Route::AdminProjectRegister

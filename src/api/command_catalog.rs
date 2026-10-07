@@ -55,6 +55,13 @@ const WEB_ROUTE_ADMIN_SPEC_APPLY: &str = super::admin::ROUTE_ADMIN_SPEC_APPLY;
 const WEB_ROUTE_ADMIN_DEPLOY_PLAN: &str = super::admin::ROUTE_ADMIN_DEPLOY_PLAN;
 const WEB_ROUTE_ADMIN_DEPLOY: &str = super::admin::ROUTE_ADMIN_DEPLOY;
 
+/// Release-command typed routes (`forge-web-project-release`). These name the
+/// exact admin paths the router registers so the catalog and the live endpoints
+/// can never diverge: the read-only release plan and the session-gated,
+/// confirm/digest-bound release apply delegating to `release::engine`.
+const WEB_ROUTE_ADMIN_RELEASE_PLAN: &str = super::admin::ROUTE_ADMIN_RELEASE_PLAN;
+const WEB_ROUTE_ADMIN_RELEASE: &str = super::admin::ROUTE_ADMIN_RELEASE;
+
 /// Read-only status typed routes (`forge-project-status/0.1.0`). These
 /// reference the status module's own route constants so the catalog and the
 /// live endpoints can never name different paths: the per-project status
@@ -98,6 +105,8 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_SPEC_APPLY,
     WEB_ROUTE_ADMIN_DEPLOY_PLAN,
     WEB_ROUTE_ADMIN_DEPLOY,
+    WEB_ROUTE_ADMIN_RELEASE_PLAN,
+    WEB_ROUTE_ADMIN_RELEASE,
     WEB_ROUTE_PROJECT_STATUS,
     WEB_ROUTE_FLEET_STATUS,
     WEB_ROUTE_ADMIN_PROJECT_NEW,
@@ -1409,8 +1418,8 @@ impl CatalogBuilder {
             Release,
             Project,
         );
-        self.leaf(Some("release"), "prepare", "Capture semver, changelog, source revision and the doctor/test/DriftWatch evidence into a reviewable plan.", Release, Project, LocalWrite, NotYetWeb, caps_local);
-        self.provider_required(Some("release"), "apply", "Apply a verified release plan: walks every stage with safe retry and per-stage records (tag, push, package, container, notes).", Release, Project, RemoteWrite, caps_git_remote);
+        self.web_at(Some("release"), "prepare", "Capture semver, changelog, source revision and the doctor/test/DriftWatch evidence into a reviewable plan.", Release, Project, Read, WEB_ROUTE_ADMIN_RELEASE_PLAN, caps_local);
+        self.web_exec(Some("release"), "apply", "Apply a verified release plan: walks every stage with safe retry and per-stage records (tag, push, package, container, notes).", Release, Project, RemoteWrite, WEB_ROUTE_ADMIN_RELEASE, "POST", &[("version", "string", true)], caps_git_remote);
         self.leaf(
             Some("release"),
             "list",
@@ -2527,6 +2536,8 @@ mod tests {
                 ("check", WEB_ROUTE_PROJECT_STATUS),
                 ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
                 ("spec.apply", WEB_ROUTE_ADMIN_SPEC_APPLY),
+                ("release.prepare", WEB_ROUTE_ADMIN_RELEASE_PLAN),
+                ("release.apply", WEB_ROUTE_ADMIN_RELEASE),
                 ("deploy.plan", WEB_ROUTE_ADMIN_DEPLOY_PLAN),
                 ("deploy.apply", WEB_ROUTE_ADMIN_DEPLOY),
                 ("fleet.list", WEB_ROUTE_PROJECTS),
@@ -2571,6 +2582,7 @@ mod tests {
                 "feature.upgrade",
                 "spec.generate",
                 "spec.apply",
+                "release.apply",
                 "deploy.apply",
             ]
         );
@@ -2620,6 +2632,7 @@ mod tests {
                     ("reason", "string", false),
                 ],
             ),
+            ("release.apply", vec![("version", "string", true)]),
             ("deploy.apply", vec![("target", "string", false)]),
         ]);
         for row in rows() {

@@ -57,7 +57,15 @@ preview → confirm → run for `feature.remove` (HTTP 202 and the `auth` featur
 actually removed from the temp manifest), `feature.upgrade` (reached Core,
 returned a typed 400 the page surfaced without crashing) and `spec.apply` (HTTP
 202); zero app console errors, zero uncaught page errors, zero network failures,
-and no absolute filesystem path in the actions UI. Two commits: implementation +
+and no absolute filesystem path in the actions UI. A full `cargo test` run now
+reaches every integration target (≈1899 passed) because this change cleared the
+catalog↔Clap drift that had fail-stopped the suite earlier; the one failure it
+surfaces is unrelated and pre-existing: `portal_browser_a11y` expects the legacy
+server-rendered `/ui` to answer 200/202/401 with the shared shell, but an
+unauthenticated `GET /ui` now 303-redirects to `/ui/sign-in` (a legacy-portal
+change that predates this one). That oracle belongs to the separate
+`portal-accessible-responsive-ui` capability and is left for its own
+remediation, not rewritten silently here. Two commits: implementation +
 catalog/tests, then frontend panel + archive + this handoff. Nothing pushed.
 
 ### forge-web-command-execution delivered and archived (2026-10-07)

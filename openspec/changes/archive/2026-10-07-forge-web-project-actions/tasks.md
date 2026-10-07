@@ -73,10 +73,21 @@
 ## 4. Verification
 
 - [x] `cargo fmt` then `cargo fmt --check` clean.
-- [x] `cargo test` full suite green: 1213 lib passed; `--bin forge` 7/7
-      (including the two catalog parity/integrity tests); the three web contract
-      files pass (`forge_web_project_actions_contract` 6,
-      `forge_web_command_execution_contract` 5, `forge_web_command_catalog_contract` 8).
+- [x] This change's scope green: 1213 lib passed; `--bin forge` 7/7 (including
+      the two catalog parity/integrity tests); the three web contract files pass
+      (`forge_web_project_actions_contract` 6,
+      `forge_web_command_execution_contract` 5,
+      `forge_web_command_catalog_contract` 8); `artifact_baseline_contract` 6/6
+      after the pre-existing `[Unreleased]` parser fix landed alongside it.
+- [x] Full `cargo test` run reached every integration target (≈1899 passed)
+      because this change removed the catalog↔Clap drift that had been
+      fail-stopping the suite earlier. One unrelated, pre-existing failure
+      remains and is NOT this capability: `portal_browser_a11y` asserts the
+      legacy server-rendered `/ui` returns 200/202/401 with the shared shell,
+      but an unauthenticated `GET /ui` now 303-redirects to `/ui/sign-in`
+      (introduced by the legacy-portal redirect, predates this change). It
+      belongs to the separate `portal-accessible-responsive-ui` capability and
+      is left for its own remediation, not silently rewritten here.
 - [x] `node scripts/check-openspec-change-names.mjs` PASS and
       `openspec validate --all --strict` 71/0.
 - [x] Live Playwright run against a throwaway temp registry (never the user's

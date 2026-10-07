@@ -86,11 +86,11 @@ fn management_descriptor(
         .get("project")
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
-        .ok_or(("admin-field-required", "a `project` name is required"))?;
+        .ok_or(("admin-field-required", "a project name is required"))?;
     if crate::core::validate_project_id(project).is_err() {
         return Err((
             "admin-invalid-project-name",
-            "the `project` name must be a lowercase kebab-case identifier with no path separators.",
+            "use lowercase letters, numbers and dashes for the project name.",
         ));
     }
     match kind {
@@ -102,7 +102,7 @@ fn management_descriptor(
                 .filter(|value| !value.is_empty())
                 .ok_or((
                     "admin-field-required",
-                    "creating a project requires a `profile` field",
+                    "creating a project requires choosing a profile",
                 ))?;
             let mut descriptor = json!({
                 "action": kind.action(),
@@ -153,7 +153,7 @@ fn management_descriptor(
                 if crate::core::validate_project_id(id).is_err() {
                     return Err((
                         "admin-invalid-project-name",
-                        "the `id` override must be a lowercase kebab-case identifier with no path separators.",
+                        "the id override must use lowercase letters, numbers and dashes.",
                     ));
                 }
                 descriptor["id"] = json!(id);
@@ -174,7 +174,7 @@ pub(super) fn projects_root() -> Result<PathBuf, ApiResponse> {
         return Err(error(
             409,
             "admin-prerequisite",
-            "the server has no project root configured; set FORGE_ADMIN_PROJECTS_ROOT to a workspace directory in the server environment before managing projects from the browser.",
+            "the server has no project folder set up yet; set FORGE_ADMIN_PROJECTS_ROOT to a workspace folder in the server environment before managing projects from the browser.",
         ));
     }
     match PathBuf::from(value.trim()).canonicalize() {
@@ -182,7 +182,7 @@ pub(super) fn projects_root() -> Result<PathBuf, ApiResponse> {
         _ => Err(error(
             409,
             "admin-prerequisite",
-            "the configured server-side project root does not resolve to an existing directory; fix the server configuration and retry.",
+            "the configured project folder does not exist; fix the server configuration and retry.",
         )),
     }
 }
@@ -204,21 +204,21 @@ fn management_destination(
         error(
             409,
             "admin-prerequisite",
-            "the named project directory does not exist under the configured root; create or place it there first.",
+            "the named project folder does not exist under the configured project folder; create or place it there first.",
         )
     })?;
     if !canonical.starts_with(root) {
         return Err(error(
             409,
             "admin-prerequisite",
-            "the named project directory resolves outside the configured root; refusing to touch it.",
+            "the named project folder is outside the configured project folder; refusing to touch it.",
         ));
     }
     if !canonical.is_dir() {
         return Err(error(
             409,
             "admin-prerequisite",
-            "the named project path is not a directory under the configured root.",
+            "the named project path is not a folder under the configured project folder.",
         ));
     }
     Ok(canonical)

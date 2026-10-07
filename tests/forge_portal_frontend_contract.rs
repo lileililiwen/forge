@@ -100,9 +100,34 @@ fn workbench_has_a_delivery_status_card_with_next_confirmation() {
         "delivery live region"
     );
     assert!(app.contains("/delivery/status"), "delivery status endpoint");
+    // Verb summaries read as plain words; operation ids never render.
     assert!(
-        app.contains("confirm_operation_id:") && app.contains("confirm_revision:"),
-        "next staged confirmations are shown as text"
+        app.contains("deliveryVerbSummary"),
+        "verb summaries are rendered as sentences"
+    );
+    assert!(
+        !app.contains("confirm_operation_id:") && !app.contains("confirm_revision:"),
+        "no staged confirmation codes rendered as text"
+    );
+    // System operation ids never render; the only remaining `operation ${`
+    // echoes are the operator's own typed operation key, never a hash.
+    for marker in [
+        "operation ${verb",
+        "operation ${result",
+        "operation ${hermora",
+        "operation ${body",
+        "operation ${applied",
+    ] {
+        assert!(
+            !app.contains(marker),
+            "system operation id rendered: {marker}"
+        );
+    }
+    // Staged confirmations arrive pre-filled from the delivery status the
+    // operator reviewed instead of hand-copied hashes.
+    assert!(
+        app.contains("workbench.delivery") && app.contains("prefill"),
+        "staged confirmations are pre-filled from status data"
     );
     assert!(
         !app.contains("deployment_url: ${"),
@@ -177,6 +202,97 @@ fn stylesheet_keeps_the_accessibility_and_responsive_contract() {
         css.contains("prefers-reduced-motion"),
         "reduced-motion support"
     );
+}
+
+#[test]
+fn fleet_rows_lead_with_human_names_and_one_plain_status() {
+    let index = read("frontend/index.html");
+    let app = read("frontend/app.js");
+    assert!(
+        index.contains("<th scope=\"col\">Project</th><th scope=\"col\">Details</th><th scope=\"col\">Status</th>"),
+        "fleet headers are Project/Details/Status"
+    );
+    // The old programmer-coded fleet header row is gone from the primary
+    // view (portfolio/delivery reference tables keep their own columns).
+    assert!(
+        !index.contains("<th scope=\"col\">Source</th><th scope=\"col\">Profile</th>"),
+        "no source/lifecycle/access/evidence code columns in the primary fleet view"
+    );
+    assert!(
+        app.contains("projectStatusLine") && app.contains("profileWords"),
+        "one plain status line plus profile words"
+    );
+    assert!(
+        app.contains("\"react-web\": \"React web\""),
+        "all six known profiles map to plain words"
+    );
+    assert!(
+        app.contains("Open ${project.name}") || app.contains("\"Open\""),
+        "managed rows offer a plain Open action"
+    );
+}
+
+#[test]
+fn primary_views_render_no_hashes_digests_or_op_ids() {
+    let app = read("frontend/app.js");
+    for marker in [
+        "Plan digest:",
+        "Action digest:",
+        "Batch 1 digest",
+        "Refreshed preview digest:",
+        "Accepted as journaled operation",
+    ] {
+        assert!(!app.contains(marker), "display marker removed: {marker}");
+    }
+    // Digests stay in JS memory and wire bodies only; the screen shows
+    // 12-char prefixes at most.
+    assert!(
+        app.contains("shortValue") && app.contains("shortDigest"),
+        "hex values are truncated before display"
+    );
+    assert!(
+        app.contains("slice(0, 12)"),
+        "12-char prefix bound for operationally needed references"
+    );
+    assert!(
+        app.contains("(\"Approved reference\", shortDigest(approval.manifest_sha256))"),
+        "approval digest renders as a short reference"
+    );
+}
+
+#[test]
+fn onboarding_refreshes_the_fleet_in_place_with_manual_fallback() {
+    let index = read("frontend/index.html");
+    let app = read("frontend/app.js");
+    assert!(
+        app.contains("wsReloadFleet"),
+        "fleet re-fetch helper exists"
+    );
+    assert!(
+        app.contains("wsReloadFleet()") && app.contains("/v1/admin/projects"),
+        "onboard success re-reads the fleet in place"
+    );
+    assert!(
+        index.contains("id=\"ws-reload\""),
+        "manual Reload fallback is retained"
+    );
+    assert!(
+        app.contains("could not refresh itself"),
+        "failed auto-refresh names the manual fallback"
+    );
+}
+
+#[test]
+fn stylesheet_pins_the_dark_command_center_tokens() {
+    let css = read("frontend/styles.css");
+    for token in [
+        "--bg:#08090d",
+        "--panel:#0f1219",
+        "--accent:#5e6ad2",
+        "color-scheme:dark",
+    ] {
+        assert!(css.contains(token), "dark token pinned: {token}");
+    }
 }
 
 #[test]

@@ -7,10 +7,12 @@
 //
 // The harness signs in through the shipped login page, expects the onboarding
 // table to populate itself, selects everything, previews (one combined plan
-// with one digest per 25-item chunk), confirms once, then reloads and
-// verifies the new projects appear in the fleet. It also checks dashboard
-// section order, keyboard entry, measured text contrast, and that the
-// absolute fixture root is never rendered.
+// per 25-item chunk, digests held in JS memory and never rendered), confirms
+// once, then verifies the fleet re-fetches in place with the results still
+// visible and the manual Reload control retained as fallback. It also checks
+// readable copy (name-first rows, sentence previews, no hash/digest/op-id
+// text on screen), dashboard section order, keyboard entry, measured text
+// contrast, and that the absolute fixture root is never rendered.
 //
 // Exit codes: 0 verified, 1 a check failed, 2 Playwright or a browser engine
 // is unavailable (`UNVERIFIED`). The Rust caller reports exit 2 as
@@ -108,30 +110,57 @@ try {
   await previewBtn.focus();
   await page.keyboard.press('Enter');
   const preview = page.locator('#ws-preview-result');
-  await preview.getByText('Batch 1 digest:', { exact: false }).waitFor({ timeout: 30000 });
-  await preview.getByText('Batch 2 digest:', { exact: false }).waitFor({ timeout: 30000 });
+  await preview.getByText('Preview — nothing has been written yet', { exact: false }).waitFor({ timeout: 30000 });
+  // Both 25-item chunks must have landed before asserting on the text.
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('#ws-preview-result li').length === expected,
+    dirs.length,
+    { timeout: 30000 },
+  );
   const previewText = await preview.innerText();
   for (const id of ids) {
     if (!previewText.includes(id)) fail(`preview did not plan ${id}`);
   }
   const planLines = await preview.locator('li').count();
   if (planLines !== dirs.length) fail(`preview shows ${planLines} plans for ${dirs.length} dirs`);
+  // Human-readable preview: sentences naming the action and target, never
+  // a digest, hash or operation id on screen.
+  if (/[0-9a-f]{20,}/i.test(previewText)) fail(`preview rendered a hash-like value: ${previewText.slice(0, 200)}`);
+  if (/digest:/i.test(previewText)) fail(`preview rendered a digest line: ${previewText.slice(0, 200)}`);
+  if (/operation \d+/i.test(previewText)) fail(`preview rendered an operation id: ${previewText.slice(0, 200)}`);
   note('previewed');
 
   await page.locator('#ws-confirm').check();
   await page.getByRole('button', { name: 'Run confirmed onboarding' }).click();
   const result = page.locator('#ws-apply-result');
   await result.getByText(`Onboarded ${dirs.length} of ${dirs.length}`, { exact: false }).waitFor({ timeout: 60000 });
+  const resultText = await result.innerText();
+  if (/[0-9a-f]{20,}/i.test(resultText)) fail(`results rendered a hash-like value: ${resultText.slice(0, 200)}`);
+  if (/digest:/i.test(resultText)) fail(`results rendered a digest line: ${resultText.slice(0, 200)}`);
   note('applied');
 
-  await page.getByRole('button', { name: 'Reload project list' }).click();
-  await page.waitForLoadState('networkidle', { timeout: 30000 });
+  // The fleet re-fetches in place: results stay visible and the fallback
+  // Reload control remains, but no reload is needed to see the new rows.
+  if (!(await result.isVisible())) fail('onboarding results did not stay visible after the fleet refresh');
+  if (!(await page.getByRole('button', { name: 'Reload project list' }).isVisible())) {
+    fail('manual Reload fallback is missing after onboarding');
+  }
   const fleet = page.locator('#project-rows');
   await fleet.getByText(ids[0], { exact: false }).waitFor({ timeout: 30000 });
   const fleetText = await fleet.innerText();
   for (const id of ids) {
-    if (!fleetText.includes(id)) fail(`fleet does not list ${id} after reload`);
+    if (!fleetText.includes(id)) fail(`fleet does not list ${id} without a reload`);
   }
+  // Fleet rows lead with a human name and one plain status line — no
+  // source/lifecycle/access/evidence code columns in the primary view.
+  const fleetHeaders = await page.locator('#project-rows').evaluate(() => {
+    const table = document.querySelector('.table-scroll table thead');
+    return table ? table.innerText : '';
+  });
+  for (const code of ['Source', 'Lifecycle', 'Access', 'Evidence']) {
+    if (fleetHeaders.includes(code)) fail(`fleet still shows a ${code} code column`);
+  }
+  if (/[0-9a-f]{20,}/i.test(fleetText)) fail(`fleet rendered a hash-like value: ${fleetText.slice(0, 200)}`);
   note('fleet lists all');
 
   const bodyText = await page.locator('#main-content').innerText();

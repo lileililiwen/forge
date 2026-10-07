@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="dark">
     <title>Projects · Forge</title>
     <link rel="stylesheet" href="styles.css">
     <script src="config.js" defer></script>
@@ -63,7 +63,7 @@
             <div id="empty-state" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">▦</span><h3>No registered projects</h3><p>Forge is always listed here; your registered and observed projects appear once they are added or read from an explicit source.</p><p class="next-action">Start with <code>forge import ./your-project --accept</code></p></div>
             <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name, profile or source filter.</p></div>
             <div class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
-              <table><thead><tr><th scope="col">Project</th><th scope="col">Source</th><th scope="col">Profile</th><th scope="col">Latest state</th><th scope="col">Evidence</th><th scope="col">Lifecycle</th><th scope="col">Access</th></tr></thead><tbody id="project-rows"></tbody></table>
+              <table><thead><tr><th scope="col">Project</th><th scope="col">Details</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody id="project-rows"></tbody></table>
             </div>
           </section>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title">
@@ -133,11 +133,11 @@
           </section>
           <section id="management" class="project-panel" aria-labelledby="management-title">
             <div class="panel-heading">
-              <div><h2 id="management-title">Create or adopt a project</h2><p class="muted">Create (<code>forge new</code>), import (<code>forge import</code>) or register (<code>forge register</code>) a project from the browser. The browser supplies only a validated project name and typed fields; the server resolves the directory from its own configured root. Nothing is written until you review the preview and confirm its digest.</p></div>
+              <div><h2 id="management-title">Create or adopt a project</h2><p class="muted">Create (<code>forge new</code>), import (<code>forge import</code>) or register (<code>forge register</code>) a project from the browser. The browser supplies only a validated project name and typed fields; the server resolves the directory from its own configured root. Nothing is written until you review the preview and confirm exactly that selection.</p></div>
             </div>
             <div id="management-actions" class="wb-actions-list"></div>
             <section class="wb-card wb-plan" aria-labelledby="ws-title">
-              <div class="panel-heading"><div><h3 id="ws-title">Workspace onboarding</h3><p class="muted">Discover every sibling directory under the server-configured project root, then import or register a selection in one reviewed batch. Discovery re-reads the workspace live, so newly added siblings appear on Refresh with no other change. Nothing is written until you review the preview and confirm its digest.</p></div>
+              <div class="panel-heading"><div><h3 id="ws-title">Workspace onboarding</h3><p class="muted">Discover every sibling directory under the server-configured project root, then import or register a selection in one reviewed batch. Discovery re-reads the workspace live, so newly added siblings appear on Refresh with no other change. Nothing is written until you review the preview and confirm exactly that selection.</p></div>
                 <div class="panel-tools">
                   <button id="ws-discover" class="button button-quiet" type="button">Discover workspace</button>
                 </div>
@@ -196,7 +196,7 @@
           </section>
           <section id="delivery" class="project-panel" aria-labelledby="delivery-title">
             <div class="panel-heading">
-              <div><h2 id="delivery-title">Delivery controls</h2><p class="muted">Review the share pipeline, confirm each delivery mutation against the exact manifest digest, and track publication outcomes. Every action runs through the crate's own typed in-process functions — no shell, no browser-supplied path, no live provider on load.</p></div>
+              <div><h2 id="delivery-title">Delivery controls</h2><p class="muted">Review the share pipeline, confirm each delivery action against the exact preview you reviewed, and track publication outcomes. Every action runs through the crate's own typed in-process functions — no shell, no browser-supplied path, no live provider on load.</p></div>
               <div class="panel-tools">
                 <button id="delivery-refresh" class="button button-quiet" type="button">Refresh</button>
               </div>
@@ -207,7 +207,7 @@
             <div class="workbench-grid">
               <section class="wb-card" aria-labelledby="delivery-preview-title">
                 <h3 id="delivery-preview-title">Manifest preview</h3>
-                <p class="muted">The digest every delivery action binds to. Reading it changes nothing.</p>
+                <p class="muted">The preview every delivery action binds to. Reading it changes nothing.</p>
                 <dl id="delivery-preview" class="detail-list"></dl>
                 <p id="delivery-target" class="muted"></p>
                 <p id="delivery-provider" class="muted"></p>
@@ -230,7 +230,7 @@
               </section>
               <section class="wb-card" aria-labelledby="delivery-actions-title">
                 <h3 id="delivery-actions-title">Confirmed actions</h3>
-                <p class="muted">Each action below requires an explicit confirmation tick and echoes the exact preview digest. A changed or stale digest is refused and nothing is dispatched.</p>
+                <p class="muted">Each action below requires an explicit confirmation tick and echoes the exact preview you reviewed. A changed or stale preview is refused and nothing is dispatched.</p>
                 <p class="wb-subtitle">Add / replace a share record</p>
                 <div class="wb-plan-tools">
                   <label class="filter-box"><span class="sr-only">Project</span><select id="delivery-project"><option value="">Choose a project…</option></select></label>
@@ -242,22 +242,22 @@
                   <button id="delivery-set" class="button" type="button">Add to allowlist</button>
                   <button id="delivery-remove" class="button button-quiet" type="button">Withdraw record</button>
                 </div>
-                <p class="wb-subtitle">Approve the reviewed digest</p>
+                <p class="wb-subtitle">Approve the reviewed preview</p>
                 <div class="wb-plan-tools">
-                  <label class="wb-confirm"><input id="delivery-approve-confirm" type="checkbox"> Confirm approval of this exact manifest digest.</label>
-                  <button id="delivery-approve" class="button" type="button">Approve preview digest</button>
+                  <label class="wb-confirm"><input id="delivery-approve-confirm" type="checkbox"> Confirm approval of this exact preview.</label>
+                  <button id="delivery-approve" class="button" type="button">Approve reviewed preview</button>
                 </div>
-                <p class="wb-subtitle">Publish the approved digest</p>
+                <p class="wb-subtitle">Publish the approved preview</p>
                 <div class="wb-plan-tools">
                   <label class="search-box"><span class="sr-only">Operation key</span><input id="delivery-opkey" type="text" placeholder="Operation key" autocomplete="off"></label>
                   <label class="wb-confirm"><input id="delivery-publish-confirm" type="checkbox"> Confirm this writes the approved manifest to the server-configured target.</label>
-                  <button id="delivery-publish" class="button" type="button">Publish approved digest</button>
+                  <button id="delivery-publish" class="button" type="button">Publish approved preview</button>
                 </div>
                 <p class="wb-subtitle">Reconcile an ambiguous outcome</p>
                 <div class="wb-plan-tools">
                   <label class="search-box"><span class="sr-only">Publication id</span><input id="delivery-reconcile-id" type="text" placeholder="Publication id" autocomplete="off"></label>
                   <label class="filter-box"><span class="sr-only">Observed outcome</span><select id="delivery-reconcile-status"><option value="">Observed outcome…</option><option value="published">Published</option><option value="failed">Failed</option></select></label>
-                  <label class="search-box"><span class="sr-only">Attempt digest</span><input id="delivery-reconcile-digest" type="text" placeholder="Attempt digest" autocomplete="off"></label>
+                  <label class="search-box"><span class="sr-only">Attempt reference</span><input id="delivery-reconcile-digest" type="text" placeholder="Attempt reference" autocomplete="off"></label>
                   <label class="wb-confirm"><input id="delivery-reconcile-confirm" type="checkbox"> Confirm this records the outcome I observed.</label>
                   <button id="delivery-reconcile" class="button button-quiet" type="button">Reconcile attempt</button>
                 </div>

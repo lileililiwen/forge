@@ -51,14 +51,14 @@ fn validate_workspace_leaf(raw: &str) -> Result<String, ApiResponse> {
         return Err(error(
             400,
             "admin-invalid-directory",
-            "each selected entry must name one workspace directory of 1..=128 characters.",
+            "each selected entry must be a single folder name of 1 to 128 characters.",
         ));
     }
     if leaf == "." || leaf == ".." {
         return Err(error(
             400,
             "admin-invalid-directory",
-            "directory names may not be dot segments.",
+            "folder names may not be just dots; use the real folder name.",
         ));
     }
     if leaf
@@ -68,7 +68,7 @@ fn validate_workspace_leaf(raw: &str) -> Result<String, ApiResponse> {
         return Err(error(
             400,
             "admin-invalid-directory",
-            "directory names may not contain separators, escapes or control characters.",
+            "folder names must be a single name with no slashes or special characters.",
         ));
     }
     Ok(leaf.to_string())
@@ -82,21 +82,21 @@ fn workspace_destination(root: &Path, leaf: &str) -> Result<PathBuf, ApiResponse
         error(
             409,
             "admin-prerequisite",
-            "the named workspace directory does not exist under the configured root; refresh discovery first.",
+            "the named workspace folder does not exist under the configured project folder; refresh the folder list first.",
         )
     })?;
     if !canonical.starts_with(root) {
         return Err(error(
             409,
             "admin-prerequisite",
-            "the named workspace directory resolves outside the configured root; refusing to touch it.",
+            "the named workspace folder is outside the configured project folder; refusing to touch it.",
         ));
     }
     if !canonical.is_dir() {
         return Err(error(
             409,
             "admin-prerequisite",
-            "the named workspace path is not a directory under the configured root.",
+            "the named workspace path is not a folder under the configured project folder.",
         ));
     }
     Ok(canonical)
@@ -118,9 +118,7 @@ fn workspace_registration_state(
             if owner.path != canonical {
                 return (
                     "id-collision",
-                    Some(format!(
-                        "id `{id}` is already registered to another directory"
-                    )),
+                    Some(format!("{id} is already used by another folder")),
                 );
             }
         }
@@ -143,7 +141,7 @@ fn workspace_candidate(
                 "directory": leaf,
                 "state": "unreadable",
                 "selectable": false,
-                "reason": "the directory cannot be read under the configured root right now.",
+                "reason": "the folder cannot be read right now.",
             })
         }
     };
@@ -199,7 +197,7 @@ fn workspace_candidate(
                     None => "undecidable",
                 };
                 let reason = if state == "undecidable" {
-                    Some("no usable project id; supply an explicit `id`.".to_string())
+                    Some("no usable project id; enter one explicitly.".to_string())
                 } else {
                     None
                 };
@@ -278,7 +276,7 @@ pub(super) fn workspace_candidates(
                     return error(
                         503,
                         "admin-api-unavailable",
-                        "the configured project root cannot be read right now.",
+                        "the configured project folder cannot be read right now.",
                     )
                 }
             };
@@ -367,14 +365,14 @@ fn parse_onboard_items(body: &Value) -> Result<Vec<OnboardItem>, ApiResponse> {
         error(
             400,
             "admin-field-required",
-            "onboarding requires an `items` array of 1..=25 selections.",
+            "onboarding needs 1 to 25 selected folders.",
         )
     })?;
     if raw.is_empty() || raw.len() > WORKSPACE_ONBOARD_MAX_ITEMS {
         return Err(error(
             400,
             "admin-field-required",
-            "onboarding requires an `items` array of 1..=25 selections.",
+            "onboarding needs 1 to 25 selected folders.",
         ));
     }
     let mut items = Vec::with_capacity(raw.len());
@@ -387,7 +385,7 @@ fn parse_onboard_items(body: &Value) -> Result<Vec<OnboardItem>, ApiResponse> {
                 error(
                     400,
                     "admin-field-required",
-                    "every item needs a valid single-segment `directory`.",
+                    "every entry needs a valid folder name.",
                 )
             })??;
         let id = entry
@@ -400,7 +398,7 @@ fn parse_onboard_items(body: &Value) -> Result<Vec<OnboardItem>, ApiResponse> {
                     Err(error(
                         400,
                         "admin-invalid-project-name",
-                        "an `id` override must be a lowercase kebab-case identifier with no path separators.",
+                        "an id override must use lowercase letters, numbers and dashes.",
                     ))
                 } else {
                     Ok(value.to_string())
@@ -435,7 +433,7 @@ fn onboard_preview(
         Err(_) => {
             return json!({
                 "directory": item.directory,
-                "blocked": "the directory cannot be read under the configured root right now.",
+                "blocked": "the folder cannot be read right now.",
             })
         }
     };
@@ -458,7 +456,7 @@ fn onboard_preview(
                     }),
                     ("id-collision", _) => json!({
                         "directory": item.directory,
-                        "blocked": "its manifest id is already registered to another directory.",
+                        "blocked": "its project id is already used by another folder.",
                     }),
                     _ => json!({
                         "directory": item.directory,
@@ -488,7 +486,7 @@ fn onboard_preview(
                 None => {
                     return json!({
                         "directory": item.directory,
-                        "blocked": "no usable project id; supply an explicit `id`.",
+                        "blocked": "no usable project id; enter one explicitly.",
                     })
                 }
             };
@@ -502,7 +500,7 @@ fn onboard_preview(
                 }),
                 ("id-collision", _) => json!({
                     "directory": item.directory,
-                    "blocked": "the resolved id is already registered to another directory.",
+                    "blocked": "the resolved id is already used by another folder.",
                 }),
                 _ => json!({
                     "directory": item.directory,
@@ -519,7 +517,7 @@ fn onboard_preview(
         }),
         Err(_) => json!({
             "directory": item.directory,
-            "blocked": "the directory cannot be onboarded in its current shape.",
+            "blocked": "the folder cannot be onboarded in its current shape.",
         }),
     }
 }

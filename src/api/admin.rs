@@ -494,7 +494,7 @@ fn authoring_write(
                 return error(
                     400,
                     "admin-invalid-project-id",
-                    "the project id is not a valid identifier; it may not contain a path.",
+                    "that project name is not valid; use lowercase letters, numbers and dashes.",
                 );
             }
             let managed = Registry::open(db_path)
@@ -505,7 +505,7 @@ fn authoring_write(
                 return error(
                     404,
                     "admin-project-unmanaged",
-                    "this project is not managed by this Forge registry; register it with `forge register <path>` in a terminal first.",
+                    "this project is not managed by this Forge registry; register it from a terminal first, then try again.",
                 );
             }
             let body = req.json_body();
@@ -573,7 +573,7 @@ fn deploy_id_gate(db_path: &Path, id: &str) -> Result<PathBuf, ApiResponse> {
         return Err(error(
             400,
             "admin-invalid-project-id",
-            "the project id is not a valid identifier; it may not contain a path.",
+            "that project name is not valid; use lowercase letters, numbers and dashes.",
         ));
     }
     let dir = Registry::open(db_path)
@@ -585,7 +585,7 @@ fn deploy_id_gate(db_path: &Path, id: &str) -> Result<PathBuf, ApiResponse> {
         None => Err(error(
             404,
             "admin-project-unmanaged",
-            "this project is not managed by this Forge registry; register it with `forge register <path>` in a terminal first.",
+            "this project is not managed by this Forge registry; register it from a terminal first, then try again.",
         )),
     }
 }

@@ -104,19 +104,63 @@ try {
 
   await previewAndRun('preflight');
   await delivery.getByText('Phase: awaiting-stage-confirmation', { exact: false }).waitFor({ timeout: 30000 });
-  const preflightOp = (await delivery.innerText()).match(/confirm_operation_id:\s*(\d+)/)?.[1];
-  if (!preflightOp) fail('stage confirmation operation id was not shown as text');
+  const stagePhaseText = await delivery.innerText();
+  if (/confirm_operation_id:/.test(stagePhaseText)) {
+    fail('delivery card rendered the staged operation id as text');
+  }
+  // Staged confirmations arrive pre-filled from delivery status: the stage
+  // input must already hold the op id from `next.confirm_operation_id`.
+  const stageAction = card('stage');
+  await stageAction.getByRole('heading').waitFor({ timeout: 30000 });
+  const expectedOp = await page.evaluate(async (pid) => {
+    const base = (window.FORGE_API_BASE || '').replace(/\/$/, '');
+    const res = await fetch(`${base}/v1/admin/projects/${encodeURIComponent(pid)}/delivery/status`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`delivery status ${res.status}`);
+    const data = await res.json();
+    return data?.next?.confirm_operation_id ?? null;
+  }, projectId).catch((err) => fail(`could not read staged operation id from status: ${err.message}`));
+  if (expectedOp === null || expectedOp === undefined || String(expectedOp) === '') {
+    fail('delivery status did not carry a staged confirm_operation_id');
+  }
+  const stageValue = await stageAction.getByLabel(/confirm_operation_id \(required\)/i).inputValue();
+  if (stageValue !== String(expectedOp)) {
+    fail(`stage confirmation was not pre-filled from status: input=${stageValue} expected=${expectedOp}`);
+  }
+  note(`stage confirmation pre-filled with operation ${stageValue}`);
 
-  await previewAndRun('stage', async (action) => {
-    await action.getByLabel(/confirm_operation_id \(required\)/i).fill(preflightOp);
-  });
+  await previewAndRun('stage');
   await delivery.getByText('Phase: awaiting-production-approval', { exact: false }).waitFor({ timeout: 30000 });
-  const revision = (await delivery.innerText()).match(/confirm_revision:\s*([0-9a-f]{40})/i)?.[1];
-  if (!revision) fail('promotion revision was not shown as text');
+  const promotePhaseText = await delivery.innerText();
+  if (/confirm_revision:/.test(promotePhaseText)) {
+    fail('delivery card rendered the promotion revision as text');
+  }
+  // The promote input must already hold the revision from
+  // `next.confirm_revision`.
+  const promoteAction = card('promote');
+  await promoteAction.getByRole('heading').waitFor({ timeout: 30000 });
+  const expectedRevision = await page.evaluate(async (pid) => {
+    const base = (window.FORGE_API_BASE || '').replace(/\/$/, '');
+    const res = await fetch(`${base}/v1/admin/projects/${encodeURIComponent(pid)}/delivery/status`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`delivery status ${res.status}`);
+    const data = await res.json();
+    return data?.next?.confirm_revision ?? null;
+  }, projectId).catch((err) => fail(`could not read staged revision from status: ${err.message}`));
+  if (!expectedRevision) {
+    fail('delivery status did not carry a staged confirm_revision');
+  }
+  const promoteValue = await promoteAction.getByLabel(/confirm_revision \(required\)/i).inputValue();
+  if (promoteValue !== String(expectedRevision)) {
+    fail('promote confirmation was not pre-filled from status');
+  }
+  note('promote confirmation pre-filled from status');
 
-  await previewAndRun('promote', async (action) => {
-    await action.getByLabel(/confirm_revision \(required\)/i).fill(revision);
-  });
+  await previewAndRun('promote');
   await delivery.getByText('Phase: healthy', { exact: false }).waitFor({ timeout: 30000 });
 
   // The final mutation is keyboard-driven: fill the two typed fields, focus

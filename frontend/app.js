@@ -115,6 +115,30 @@
     }
   }
 
+  const PROFILE_WORDS = {
+    "rust-web": "Rust web", "nextjs-web": "Next.js web",
+    "react-web": "React web", "aspnet-web": "ASP.NET web",
+    "flutter-app": "Flutter app", "python-service": "Python service",
+  };
+
+  function profileWords(profile) {
+    return PROFILE_WORDS[profile] || profile || "Unknown type";
+  }
+
+  // One plain status line per project: health first, then anything that
+  // needs attention. No codes, no hashes, no source labels.
+  function projectStatusLine(project) {
+    if (project.conflict) return "Needs attention: another entry uses this name";
+    const publish = project.publish || {};
+    if (publish.health === false || publish.status === "failed") {
+      return "Publishing needs attention";
+    }
+    if (project.freshness === "stale") return "Showing saved data (source is stale)";
+    if (project.state === "done") return "Up to date";
+    if (project.state && project.state !== "—") return project.state;
+    return "No recent activity";
+  }
+
   function renderProjects(projects) {
     const body = document.getElementById("project-rows");
     const query = document.getElementById("project-search").value.trim().toLowerCase();
@@ -131,66 +155,57 @@
 
       const identity = document.createElement("td");
       const name = document.createElement("div"); name.className = "project-name";
-      const avatar = document.createElement("span"); avatar.className = "project-avatar"; avatar.setAttribute("aria-hidden", "true"); avatar.textContent = (project.name || "?").slice(0, 1).toUpperCase();
-      const label = document.createElement("span"); label.textContent = project.name;
+      const avatar = document.createElement("span"); avatar.className = "project-avatar"; avatar.setAttribute("aria-hidden", "true"); avatar.textContent = ((project.name || project.identity) || "?").slice(0, 1).toUpperCase();
+      const label = document.createElement("span"); label.textContent = project.name || `(${project.identity})`;
       name.append(avatar, label);
       if (project.is_self) name.append(makeBadge("This is Forge", "self"));
-      if (project.conflict) name.append(makeBadge("Identity conflict", "conflict"));
-      identity.append(name); row.append(identity);
+      if (project.conflict) name.append(makeBadge("Needs attention", "conflict"));
+      identity.append(name);
+      if (project.name && project.name !== project.identity) {
+        const ref = document.createElement("div"); ref.className = "muted"; ref.textContent = project.identity;
+        identity.append(ref);
+      }
+      row.append(identity);
 
-      const source = document.createElement("td");
-      const sourceWrap = document.createElement("div"); sourceWrap.className = "source-cell";
-      sourceWrap.append(makeBadge(SOURCE_LABELS[project.source] || project.source, SOURCE_BADGE[project.source] || "observed"));
-      if (project.freshness && project.freshness !== "fresh") sourceWrap.append(makeBadge(project.freshness, project.freshness));
-      source.append(sourceWrap); row.append(source);
-
-      row.append(textCell(project.profile));
+      const details = (project.is_self ? "Forge itself" : profileWords(project.profile))
+        + (project.management === "managed" || project.is_self ? "" : " · not managed yet");
+      row.append(textCell(details));
 
       const state = document.createElement("td");
       const stateLabel = document.createElement("span"); stateLabel.className = "state-label";
-      const dot = document.createElement("span"); dot.className = `state-dot ${project.state === "done" ? "state-observed" : ""} ${project.freshness === "stale" ? "state-stale" : ""}`; dot.setAttribute("aria-hidden", "true");
-      stateLabel.append(dot, document.createTextNode(project.state || "No activity")); state.append(stateLabel); row.append(state);
+      const dot = document.createElement("span"); dot.className = `state-dot ${project.conflict || (project.publish && (project.publish.health === false || project.publish.status === "failed")) ? "state-failed" : (project.state === "done" ? "state-observed" : "")} ${project.freshness === "stale" ? "state-stale" : ""}`; dot.setAttribute("aria-hidden", "true");
+      stateLabel.append(dot, document.createTextNode(projectStatusLine(project))); state.append(stateLabel); row.append(state);
 
-      const evidence = document.createElement("td"); const chips = document.createElement("div"); chips.className = "evidence-list";
-      if (project.evidence?.length) {
-        for (const item of project.evidence) { const chip = document.createElement("span"); chip.className = `evidence-chip evidence-${item.status}`; chip.textContent = `${item.source}: ${item.status}`; chips.append(chip); }
+      const action = document.createElement("td");
+      if (project.management === "managed" || project.is_self) {
+        const open = el("button", "button button-quiet", "Open");
+        open.type = "button";
+        open.setAttribute("aria-label", `Open ${project.name} in the workbench`);
+        open.addEventListener("click", () => openInWorkbench(project.identity));
+        action.append(open);
+      } else if (!project.conflict) {
+        const link = document.createElement("a");
+        link.href = "#management";
+        link.textContent = "Manage";
+        link.setAttribute("aria-label", `Manage ${project.name}: onboard it from the workspace panel`);
+        action.append(link);
+      } else {
+        action.append(textCell("—"));
       }
-      // The most recent local publish operation, when the journal knows one.
-      // Rendered as its own chip; revision/target/stages/detail stay in the
-      // tooltip so the cell lines stay short.
-      if (project.publish) {
-        const state = project.publish.state || "unknown";
-        const health = project.publish.healthy === true ? "healthy" : project.publish.healthy === false ? "unhealthy" : "";
-        const chip = document.createElement("span");
-        chip.className = `evidence-chip evidence-publish-${state}`;
-        chip.textContent = health ? `Mac publish: ${state} (${health})` : `Mac publish: ${state}`;
-        const meta = [];
-        if (project.publish.target) meta.push(`run ${project.publish.target}`);
-        if (project.publish.revision) meta.push(`rev ${String(project.publish.revision).slice(0, 12)}`);
-        if (project.publish.stages != null) meta.push(`${project.publish.stages} stages`);
-        if (project.publish.detail) meta.push(project.publish.detail);
-        if (meta.length) chip.title = meta.join(" · ");
-        chips.append(chip);
-      }
-      if (!chips.childElementCount) { const chip = document.createElement("span"); chip.className = "evidence-chip"; chip.textContent = "No evidence"; chips.append(chip); }
-      evidence.append(chips); row.append(evidence);
-
-      row.append(textCell(project.lifecycle || "Unclassified"));
-
-      const access = document.createElement("td");
-      const accessWrap = document.createElement("div"); accessWrap.className = "access-cell";
-      accessWrap.append(makeBadge(project.management === "managed" ? "Managed" : project.management === "self" ? "Self" : "Observed", `mgmt-${project.management}`));
-      // Capabilities are shown honestly as labels only: this change exposes no
-      // project mutation endpoint, so no operation is rendered as an action.
-      for (const capability of project.capabilities || []) accessWrap.append(makeBadge(capability, "capability"));
-      if (!(project.capabilities && project.capabilities.length)) accessWrap.append(makeBadge("Read-only", "readonly"));
-      access.append(accessWrap); row.append(access);
+      row.append(action);
 
       body.append(row);
     }
     document.getElementById("no-results").hidden = projects.length === 0 || filtered.length > 0;
     document.querySelector(".table-scroll").hidden = filtered.length === 0;
     document.getElementById("project-count").textContent = `${filtered.length} of ${projects.length} project${projects.length === 1 ? "" : "s"}`;
+  }
+
+  function openInWorkbench(identity) {
+    const select = document.getElementById("workbench-project");
+    select.value = identity;
+    loadWorkbenchDetail(identity);
+    document.getElementById("workbench").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function renderCommands(commands) {
@@ -301,7 +316,7 @@
   // success and never as an executable control.
   const HEALTH_LABELS = { healthy: "Healthy", stale: "Stale", issues: "Has issues", unavailable: "Unavailable" };
   const HEALTH_BADGE = { healthy: "state-done", stale: "state-stale", issues: "state-failed", unavailable: "state-observed" };
-  const workbench = { id: null, digest: null, idempotencyKey: null };
+  const workbench = { id: null, digest: null, idempotencyKey: null, delivery: null };
   // The catalog rows fetched once by `loadCommands`; the workbench renders a
   // runnable confirm-gated control for every row that carries an `execution`
   // block, so the inventory itself — not a hard-wired widget — is actionable.
@@ -427,9 +442,7 @@
 
   function deliveryVerbSummary(name, verb) {
     if (!verb || verb.op_id === undefined || verb.op_id === null) return `${name}: not yet recorded`;
-    const state = verb.state || "unknown";
-    const revision = verb.revision ? `, revision ${verb.revision.slice(0, 12)}` : "";
-    return `${name}: operation ${verb.op_id}, ${state}${revision}`;
+    return `${name}: ${verb.state === "done" ? "done" : (verb.state || "needs attention")}`;
   }
 
   function renderProjectDelivery(report, next) {
@@ -460,25 +473,12 @@
     const hermora = report.hermora || {};
     const hermoraItem = el("li", null, hermora.op_id === undefined || hermora.op_id === null
       ? "Hermora: not yet recorded"
-      : `Hermora: operation ${hermora.op_id}, ${hermora.state || "unknown"}`);
+      : `Hermora: ${hermora.state === "done" ? "done" : (hermora.state || "needs attention")}`);
     verbs.append(hermoraItem);
     box.append(verbs);
     if (next && next.action) {
       const action = el("p", "muted", `Next: ${DELIVERY_ACTION_LABELS[next.action] || next.action}. ${(next.guidance || "Use the matching control below.")}`);
       box.append(action);
-      const confirmations = [];
-      if (next.confirm_operation_id !== undefined && next.confirm_operation_id !== null) {
-        confirmations.push(`confirm_operation_id: ${next.confirm_operation_id}`);
-      }
-      if (next.confirm_revision) {
-        confirmations.push(`confirm_revision: ${next.confirm_revision}`);
-      }
-      if (Array.isArray(next.requires) && next.requires.length) {
-        confirmations.push(`Needs: ${next.requires.join(", ")}.`);
-      }
-      if (confirmations.length) {
-        box.append(el("p", "muted", confirmations.join(" ")));
-      }
       if (next.blocked) {
         const blocked = el("p", "muted", "This step is blocked until the failed staged evidence is resolved.");
         box.append(blocked);
@@ -486,12 +486,21 @@
     }
   }
 
+  // The latest delivery status for the open project, kept so action
+  // controls can pre-fill their confirmations — the operator never
+  // hand-copies operation numbers or revisions.
   async function loadProjectDelivery(id) {
     const box = document.getElementById("wb-delivery");
     if (box) box.replaceChildren(el("p", "muted", "Loading delivery status…"));
+    workbench.delivery = null;
     try {
       const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/delivery/status`, { headers: { Accept: "application/json" } });
+      workbench.delivery = data.next || null;
       renderProjectDelivery(data.delivery_status, data.next);
+      // Re-render action controls so staged confirmations arrive pre-filled.
+      // This runs only on project open and after a completed action, when no
+      // preview is in progress.
+      renderProjectActions();
     } catch (err) {
       if (box) box.replaceChildren(el("p", "muted", (err && err.message) ? err.message : "Delivery status is unavailable right now."));
     }
@@ -609,9 +618,9 @@
     } else {
       const none = document.createElement("p"); none.className = "muted"; none.textContent = "Nothing to upgrade — the project is already at the pinned versions."; box.append(none);
     }
-    const digest = document.createElement("p"); digest.className = "wb-digest";
-    digest.textContent = `Plan digest: ${result.plan_digest}`;
-    box.append(digest);
+    const digestNote = document.createElement("p"); digestNote.className = "muted";
+    digestNote.textContent = "The exact plan is held for confirmation — nothing is written until you apply it.";
+    box.append(digestNote);
     workbench.digest = result.plan_digest;
     document.getElementById("wb-apply").disabled = false;
     document.getElementById("wb-confirm-wrap").hidden = false;
@@ -629,7 +638,7 @@
     if (result.plan && result.plan_digest) {
       workbench.digest = result.plan_digest;
       const note = document.createElement("p"); note.className = "muted";
-      note.textContent = "A refreshed plan and digest are shown below. Review it and confirm again to apply.";
+      note.textContent = "A refreshed plan is shown below. Review it and confirm again to apply.";
       box.append(note);
       renderPlan(result);
     } else if (status === 409) {
@@ -642,7 +651,7 @@
     box.replaceChildren();
     box.hidden = false;
     const head = document.createElement("p"); head.className = "wb-plan-head";
-    head.textContent = `Accepted as journaled operation ${result.operation_id}. The apply ran through Forge's in-process upgrade, recorded in the journal.`;
+    head.textContent = "Done — the upgrade is recorded in the project journal.";
     box.append(head);
     const outcome = result.outcome || {};
     if (outcome.note) { const n = document.createElement("p"); n.className = "muted"; n.textContent = outcome.note; box.append(n); }
@@ -724,16 +733,22 @@
 
   // Summarize the path-free preview descriptor generically from its structured
   // fields (never a per-command template), so a newly-executable row renders
-  // correctly without bespoke wiring.
+  // correctly without bespoke wiring. Long hexadecimal values (revisions,
+  // digests-in-miniature) show as a short prefix: the exact value stays in
+  // the confirmation the digest binds, never hand-copied by the operator.
+  function shortValue(value) {
+    let text;
+    if (Array.isArray(value)) text = value.join(", ");
+    else if (value !== null && typeof value === "object") text = JSON.stringify(value);
+    else text = String(value);
+    return text.replace(/[0-9a-f]{20,}/gi, (match) => `${match.slice(0, 12)}…`);
+  }
+
   function summarizeDescriptor(descriptor) {
     const parts = [];
     for (const key of Object.keys(descriptor || {})) {
       if (key === "action" || key === "project_id") continue;
-      const value = descriptor[key];
-      const text = Array.isArray(value)
-        ? value.join(", ")
-        : (value !== null && typeof value === "object" ? JSON.stringify(value) : String(value));
-      parts.push(`${key}: ${text}`);
+      parts.push(`${key}: ${shortValue(descriptor[key])}`);
     }
     const action = descriptor && descriptor.action ? descriptor.action : "action";
     return `${action} — ${parts.join("; ") || "no parameters"}`;
@@ -891,7 +906,7 @@
       row.append(idCell);
       row.append(textCell(candidate.action || "—"));
       const signal = candidate.profile
-        ? `${candidate.profile} (${candidate.confidence || "unknown"})`
+        ? `${profileWords(candidate.profile)} (${candidate.confidence || "unknown"})`
         : (candidate.manifest ? "manifest" : "—");
       row.append(textCell(signal));
       const state = candidate.reason
@@ -962,16 +977,50 @@
       for (const plan of body.preview || []) {
         const line = plan.blocked
           ? `${plan.directory}: BLOCKED — ${plan.blocked}`
-          : `${plan.directory}: ${plan.action} as ${plan.id} (${plan.profile})`;
+          : `${plan.directory}: ${plan.action} as ${plan.id} (${profileWords(plan.profile)})`;
         list.append(el("li", null, line));
       }
-      box.append(el("p", "wb-digest", `Batch ${index + 1} digest: ${body.plan_digest}`));
+      // The batch digest stays in memory for the confirmed run; it is
+      // never shown because operators confirm the listed items, not hashes.
       digests.push({ items: chunk, digest: body.plan_digest });
     }
     ws.digests = digests;
     ws.payload = { chunks: digests.map((d) => d.items) };
     document.getElementById("ws-confirm-wrap").hidden = false;
     document.getElementById("ws-run").disabled = false;
+  }
+
+  // Re-read the fleet after a successful onboard and re-render rows plus
+  // counts in place. The onboarding results panel stays visible; a failed
+  // refresh keeps the manual Reload control as the fallback path.
+  async function wsReloadFleet() {
+    let data;
+    try {
+      data = await request("/v1/admin/projects", { headers: { Accept: "application/json" } });
+    } catch (_) {
+      return false;
+    }
+    const projects = data.projects || [];
+    window.__forgeProjects = projects;
+    renderSources(data.sources || []);
+    document.getElementById("summary-total").textContent = String(data.summary?.registered ?? 0);
+    document.getElementById("summary-profiles").textContent = String(data.summary?.profiles ?? new Set(projects.map((project) => project.profile)).size);
+    document.getElementById("summary-evidence").textContent = String(data.summary?.with_evidence ?? 0);
+    document.getElementById("updated-label").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    renderProjects(projects);
+    const select = document.getElementById("workbench-project");
+    if (select) {
+      const current = select.value;
+      select.replaceChildren();
+      const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "Choose a managed project…"; select.append(placeholder);
+      for (const project of managedProjects(projects)) {
+        const option = document.createElement("option"); option.value = project.identity; option.textContent = project.name || project.identity; select.append(option);
+      }
+      if (current) select.value = current;
+    }
+    populateDeliveryProjects(projects);
+    loadFleetReadiness();
+    return true;
   }
 
   async function wsRun() {
@@ -1012,7 +1061,12 @@
     document.getElementById("ws-confirm").checked = false;
     document.getElementById("ws-confirm-wrap").hidden = true;
     document.getElementById("ws-reload").hidden = false;
+    // Refresh the workspace table, then the fleet in place — results stay
+    // visible either way and Reload remains the manual fallback.
     await wsDiscover();
+    if (!(await wsReloadFleet())) {
+      box.append(el("p", "muted", "The project list could not refresh itself — use Reload project list."));
+    }
   }
 
   function initWorkspaceOnboarding() {
@@ -1034,8 +1088,14 @@
 
     // One typed control per declared parameter (a closed scalar kind maps to a
     // matching input); there is deliberately no free-text command/path/argv.
+    // Staged delivery confirmations arrive pre-filled from the project's
+    // delivery status, so the operator reviews values instead of copying
+    // operation numbers or revisions by hand.
     const inputs = [];
     const tools = el("div", "wb-plan-tools");
+    const prefill = (workbench.delivery && typeof workbench.delivery === "object")
+      ? workbench.delivery
+      : {};
     for (const param of execution.parameters || []) {
       const label = el("label", "search-box");
       label.append(el("span", "sr-only", `${param.name}${param.required ? " (required)" : " (optional)"}`));
@@ -1045,6 +1105,10 @@
       } else {
         field = el("input"); field.type = "text"; field.autocomplete = "off";
         field.placeholder = param.kind === "string_array" ? `${param.name}, comma-separated` : param.name;
+        const known = prefill[param.name];
+        if ((typeof known === "string" && known) || typeof known === "number") {
+          field.value = String(known);
+        }
       }
       label.append(field);
       tools.append(label);
@@ -1094,7 +1158,8 @@
       result.replaceChildren(); result.hidden = false;
       result.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to run this exact action."));
       result.append(el("p", "wb-plan-steps", summarizeDescriptor(body.preview)));
-      result.append(el("p", "wb-digest", `Action digest: ${body.plan_digest}`));
+      // The digest stays in memory for the confirmed run; operators review
+      // the listed action, never the hash.
       state.digest = body.plan_digest;
       confirmWrap.hidden = false;
       runBtn.disabled = false;
@@ -1108,9 +1173,7 @@
       else if (status === 409) runBtn.disabled = true;
     };
     const showSuccess = (body) => {
-      const message = body && body.operation_id
-        ? `Accepted as journaled operation ${body.operation_id}. The action ran through Forge's in-process Core handler.`
-        : "The action ran through Forge's in-process Core handler.";
+      const message = "Done — recorded in the project journal.";
       // Drop the reviewed digest and confirmation controls so the action cannot
       // be blindly re-armed, then refresh the workbench to show the new state.
       state.digest = null; state.payload = null; state.idempotencyKey = null;
@@ -1120,8 +1183,14 @@
         result.append(el("p", "wb-plan-head", message));
       };
       if (scope.onSuccess) { scope.onSuccess(); show(); return; }
-      if (workbench.id) loadWorkbenchDetail(workbench.id).then(show).catch(show);
-      else show();
+      if (workbench.id) {
+        loadWorkbenchDetail(workbench.id)
+          .then(() => loadProjectDelivery(workbench.id))
+          .then(show)
+          .catch(show);
+        return;
+      }
+      show();
     };
 
     previewBtn.addEventListener("click", async () => {
@@ -1451,7 +1520,7 @@
       delivery.digest = result.preview.manifest_sha256;
       const refreshed = document.createElement("p");
       refreshed.className = "muted";
-      refreshed.textContent = `Refreshed preview digest: ${delivery.digest}. Review it and confirm again to proceed.`;
+      refreshed.textContent = "A fresh preview is ready below — review it and confirm again to proceed.";
       box.append(refreshed);
     }
     if (result.approval) {
@@ -1473,7 +1542,7 @@
     delivery.digest = preview.manifest_sha256;
     list.append(
       detailRow("Manifest revision", preview.manifest_revision),
-      detailRow("Preview digest", preview.manifest_sha256),
+      detailRow("Preview reference", shortDigest(preview.manifest_sha256)),
       detailRow("Candidate projects", preview.project_count),
       detailRow("Approvable", preview.approvable ? "Yes" : "No"),
     );
@@ -1546,7 +1615,7 @@
     }
     list.append(
       detailRow("Approval revision", approval.revision),
-      detailRow("Approved digest", approval.manifest_sha256),
+      detailRow("Approved reference", shortDigest(approval.manifest_sha256)),
       detailRow("Project count", approval.project_count),
       detailRow("State", deliveryLabel(approval.state)),
       detailRow("Actor", approval.actor),
@@ -1575,6 +1644,14 @@
     if (!attempt) { banner.hidden = true; banner.textContent = ""; return; }
     banner.textContent = `Unreconciled publication: operation ${attempt.operation_key || "—"} (id ${attempt.publication_id ?? "—"}, digest ${shortDigest(attempt.manifest_sha256)}). Forge cannot vouch for this dispatch — reconcile it before publishing a new revision.`;
     banner.hidden = false;
+    // Pre-fill the reconcile reference from status data so the operator
+    // reviews it instead of hand-copying a hash.
+    if (attempt.manifest_sha256) {
+      document.getElementById("delivery-reconcile-digest").value = attempt.manifest_sha256;
+    }
+    if (attempt.publication_id !== undefined && attempt.publication_id !== null) {
+      document.getElementById("delivery-reconcile-id").value = String(attempt.publication_id);
+    }
   }
 
   function populateDeliveryProjects(projects) {
@@ -1700,7 +1777,7 @@
     const statusChoice = document.getElementById("delivery-reconcile-status").value;
     if (!statusChoice) { showDeliveryError("Choose the outcome you observed (published or failed)."); return; }
     const digest = document.getElementById("delivery-reconcile-digest").value.trim();
-    if (!digest) { showDeliveryError("Enter the attempt's recorded digest — reconciliation binds to the exact ambiguous publication."); return; }
+    if (!digest) { showDeliveryError("The attempt reference is missing — refresh delivery and try again."); return; }
     const confirmEl = document.getElementById("delivery-reconcile-confirm");
     if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this records the outcome as your explicit statement."); return; }
     const { status, ok, body } = await requestStatus("/v1/admin/delivery/reconcile", {
@@ -1784,6 +1861,7 @@
     try {
       const data = await request("/v1/admin/projects", { headers: { Accept: "application/json" } });
       projects = data.projects || [];
+      window.__forgeProjects = projects;
       renderSources(data.sources || []);
       document.getElementById("summary-total").textContent = String(data.summary?.registered ?? 0);
       document.getElementById("summary-profiles").textContent = String(data.summary?.profiles ?? new Set(projects.map((project) => project.profile)).size);
@@ -1803,7 +1881,7 @@
       initDelivery(projects);
       initWorkspaceOnboarding();
       wsDiscover();
-      const refresh = () => renderProjects(projects);
+      const refresh = () => renderProjects(window.__forgeProjects || projects);
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }

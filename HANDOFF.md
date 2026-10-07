@@ -2,6 +2,53 @@
 
 ## Current state
 
+### forge-web-project-status delivered and archived (2026-10-07)
+
+`forge-web-project-status` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-status`. It adds a new
+canonical `forge-web-project-status` spec (4 requirements) and updates the
+`forge-web-command-catalog` spec. The session-gated admin surface can now
+answer the operator's "find the project status" ask read-only: a per-project
+status projection and a fleet-wide readiness summary.
+
+- `src/api/status.rs` (new): `GET /v1/admin/projects/{id}/status` and
+  `GET /v1/admin/status` under the existing session cookie + exact-origin CORS
+  + JSON-only gate. The registry is opened strictly read-only
+  (`Registry::open_read_only`); the project root is resolved server-side by the
+  workbench's validated-id `resolve`, never from a browser path. Sub-checks
+  reuse the in-process planes only — `run_doctor` (adapter `policy_outcome` is
+  `None`; the DriftWatch adapter is never invoked), `governance::inspect` +
+  `checker::build_document`, and `Manifest::load_from_dir` + `inspect_profile`
+  (the native readiness matrix is never invoked). States are
+  `healthy`/`issues`/`stale`/`unavailable` reduced
+  `issues > unavailable > stale > healthy`; the fleet path counts every
+  registered project and bounds the detail list at 200 with `truncated: true`.
+- `src/api/mod.rs` / `src/api/admin.rs`: two `Route` variants, router arms,
+  permission/short-circuit/unreachable match lists, and the two `guarded`
+  handle arms. `src/api/workbench.rs`: `resolve`/`Resolved`/`redact_local_paths`
+  widened to `pub(super)` (visibility only).
+- `src/api/command_catalog.rs`: both routes join `IMPLEMENTED_WEB_ROUTES`;
+  `check` moves `cli_only` → `web` at the project-status route and
+  `fleet.status` repoints to the fleet route (row count stays 227;
+  `readiness.*` stay `cli_only`). `tests/forge_web_command_catalog_contract.rs`
+  allowlist and `web_ids` extended.
+- `frontend/app.js` + `frontend/index.html`: a workbench "Project status" card
+  (`#wb-status`) and a dashboard fleet-readiness tile
+  (`#fleet-readiness`/`#fleet-*` counts), `textContent` only, no new sink.
+
+New `tests/forge_web_project_status_contract.rs` (10 tests) drives the real
+`handle()` against a throwaway registry and covers all ten design §7 scenarios
+(anonymous 401 both routes; hostile origin 403; hostile/path-bearing ids
+refused with no echo; unmanaged 404; a healthy rust-web project all-`healthy`
+with a real git origin; a missing build definition `issues`; a removed root
+`unavailable` with path-free reasons; fleet counts summing to total; read-only
+proof via unchanged manifest bytes + journal length; catalog + frontend
+surface). Pass counts: status 10, command-catalog 8, workbench 17, management
+4, admin-api 9, portal-frontend 5, portal-ui 11, catalog 39, `--lib api::` 47,
+`--bin forge` 7. `cargo fmt --check`,
+`node scripts/check-openspec-change-names.mjs` and
+`openspec validate --all --strict --no-interactive` (74 specs) are clean.
+
 ### forge-web-project-management delivered and archived (2026-10-07)
 
 `forge-web-project-management` is implemented, verified and archived as

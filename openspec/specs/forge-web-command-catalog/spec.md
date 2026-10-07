@@ -25,9 +25,10 @@ step. When a command's Forge Core operation already has an implemented,
 session-gated admin route, Forge SHALL report that command as `web` pointing at
 the real route rather than as `cli_only` or `not-yet-web`, so the catalog's
 disposition agrees with what a signed-in operator can actually run in the
-browser. `feature add`, `feature remove`, `feature upgrade`, `spec generate` and
-`spec apply` SHALL be reported as `web` with their admin routes; commands with no
-implemented route SHALL keep their honest disposition.
+browser. `feature add`, `feature remove`, `feature upgrade`, `spec generate`,
+`spec apply` and `deploy apply` SHALL be reported as `web` with their admin
+routes, and `deploy plan` SHALL be reported as `web` with its read-only admin
+route; commands with no implemented route SHALL keep their honest disposition.
 
 Every executable `web` row SHALL additionally carry a structured `execution`
 block naming the exact admin `route`, HTTP `method`, the ordered typed
@@ -62,6 +63,11 @@ point at a route that does not exist.
 
 - **WHEN** a signed-in operator fetches the command catalog
 - **THEN** every executable lifecycle row carries a structured `execution` block (route, method, typed parameters, `confirm_required`, `digest_bound`, risk) that names only a known implemented web route, and every non-`web` row carries no `execution` block
+
+#### Scenario: Deploy command has an admin route
+
+- **WHEN** `deploy plan` and `deploy apply` are exposed through the implemented session-gated admin deploy routes
+- **THEN** the catalog reports `deploy plan` `web` with its read-only route and `deploy apply` `web` with a `remote_write` `execution` block, and neither keeps a CLI-only or project-capability next step
 
 ### Requirement: Catalog authorization and invocation isolation
 

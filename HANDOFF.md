@@ -1,8 +1,114 @@
 # Forge handoff
 
-current_spec: forge-web-project-deployment
-
 ## Current state
+
+### forge-web-project-deployment delivered and archived (2026-10-07)
+
+`forge-web-project-deployment` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-deployment`, creating
+the `forge-web-project-deployment` spec (three requirements) and modifying
+one `forge-web-command-catalog` requirement and one
+`forge-web-command-execution` requirement. The project's deploy workflow now
+runs end to end through the same session-gated, exact-origin, JSON-only
+`/v1/admin` boundary the lifecycle actions use: a read-only
+`GET /v1/admin/projects/{id}/deploy/plan` and the confirm-then-digest
+`POST /v1/admin/projects/{id}/deploy`. Both routes delegate to the in-process
+`deploy::engine::{prepare_deploy, apply_deploy}` the CLI runs — no
+subprocess, no provider, no PTY surface crosses into the browser; the
+adapter step is read off stdout via `FORGE_DEPLOYER_BIN` exactly as the
+existing CLI flow does it. The proposal's two follow-on packages
+(`forge-web-project-release`, `forge-web-project-publish`) were explicitly
+deferred by the proposal and remain unparked.
+
+The implementation reuses the engine unchanged and stays within the
+established patterns:
+
+- `src/api/admin.rs`: three new helpers — `deploy_id_gate`, `deploy_plan`,
+  `deploy_write` — share the same `guarded`/`is_json`/digest
+  `/run_with_operation` shape as `authoring_write`; new `plan_view` /
+  `report_view` projections, a `typed_deploy_error` mapper, and `scrub_json`
+  + `redact_local_paths` so an absolute project path or the adapter binary
+  can never leave the boundary. `redact_local_paths` exempts self-authored
+  `/v1/...` route tokens (no real filesystem path begins with `/v1/`) and
+  recurses over every projected string.
+- `src/api/mod.rs`: `Route::AdminProjectDeployPlan` and
+  `Route::AdminProjectDeploy` arms share the global-session cookie gate,
+  exact-origin CORS, the `415` non-JSON gate and the route-permission
+  /authorize/handle groups with the existing `/v1/admin/projects/{id}/*`
+  family.
+- `src/api/command_catalog.rs`: two new consts
+  (`WEB_ROUTE_ADMIN_DEPLOY_PLAN`, `WEB_ROUTE_ADMIN_DEPLOY`) plus
+  `IMPLEMENTED_WEB_ROUTES` entries; `deploy.plan` recatalogued as a `web`
+  read pointing at the plan route; `deploy.apply` recatalogued as a
+  `web_exec` row (POST, `confirm_required: true`, `digest_bound: true`,
+  `risk: remote_write`, parameter `target: string` optional). The pinned
+  `executable_ids` set moves 5 → 6, the catalog count stays at 227, and
+  the strict allowlist + `web_ids` set in
+  `tests/forge_web_command_catalog_contract.rs` is updated to include the
+  two new routes and their web ids.
+- `frontend/app.js`: untouched. The shipped `buildActionControl` already
+  renders any `execution` block generically; the deploy row joins the same
+  preview → confirm → typed result control as the lifecycle actions.
+
+New `tests/forge_web_project_deployment_contract.rs` (8 tests) drives the
+real `handle()` over the same in-process registry and admin cookie the
+other admin tests use. The two stub deployers are inlined as
+`ADAPTER_OK_BODY` / `ADAPTER_FAIL_BODY` shell scripts (no
+`tests/fixtures/` file), so the test is hermetic and self-contained:
+
+| Scenario | Asserts |
+|---|---|
+| `catalog_reports_deploy_plan_and_apply_as_web_with_an_execution_block` | both rows are `web`; plan row has no `execution`; apply row has route/method/parameters/confirm/digest/risk; `executable_ids` set contains `deploy.apply` |
+| `anonymous_and_non_json_are_refused_before_any_core_call` | anonymous plan → 401; non-JSON body → 415; no `.forge` / registry write before any Core call |
+| `hostile_id_is_refused_and_unmanaged_id_is_not_found` | `..%2F..%2Fetc` id → 400 typed `admin-invalid-project-id` with no echo; unmanaged id → 404; no path/token leakage in body |
+| `plan_route_reads_no_write_and_returns_a_path_free_preview` | GET plan → 200; 64-hex `plan_digest`; on-disk `.forge` and registry journal byte-unchanged; response contains no absolute path or adapter binary |
+| `apply_preview_writes_nothing_and_wrong_digest_is_refused` | no-`confirm` → 200 with fresh digest and zero registry/journal writes; mismatched digest → 409 `admin-digest-mismatch` + refreshed digest, still no write |
+| `confirmed_apply_with_stub_deployer_reaches_the_core_handler` | confirmed + matching digest → 202 path-free report; `apply` stage `delivered`; project path and adapter binary never serialized |
+| `empty_target_resolves_to_the_manifest_default` | omitted `target` resolves to the manifest's `default: home` and the plan reflects it |
+| `adapter_failure_is_reported_honestly_never_as_success` | a stub returning `apply_status: failed` still returns 202 (the route always succeeds at the HTTP level for a confirmed matching digest) but the report's `healthy: false` + `apply` stage `failed` + journal entry is observable; the failure is never papered over as success |
+
+Honest scope: the headless-Chromium browser drive for the deploy row
+specifically is left **UNVERIFIED** — the row joins the same
+`buildActionControl` render path exercised by the prior
+`forge-web-project-actions` Playwright drive, so a fresh drive would
+re-cover the same control. The HTTP/JSON contract the browser would call
+is pinned at the contract test layer.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo build` | clean (0 errors; 2 pre-existing warnings, none added) |
+| `cargo fmt --check` | clean |
+| `cargo test --test forge_web_project_deployment_contract` | **8 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` / `forge_web_command_execution_contract` / `forge_web_project_actions_contract` / `forge_web_project_workbench_contract` / `forge_admin_api_contract` / `forge_web_fleet_contract` / `forge_web_portfolio_controls_contract` / `forge_web_delivery_controls_contract` / `forge_portal_frontend_contract` | **8 / 5 / 6 / 11 / 4 / 11 / 11 / 10 / 5 passed, 0 failed** (catalog allowlist + `web_ids` set updated) |
+| `cargo test --test portal_ui_contract` / `identity_contract` / `deploy_contract` / `deploy_cross_surface` | **39 / 19 / 17 / 5 passed, 0 failed** |
+| `cargo test --bin forge` | **7 passed / 0 failed** (catalog integrity/coverage/`executable_ids`/route-allowlist) |
+| `node scripts/check-openspec-change-names.mjs` | PASS (before and after archive) |
+| `openspec validate --all --strict --no-interactive` | **72 passed / 0 failed** (before and after archive) |
+| `git diff --check` | PASS |
+| `openspec archive forge-web-project-deployment --yes` | **21/22 tasks**, warning for the 1 UNVERIFIED browser drive honored via `--yes`; `forge-web-project-deployment: create` (3 added) and `forge-web-command-catalog: modify` (1) + `forge-web-command-execution: modify` (1); **no `--skip-specs`**; archived as `2026-10-07-forge-web-project-deployment`; `openspec list` subsequently reports **no active changes** |
+
+Post-archive test-stability fix: re-running the new contract test target
+post-archive exposed a 1-in-5 race on `FORGE_DEPLOYER_BIN` between
+`confirmed_apply_with_stub_deployer_reaches_the_core_handler` (which sets
+the OK adapter) and `adapter_failure_is_reported_honestly_never_as_success`
+(which sets the FAIL adapter) when they ran in parallel. The
+`handle_with_adapter` helper already cleared the env var on entry and
+restored it on exit, but two helpers in two threads can still see each
+other's set/restore inside the read. The repo's established
+`SERIAL: Mutex<()>` pattern (`forge_web_fleet_contract.rs`,
+`studio_preview_contract.rs`) is now applied here — every test in the
+binary takes the lock for its full body, so the two `handle_with_adapter`
+tests are now serialized and the env-var read is deterministic. **10/10
+re-runs clean** after the fix; the contract and the test bodies are
+unchanged, only the test-harness synchronization is added.
+
+**Program completion:** with this change archived, `openspec list` reports
+no active changes and the web command-center program — global admin
+portal, project fleet, command catalog, project workbench, project
+actions, portfolio controls, delivery controls and project deployment —
+is complete.
 
 ### forge-web-project-actions delivered and archived (2026-10-07)
 

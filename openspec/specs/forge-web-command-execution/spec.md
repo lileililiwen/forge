@@ -59,13 +59,16 @@ result.
 Forge SHALL report a command as `web` with its real admin route if and only if
 that route is implemented and listed among the known web routes; a command with
 no implemented route SHALL keep its `cli_only`, `not_yet_web`, disabled, project
-capability, or provider disposition. Publish and deploy SHALL remain behind the
-existing delivery confirm and digest controls, and `doctor`, `inspect` and
-`upgrade` SHALL remain served by the existing workbench routes.
+capability, or provider disposition. `deploy apply` and `deploy plan` SHALL be
+served by the admin deploy routes under the same confirm and digest discipline
+as the authoring commands, delegating to the in-process deploy engine; publish
+SHALL remain behind the existing delivery confirm and digest controls, and
+`doctor`, `inspect` and `upgrade` SHALL remain served by the existing workbench
+routes.
 
 #### Scenario: Handler-backed command becomes runnable
 
-- **WHEN** `feature add` or `spec generate` gains its implemented admin route
+- **WHEN** `feature add`, `spec generate`, or the `deploy plan` / `deploy apply` commands gain their implemented admin route
 - **THEN** the catalog reports that command `web` with that route and omits the CLI-only next step
 
 #### Scenario: Command still has no route

@@ -22,11 +22,26 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 
 use chrono::Utc;
 use forge::api::{command_catalog, handle, ApiConfig, ApiRequest};
 use forge::registry::Registry;
 use tempfile::tempdir;
+
+/// `FORGE_DEPLOYER_BIN` is a process-global setting read by the engine
+/// inside the apply route, so every test in this binary serializes on one
+/// lock to keep parallel tests from racing each other's adapter.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+/// Lock the serialization guard, tolerating a poisoned lock so a prior
+/// panic does not cascade into unrelated failures.
+fn lock() -> std::sync::MutexGuard<'static, ()> {
+    match SERIAL.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 fn request(method: &str, path: &str, origin: &str) -> ApiRequest {
     ApiRequest {
@@ -183,6 +198,7 @@ fn handle_with_adapter(
 
 #[test]
 fn anonymous_and_non_json_are_refused_before_any_core_call() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -253,6 +269,7 @@ fn anonymous_and_non_json_are_refused_before_any_core_call() {
 
 #[test]
 fn plan_route_reads_no_write_and_returns_a_path_free_preview() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -299,6 +316,7 @@ fn plan_route_reads_no_write_and_returns_a_path_free_preview() {
 
 #[test]
 fn apply_preview_writes_nothing_and_wrong_digest_is_refused() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -374,6 +392,7 @@ fn apply_preview_writes_nothing_and_wrong_digest_is_refused() {
 
 #[test]
 fn confirmed_apply_with_stub_deployer_reaches_the_core_handler() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -466,6 +485,7 @@ fn confirmed_apply_with_stub_deployer_reaches_the_core_handler() {
 
 #[test]
 fn adapter_failure_is_reported_honestly_never_as_success() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -529,6 +549,7 @@ fn adapter_failure_is_reported_honestly_never_as_success() {
 
 #[test]
 fn hostile_id_is_refused_and_unmanaged_id_is_not_found() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -584,6 +605,7 @@ fn hostile_id_is_refused_and_unmanaged_id_is_not_found() {
 
 #[test]
 fn empty_target_resolves_to_the_manifest_default() {
+    let _guard = lock();
     let dir = tempdir().unwrap();
     let db = dir.path().join("registry.db");
     let config = ApiConfig::default();
@@ -615,6 +637,7 @@ fn empty_target_resolves_to_the_manifest_default() {
 
 #[test]
 fn catalog_reports_deploy_plan_and_apply_as_web_with_an_execution_block() {
+    let _guard = lock();
     let rows = command_catalog::rows();
     let plan = rows
         .iter()

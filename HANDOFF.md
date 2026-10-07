@@ -2,6 +2,93 @@
 
 ## Current state
 
+### forge-web-project-delivery delivered and archived (2026-10-07)
+
+`forge-web-project-delivery` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-project-delivery`, creating the
+`forge-web-project-delivery` spec (four requirements) and updating the
+`forge-web-command-catalog` and `forge-web-command-execution` specs. The
+workbench can now drive the complete evidence-gated delivery sequence through
+the session-gated, exact-origin `/v1/admin` boundary: read-only
+`GET /v1/admin/projects/{id}/delivery/status`, plus confirm-then-digest
+`POST` routes for `delivery/preflight`, `delivery/stage`,
+`delivery/promote` and `delivery/hermora-retry`. Every mutation delegates to
+the unchanged `delivery::handlers` verb used by the CLI and preserves staged
+health gating, revision binding, journaling and idempotency.
+
+The implementation preserves the established security and honesty boundaries:
+
+- `src/api/admin.rs`: five route consts, staged descriptors, registered-revision
+  resolution from a read-only registry, typed previews, confirm/digest gates,
+  Core delegation and scrubbed typed errors. The browser supplies only the
+  documented staged confirmation fields; provider, path, binary, argv, host,
+  revision source and secret values are never accepted.
+- Stage accepts a strictly parsed operation id; promotion requires an exact
+  40-hex revision; Hermora retry requires an HTTP(S) URL without embedded
+  credentials and an `env:`-prefixed environment-variable reference. Hermora
+  URL/reference values participate in the digest but are not echoed in
+  previews.
+- Missing sessions, non-JSON mutations, hostile/unmanaged ids, missing
+  providers, failed providers, unhealthy stages and missing healthy
+  deployments are typed before or through Core, never reported as success.
+- Absolute project paths, provider paths, URL credentials and
+  credential-shaped values are scrubbed or refused without echo.
+- `src/api/mod.rs`: five route variants, router arms and all
+  session/permission/dispatch/authorize lists.
+- `src/api/command_catalog.rs`: all five delivery rows are now `web`; the four
+  mutations carry executable blocks, and all five routes join the implemented
+  route list.
+- `src/delivery/projection.rs`: narrow connected-Hermora decoding correction.
+  Connected detail contains `"reason": null`; the old `BTreeMap<String,
+  String>` decoder discarded the whole object and lost `site_id`, so the phase
+  could not become `hermora-connected`. Optional detail fields are now decoded
+  as JSON values. No orchestration, journal or adapter behavior changed.
+- `frontend/app.js` + `frontend/index.html`: a workbench delivery card shows
+  phase, revision, latest staged evidence and the next required confirmation,
+  including the operation id or full revision needed by the following control.
+  Mutations reuse generic catalog-driven controls; all rendering is text-only
+  with loading, empty, unavailable, permission, error, confirmation, success
+  and blocked states.
+
+New `tests/forge_web_project_delivery_contract.rs` (12 tests) uses a
+throwaway registry/project and hermetic OpenPanel/Hermora stubs. It covers
+anonymous/non-JSON refusal, side-effect-free status, hostile/unmanaged ids,
+missing-provider honesty, missing/stale prerequisite conflicts, malformed
+confirmation refusal, preview/mismatch behavior, failed-provider reporting,
+unhealthy-stage promotion refusal, missing-adapter behavior, the full
+draft-to-connected run with idempotent stage replay, and catalog agreement.
+
+New `tests/forge_web_project_delivery_browser.rs` plus
+`tests/browser/delivery-workbench-check.mjs` drive the shipped login and
+workbench in real Chromium: keyboard entry, project selection, draft delivery
+status, preview/confirm execution of all four verbs, final
+`hermora-connected` phase, focus behavior, delivery-card contrast and proof
+that neither the absolute fixture root nor Hermora secret reference is
+rendered.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; existing warnings only |
+| new delivery contract | **12 passed / 0 failed** |
+| new Chromium browser flow | **1 passed / 0 failed** |
+| catalog / execution / deployment / release / publish / actions / workbench | **8 / 5 / 8 / 8 / 9 / 6 / 11 passed, 0 failed** |
+| admin API / publish fleet / delivery controls / frontend / portal UI | **4 / 7 / 10 / 6 / 39 passed, 0 failed** |
+| catalog / delivery / cross-surface / publish contracts | **17 / 17 / 9 / 11 passed, 0 failed** |
+| `cargo test --lib delivery::` | **21 passed / 0 failed** |
+| `cargo test --bin forge` | **7 passed / 0 failed** |
+| `cargo test --lib api::` | **49 passed / 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **77 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive forge-web-project-delivery --yes` | archived as `2026-10-07-forge-web-project-delivery`; canonical `forge-web-project-delivery: create` (+4), catalog/execution updates; no `--skip-specs` |
+| `openspec list` | no active changes |
+
+Implementation commit: `c376744`. Nothing pushed. No `current_spec` pointer
+remains because no OpenSpec change is active.
+
 ### forge-web-project-publish delivered and archived (2026-10-07)
 
 `forge-web-project-publish` is implemented, verified and archived as

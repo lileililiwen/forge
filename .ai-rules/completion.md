@@ -8,7 +8,7 @@ Work is DONE only when all applicable stopping conditions hold:
 - Required local formatting, builds, tests and integration checks pass; generated profile support has native-tool evidence. Missing tools and unavailable providers are blockers to their verification claims.
 - The blocking **check-openspec-change-names** command `node scripts/check-openspec-change-names.mjs` passes before status/instructions selection and before strict validation/archive.
 - `openspec validate --all --strict --no-interactive` and diff/related-file review pass before archive.
-- Applicable local Gate checks have run before archive. No Gate is configured today; if configured later, FAIL or unresolved REVIEW_REQUIRED prevents completion.
+- A `forge gate` verdict is recorded before archive: PASS, or FAIL/unresolved with attribution. A failure attributable to the change blocks completion. Pre-existing failures unrelated to the change are recorded in HANDOFF with their remediation path, and the change must introduce no new failure. If the gate binary cannot run in the environment, record the exact missing prerequisite and next action instead of a pass.
 - Original BFS impact surfaces have received final regression and completeness review.
 - Task checkboxes match the evidence; incomplete or blocked outcomes are reported with exact failed command and next action.
 - Archive promotes canonical specs, related changes are committed, and HANDOFF points to the next active change or omits the pointer when none remain.

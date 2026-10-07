@@ -26,7 +26,7 @@ Every proposal uses Why, What Changes, BFS Impact Map, Capabilities and Non-goal
 1. Update task checkboxes only when their outcomes are evidenced.
 2. Run the change's actual formatting/build/test and integration checks locally. If tooling is absent, record the exact unavailable command and next action; never infer a pass.
 3. Run name preflight, `openspec validate --all --strict --no-interactive`, relevant status/instructions checks and `git diff --check`.
-4. Run the shared local Gate if configured. No Gate Runtime is currently configured; this does not waive project checks. Future Gate FAIL or unresolved REVIEW_REQUIRED blocks completion.
+4. Run the local Gate runtime before archive: rehearse with `forge gate --dry-run`, then run the full `forge gate` with a bounded timeout (for example `--timeout-secs 600`). "No shared Gate configured in CI" is never a reason to skip the local run. A Gate FAIL or unresolved REVIEW_REQUIRED attributable to the change blocks archive and completion. Pre-existing failures unrelated to the change do not block it, but must be recorded in HANDOFF with their remediation path, and the change must introduce no new failure. Record the verdict — or the exact blocking reason plus next action, never a pass — as a Gate row in the HANDOFF evidence table.
 5. Review the original requirement and impact map, then archive the verified selected change without `--skip-specs`; canonical specs must be promoted.
 6. Inspect the staged diff and commit only related implementation, tests, archive and promoted specs.
 7. Update HANDOFF with evidence and the next active eligible change from `openspec list`. Advance the existing pointer in place; remove its line when no active changes remain. Never leave an archived ID, `none` or `TBD`.

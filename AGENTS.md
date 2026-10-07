@@ -44,7 +44,7 @@
 - Build success, test success and skeleton completion are not by themselves DONE.
 - Verify all scoped requirements, scenarios, callers and failure boundaries.
 - Run applicable local checks before archive; CI is a second layer.
-- Gate runtime consumption exists (`forge gate`, `gate-runtime-evidence`); no executed gate pass is recorded for this repository and no shared completion Gate is configured.
+- Gate runtime is consumed locally before every archive: rehearse with `forge gate --dry-run`, then run the full `forge gate` with a bounded timeout and record the verdict in HANDOFF evidence. A failure attributable to the change blocks completion; pre-existing unrelated failures are recorded with their remediation path and the change must add no new failure. "No shared Gate configured in CI" never waives the local run.
 - If enabled later, Gate FAIL or unresolved REVIEW_REQUIRED blocks completion.
 - Deterministic assembly precedes AI; generated projects must work without Forge.
 - Do not replace DriftWatch, the existing PTY manager or external content/analytics.

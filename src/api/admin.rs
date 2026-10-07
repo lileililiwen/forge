@@ -1,6 +1,6 @@
 //! JSON-only Forge-wide administrator endpoints used by `frontend/`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde::Deserialize;
@@ -8,6 +8,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
+use crate::core::manifest::Manifest;
+use crate::deploy::{
+    engine, DeployAdapterConfig, DeployConfig, DeployPlan, DeployReport, DeployRequest,
+};
 use crate::identity::global;
 use crate::registry::Registry;
 
@@ -37,6 +41,19 @@ pub const ROUTE_ADMIN_FEATURE_UPGRADE: &str = "POST /v1/admin/projects/{id}/feat
 /// preview + confirm/digest-bound admin route delegating to the same
 /// `apply_routing` Core handler the CLI runs.
 pub const ROUTE_ADMIN_SPEC_APPLY: &str = "POST /v1/admin/projects/{id}/spec/apply";
+
+/// The read-only deploy plan, exposed as a session-gated admin route that
+/// renders `deploy::engine::prepare_deploy` for the server-default target. It
+/// invokes no adapter, writes nothing and returns a path-free plan view.
+/// Exported so the command catalog names the exact path the router registers.
+pub const ROUTE_ADMIN_DEPLOY_PLAN: &str = "GET /v1/admin/projects/{id}/deploy/plan";
+
+/// The `forge deploy` apply, exposed as a session-gated, preview +
+/// confirm/digest-bound admin route delegating to the same
+/// `deploy::engine::apply_deploy` the bearer `/v1` route and CLI run. The
+/// descriptor binds the project id and the server-resolved target — never a
+/// path, argv or shell. Exported so the command catalog names the exact path.
+pub const ROUTE_ADMIN_DEPLOY: &str = "POST /v1/admin/projects/{id}/deploy";
 
 #[derive(Deserialize)]
 struct LoginBody {
@@ -162,6 +179,8 @@ pub(super) fn handle(
         Route::AdminProjectSpecApply { id } => {
             authoring_write(config, db_path, request, id, Authoring::SpecApply)
         }
+        Route::AdminProjectDeployPlan { id } => deploy_plan(config, db_path, request, id),
+        Route::AdminProjectDeploy { id } => deploy_write(config, db_path, request, id),
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)
@@ -420,6 +439,391 @@ fn authoring_write(
             }
         }),
     )
+}
+
+/// Id gate shared by both deploy routes. The `{id}` segment must be a valid
+/// kebab-case identifier that resolves to a project managed by this registry,
+/// checked before any descriptor, digest, config load or Core call. A hostile,
+/// path-bearing id is a `400`, an unknown or observed-only id a `404`; neither
+/// echoes the offending input. On success the server-side project directory is
+/// returned — it is used only to locate the manifest and never serialized.
+fn deploy_id_gate(db_path: &Path, id: &str) -> Result<PathBuf, ApiResponse> {
+    if crate::core::validate_project_id(id).is_err() {
+        return Err(error(
+            400,
+            "admin-invalid-project-id",
+            "the project id is not a valid identifier; it may not contain a path.",
+        ));
+    }
+    let dir = Registry::open(db_path)
+        .ok()
+        .and_then(|registry| registry.inspect(id).ok())
+        .map(|record| PathBuf::from(record.path));
+    match dir {
+        Some(dir) => Ok(dir),
+        None => Err(error(
+            404,
+            "admin-project-unmanaged",
+            "this project is not managed by this Forge registry; register it with `forge register <path>` in a terminal first.",
+        )),
+    }
+}
+
+/// Resolve the deploy target the same way the CLI does: an empty/absent request
+/// target falls back to the manifest's `deployment.default`. Normalizing before
+/// the digest is what makes the preview and the confirmed run bind the exact
+/// same target.
+fn normalize_deploy_target(requested: Option<&str>, default: &str) -> String {
+    requested
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// `GET /v1/admin/projects/{id}/deploy/plan`. Runs the read-only
+/// `deploy::engine::prepare_deploy` against the server-default target and
+/// returns a path-free plan view. Invokes no adapter and writes nothing; every
+/// Core error is returned already scrubbed of the project directory path.
+fn deploy_plan(config: &ApiConfig, db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    cors(
+        config,
+        request,
+        guarded(db_path, request, |_| {
+            let project_dir = match deploy_id_gate(db_path, id) {
+                Ok(dir) => dir,
+                Err(response) => return response,
+            };
+            let (manifest, deploy_config) = match engine::load_config(&project_dir) {
+                Ok(value) => value,
+                Err(err) => return typed_deploy_error(&project_dir, &err),
+            };
+            match run_plan_view(
+                &project_dir,
+                &manifest,
+                &deploy_config,
+                id,
+                &deploy_config.default_target,
+            ) {
+                Ok(view) => ApiResponse::json(
+                    200,
+                    json!({
+                        "deploy_plan": view,
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                ),
+                Err(response) => response,
+            }
+        }),
+    )
+}
+
+/// One JSON-only, session-gated deploy apply. Mirrors the authoring gate: a
+/// non-JSON request is refused before the session gate; the id gate precedes any
+/// descriptor or digest; the canonical descriptor is `{ project_id, target }`
+/// with the server-resolved target, and `plan_digest` is its SHA-256 hex (the
+/// same primitive `authoring_digest` uses). Without `confirm: true` it runs the
+/// read-only plan and returns a preview plus the digest — no write, no adapter.
+/// A confirmed request with a mismatched digest is refused with `409` and a
+/// fresh preview — no write. Only a confirmed request whose digest matches
+/// delegates to `apply_deploy` under the `admin.deploy` operation journal,
+/// exactly as the CLI and the bearer `/v1` route do.
+fn deploy_write(config: &ApiConfig, db_path: &Path, request: &ApiRequest, id: &str) -> ApiResponse {
+    if !is_json(request) {
+        return cors(
+            config,
+            request,
+            error(
+                415,
+                "admin-content-type-required",
+                "deploy mutations require application/json",
+            ),
+        );
+    }
+    cors(
+        config,
+        request,
+        guarded(db_path, request, |req| {
+            let project_dir = match deploy_id_gate(db_path, id) {
+                Ok(dir) => dir,
+                Err(response) => return response,
+            };
+            // Load the manifest/config first so the empty target resolves to the
+            // server default BEFORE the digest is bound — preview and confirm
+            // then agree on the exact normalized target.
+            let (manifest, deploy_config) = match engine::load_config(&project_dir) {
+                Ok(value) => value,
+                Err(err) => return typed_deploy_error(&project_dir, &err),
+            };
+            let body = req.json_body();
+            let requested = body.get("target").and_then(Value::as_str);
+            let target = normalize_deploy_target(requested, &deploy_config.default_target);
+            let descriptor = json!({ "project_id": id, "target": target });
+            let digest = authoring_digest(&descriptor);
+            let confirm = body
+                .get("confirm")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !confirm {
+                let view = match run_plan_view(&project_dir, &manifest, &deploy_config, id, &target)
+                {
+                    Ok(view) => view,
+                    Err(response) => return response,
+                };
+                return ApiResponse::json(
+                    200,
+                    json!({
+                        "preview": view,
+                        "plan_digest": digest,
+                        "confirmation": {
+                            "requires": ["confirm", "plan_digest"],
+                            "note": "This preview deploys nothing. To run the deploy, send `confirm: true` with this exact `plan_digest`; a changed or stale digest is refused.",
+                        },
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                );
+            }
+            let supplied = body
+                .get("plan_digest")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if supplied != digest {
+                let view = match run_plan_view(&project_dir, &manifest, &deploy_config, id, &target)
+                {
+                    Ok(view) => view,
+                    Err(response) => return response,
+                };
+                return ApiResponse::json(
+                    409,
+                    json!({
+                        "error": {
+                            "code": "admin-digest-mismatch",
+                            "message": "the confirmed digest does not match this deploy's current preview; nothing was deployed. Review the refreshed preview and confirm its new digest.",
+                        },
+                        "preview": view,
+                        "plan_digest": digest,
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                );
+            }
+            // Confirmed and matching: delegate to the same `apply_deploy` the CLI
+            // runs, journaled as `admin.deploy`. The adapter binary path is only
+            // ever produced by `deploy::engine` with its own fixed argv — this
+            // route passes typed fields, never a shell, argv or browser path.
+            let deploy_request = DeployRequest {
+                project_id: id.to_string(),
+                target,
+                confirm: true,
+                dry_run: false,
+            };
+            let adapters = DeployAdapterConfig::from_env();
+            let secrets = [
+                project_dir.display().to_string(),
+                adapters.deployer_bin.clone(),
+            ];
+            match super::run_with_operation(db_path, "admin.deploy", id, req, |op_id, _registry| {
+                let report = engine::apply_deploy(
+                    &project_dir,
+                    &manifest,
+                    &deploy_config,
+                    &deploy_request,
+                    &adapters,
+                )?;
+                let view = scrub_json(report_view(&report), &secrets);
+                Ok((view, op_id, id.to_string()))
+            }) {
+                Ok((view, op_id, _pid)) => {
+                    let mut response = view;
+                    response["operation_id"] = json!(op_id);
+                    response["project_id"] = json!(id);
+                    response["contract"] = json!(API_CONTRACT_VERSION);
+                    ApiResponse::json(202, response)
+                }
+                // `run_with_operation` renders a Core error with `from_error`,
+                // which can name the adapter binary; scrub both known secrets
+                // before returning it so no absolute path ever leaves this route.
+                Err(response) => scrub_response(response, &secrets),
+            }
+        }),
+    )
+}
+
+/// Run the read-only `prepare_deploy` for a resolved target and render its
+/// path-free view. Errors are returned already scrubbed of the project
+/// directory (plan/preview never reaches the adapter, so only that path can
+/// appear).
+fn run_plan_view(
+    project_dir: &Path,
+    manifest: &Manifest,
+    config: &DeployConfig,
+    id: &str,
+    target: &str,
+) -> Result<Value, ApiResponse> {
+    let deploy_request = DeployRequest {
+        project_id: id.to_string(),
+        target: target.to_string(),
+        confirm: false,
+        dry_run: true,
+    };
+    let plan = match engine::prepare_deploy(project_dir, manifest, config, &deploy_request) {
+        Ok(plan) => plan,
+        Err(err) => return Err(typed_deploy_error(project_dir, &err)),
+    };
+    let secrets = [project_dir.display().to_string()];
+    Ok(scrub_json(plan_view(&plan), &secrets))
+}
+
+/// Flat, path-free plan view built from typed fields — never a serialized
+/// `DeployPlan`. Host, user, target path and the adapter binary are omitted;
+/// only the target name/kind, source revision, artifact hash/size, health kind
+/// and readiness reach the browser, so the generic frontend renderer prints
+/// scalar lines with no `[object Object]` and no filesystem location.
+fn plan_view(plan: &DeployPlan) -> Value {
+    let mut view = json!({
+        "action": "deploy",
+        "project_id": plan.project_id,
+        "target": plan.target.name,
+        "target_kind": plan.target.kind,
+        "source_revision": plan.identity.source_revision,
+        "ready": plan.ready,
+    });
+    if let Some(artifact) = &plan.artifact {
+        view["artifact_hash"] = json!(artifact.content_hash);
+        view["artifact_bytes"] = json!(artifact.byte_size);
+    }
+    if let Some(health) = &plan.health {
+        view["health_kind"] = json!(health.kind);
+    }
+    view
+}
+
+/// Flat, path-free apply report view built from typed fields — never a
+/// serialized `DeployReport`. `state_path`, the target host/user/path and the
+/// adapter binary are all omitted; stage/observation `note`s are the engine's
+/// already-redacted text. The caller scrubs the whole value as a final guard.
+fn report_view(report: &DeployReport) -> Value {
+    let stages: Vec<Value> = report
+        .stages
+        .iter()
+        .map(|stage| {
+            json!({
+                "stage": stage.stage,
+                "target": stage.target,
+                "status": stage.status,
+                "note": stage.note,
+            })
+        })
+        .collect();
+    let mut view = json!({
+        "contract": report.contract,
+        "project_id": report.project_id,
+        "target": report.target.name,
+        "target_kind": report.target.kind,
+        "adapter": report.adapter,
+        "deploy_id": report.identity.id,
+        "source_revision": report.identity.source_revision,
+        "dry_run": report.dry_run,
+        "healthy": report.healthy,
+        "note": report.note,
+        "stages": stages,
+    });
+    if let Some(observation) = &report.observation {
+        view["observation"] = json!({
+            "status": observation.status,
+            "detail": observation.detail,
+        });
+    }
+    if let Some(artifact) = &report.artifact {
+        view["artifact_hash"] = json!(artifact.content_hash);
+        view["artifact_bytes"] = json!(artifact.byte_size);
+    }
+    view
+}
+
+/// Render a deploy-domain Core failure with the shared status mapping, scrubbing
+/// the project directory (the only absolute path plan/preview can leak) from the
+/// message. The typed code and status are preserved so a boundary scenario is
+/// reported honestly, never as a fake success.
+fn typed_deploy_error(project_dir: &Path, err: &crate::core::ForgeError) -> ApiResponse {
+    let secrets = [project_dir.display().to_string()];
+    let status = super::err_status(err);
+    ApiResponse::json(
+        status,
+        json!({
+            "error": {
+                "code": err.code(),
+                "message": scrub_text(&err.to_string(), &secrets),
+            },
+            "contract": API_CONTRACT_VERSION,
+        }),
+    )
+}
+
+/// Replace the raw body of an already-built error response with a scrubbed copy,
+/// preserving status and shape. Used on the confirmed-apply failure path where
+/// the engine's message can name the adapter binary.
+fn scrub_response(response: ApiResponse, secrets: &[String]) -> ApiResponse {
+    let status = response.status;
+    let parsed: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    ApiResponse::json(status, scrub_json(parsed, secrets))
+}
+
+/// Recursively scrub every string in a JSON value: replace each known absolute
+/// secret verbatim, then redact any remaining absolute-path token.
+fn scrub_json(value: Value, secrets: &[String]) -> Value {
+    match value {
+        Value::String(text) => Value::String(scrub_text(&text, secrets)),
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(|v| scrub_json(v, secrets)).collect())
+        }
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (key, item) in map {
+                out.insert(key, scrub_json(item, secrets));
+            }
+            Value::Object(out)
+        }
+        other => other,
+    }
+}
+
+/// Replace each secret substring (the project directory, the adapter binary)
+/// with a fixed marker, then apply the whitespace-token path redactor so no bare
+/// absolute path survives either.
+fn scrub_text(text: &str, secrets: &[String]) -> String {
+    let mut out = text.to_string();
+    for secret in secrets {
+        if !secret.is_empty() {
+            out = out.replace(secret.as_str(), "[local path]");
+        }
+    }
+    redact_local_paths(&out)
+}
+
+/// Replace whitespace-separated tokens that look like absolute local paths
+/// (`/home/…`, `C:\…`, `key=/value`) with a fixed marker. API route strings
+/// (always under `/v1/…`) are left intact: they are self-authored endpoints,
+/// never filesystem locations. Mirrors the delivery projection's discipline so a
+/// deploy response can never carry a real filesystem path.
+fn redact_local_paths(text: &str) -> String {
+    text.split_whitespace()
+        .map(|token| {
+            let is_route = token == "/v1" || token.starts_with("/v1/");
+            let is_abs = !is_route
+                && (token.starts_with('/')
+                    || (token.len() > 2
+                        && token.as_bytes()[1] == b':'
+                        && (token.as_bytes()[2] == b'\\' || token.as_bytes()[2] == b'/'))
+                    || token.contains("=/")
+                    || token.contains(":\\"));
+            if is_abs {
+                "[local path]"
+            } else {
+                token
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// One JSON-only, session-gated delivery mutation: a non-JSON content type

@@ -519,6 +519,21 @@ pub enum Route {
     AdminProjectSpecApply {
         id: String,
     },
+    /// `GET /v1/admin/projects/{id}/deploy/plan` — the read-only deploy plan,
+    /// exposed as a session-gated admin route that renders
+    /// `deploy::engine::prepare_deploy` for the server-resolved target. It
+    /// invokes no adapter, writes nothing and returns a path-free plan view.
+    AdminProjectDeployPlan {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/deploy` — the `forge deploy` apply, exposed
+    /// as a session-gated, preview + confirm- and digest-bound admin route
+    /// delegating to the same `deploy::engine::apply_deploy` the bearer `/v1`
+    /// route and CLI run. The descriptor binds the project id and the
+    /// server-resolved target — never a path, argv or shell.
+    AdminProjectDeploy {
+        id: String,
+    },
     /// `GET /v1/admin/portfolio` — cross-project portfolio fleet: each
     /// registered project's user-owned record, tags and read-only evidence
     /// states (`forge-web-portfolio-controls/0.1.0`). Session-gated.
@@ -786,6 +801,18 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        // Deploy routes: `POST …/deploy` is a five-segment arm and
+        // `GET …/deploy/plan` a six-segment arm. The literal `deploy`
+        // segment never collides with the `feature`/`spec`/`plan`/`apply`
+        // arms above, so no existing route is shadowed.
+        ("POST", ["v1", "admin", "projects", id, "deploy"]) => Some(Route::AdminProjectDeploy {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "admin", "projects", id, "deploy", "plan"]) => {
+            Some(Route::AdminProjectDeployPlan {
+                id: (*id).to_string(),
+            })
+        }
         // Portfolio routes: `/evidence` is a reserved second segment and is
         // matched before the generic `{id}` arm so a literal path never reads
         // as a project id. `{kind}`/`{action}` are validated keys, not paths.
@@ -1041,6 +1068,8 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectFeatureRemove { .. }
         | Route::AdminProjectFeatureUpgrade { .. }
         | Route::AdminProjectSpecApply { .. }
+        | Route::AdminProjectDeployPlan { .. }
+        | Route::AdminProjectDeploy { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1189,6 +1218,8 @@ pub fn handle(
             | Route::AdminProjectFeatureRemove { .. }
             | Route::AdminProjectFeatureUpgrade { .. }
             | Route::AdminProjectSpecApply { .. }
+            | Route::AdminProjectDeployPlan { .. }
+            | Route::AdminProjectDeploy { .. }
             | Route::AdminPortfolioList
             | Route::AdminPortfolioEvidence
             | Route::AdminPortfolioProject { .. }
@@ -1340,6 +1371,8 @@ pub fn handle(
         | Route::AdminProjectFeatureRemove { .. }
         | Route::AdminProjectFeatureUpgrade { .. }
         | Route::AdminProjectSpecApply { .. }
+        | Route::AdminProjectDeployPlan { .. }
+        | Route::AdminProjectDeploy { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }
@@ -1431,6 +1464,8 @@ fn authorize(
         | Route::AdminProjectFeatureRemove { .. }
         | Route::AdminProjectFeatureUpgrade { .. }
         | Route::AdminProjectSpecApply { .. }
+        | Route::AdminProjectDeployPlan { .. }
+        | Route::AdminProjectDeploy { .. }
         | Route::AdminPortfolioList
         | Route::AdminPortfolioEvidence
         | Route::AdminPortfolioProject { .. }

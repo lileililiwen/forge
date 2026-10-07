@@ -1,5 +1,7 @@
 # Forge handoff
 
+current_spec: forge-web-project-deployment
+
 ## Current state
 
 ### forge-web-project-actions delivered and archived (2026-10-07)

@@ -48,6 +48,13 @@ const WEB_ROUTE_ADMIN_FEATURE_REMOVE: &str = super::admin::ROUTE_ADMIN_FEATURE_R
 const WEB_ROUTE_ADMIN_FEATURE_UPGRADE: &str = super::admin::ROUTE_ADMIN_FEATURE_UPGRADE;
 const WEB_ROUTE_ADMIN_SPEC_APPLY: &str = super::admin::ROUTE_ADMIN_SPEC_APPLY;
 
+/// Deploy-command typed routes (`forge-web-project-deployment`). These name the
+/// exact admin paths the router registers so the catalog and the live endpoints
+/// can never diverge: the read-only deploy plan and the session-gated,
+/// confirm/digest-bound deploy apply delegating to `deploy::engine`.
+const WEB_ROUTE_ADMIN_DEPLOY_PLAN: &str = super::admin::ROUTE_ADMIN_DEPLOY_PLAN;
+const WEB_ROUTE_ADMIN_DEPLOY: &str = super::admin::ROUTE_ADMIN_DEPLOY;
+
 /// Delivery-control typed routes (`forge-web-delivery-controls/0.1.0`).
 /// These reference the delivery module's own route constants so the
 /// catalog and the live endpoints can never name different paths: the
@@ -73,6 +80,8 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_FEATURE_REMOVE,
     WEB_ROUTE_ADMIN_FEATURE_UPGRADE,
     WEB_ROUTE_ADMIN_SPEC_APPLY,
+    WEB_ROUTE_ADMIN_DEPLOY_PLAN,
+    WEB_ROUTE_ADMIN_DEPLOY,
     WEB_ROUTE_DELIVERY_OVERVIEW,
     WEB_ROUTE_DELIVERY_PREVIEW,
     WEB_ROUTE_DELIVERY_ALLOWLIST,
@@ -1396,8 +1405,8 @@ impl CatalogBuilder {
             Release,
             Project,
         );
-        self.push(Some("deploy"), "plan", "Capture target, source revision and the configured health check into a reviewable plan.", Release, Project, Read, ProjectCapabilityRequired, None, Some(REASON_PROJECT_CAPABILITY), caps_local);
-        self.push(Some("deploy"), "apply", "Apply a verified deploy plan: invokes the adapter and captures the health observation (requires `--confirm`).", Release, Project, RemoteWrite, ProjectCapabilityRequired, None, Some(REASON_PROJECT_CAPABILITY), caps_local);
+        self.web_at(Some("deploy"), "plan", "Capture target, source revision and the configured health check into a reviewable plan.", Release, Project, Read, WEB_ROUTE_ADMIN_DEPLOY_PLAN, caps_local);
+        self.web_exec(Some("deploy"), "apply", "Apply a verified deploy plan: invokes the adapter and captures the health observation (requires `--confirm`).", Release, Project, RemoteWrite, WEB_ROUTE_ADMIN_DEPLOY, "POST", &[("target", "string", false)], caps_local);
         self.push(
             Some("deploy"),
             "observe",
@@ -2477,6 +2486,8 @@ mod tests {
                 ("doctor", WEB_ROUTE_PROJECT_DETAIL),
                 ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
                 ("spec.apply", WEB_ROUTE_ADMIN_SPEC_APPLY),
+                ("deploy.plan", WEB_ROUTE_ADMIN_DEPLOY_PLAN),
+                ("deploy.apply", WEB_ROUTE_ADMIN_DEPLOY),
                 ("fleet.list", WEB_ROUTE_PROJECTS),
                 ("fleet.status", WEB_ROUTE_PROJECTS),
                 ("inventory.show", WEB_ROUTE_PROJECTS),
@@ -2499,8 +2510,8 @@ mod tests {
     #[test]
     fn web_execution_rows_are_well_formed_and_point_at_implemented_routes() {
         // Layer C: the catalog's `execution` block is the browser's runnable
-        // contract. Only the project feature/spec lifecycle write rows carry
-        // one in this package; every one must be a `web` row resolving to a
+        // contract. Only the project feature/spec/deploy lifecycle write rows
+        // carry one in this package; every one must be a `web` row resolving to a
         // real implemented route with a well-formed typed parameter list, and
         // no non-`web` row may ever carry one.
         let executable_ids: Vec<&str> = rows()
@@ -2516,6 +2527,7 @@ mod tests {
                 "feature.upgrade",
                 "spec.generate",
                 "spec.apply",
+                "deploy.apply",
             ]
         );
         // Each executable row's typed parameter list must match the mandatory
@@ -2546,6 +2558,7 @@ mod tests {
                     ("reason", "string", false),
                 ],
             ),
+            ("deploy.apply", vec![("target", "string", false)]),
         ]);
         for row in rows() {
             match &row.execution {

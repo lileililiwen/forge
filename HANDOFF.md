@@ -2,6 +2,54 @@
 
 ## Current state
 
+### forge-web-command-workflows delivered and archived (2026-10-07)
+
+`forge-web-command-workflows` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-07-forge-web-command-workflows`,
+creating the `forge-web-command-workflows` spec (three requirements). The
+dashboard is now ordered around work instead of reference: fleet →
+workbench → management (creation + workspace onboarding) → portfolio →
+delivery → command catalog (reference, last), with the sidebar nav in the
+same order. Workspace discovery auto-runs on dashboard load with an “N of M
+workspace directories are not yet onboarded” line under the fleet linking
+to the onboarding panel. Bulk onboarding Shortcut: selections of any size
+are previewed in 25-item chunks (one combined plan, one digest per chunk)
+and applied sequentially under a single confirmation tick; a refused chunk
+stops the run with completed results kept and a re-preview prompt. No API,
+catalog, Core or journal change — `frontend/` only.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` / `cargo build` | clean / 0 errors |
+| extended onboarding browser drive (27-dir, two-chunk) | **1 passed / 0 failed** ×3 runs (order, auto-discovery, chunked confirm, fleet-appears, keyboard, contrast, no-path) |
+| portal frontend / portal UI / catalog / management / workbench / execution | **8 / 39 / 8 / 9 / 11 / 5 passed, 0 failed** |
+| `cargo test --bin forge` / `--lib api::` / delivery browser | **7 / 49 / 1 passed, 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **79 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive forge-web-command-workflows --yes` | archived as `2026-10-07-forge-web-command-workflows`; canonical `forge-web-command-workflows: create` (+3); no `--skip-specs` |
+| `forge gate` (mandatory local run, twice) | first run: governance 15 errors incl. 1 attributable (this change's promoted spec carried the archiver's TBD Purpose marker) → fixed with a real Purpose line → second run: **14 errors, 0 attributable**; size/unresolved identical to baseline (see below) |
+| `openspec list` | no active changes |
+
+Gate attribution (both runs recorded in `.driftwatch` runs 8–9):
+
+- `governance-quality`: 14 errors before and after; all are the stale TBD
+  Purpose markers in older specs. The single attributable finding (this
+  change's own spec marker) was fixed before completion.
+- `source-file-size`: 50 failing files before and after (50/117 → 50/119
+  evaluated; the +2 are this change's new test/script files, all far under
+  the limit). Remediation path: follow-up splitting `admin.rs`/`mod.rs`
+  remainder + the other oversized files.
+- `declared-verification` / `tests` UNRESOLVED: environmental
+  `project-runtime` 60s adapter timeouts, identical across all runs
+  including pre-session baselines.
+
+Implementation commit: `256b986` (includes the one-line Purpose fix for
+the workspace-onboarding spec that the gate flagged). Nothing pushed. No
+`current_spec` pointer remains because no OpenSpec change is active.
+
 ### forge-web-workspace-onboarding delivered and archived (2026-10-07)
 
 `forge-web-workspace-onboarding` is implemented, verified and archived as

@@ -62,6 +62,15 @@ const WEB_ROUTE_ADMIN_DEPLOY: &str = super::admin::ROUTE_ADMIN_DEPLOY;
 const WEB_ROUTE_ADMIN_RELEASE_PLAN: &str = super::admin::ROUTE_ADMIN_RELEASE_PLAN;
 const WEB_ROUTE_ADMIN_RELEASE: &str = super::admin::ROUTE_ADMIN_RELEASE;
 
+/// Publish-command typed routes (`forge-web-project-publish`). These name the
+/// exact admin paths the router registers so the catalog and the live endpoints
+/// can never diverge: the read-only publish plan and the session-gated,
+/// confirm/digest-bound publish apply delegating to `publish::providers`. The
+/// provider, project and revision are resolved server-side, so the executable
+/// row carries no browser-supplied parameters.
+const WEB_ROUTE_ADMIN_PUBLISH_PLAN: &str = super::admin::ROUTE_ADMIN_PUBLISH_PLAN;
+const WEB_ROUTE_ADMIN_PUBLISH: &str = super::admin::ROUTE_ADMIN_PUBLISH;
+
 /// Read-only status typed routes (`forge-project-status/0.1.0`). These
 /// reference the status module's own route constants so the catalog and the
 /// live endpoints can never name different paths: the per-project status
@@ -107,6 +116,8 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_DEPLOY,
     WEB_ROUTE_ADMIN_RELEASE_PLAN,
     WEB_ROUTE_ADMIN_RELEASE,
+    WEB_ROUTE_ADMIN_PUBLISH_PLAN,
+    WEB_ROUTE_ADMIN_PUBLISH,
     WEB_ROUTE_PROJECT_STATUS,
     WEB_ROUTE_FLEET_STATUS,
     WEB_ROUTE_ADMIN_PROJECT_NEW,
@@ -138,7 +149,6 @@ const REASON_LEGACY_HTML: &str = "The legacy portal renders server-side HTML sec
 const REASON_AGENT: &str = "This command drives local agent adapter processes against a project directory (start, pause, takeover, resume, restart, new sessions); these are terminal-session operations with no typed JSON route. Next step: run it in a terminal.";
 const REASON_LOCAL_TOOLCHAIN: &str = "This command shells out to a locally installed developer CLI (gh) and its credential store; the browser cannot reach that installation. Next step: install and authenticate the CLI, then run it in a terminal.";
 const REASON_NOT_YET_WEB: &str = "A web workflow for this command is planned in the staged web packages (workbench, portfolio controls, delivery controls) but not implemented yet; it stays visible as a tracked gap, never labeled supported. Next step: use the CLI for now.";
-const REASON_PUBLISH_BARE: &str = "Bare `forge publish` runs a real publish through the selected external provider immediately; provider credentials and the explicit confirmation stay in the terminal. Next step: run it in a terminal, or use `--dry-run` first.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
@@ -1494,17 +1504,20 @@ impl CatalogBuilder {
             caps_registry,
         );
 
-        // publish — the group itself performs the bare publish, unlike other groups.
-        self.push(
+        // publish — the group itself performs the bare publish, unlike other
+        // groups. The provider, project and committed revision are resolved
+        // server-side, so the executable row carries no browser-supplied
+        // parameters.
+        self.web_exec(
             None,
             "publish",
-            "Publish a registered project to the Jenkins/Mac infrastructure with subdomain routing; bare `forge publish` publishes the discovered project.",
+            "Publish a registered project through the server-configured provider; the provider id, project and commit revision are resolved server-side.",
             Release,
             Project,
             RemoteWrite,
-            ProviderRequired,
-            None,
-            Some(REASON_PUBLISH_BARE),
+            WEB_ROUTE_ADMIN_PUBLISH,
+            "POST",
+            &[],
             caps_provider,
         );
         // publish.provider
@@ -2540,6 +2553,7 @@ mod tests {
                 ("release.apply", WEB_ROUTE_ADMIN_RELEASE),
                 ("deploy.plan", WEB_ROUTE_ADMIN_DEPLOY_PLAN),
                 ("deploy.apply", WEB_ROUTE_ADMIN_DEPLOY),
+                ("publish", WEB_ROUTE_ADMIN_PUBLISH),
                 ("fleet.list", WEB_ROUTE_PROJECTS),
                 ("fleet.status", WEB_ROUTE_FLEET_STATUS),
                 ("inventory.show", WEB_ROUTE_PROJECTS),
@@ -2556,6 +2570,22 @@ mod tests {
                 ("portfolio.share.reconcile", WEB_ROUTE_DELIVERY_RECONCILE),
                 ("portfolio.share.audit", WEB_ROUTE_DELIVERY_OVERVIEW),
             ]
+        );
+    }
+
+    #[test]
+    fn publish_routes_are_implemented_web_routes() {
+        // Both publish routes are registered by the router and listed as
+        // implemented web routes, so the executable `publish` row (which points
+        // at the apply route) can never name a route that does not exist and
+        // the read-only plan route stays a first-class implemented endpoint.
+        assert!(
+            IMPLEMENTED_WEB_ROUTES.contains(&WEB_ROUTE_ADMIN_PUBLISH_PLAN),
+            "publish plan route must be implemented"
+        );
+        assert!(
+            IMPLEMENTED_WEB_ROUTES.contains(&WEB_ROUTE_ADMIN_PUBLISH),
+            "publish apply route must be implemented"
         );
     }
 
@@ -2584,6 +2614,7 @@ mod tests {
                 "spec.apply",
                 "release.apply",
                 "deploy.apply",
+                "publish",
             ]
         );
         // Each executable row's typed parameter list must match the mandatory
@@ -2634,6 +2665,9 @@ mod tests {
             ),
             ("release.apply", vec![("version", "string", true)]),
             ("deploy.apply", vec![("target", "string", false)]),
+            // The bare publish resolves the provider, project and revision
+            // server-side, so it has no browser-supplied typed parameters.
+            ("publish", vec![]),
         ]);
         for row in rows() {
             match &row.execution {
@@ -2658,7 +2692,11 @@ mod tests {
                     assert_eq!(execution.method, "POST", "row {}", row.id);
                     assert!(execution.confirm_required, "row {}", row.id);
                     assert!(execution.digest_bound, "row {}", row.id);
-                    assert!(!execution.parameters.is_empty(), "row {}", row.id);
+                    assert!(
+                        !execution.parameters.is_empty() || row.id == "publish",
+                        "row {} must carry typed parameters unless every input is server-resolved",
+                        row.id
+                    );
                     // Pin the exact typed parameter list against the route.
                     let expected_params = expected
                         .get(row.id.as_str())

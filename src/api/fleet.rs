@@ -24,11 +24,15 @@ use serde_json::{json, Value};
 use crate::core::{validate_project_id, ForgeError};
 use crate::fleet::{self, FleetFreshness};
 use crate::publish::inventory;
+use crate::registry::{PublishedOperation, Registry};
 
 use super::ui::data::load_fleet_list;
 
-/// Versioned contract for the normalized web fleet envelope.
-pub const WEB_FLEET_CONTRACT_VERSION: &str = "forge-web-fleet/0.1.0";
+/// Versioned contract for the normalized web fleet envelope. Bumped to
+/// `0.2.0` when the `published` source and the per-row `publish` object were
+/// added; existing fields and sources are unchanged and remain backward
+/// compatible.
+pub const WEB_FLEET_CONTRACT_VERSION: &str = "forge-web-fleet/0.2.0";
 
 /// Default stable identity for the Forge-self row; overridable through the
 /// established `FORGE_SELF_ID` configuration path so an operator can bind
@@ -45,6 +49,23 @@ pub const FLEET_MAX_AGE_ENV: &str = "FORGE_FLEET_MAX_AGE_SECONDS";
 /// Environment variable overriding the Forge-self identity.
 pub const SELF_ID_ENV: &str = "FORGE_SELF_ID";
 
+/// Environment variable controlling the local publish-history projection.
+/// The projection is enabled by default (it reads the Forge-owned local
+/// registry, never an external path); `0`, `false` or `off` disables it and
+/// reports the `published` source as unconfigured.
+pub const PUBLISH_HISTORY_ENV: &str = "FORGE_PUBLISH_HISTORY";
+
+/// Environment variable bounding how many distinct published projects are
+/// projected. Parsed as a positive integer and clamped to
+/// `1..=PUBLISH_HISTORY_MAX_LIMIT`.
+pub const PUBLISH_HISTORY_LIMIT_ENV: &str = "FORGE_PUBLISH_HISTORY_LIMIT";
+
+/// Default bound for the publish-history source.
+pub const PUBLISH_HISTORY_DEFAULT_LIMIT: usize = 200;
+
+/// Hard ceiling so a machine-supplied limit can never pin the renderer.
+pub const PUBLISH_HISTORY_MAX_LIMIT: usize = 1000;
+
 /// Which provenance produced one row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowSource {
@@ -52,6 +73,7 @@ pub enum RowSource {
     Registry,
     Inventory,
     WorkspaceRegistry,
+    Published,
 }
 
 impl RowSource {
@@ -61,6 +83,7 @@ impl RowSource {
             RowSource::Registry => "registry",
             RowSource::Inventory => "inventory",
             RowSource::WorkspaceRegistry => "fleet",
+            RowSource::Published => "published",
         }
     }
 }
@@ -126,6 +149,29 @@ pub struct CandidateRow {
     /// True only on the self row when Forge is also a registered project;
     /// the registry row is merged into the self row rather than duplicated.
     pub has_registry_ref: bool,
+    /// Most recent local publish operation, when one exists for this
+    /// identity. Attached to a registered/self row (merge) or carried by a
+    /// standalone observed `published` row.
+    pub publish: Option<PublishProjection>,
+}
+
+/// Bounded projection of one project's most recent publish operation, as
+/// rendered on a fleet row. `detail` is redacted before it is stored;
+/// `healthy`/`stages` are parsed from that redacted detail and stay `None`
+/// when the detail does not carry them (e.g. a legacy row).
+#[derive(Debug, Clone, Default)]
+pub struct PublishProjection {
+    pub state: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub detail: Option<String>,
+    pub target: Option<String>,
+    pub revision: Option<String>,
+    pub build_status: Option<String>,
+    pub run_status: Option<String>,
+    pub container_identity: Option<String>,
+    pub healthy: Option<bool>,
+    pub stages: Option<i64>,
 }
 
 /// One declared source's status for the `sources` array. Carries a safe
@@ -256,6 +302,7 @@ pub fn gather(
                 .map(|value| format!("{value:?}").to_ascii_lowercase()),
             tags: row.tags.clone(),
             has_registry_ref: is_self_row,
+            publish: None,
         };
         if is_self_row {
             merged_self = Some(candidate);
@@ -286,6 +333,7 @@ pub fn gather(
         confidence: None,
         tags: Vec::new(),
         has_registry_ref: false,
+        publish: None,
     });
     // The self row always leads the candidate list and appears exactly once.
     candidates.insert(0, self_row);
@@ -300,6 +348,20 @@ pub fn gather(
         observed_at: Some(now.to_rfc3339_opts(SecondsFormat::Secs, true)),
         provider: None,
     });
+
+    // --- local publish-history projection ---
+    // Reads the same local, Forge-owned registry the fleet already opened.
+    // A published id that is already registered (or the self id) is merged
+    // into its managed row so no false identity conflict is introduced.
+    let mut managed_ids = local_ids.clone();
+    managed_ids.insert(self_id.clone());
+    sources.push(read_published(
+        db_path,
+        max_age_seconds,
+        &managed_ids,
+        &mut candidates,
+        now,
+    ));
 
     // --- portable inventory external source ---
     let (inventory_rows, inventory_descriptor) =
@@ -358,6 +420,7 @@ fn read_inventory(
                     confidence: None,
                     tags: Vec::new(),
                     has_registry_ref: false,
+                    publish: None,
                 })
                 .collect();
             (
@@ -444,6 +507,7 @@ fn read_workspace_registry(
                     confidence: None,
                     tags: Vec::new(),
                     has_registry_ref: false,
+                    publish: None,
                 })
                 .collect();
             (
@@ -476,6 +540,200 @@ fn read_workspace_registry(
             },
         ),
     }
+}
+
+/// True when the operator has explicitly disabled the publish-history
+/// projection. The projection is on by default because it reads the local,
+/// Forge-owned registry; only the exact opt-out tokens turn it off.
+fn publish_history_disabled() -> bool {
+    match std::env::var(PUBLISH_HISTORY_ENV) {
+        Ok(value) => {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off"
+            )
+        }
+        Err(_) => false,
+    }
+}
+
+/// Resolve the bounded publish-history limit: a positive machine value
+/// clamped to the hard ceiling, else the default.
+pub fn configured_publish_limit() -> usize {
+    std::env::var(PUBLISH_HISTORY_LIMIT_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .map(|value| value.min(PUBLISH_HISTORY_MAX_LIMIT))
+        .unwrap_or(PUBLISH_HISTORY_DEFAULT_LIMIT)
+}
+
+/// Project the local publish journal into the fleet. Standalone rows are
+/// pushed onto `candidates`; an identity that is already managed (registered
+/// or self) is enriched in place. Never reads an external path and never
+/// writes. A failure is reported as an unavailable source descriptor and
+/// leaves every other source intact.
+fn read_published(
+    db_path: &Path,
+    max_age_seconds: i64,
+    managed_ids: &std::collections::BTreeSet<String>,
+    candidates: &mut Vec<CandidateRow>,
+    now: DateTime<Utc>,
+) -> SourceDescriptor {
+    let descriptor = |status: &'static str, reason: Option<String>| SourceDescriptor {
+        id: "published",
+        kind: "forge-publish-history",
+        status,
+        count: 0,
+        malformed: Vec::new(),
+        reason,
+        observed_at: None,
+        provider: None,
+    };
+    if publish_history_disabled() {
+        return descriptor(
+            "unconfigured",
+            Some("publish history projection is disabled by FORGE_PUBLISH_HISTORY".to_string()),
+        );
+    }
+    let registry = match Registry::open(db_path) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return descriptor(
+                "unavailable",
+                Some("the local publish journal could not be read".to_string()),
+            )
+        }
+    };
+    let publishes = match registry.latest_publishes(configured_publish_limit()) {
+        Ok(publishes) => publishes,
+        Err(_) => {
+            return descriptor(
+                "unavailable",
+                Some("the local publish journal could not be projected".to_string()),
+            )
+        }
+    };
+
+    let count = publishes.len();
+    for publish in publishes {
+        let projection = project_publish(&publish);
+        let merged = managed_ids.contains(&publish.project_id);
+        if merged {
+            let target = candidates.iter_mut().find(|candidate| {
+                candidate.identity == publish.project_id
+                    && (candidate.source == RowSource::Registry || candidate.is_self)
+            });
+            if let Some(row) = target {
+                row.publish = Some(projection);
+                continue;
+            }
+        }
+        // Published-only project: an observed row, inspection only. A stale
+        // observation keeps its own freshness label; the row is never
+        // downgraded on a guess.
+        let freshness = classify_generated_at(&publish.started_at, max_age_seconds, now);
+        candidates.push(CandidateRow {
+            identity: publish.project_id.clone(),
+            name: publish.project_id.clone(),
+            profile: None,
+            state: publish.state.clone(),
+            source: RowSource::Published,
+            management: Management::Observed,
+            is_self: false,
+            freshness,
+            updated_at: Some(publish.started_at.clone()),
+            capabilities: Vec::new(),
+            evidence: Vec::new(),
+            lifecycle: None,
+            confidence: None,
+            tags: Vec::new(),
+            has_registry_ref: false,
+            publish: Some(projection),
+        });
+    }
+
+    SourceDescriptor {
+        id: "published",
+        kind: "forge-publish-history",
+        status: "available",
+        count,
+        malformed: Vec::new(),
+        reason: None,
+        observed_at: Some(now.to_rfc3339_opts(SecondsFormat::Secs, true)),
+        provider: None,
+    }
+}
+
+/// Build the rendered projection from one journal row: redact the detail,
+/// then derive the `healthy`/`stages` scalars the detail may carry.
+fn project_publish(publish: &PublishedOperation) -> PublishProjection {
+    let detail = publish
+        .detail
+        .as_deref()
+        .map(redact_local_paths)
+        .map(|value| crate::policy::redact_credentials(&value));
+    let healthy = detail.as_deref().and_then(parse_healthy);
+    let stages = detail.as_deref().and_then(parse_stages);
+    PublishProjection {
+        state: publish.state.clone(),
+        started_at: publish.started_at.clone(),
+        finished_at: publish.finished_at.clone(),
+        detail,
+        target: publish.queue_id.clone(),
+        revision: publish.revision.clone(),
+        build_status: publish.build_status.clone(),
+        run_status: publish.run_status.clone(),
+        container_identity: publish.container_identity.clone(),
+        healthy,
+        stages,
+    }
+}
+
+/// Find `healthy=true` / `healthy=false` in the redacted publish detail.
+fn parse_healthy(detail: &str) -> Option<bool> {
+    detail.split_whitespace().find_map(|token| {
+        token.strip_prefix("healthy=").map(|value| {
+            value
+                .trim_end_matches(['.', ','])
+                .eq_ignore_ascii_case("true")
+        })
+    })
+}
+
+/// Find `stages=N` in the redacted publish detail.
+fn parse_stages(detail: &str) -> Option<i64> {
+    detail.split_whitespace().find_map(|token| {
+        token
+            .strip_prefix("stages=")
+            .and_then(|value| value.trim_end_matches(['.', ',']).parse().ok())
+    })
+}
+
+/// Replace whitespace-separated tokens that look like absolute local paths
+/// (`/home/…`, `C:\…`, `key=/value`) with a fixed marker. Publish `detail`
+/// text is Core's `Display` output, which legitimately names paths on
+/// failure; the browser only ever needs the logical reason. API route
+/// strings (always under `/v1/…`) are left intact.
+fn redact_local_paths(text: &str) -> String {
+    text.split_whitespace()
+        .map(|token| {
+            let is_route = token == "/v1" || token.starts_with("/v1/");
+            let is_abs = !is_route
+                && (token.starts_with('/')
+                    || (token.len() > 2
+                        && token.as_bytes()[1] == b':'
+                        && (token.as_bytes()[2] == b'\\' || token.as_bytes()[2] == b'/'))
+                    || token.contains("=/")
+                    || token.contains(":\\"));
+            if is_abs {
+                "[local path]"
+            } else {
+                token
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn classify_generated_at(
@@ -612,6 +870,7 @@ pub fn build_envelope(
                 "registry": by_source(RowSource::Registry),
                 "inventory": by_source(RowSource::Inventory),
                 "fleet": by_source(RowSource::WorkspaceRegistry),
+                "published": by_source(RowSource::Published),
             },
         },
     })
@@ -638,6 +897,21 @@ fn render_row(candidate: &CandidateRow, conflicting: &std::collections::BTreeSet
         "freshness": candidate.freshness.id(),
         "capabilities": candidate.capabilities,
         "conflict": conflicting.contains(&candidate.identity),
+        // Present only when a local publish operation exists for this
+        // identity. `null` for every project without publish history.
+        "publish": candidate.publish.as_ref().map(|publish| json!({
+            "state": publish.state,
+            "started_at": publish.started_at,
+            "finished_at": publish.finished_at,
+            "detail": publish.detail,
+            "target": publish.target,
+            "revision": publish.revision,
+            "build_status": publish.build_status,
+            "run_status": publish.run_status,
+            "container_identity": publish.container_identity,
+            "healthy": publish.healthy,
+            "stages": publish.stages,
+        })),
     })
 }
 
@@ -684,6 +958,7 @@ mod tests {
             confidence: None,
             tags: Vec::new(),
             has_registry_ref: registered,
+            publish: None,
         }
     }
 
@@ -704,6 +979,7 @@ mod tests {
             confidence: None,
             tags: vec!["core".to_string()],
             has_registry_ref: false,
+            publish: None,
         }
     }
 
@@ -724,6 +1000,7 @@ mod tests {
             confidence: None,
             tags: Vec::new(),
             has_registry_ref: false,
+            publish: None,
         }
     }
 

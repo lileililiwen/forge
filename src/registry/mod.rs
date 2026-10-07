@@ -400,6 +400,25 @@ pub struct OperationEntry {
     pub container_identity: Option<String>,
 }
 
+/// One project's most recent publish operation, projected for the web
+/// fleet's `published` source. Only the bounded logical fields are
+/// carried; the raw `detail` is redacted by the caller before it is
+/// serialized. A legacy row may have every phase column `NULL`, which is
+/// surfaced as `None` rather than guessed.
+#[derive(Debug, Clone)]
+pub struct PublishedOperation {
+    pub project_id: String,
+    pub state: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub detail: Option<String>,
+    pub queue_id: Option<String>,
+    pub revision: Option<String>,
+    pub build_status: Option<String>,
+    pub run_status: Option<String>,
+    pub container_identity: Option<String>,
+}
+
 /// Outcome of [`Registry::reserve_idempotent_operation`]. `Reserved`
 /// means a fresh pending operation was inserted; `Reused` means the
 /// caller already reserved (or finalized) an operation with the same
@@ -589,6 +608,48 @@ impl Registry {
              FROM operations WHERE queue_id = ?1 ORDER BY op_id DESC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![queue_id, limit as i64], row_to_operation_entry)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// The most recent publish operation per `project_id`, newest first and
+    /// capped at `limit`. One bounded `GROUP BY` over the append-only journal:
+    /// the web fleet's `published` source uses this to show projects the
+    /// operator shipped but never locally registered. Read-only; a legacy row
+    /// with `NULL` phase columns is projected with those fields absent.
+    pub fn latest_publishes(&self, limit: usize) -> Result<Vec<PublishedOperation>, ForgeError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT o.project_id, o.state, o.started_at, o.finished_at, o.detail,
+                    o.queue_id, o.revision, o.build_status, o.run_status,
+                    o.container_identity
+             FROM operations o
+             JOIN (
+                 SELECT project_id, MAX(op_id) AS max_op
+                 FROM operations
+                 WHERE kind IN ('publish', 'publish.github')
+                 GROUP BY project_id
+             ) latest
+               ON o.project_id = latest.project_id AND o.op_id = latest.max_op
+             ORDER BY o.started_at DESC, o.project_id
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(PublishedOperation {
+                project_id: row.get(0)?,
+                state: row.get(1)?,
+                started_at: row.get(2)?,
+                finished_at: row.get(3)?,
+                detail: row.get(4)?,
+                queue_id: row.get(5)?,
+                revision: row.get(6)?,
+                build_status: row.get(7)?,
+                run_status: row.get(8)?,
+                container_identity: row.get(9)?,
+            })
+        })?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);

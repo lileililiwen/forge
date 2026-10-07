@@ -76,8 +76,8 @@
     return badge;
   }
 
-  const SOURCE_LABELS = { self: "Forge (self)", registry: "Registered", inventory: "Inventory", fleet: "Workspace" };
-  const SOURCE_BADGE = { self: "self", registry: "registry", inventory: "inventory", fleet: "workspace" };
+  const SOURCE_LABELS = { self: "Forge (self)", registry: "Registered", inventory: "Inventory", fleet: "Workspace", published: "Published (Mac)" };
+  const SOURCE_BADGE = { self: "self", registry: "registry", inventory: "inventory", fleet: "workspace", published: "published" };
   const FLEET_STATUS_LABELS = { available: "Available", stale: "Stale", unconfigured: "Not configured", unavailable: "Unavailable" };
   const CATEGORY_LABELS = {
     registry: "Registry", creation: "Creation", quality: "Quality", release: "Release",
@@ -154,7 +154,25 @@
       const evidence = document.createElement("td"); const chips = document.createElement("div"); chips.className = "evidence-list";
       if (project.evidence?.length) {
         for (const item of project.evidence) { const chip = document.createElement("span"); chip.className = `evidence-chip evidence-${item.status}`; chip.textContent = `${item.source}: ${item.status}`; chips.append(chip); }
-      } else { const chip = document.createElement("span"); chip.className = "evidence-chip"; chip.textContent = "No evidence"; chips.append(chip); }
+      }
+      // The most recent local publish operation, when the journal knows one.
+      // Rendered as its own chip; revision/target/stages/detail stay in the
+      // tooltip so the cell lines stay short.
+      if (project.publish) {
+        const state = project.publish.state || "unknown";
+        const health = project.publish.healthy === true ? "healthy" : project.publish.healthy === false ? "unhealthy" : "";
+        const chip = document.createElement("span");
+        chip.className = `evidence-chip evidence-publish-${state}`;
+        chip.textContent = health ? `Mac publish: ${state} (${health})` : `Mac publish: ${state}`;
+        const meta = [];
+        if (project.publish.target) meta.push(`run ${project.publish.target}`);
+        if (project.publish.revision) meta.push(`rev ${String(project.publish.revision).slice(0, 12)}`);
+        if (project.publish.stages != null) meta.push(`${project.publish.stages} stages`);
+        if (project.publish.detail) meta.push(project.publish.detail);
+        if (meta.length) chip.title = meta.join(" · ");
+        chips.append(chip);
+      }
+      if (!chips.childElementCount) { const chip = document.createElement("span"); chip.className = "evidence-chip"; chip.textContent = "No evidence"; chips.append(chip); }
       evidence.append(chips); row.append(evidence);
 
       row.append(textCell(project.lifecycle || "Unclassified"));

@@ -2,6 +2,63 @@
 
 ## Current state
 
+### portfolio-interest-size-split delivered and archived (2026-10-08)
+
+File 4 of the source-file-size grind per
+`openspec/changes/archive/2026-10-08-source-file-size-remediation/design.md`
+§9 (verbatim-move rules per §10 decision ledger). First `src/`-side
+file (prior three were tests-side); no behavior change anywhere.
+
+Move (`src/portfolio/interest/mod.rs` 1002 → 778 lines, new
+`src/portfolio/interest/vocabulary.rs` 238 lines): the four closed
+vocabularies (`PrivacyMode`, `Coverage`, `InterestMetric`,
+`SnapshotState` + impls) copied verbatim — verified by diffing the
+extracted block against `HEAD:src/portfolio/interest/mod.rs`
+(0 diff over 228 lines). `mod.rs` gains `pub mod vocabulary;` +
+`pub use vocabulary::{Coverage, InterestMetric, PrivacyMode,
+SnapshotState}`, so every `crate::portfolio::interest::<name>`
+path resolves as before; module doc seam updated. No other `src/`
+file touched; no test logic change.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| pre-move baseline (stashed pristine) `cargo build` | 0 errors; 2 pre-existing warnings |
+| pre-move `cargo test --lib portfolio::interest` | **44 passed / 0 failed** |
+| pre-move interest/activation contract suites | interest_api **13**, interest_cli **16**, interest_cross **10**, activation_cli **16**, activation_cross **6**, portfolio_contract **23** — all passed, 0 failed |
+| post-move `cargo test --lib portfolio::interest` | **44 passed / 0 failed** (identical) |
+| post-move contract suites | **13 / 16 / 10 / 16 / 6 / 23 passed, 0 failed** (identical) |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` post-move | 0 errors; same 2 pre-existing warnings |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | **PASS** after archive (archiver-stamped TBD Purpose replaced with a source-backed sentence; stale pointer removed) |
+| `openspec validate --all --strict --no-interactive` | **91 passed / 0 failed** active; **91 passed / 0 failed** after archive (+1 new canonical spec) |
+| `git diff --check` | clean |
+| `./target/debug/forge gate --dry-run` | plan rendered; 9 required checks |
+| `./target/debug/forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **47 of 120** (pre-existing; was 48 of 119 — oversized count down exactly 1, denominator +1 for the new file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portfolio-interest-size-split --yes` | `portfolio-interest-size-split: create` (+1); **no `--skip-specs`**; archived as `2026-10-08-portfolio-interest-size-split`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(47/120 after vs 48/119 before — this change moves exactly one file
+under the cap; `activation.rs` 1054, `registry/interest/mod.rs`
+1047, `portfolio/mod.rs` 1019 remain for their own future changes)
+and the two `project-runtime` adapter-timeout unresolved items;
+remediation paths unchanged from prior entries (src-file splitting
+program; harness timeout investigation).
+
+Files changed: `src/portfolio/interest/mod.rs` (1002→778),
+`src/portfolio/interest/vocabulary.rs` (new, 238), new
+`openspec/changes/archive/2026-10-08-portfolio-interest-size-split/`
+(proposal, design, tasks, delta spec), new canonical spec
+`openspec/specs/portfolio-interest-size-split/spec.md` (+1),
+`HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `53735dc`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### portfolio-contract-size-split delivered and archived (2026-10-08)
 
 File 3 of the source-file-size grind per

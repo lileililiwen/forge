@@ -2,6 +2,73 @@
 
 ## Current state
 
+### forge-web-navigation-routing delivered and archived (2026-10-08)
+
+`forge-web-navigation-routing` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-08-forge-web-navigation-routing`,
+creating the `forge-web-navigation-routing` spec (3 requirements),
+promoted without `--skip-specs`. Routing choice: **(a) SPA path routing**.
+The dashboard is a single application shell; five separate HTML pages would
+duplicate the shared sidebar/topbar/scripts five times for zero behavioural
+gain. One shell + one view-selection function + additive allowlist entries
+is the smaller, robust change for this exact-path server.
+
+- `src/web.rs`: `asset_name` maps `/projects`, `/workbench`, `/management`,
+  `/portfolio`, `/delivery` to `index.html`; `/` stays `login.html`;
+  exact-match allowlist, no traversal; unit test extended (new arms, unknown
+  and traversal `None`).
+- `frontend/index.html`: `<base href="/">`; real nav `href`s with
+  `data-route`; `#view-projects` wrapper; `#topbar-crumb`; `hidden` on
+  non-default views; Data-sources section balanced. Only remaining `href="#"`
+  is the a11y skip link.
+- `frontend/app.js`: `VIEW_BY_PATH` / `viewForPath` / `renderRoute` /
+  `navigateTo`, click interceptor, `popstate` listener, boot-time
+  `renderRoute`; fleet "Manage" and workspace hint → `/management`;
+  `openInWorkbench` → `/workbench` via `navigateTo`.
+- New `tests/forge_web_navigation_contract.rs` (3 tests): each route 200 +
+  shell bytes; `/` login bytes; unknown/traversal 404; nav has no `href="#"`
+  anchors; router tokens present.
+- No CLI path added, no catalog row/count change. `scripts/web.sh`
+  unchanged (symlink staging picks up frontend files). Auth/session and
+  CSP/security headers unchanged. Login stays at `/`.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only |
+| new `forge_web_navigation_contract` | **3 passed / 0 failed** |
+| `cargo test --lib command_catalog` / `cargo test --bin forge` | **7 / 7 passed, 0 failed** |
+| `plugins_contract` / `catalog_contract` | **9 / 18 passed, 0 failed** |
+| `classify_derive_contract` / `classify_apply_contract` | **6 / 5 passed, 0 failed** |
+| `web_login_credentials_contract` | **6 passed / 0 failed** |
+| `forge_web_command_catalog_contract` / `forge_web_maintainer_surface_contract` | **9 / 5 passed, 0 failed** |
+| `forge_web_command_execution_contract` / `forge_web_delivery_controls_contract` / `forge_web_fleet_contract` / `forge_admin_api_contract` | **5 / 10 / 11 / 4 passed, 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **86 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive forge-web-navigation-routing --yes` | `forge-web-navigation-routing: create` (+3); **no `--skip-specs`**; archived as `2026-10-08-forge-web-navigation-routing`; `openspec list` reports **no active changes** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no oversized `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec list` | no active changes |
+
+Operator restart commands and exact real URLs (`forge web serve` default
+bind/port per `scripts/web.sh`; replace host/port with the banner values):
+
+```sh
+scripts/web.sh start
+```
+
+| Destination | URL |
+|---|---|
+| All projects | `http://127.0.0.1:4173/projects` |
+| Workbench | `http://127.0.0.1:4173/workbench` |
+| Manage projects | `http://127.0.0.1:4173/management` |
+| Portfolio | `http://127.0.0.1:4173/portfolio` |
+| Delivery | `http://127.0.0.1:4173/delivery` |
+| Login (unchanged) | `http://127.0.0.1:4173/` |
+
 ### web-login-credential-bootstrap delivered and archived (2026-10-08)
 
 `web-login-credential-bootstrap` is implemented, verified and archived as

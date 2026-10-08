@@ -1,10 +1,8 @@
 # Forge handoff
 
-current_spec: fleet-manage-deep-link
-
 ## Current state
 
-### fleet-manage-deep-link ACTIVE, uncommitted (2026-10-08)
+### fleet-manage-deep-link delivered and archived (2026-10-08)
 
 Bug: opening `http://127.0.0.1:4173/management?project=alethefy` does not
 focus/manage alethefy. Live state (read-only; nothing on the live pair
@@ -46,7 +44,7 @@ Fix (`frontend/app.js` only; no API/registry/catalog/CLI change):
   + `isRoutePath`); anything else falls back to `index.html`, never
   off-origin.
 
-Evidence (this change active, uncommitted):
+Evidence at archive (change active for verification, archived after):
 
 | Check | Result |
 |---|---|
@@ -98,16 +96,20 @@ FORGE_FRONTEND_ORIGIN=http://127.0.0.1:<WEB> FORGE_ADMIN_PROJECTS_ROOT=/home/pau
 | Signed in → `/management?project=<registered>` | URL becomes `/workbench?project=<id>`, detail loads |
 | `login.html?next=https://example.invalid/` → sign in | lands on `index.html`, stays on-origin |
 
-Files changed (uncommitted, nothing pushed): `frontend/app.js`,
-`tests/forge_web_navigation_contract.rs`, `HANDOFF.md` (this entry +
-pointer), new `openspec/changes/fleet-manage-deep-link/` (proposal,
-design, tasks, delta spec), new
+Files changed: `frontend/app.js`,
+`tests/forge_web_navigation_contract.rs`, `HANDOFF.md` (this entry),
+new `openspec/changes/archive/2026-10-08-fleet-manage-deep-link/`
+(proposal, design, tasks, delta spec), new
 `tests/browser/workbench-deep-link-check.mjs`,
-`tests/forge_web_workbench_deep_link_browser.rs`. Pre-existing
-uncommitted companions kept as found:
+`tests/forge_web_workbench_deep_link_browser.rs`, promoted canonical
+spec `openspec/specs/fleet-manage-deep-link/spec.md` (+4, no
+`--skip-specs`). Pre-existing companions kept as found:
 `tests/browser/manage-deep-link-check.mjs`,
-`tests/forge_web_manage_deep_link_browser.rs`. No archive and no commit
-per operator direction; the change stays active.
+`tests/forge_web_manage_deep_link_browser.rs`.
+
+Commits: implementation `2fdf0f1`, archive+spec promotion `71e53d8`,
+HANDOFF evidence (this commit). `openspec list` reports no active
+changes; no `current_spec` pointer remains. Nothing pushed.
 
 ### forge-web-navigation-routing delivered and archived (2026-10-08)
 

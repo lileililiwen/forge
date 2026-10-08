@@ -2,6 +2,79 @@
 
 ## Current state
 
+### forge-workspace-sync delivered and archived (2026-10-08)
+
+`forge-workspace-sync` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-08-forge-workspace-sync`, creating the
+`forge-workspace-sync` spec (two requirements). The operator can now bring
+a whole workspace root into the registry in one terminal invocation:
+`forge workspace sync [ROOT]` (default `.`) walks the immediate children,
+registers manifest directories, adopts decidable directories through the
+unchanged `inspect_import` / `adopt_import` / `derive_project_id` /
+`Registry::register` Core path, reports already-registered directories
+`already` without rewriting, and names every skipped/failed entry with a
+typed reason. Reruns over an unchanged root report everything `already`;
+reruns after adding siblings onboard only the new ones.
+
+The implementation reuses the existing Core adoption/registration
+machinery and changes no other boundary:
+
+- `src/import/mod.rs`: new `WorkspaceSyncEntry` / `WorkspaceSyncSummary` /
+  `WorkspaceSyncReport` plus `sync_workspace(&mut Registry, &Path)` and
+  the versioned `WORKSPACE_SYNC_CONTRACT = "forge-workspace-sync/0.1.0"`
+  constant. Sorted immediate-child walk; `hidden` / `not-a-directory` /
+  `symlink` / `unreadable` / `undecidable` / `ambiguous` skip with a
+  reason; `id-collision` / `path-collision` / `manifest-invalid` /
+  Core-error fail typed; one counts-only `workspace.sync` journal row.
+- `src/main.rs`: new top-level `Workspace` command with `WorkspaceCommands::Sync`
+  (`root: PathBuf`, default `.`), dispatched before the generic
+  `match &cli.command` so the per-directory report still prints when
+  some directories failed; renders the human table and the
+  `forge-workspace-sync/0.1.0` JSON envelope (`--format json` /
+  `--format ndjson`); exit 0 iff no directory failed (skips never fail
+  the run).
+- `src/api/command_catalog.rs`: one new `workspace.sync` row added as
+  `cli_only` with `REASON_LOCAL_FS`; pinned count moves 227 → 229
+  (`workspace` + `workspace.sync`).
+- `frontend/` and the browser onboarding flow are unchanged: the
+  per-directory previews/confirms/digests the workspace panel ships stay
+  authoritative for browser-driven work; this change gives the operator
+  a one-shot, scriptable terminal counterpart.
+
+New `tests/workspace_sync_contract.rs` (7 tests) drives the real
+`forge` binary against a throwaway fixture root and registry:
+
+| Scenario | Asserts |
+|---|---|
+| `sync_onboards_a_mixed_workspace` | manifest / decidable / pre-registered register or report `already`; hidden / ambiguous / undecidable / not-a-directory / symlink / invalid-manifest skip or fail with their named reason; summary `synced 2, already 0, skipped 5, failed 1`; registry holds the onboarded + adopted + pre-registered set; an adopted directory's `forge.yaml` is written |
+| `rerun_is_idempotent_and_converges_new_siblings` | first run `synced 2, already 0, skipped 1, failed 0`; second run `synced 0, already 2, skipped 1, failed 0`, no new `register` journal row, adopted manifest bytes byte-unchanged; adding a third sibling reports `ok new-app new-app` and `synced 1, already 2, skipped 1, failed 0` |
+| `failures_do_not_stop_siblings` | an identity collision (`taken-id` pre-registered elsewhere) reports `failed taken-id id-collision` with no manifest written, an invalid manifest reports `failed bad-app manifest-invalid`, a healthy sibling still reports `ok good-app good-app`; the pre-registered `taken-id` row's path is unchanged; exit non-zero |
+| `json_shape_is_stable` | `--format json` envelope parses with `contract: forge-workspace-sync/0.1.0`, canonical `root`, exactly 8 entries (one per child), and `summary: {ok: 2, already: 0, skipped: 5, failed: 1}` |
+| `skips_only_root_exits_zero` | root with only ambiguous / undecidable / hidden / non-directory entries exits 0 and reports `synced 0, already 0, skipped 4, failed 0` |
+| `empty_root_reports_zero_counts` | empty root exits 0 with `synced 0, already 0, skipped 0, failed 0` |
+| `missing_root_is_a_typed_error_and_touches_nothing` | missing ROOT returns non-zero and the typed `path-unavailable` error on stderr without creating the registry |
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | clean (0 errors; pre-existing warnings only) |
+| new workspace sync contract | **7 passed / 0 failed** |
+| `forge_web_command_catalog_contract` (8) / `forge_web_project_management_contract` (9) / `forge_web_fleet_contract` (11) / `forge_admin_api_contract` (4) / `portal_ui_contract` (39) | all green; no catalog or web regression |
+| `--bin forge` (catalog parity at 229, integrity) | **7 passed / 0 failed** |
+| `--lib import::` (16) / `--lib api::` (49) | green |
+| `catalog_contract` (17) | green |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **81 passed / 0 failed** (before and after archive) |
+| `git diff --check` | clean |
+| `openspec archive forge-workspace-sync --yes` | **20/20 tasks**; `forge-workspace-sync: create` (+2); **no `--skip-specs`**; archived as `2026-10-08-forge-workspace-sync`; `openspec list` subsequently reports **no active changes** |
+| `forge gate` (mandatory local run) | **BLOCKED baseline-identical** — 5 pass (build, placeholder-threshold, product-code-boundary, repository, security); 2 fail (governance-quality 14 errors, source-file-size 50/119), 2 unresolved (declared-verification, tests — environmental adapter timeout); **0 attributable** to this change (the 2 new modules are well under the 1000-line cap and this change's promoted spec carries a real Purpose line, not the archiver's TBD marker) |
+| `openspec list` | no active changes |
+
+Implementation commit: `622a0a3`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### forge-web-human-dashboard delivered and archived (2026-10-07)
 
 `forge-web-human-dashboard` is implemented, verified and archived as

@@ -19,6 +19,92 @@
   };
   const session = () => request("/v1/admin/session", { headers: { Accept: "application/json" } });
 
+  // ---- Dashboard routing -------------------------------------------------
+  //
+  // Every sidebar destination is a real, deep-linkable path served as the one
+  // application shell (see `asset_name` in src/web.rs). The router maps the
+  // current pathname to exactly one view, shows only that view, and keeps the
+  // sidebar active state, the topbar breadcrumb and the document title in
+  // step. The anchors keep real `href`s, so a same-origin hard navigation to a
+  // route still lands on the right view; click interception only upgrades it
+  // to a pushState swap. `index.html` carries `<base href="/">` so its
+  // relative assets resolve from the root even on a sub-path.
+  const VIEW_BY_PATH = {
+    "/": "projects",
+    "/index.html": "projects",
+    "/projects": "projects",
+    "/workbench": "workbench",
+    "/management": "management",
+    "/portfolio": "portfolio",
+    "/delivery": "delivery",
+  };
+  const VIEW_IDS = {
+    projects: "view-projects",
+    workbench: "workbench",
+    management: "management",
+    portfolio: "portfolio",
+    delivery: "delivery",
+  };
+  const VIEW_CRUMBS = {
+    projects: { crumb: "All projects", title: "Projects · Forge" },
+    workbench: { crumb: "Workbench", title: "Workbench · Forge" },
+    management: { crumb: "Manage projects", title: "Manage projects · Forge" },
+    portfolio: { crumb: "Portfolio", title: "Portfolio · Forge" },
+    delivery: { crumb: "Delivery", title: "Delivery · Forge" },
+  };
+
+  function normalizePath(pathname) {
+    const trimmed = pathname.replace(/\/+$/, "");
+    return trimmed === "" ? "/" : trimmed;
+  }
+
+  function viewForPath(pathname) {
+    return VIEW_BY_PATH[normalizePath(pathname)] || "projects";
+  }
+
+  function isRoutePath(pathname) {
+    return Object.prototype.hasOwnProperty.call(VIEW_BY_PATH, normalizePath(pathname));
+  }
+
+  function renderRoute() {
+    const view = viewForPath(window.location.pathname);
+    for (const [name, id] of Object.entries(VIEW_IDS)) {
+      const element = document.getElementById(id);
+      if (element) element.hidden = name !== view;
+    }
+    for (const link of document.querySelectorAll(".sidebar nav .nav-link")) {
+      const active = link.dataset.route === view;
+      link.classList.toggle("nav-active", active);
+      if (active) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    }
+    const chrome = VIEW_CRUMBS[view] || VIEW_CRUMBS.projects;
+    const crumb = document.getElementById("topbar-crumb");
+    if (crumb) crumb.textContent = chrome.crumb;
+    document.title = chrome.title;
+  }
+
+  function navigateTo(path) {
+    if (normalizePath(window.location.pathname) !== normalizePath(path)) {
+      window.history.pushState(null, "", path);
+    }
+    renderRoute();
+  }
+
+  function initRouter() {
+    window.addEventListener("popstate", renderRoute);
+    document.addEventListener("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target.closest("a");
+      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin || !isRoutePath(url.pathname)) return;
+      event.preventDefault();
+      navigateTo(url.pathname);
+    });
+  }
+
   async function loginPage() {
     const form = document.getElementById("login-form");
     const error = document.getElementById("login-error");
@@ -189,7 +275,7 @@
         action.append(open);
       } else if (!project.conflict) {
         const link = document.createElement("a");
-        link.href = "#management";
+        link.href = "/management";
         link.textContent = "Manage";
         link.setAttribute("aria-label", `Manage ${project.name}: onboard it from the workspace panel`);
         action.append(link);
@@ -207,9 +293,9 @@
 
   function openInWorkbench(identity) {
     const select = document.getElementById("workbench-project");
-    select.value = identity;
+    if (select) select.value = identity;
+    navigateTo("/workbench");
     loadWorkbenchDetail(identity);
-    document.getElementById("workbench").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // ---- Fleet filter row (catalog predicates) -----------------------------
@@ -1148,7 +1234,7 @@
       document.createTextNode(`${onboardable} of ${candidates.length} workspace directories are not yet onboarded — `),
     );
     const link = document.createElement("a");
-    link.href = "#management";
+    link.href = "/management";
     link.textContent = "open Workspace onboarding";
     hint.append(link);
   }
@@ -2306,5 +2392,9 @@
   }
 
   if (page === "login") loginPage();
-  if (page === "dashboard") dashboardPage();
+  if (page === "dashboard") {
+    initRouter();
+    renderRoute();
+    dashboardPage();
+  }
 })();

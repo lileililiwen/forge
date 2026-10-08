@@ -90,7 +90,13 @@ fn serve_one(stream: &mut TcpStream, root: &Path) -> std::io::Result<()> {
 fn asset_name(path: &str) -> Option<&'static str> {
     match path {
         "/" | "/login.html" => Some("login.html"),
-        "/index.html" => Some("index.html"),
+        // The dashboard is a single application shell: every deep-linkable
+        // view path returns the same `index.html`. `frontend/index.html`
+        // carries `<base href="/">` so its relative assets resolve from the
+        // root even when the shell is served from a sub-path.
+        "/index.html" | "/projects" | "/workbench" | "/management" | "/portfolio" | "/delivery" => {
+            Some("index.html")
+        }
         "/styles.css" => Some("styles.css"),
         "/config.js" => Some("config.js"),
         "/app.js" => Some("app.js"),
@@ -140,8 +146,22 @@ mod tests {
         assert_eq!(asset_name("/"), Some("login.html"));
         assert_eq!(asset_name("/login.html"), Some("login.html"));
         assert_eq!(asset_name("/app.js"), Some("app.js"));
+        assert_eq!(asset_name("/index.html"), Some("index.html"));
+        // Every dashboard view path resolves to the one application shell.
+        for route in [
+            "/projects",
+            "/workbench",
+            "/management",
+            "/portfolio",
+            "/delivery",
+        ] {
+            assert_eq!(asset_name(route), Some("index.html"), "route {route}");
+        }
         assert_eq!(asset_name("/../src/main.rs"), None);
+        assert_eq!(asset_name("/../../etc/passwd"), None);
+        assert_eq!(asset_name("/%2e%2e/src/main.rs"), None);
         assert_eq!(asset_name("/v1/admin/session"), None);
+        assert_eq!(asset_name("/does-not-exist"), None);
         assert_eq!(content_type("styles.css"), "text/css; charset=utf-8");
     }
 }

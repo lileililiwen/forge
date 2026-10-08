@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
+    <base href="/">
     <title>Projects · Forge</title>
     <link rel="stylesheet" href="styles.css">
     <script src="config.js" defer></script>
@@ -13,17 +14,18 @@
     <a class="skip-link" href="#main-content">Skip to projects</a>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Forge navigation">
-        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
+        <a class="brand" href="/projects"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
         <p class="side-label">WORKSPACE</p>
-            <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" href="#management"><span aria-hidden="true">＋</span> Manage projects</a><a class="nav-link" href="#portfolio"><span aria-hidden="true">◈</span> Portfolio</a><a class="nav-link" href="#delivery"><span aria-hidden="true">⇪</span> Delivery</a></nav>
+            <nav><a class="nav-link nav-active" data-route="projects" href="/projects" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" data-route="workbench" href="/workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" data-route="management" href="/management"><span aria-hidden="true">＋</span> Manage projects</a><a class="nav-link" data-route="portfolio" href="/portfolio"><span aria-hidden="true">◈</span> Portfolio</a><a class="nav-link" data-route="delivery" href="/delivery"><span aria-hidden="true">⇪</span> Delivery</a></nav>
         <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
       </aside>
       <main id="main-content" class="main-area">
         <header class="topbar">
-          <p>Workspace <span aria-hidden="true">/</span> <strong>All projects</strong></p>
+          <p>Workspace <span aria-hidden="true">/</span> <strong id="topbar-crumb">All projects</strong></p>
           <button id="sign-out" class="button button-quiet" type="button">Sign out</button>
         </header>
         <section class="content-wrap" aria-labelledby="page-title">
+          <div id="view-projects" role="region" aria-label="All projects">
           <div class="page-heading">
             <div><p class="eyebrow">Forge workspace</p><h1 id="page-title">Project command center</h1><p class="muted">Your registered projects and their latest activity.</p></div>
             <label class="search-box"><span class="sr-only">Search projects</span><span aria-hidden="true">⌕</span><input id="project-search" type="search" placeholder="Search projects" autocomplete="off"></label>
@@ -41,9 +43,10 @@
             <article class="summary-card"><span class="summary-icon icon-violet" aria-hidden="true">⌀</span><div><p>Unavailable projects</p><strong id="fleet-unavailable">—</strong></div></article>
             <article class="summary-card"><span class="summary-icon icon-blue" aria-hidden="true">Σ</span><div><p>Registered projects</p><strong id="fleet-total">—</strong></div></article>
           </section>
-            <div class="panel-heading"><div><h2 id="sources-title">Data sources</h2><p class="muted">Each source is read explicitly; a source that cannot be read never hides the others.</p></div></div>
-            <ul id="source-list" class="source-list" role="status" aria-live="polite" aria-label="Fleet source status"></ul>
-          </section>
+            <section class="source-panel" aria-labelledby="sources-title">
+              <div class="panel-heading"><div><h2 id="sources-title">Data sources</h2><p class="muted">Each source is read explicitly; a source that cannot be read never hides the others.</p></div></div>
+              <ul id="source-list" class="source-list" role="status" aria-live="polite" aria-label="Fleet source status"></ul>
+            </section>
           <section class="project-panel" aria-labelledby="projects-title">
             <div class="panel-heading"><div><h2 id="projects-title">All projects</h2><p id="project-count" class="muted">Loading your projects…</p><p id="ws-fleet-hint" class="muted" hidden></p></div>
               <div class="panel-tools">
@@ -76,7 +79,8 @@
               <table><thead><tr><th scope="col">Project</th><th scope="col">Details</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody id="project-rows"></tbody></table>
             </div>
           </section>
-          <section id="workbench" class="project-panel" aria-labelledby="workbench-title">
+          </div>
+          <section id="workbench" class="project-panel" aria-labelledby="workbench-title" hidden>
             <div class="panel-heading">
               <div><h2 id="workbench-title">Project workbench</h2><p class="muted">Open one managed project, see its current maturity, and run the actions that move it forward. Every action runs through the crate's own validated in-process operations — never a shell.</p></div>
               <div class="panel-tools">
@@ -158,7 +162,7 @@
               </div>
             </div>
           </section>
-          <section id="management" class="project-panel" aria-labelledby="management-title">
+          <section id="management" class="project-panel" aria-labelledby="management-title" hidden>
             <div class="panel-heading">
               <div><h2 id="management-title">Bring a workspace into Forge</h2><p class="muted">For more than a couple of sibling projects, use the bulk Workspace onboarding panel below: it discovers every directory under the server-configured project root, lets you tick which ones to import or register, previews one digest-bound batch, and only writes on your confirmation. The single-project <code>forge new</code> / <code>forge import</code> / <code>forge register</code> forms below are the right tool when the directory does not exist yet, or when you are onboarding one project at a time.</p></div>
             </div>
@@ -190,7 +194,7 @@
             <p class="muted">Use these when the directory does not exist yet, or when you are onboarding one project at a time. The browser supplies only a validated single-segment project name and typed fields; the server joins the name to the configured projects root.</p>
             <div id="management-actions" class="wb-actions-list"></div>
           </section>
-          <section id="portfolio" class="project-panel" aria-labelledby="portfolio-title">
+          <section id="portfolio" class="project-panel" aria-labelledby="portfolio-title" hidden>
             <div class="panel-heading">
               <div><h2 id="portfolio-title">Portfolio &amp; evidence</h2><p class="muted">Forge-owned metadata across every project, plus cross-project source evidence. Every read runs through the crate's own typed in-process functions — no provider is probed on load, and imported evidence stays source-owned and read-only.</p></div>
               <div class="panel-tools">
@@ -223,7 +227,7 @@
               </div>
             </section>
           </section>
-          <section id="delivery" class="project-panel" aria-labelledby="delivery-title">
+          <section id="delivery" class="project-panel" aria-labelledby="delivery-title" hidden>
             <div class="panel-heading">
               <div><h2 id="delivery-title">Delivery controls</h2><p class="muted">Review the share pipeline, confirm each delivery action against the exact preview you reviewed, and track publication outcomes. Every action runs through the crate's own typed in-process functions — no shell, no browser-supplied path, no live provider on load.</p></div>
               <div class="panel-tools">

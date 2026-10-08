@@ -1,7 +1,7 @@
 # gate-contract-size-split Specification
 
 ## Purpose
-TBD - created by archiving change gate-contract-size-split. Update Purpose after archive.
+Keep the gate contract suite under the file-size cap by splitting it into scenario submodules with every test body verbatim and identical counts.
 ## Requirements
 ### Requirement: Gate contract target moves under the line cap with bodies verbatim
 

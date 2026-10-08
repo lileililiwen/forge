@@ -487,6 +487,126 @@ fn slice_four_layout_navigation_tokens() {
 }
 
 #[test]
+fn slice_six_data_table_performance_tokens() {
+    // Static contract for `portal-data-table-performance` (slice 6, LAST):
+    // the fleet table sorts with announced state, exports the filtered
+    // set as CSV in the browser, pages large fleets with honest counts,
+    // and loads behind skeleton placeholders — with all slice 1–5
+    // behaviors (targets, labels, summaries, contrast, deep links) intact
+    // and no API/catalog/CLI change.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let app = std::fs::read_to_string(root.join("frontend/app.js")).expect("app.js");
+    let html = std::fs::read_to_string(root.join("frontend/index.html")).expect("index.html");
+    let css = std::fs::read_to_string(root.join("frontend/styles.css")).expect("styles.css");
+
+    // Sortable headers: native buttons in the three meaningful columns,
+    // aria-sort on the header cells, stable sort composing with filters.
+    for token in [
+        "id=\"sort-name\"",
+        "id=\"sort-details\"",
+        "id=\"sort-status\"",
+        "aria-sort",
+        "Sort by Project",
+        "fleetSort",
+        "fleetSortValue",
+        "fleetSortedProjects",
+        "syncFleetSortHeaders",
+    ] {
+        assert!(
+            html.contains(token) || app.contains(token),
+            "slice-6 sortable-table token `{token}` must be present"
+        );
+    }
+
+    // CSV export of the filtered rows: plain browser download, no endpoint.
+    for token in [
+        "id=\"fleet-export\"",
+        "Export filtered CSV",
+        "fleetExportCSV",
+        "forge-projects.csv",
+        "text/csv",
+        "createObjectURL",
+    ] {
+        assert!(
+            html.contains(token) || app.contains(token),
+            "slice-6 export-option token `{token}` must be present"
+        );
+    }
+    assert!(
+        !app.contains("/v1/admin/projects/export") && !app.contains("/v1/projects/export"),
+        "the CSV export must not call a new endpoint"
+    );
+
+    // Windowed rendering with honest counts: one page mounted at a time.
+    for token in [
+        "FLEET_PAGE_SIZE",
+        "id=\"fleet-pager\"",
+        "id=\"fleet-prev\"",
+        "id=\"fleet-next\"",
+        "id=\"fleet-page-info\"",
+        "Showing ",
+        "filtered (",
+        "aria-live=\"polite\"",
+    ] {
+        assert!(
+            html.contains(token) || app.contains(token),
+            "slice-6 pager token `{token}` must be present"
+        );
+    }
+
+    // Skeleton loading + reserved count space: no text-only Loading, no
+    // layout jump; shimmer collapses under reduced motion.
+    for token in [
+        "renderFleetSkeleton",
+        "skeletonLine",
+        "aria-busy",
+        "fleet-shimmer",
+        ".skeleton",
+        "min-height:calc(var(--text-2xl)",
+    ] {
+        assert!(
+            html.contains(token) || app.contains(token) || css.contains(token),
+            "slice-6 progressive-loading token `{token}` must be present"
+        );
+    }
+    assert!(
+        !app.contains("Loading delivery status…</")
+            && !app.contains("el(\"p\", \"muted\", \"Loading maintainer data…\")"),
+        "delivery/maintain loaders must use skeleton placeholders, not bare text"
+    );
+
+    // The catalog predicate query and JSON shape stay exactly as-is.
+    assert!(
+        app.contains("params.append(\"limit\", \"1000\")"),
+        "the catalog `limit:1000` query must stay exactly as-is"
+    );
+
+    // Slice 1–5 contracts intact: targets, touch, labels, summaries,
+    // contrast pairs, filter state, unknown fallback, z-scale, icons,
+    // type, motion, deep links.
+    for token in [
+        "min-height:44px",
+        "touch-action:manipulation",
+        "renderErrorSummary",
+        "fleet-filter-error",
+        "aria-current",
+        "--focus:#9aa5ff",
+        "forge.filter-state.v1",
+        "view-unknown",
+        "--z-skip:60",
+        "applyWorkbenchProjectParam",
+        "loginNextTarget",
+        "scrollIntoViewRespectingMotion",
+        "--icon-stroke:1.8",
+        "html{font-size:16px}",
+        "--dur-enter:140ms",
+        "prefers-reduced-motion",
+    ] {
+        let present = html.contains(token) || css.contains(token) || app.contains(token);
+        assert!(present, "prior-slice token `{token}` must stay intact");
+    }
+}
+#[test]
 fn slice_five_icon_type_motion_tokens() {
     // Static contract for `portal-icon-type-motion` (slice 5): every UI
     // glyph is an inline SVG from one stroke set with uniform size/width

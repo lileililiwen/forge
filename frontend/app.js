@@ -420,11 +420,40 @@
     return "No recent activity";
   }
 
-  function renderProjects(projects) {
-    const body = document.getElementById("project-rows");
+  function fleetDetailsLine(project) {
+    return (project.is_self ? "Forge itself" : profileWords(project.profile))
+      + (project.management === "managed" || project.is_self ? "" : " · not managed yet");
+  }
+
+  // ---- Fleet table view state (slice 6) -----------------------------------
+  //
+  // Sort and page are in-memory view state over rows already fetched: sort
+  // applies after the existing free-text/source/catalog-predicate filter
+  // pipeline (which is untouched), and paging windows that ordered set.
+  // The catalog `limit:1000` query and JSON shape stay exactly as-is; the
+  // CSV export below serializes the same filtered+sorted rows client-side.
+  const FLEET_PAGE_SIZE = 50;
+  const FLEET_SKELETON_ROWS = 8;
+  let fleetSort = { key: null, dir: "asc" };
+  let fleetPage = 1;
+
+  const FLEET_SORT_CONTROLS = [
+    ["sort-name", "name"],
+    ["sort-details", "details"],
+    ["sort-status", "status"],
+  ];
+
+  function fleetSortValue(project, key) {
+    if (key === "name") return (project.name || project.identity || "").toLowerCase();
+    if (key === "details") return fleetDetailsLine(project).toLowerCase();
+    if (key === "status") return projectStatusLine(project).toLowerCase();
+    return "";
+  }
+
+  function fleetFilteredProjects(projects) {
     const query = document.getElementById("project-search").value.trim().toLowerCase();
     const sourceFilter = document.getElementById("source-filter").value;
-    const filtered = projects.filter((project) => {
+    return projects.filter((project) => {
       if (sourceFilter && project.source !== sourceFilter) return false;
       // The catalog predicate set, fetched from GET /v1/projects/catalog:
       // the same Core query `forge project list` runs for the same
@@ -432,8 +461,122 @@
       if (fleetFilterIds && !fleetFilterIds.has(project.identity)) return false;
       return `${project.name} ${project.identity} ${project.profile}`.toLowerCase().includes(query);
     });
+  }
+
+  // Stable sort: ties keep their pre-sort (API/filter) order via the
+  // decorated index, so sorting never shuffles equal rows.
+  function fleetSortedProjects(filtered) {
+    if (!fleetSort.key) return filtered.slice();
+    const key = fleetSort.key;
+    const dir = fleetSort.dir === "desc" ? -1 : 1;
+    return filtered
+      .map((project, index) => ({ project, index }))
+      .sort((a, b) => {
+        const left = fleetSortValue(a.project, key);
+        const right = fleetSortValue(b.project, key);
+        if (left < right) return -1 * dir;
+        if (left > right) return 1 * dir;
+        return a.index - b.index;
+      })
+      .map((entry) => entry.project);
+  }
+
+  function syncFleetSortHeaders() {
+    for (const [id, key] of FLEET_SORT_CONTROLS) {
+      const control = document.getElementById(id);
+      if (!control) continue;
+      const cell = control.closest("th");
+      const indicator = control.querySelector(".th-sort-ind");
+      if (fleetSort.key === key) {
+        if (cell) cell.setAttribute("aria-sort", fleetSort.dir === "desc" ? "descending" : "ascending");
+        if (indicator) indicator.textContent = fleetSort.dir === "desc" ? " ▼" : " ▲";
+      } else {
+        if (cell) cell.setAttribute("aria-sort", "none");
+        if (indicator) indicator.textContent = "";
+      }
+    }
+  }
+
+  function syncFleetPager(sortedLength, totalLength) {
+    const pager = document.getElementById("fleet-pager");
+    const prev = document.getElementById("fleet-prev");
+    const next = document.getElementById("fleet-next");
+    const info = document.getElementById("fleet-page-info");
+    if (!pager || !prev || !next || !info) return;
+    const pages = Math.max(1, Math.ceil(sortedLength / FLEET_PAGE_SIZE));
+    if (fleetPage > pages) fleetPage = pages;
+    if (fleetPage < 1) fleetPage = 1;
+    pager.hidden = sortedLength === 0;
+    prev.disabled = fleetPage <= 1;
+    next.disabled = fleetPage >= pages;
+    info.textContent = `Page ${fleetPage} of ${pages}`;
+    const start = (fleetPage - 1) * FLEET_PAGE_SIZE;
+    const shown = Math.min(FLEET_PAGE_SIZE, sortedLength - start);
+    const range = sortedLength === 0 ? "0" : `${start + 1}–${start + shown}`;
+    document.getElementById("project-count").textContent =
+      `Showing ${range} of ${sortedLength} filtered (${totalLength} total)`;
+    const exporter = document.getElementById("fleet-export");
+    if (exporter) exporter.disabled = sortedLength === 0;
+  }
+
+  function skeletonLine(label) {
+    const wrap = document.createElement("p");
+    wrap.className = "muted";
+    const text = document.createElement("span");
+    text.className = "sr-only";
+    text.textContent = label;
+    const bar = document.createElement("span");
+    bar.className = "skeleton skeleton-line";
+    bar.setAttribute("aria-hidden", "true");
+    wrap.append(text, bar);
+    return wrap;
+  }
+
+  // Placeholder rows while the fleet fetch is in flight: shimmer bars, not
+  // text alone, with aria-busy on the region. Replaced by real rows (or the
+  // honest error path) once the fetch settles.
+  function renderFleetSkeleton() {
+    const region = document.getElementById("fleet-table-region");
+    const body = document.getElementById("project-rows");
+    if (!region || !body) return;
+    region.hidden = false;
+    region.setAttribute("aria-busy", "true");
     body.replaceChildren();
-    for (const project of filtered) {
+    for (let i = 0; i < FLEET_SKELETON_ROWS; i += 1) {
+      const row = document.createElement("tr");
+      row.className = "skeleton-row";
+      for (let c = 0; c < 3; c += 1) {
+        const cell = document.createElement("td");
+        const bar = document.createElement("span");
+        bar.className = "skeleton";
+        bar.setAttribute("aria-hidden", "true");
+        cell.append(bar);
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    document.getElementById("project-count").textContent = "Loading your projects…";
+    const pager = document.getElementById("fleet-pager");
+    if (pager) pager.hidden = true;
+  }
+
+  function clearFleetBusy() {
+    const region = document.getElementById("fleet-table-region");
+    if (region) region.removeAttribute("aria-busy");
+  }
+
+  function renderProjects(projects) {
+    const body = document.getElementById("project-rows");
+    const filtered = fleetFilteredProjects(projects);
+    const sorted = fleetSortedProjects(filtered);
+    const pages = Math.max(1, Math.ceil(sorted.length / FLEET_PAGE_SIZE));
+    if (fleetPage > pages) fleetPage = pages;
+    if (fleetPage < 1) fleetPage = 1;
+    const start = (fleetPage - 1) * FLEET_PAGE_SIZE;
+    const pageRows = sorted.slice(start, start + FLEET_PAGE_SIZE);
+    clearFleetBusy();
+    body.replaceChildren();
+    for (const project of pageRows) {
       const row = document.createElement("tr");
       if (project.is_self) row.className = "row-self";
       if (project.conflict) row.className = "row-conflict";
@@ -452,9 +595,7 @@
       }
       row.append(identity);
 
-      const details = (project.is_self ? "Forge itself" : profileWords(project.profile))
-        + (project.management === "managed" || project.is_self ? "" : " · not managed yet");
-      row.append(textCell(details));
+      row.append(textCell(fleetDetailsLine(project)));
 
       const state = document.createElement("td");
       const stateLabel = document.createElement("span"); stateLabel.className = "state-label";
@@ -485,8 +626,72 @@
       body.append(row);
     }
     document.getElementById("no-results").hidden = projects.length === 0 || filtered.length > 0;
-    document.querySelector(".table-scroll").hidden = filtered.length === 0;
-    document.getElementById("project-count").textContent = `${filtered.length} of ${projects.length} project${projects.length === 1 ? "" : "s"}`;
+    document.getElementById("fleet-table-region").hidden = filtered.length === 0;
+    syncFleetSortHeaders();
+    syncFleetPager(sorted.length, projects.length);
+  }
+
+  function csvEscapeField(field) {
+    const text = field === null || field === undefined ? "" : String(field);
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  // CSV export of the currently filtered+sorted rows (pre-page): a plain
+  // browser download built from rows already in memory. No endpoint, no
+  // server state — the catalog query and JSON shape are untouched.
+  function fleetExportCSV() {
+    const rows = fleetSortedProjects(fleetFilteredProjects(window.__forgeProjects || []));
+    if (!rows.length) return;
+    const lines = [["name", "identity", "profile", "details", "status", "source", "management"].join(",")];
+    for (const project of rows) {
+      lines.push([
+        project.name || "",
+        project.identity || "",
+        project.profile || "",
+        fleetDetailsLine(project),
+        projectStatusLine(project),
+        project.source || "",
+        project.management || "",
+      ].map(csvEscapeField).join(","));
+    }
+    const blob = new Blob([`${lines.join("\r\n")}\r\n`], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "forge-projects.csv";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function initFleetTableControls() {
+    for (const [id, key] of FLEET_SORT_CONTROLS) {
+      const control = document.getElementById(id);
+      if (!control) continue;
+      control.addEventListener("click", () => {
+        if (fleetSort.key !== key) fleetSort = { key, dir: "asc" };
+        else if (fleetSort.dir === "asc") fleetSort = { key, dir: "desc" };
+        else fleetSort = { key: null, dir: "asc" };
+        fleetPage = 1;
+        syncFleetSortHeaders();
+        renderProjects(window.__forgeProjects || []);
+      });
+    }
+    const exporter = document.getElementById("fleet-export");
+    if (exporter) exporter.addEventListener("click", fleetExportCSV);
+    const prev = document.getElementById("fleet-prev");
+    const next = document.getElementById("fleet-next");
+    if (prev) prev.addEventListener("click", () => {
+      if (fleetPage > 1) {
+        fleetPage -= 1;
+        renderProjects(window.__forgeProjects || []);
+      }
+    });
+    if (next) next.addEventListener("click", () => {
+      fleetPage += 1;
+      renderProjects(window.__forgeProjects || []);
+    });
   }
 
   function openInWorkbench(identity) {
@@ -540,6 +745,8 @@
 
   async function refreshFleetFilters() {
     showFleetFilterError("");
+    // The set changed: the window restarts at the first page.
+    fleetPage = 1;
     if (!fleetFiltersActive()) {
       fleetFilterIds = null;
       renderProjects(window.__forgeProjects || []);
@@ -790,7 +997,7 @@
   // hand-copies operation numbers or revisions.
   async function loadProjectDelivery(id) {
     const box = document.getElementById("wb-delivery");
-    if (box) box.replaceChildren(el("p", "muted", "Loading delivery status…"));
+    if (box) box.replaceChildren(skeletonLine("Loading delivery status…"));
     workbench.delivery = null;
     try {
       const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/delivery/status`, { headers: { Accept: "application/json" } });
@@ -823,7 +1030,7 @@
     const body = document.getElementById("wb-maintain-body");
     const actions = document.getElementById("wb-maintain-actions");
     if (!body || !actions) return;
-    body.replaceChildren(el("p", "muted", "Loading maintainer data…"));
+    body.replaceChildren(skeletonLine("Loading maintainer data…"));
     actions.replaceChildren();
     let data;
     try {
@@ -3139,6 +3346,9 @@
       return;
     }
     loadCommands();
+    // Show placeholder rows (not text alone) while the fleet resolves.
+    renderFleetSkeleton();
+    initFleetTableControls();
     let projects = [];
     try {
       const data = await request("/v1/admin/projects", { headers: { Accept: "application/json" } });
@@ -3161,14 +3371,19 @@
       if (projects.length) {
         if (restoredFilters) renderProjectsFromInputs();
         else renderProjects(projects);
-        document.querySelector(".table-scroll").hidden = false;
+        document.getElementById("fleet-table-region").hidden = false;
+      } else {
+        clearFleetBusy();
+        document.getElementById("project-rows").replaceChildren();
+        document.getElementById("fleet-table-region").hidden = true;
+        document.getElementById("project-count").textContent = "Showing 0 of 0 filtered (0 total)";
       }
       initWorkbench(projects);
       initPortfolio();
       initDelivery(projects);
       initWorkspaceOnboarding();
       wsDiscover();
-      const refresh = () => renderProjects(window.__forgeProjects || projects);
+      const refresh = () => { fleetPage = 1; renderProjects(window.__forgeProjects || projects); };
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);
       initFleetFilters();
@@ -3187,6 +3402,9 @@
     error.textContent = message;
     error.hidden = false;
     document.getElementById("project-count").textContent = "Project data unavailable";
+    clearFleetBusy();
+    const skeleton = document.getElementById("project-rows");
+    if (skeleton) skeleton.replaceChildren();
   }
 
   if (page === "login") loginPage();

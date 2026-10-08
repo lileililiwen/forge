@@ -198,3 +198,21 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .summary-card strong,#project-count,.detail-list dd,.detail-row dd,.lifecycle-list dd,td,.wb-digest,.updated-label,.evidence-chip,.wb-action-cli{font-variant-numeric:tabular-nums}
 .auth-card>.muted,.panel-heading .muted,.empty-state p,.wb-action-summary,.wb-plan-result,.notice,.source-reason,.source-malformed,.fleet-hint,.field-hint{max-width:70ch}
 .wb-digest{overflow-wrap:anywhere}
+/* ---- slice 6: sortable fleet table, pager, skeleton loading ----
+ * Sort headers are native buttons (keyboard-reachable, 44px minima
+ * kept); skeleton shimmer is a background-position animation only
+ * (no layout property) and collapses under reduced motion; summary
+ * counts reserve vertical space so arrival never shifts layout.
+ * All slice 1–5 tokens are untouched. */
+.th-sort{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
+.th-sort:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.th-sort-ind{color:var(--faint);font-size:var(--text-xs)}
+.fleet-pager{display:flex;align-items:center;gap:10px;margin:-8px 22px 22px;padding:0}
+#fleet-page-info{color:var(--faint);font-size:var(--text-sm);font-variant-numeric:tabular-nums;white-space:nowrap}
+#project-count{min-height:1.5em}
+.summary-card strong{min-height:calc(var(--text-2xl)*1.2)}
+.skeleton{display:block;min-height:14px;border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,.06) 25%,rgba(255,255,255,.14) 50%,rgba(255,255,255,.06) 75%);background-size:200% 100%;animation:fleet-shimmer 1.2s linear infinite}
+.skeleton-line{max-width:280px;margin-top:8px}
+.skeleton-row td{padding-top:14px;padding-bottom:14px}
+@keyframes fleet-shimmer{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.skeleton{animation:none}}

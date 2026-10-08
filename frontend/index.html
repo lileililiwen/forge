@@ -50,6 +50,7 @@
           <section class="project-panel" aria-labelledby="projects-title">
             <div class="panel-heading"><div><h2 id="projects-title">All projects</h2><p id="project-count" class="muted">Loading your projects…</p><p id="ws-fleet-hint" class="muted" hidden></p></div>
               <div class="panel-tools">
+                <button id="fleet-export" class="button button-quiet" type="button" disabled>Export filtered CSV</button>
                 <label class="filter-box"><span class="sr-only">Filter by source</span>
                   <select id="source-filter">
                     <option value="">All sources</option>
@@ -76,9 +77,14 @@
             <p id="fleet-filter-hint" class="field-hint fleet-hint">Blank means any; values match catalog predicates.</p>
             <p id="fleet-filter-error" class="fleet-filter-error" role="alert" hidden></p>
             <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name, profile or source filter.</p></div>
-            <div class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
-              <table><thead><tr><th scope="col">Project</th><th scope="col">Details</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody id="project-rows"></tbody></table>
+            <div id="fleet-table-region" class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
+              <table id="fleet-table"><thead><tr><th scope="col" aria-sort="none"><button id="sort-name" class="th-sort" type="button" aria-label="Sort by Project">Project<span class="th-sort-ind" aria-hidden="true"></span></button></th><th scope="col" aria-sort="none"><button id="sort-details" class="th-sort" type="button" aria-label="Sort by Details">Details<span class="th-sort-ind" aria-hidden="true"></span></button></th><th scope="col" aria-sort="none"><button id="sort-status" class="th-sort" type="button" aria-label="Sort by Status">Status<span class="th-sort-ind" aria-hidden="true"></span></button></th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody id="project-rows"></tbody></table>
             </div>
+            <nav id="fleet-pager" class="fleet-pager" aria-label="Fleet pages" hidden>
+              <button id="fleet-prev" class="button button-quiet" type="button" aria-label="Previous fleet page">Previous</button>
+              <span id="fleet-page-info" aria-live="polite"></span>
+              <button id="fleet-next" class="button button-quiet" type="button" aria-label="Next fleet page">Next</button>
+            </nav>
           </section>
           </div>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title" hidden>

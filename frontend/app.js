@@ -324,7 +324,7 @@
         form.elements.password.value = "";
       } finally {
         button.disabled = false;
-        button.innerHTML = 'Sign in to your workspace <span aria-hidden="true">→</span>';
+        button.innerHTML = 'Sign in to your workspace <span aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg></span>';
       }
     });
     // Password show/hide: flips only the input type and the toggle state.
@@ -2065,8 +2065,9 @@
     const head = el("button", "wb-action-head");
     head.type = "button";
     head.setAttribute("aria-expanded", "false");
-    const caret = el("span", "wb-action-caret", "▸");
+    const caret = el("span", "wb-action-caret");
     caret.setAttribute("aria-hidden", "true");
+    caret.innerHTML = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>';
     const headText = el("span", "wb-action-headtext");
     // The human label leads; the CLI invocation is secondary, for the operator
     // who wants to reproduce the action in a terminal. It is never the title.

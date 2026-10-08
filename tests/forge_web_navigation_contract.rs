@@ -485,3 +485,135 @@ fn slice_four_layout_navigation_tokens() {
         assert!(css.contains(token), "styles.css must implement `{token}`");
     }
 }
+
+#[test]
+fn slice_five_icon_type_motion_tokens() {
+    // Static contract for `portal-icon-type-motion` (slice 5): every UI
+    // glyph is an inline SVG from one stroke set with uniform size/width
+    // tokens, type declares its base/scale/figures/prose guard, and motion
+    // runs on shared enter/exit tokens — with all slice 1–4 behaviors
+    // (targets, labels, summaries, contrast, deep links) intact.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let app = std::fs::read_to_string(root.join("frontend/app.js")).expect("app.js");
+    let html = std::fs::read_to_string(root.join("frontend/index.html")).expect("index.html");
+    let login = std::fs::read_to_string(root.join("frontend/login.html")).expect("login.html");
+    let css = std::fs::read_to_string(root.join("frontend/styles.css")).expect("styles.css");
+
+    // No unicode-glyph icon remains at any icon site (punctuation `·`/`—`
+    // and prose arrows are not icons and are out of scope).
+    for glyph in [
+        "▦", "⚙", "＋", "◈", "⇪", "⌕", "⌁", "✔", "↻", "⌀", "Σ", "●", "▸",
+    ] {
+        assert!(
+            !html.contains(glyph) && !login.contains(glyph),
+            "no `{glyph}` icon glyph may remain in the shipped HTML"
+        );
+    }
+    assert!(
+        !app.contains("▸")
+            && !css.contains("content:\"✓\"")
+            && !css.contains("word-break:break-all"),
+        "the caret, story-check, and digest glyph/breakage must be gone"
+    );
+    assert!(
+        !login.contains("aria-hidden=\"true\">→<") && !app.contains("aria-hidden=\"true\">→<"),
+        "button icon markup must be SVG, not a text arrow"
+    );
+
+    // One consistent inline-SVG set: 16 dashboard sites + 5 login sites +
+    // the caret and submit-restore strings in app.js, all stroke-based,
+    // all decorative-hidden beside visible text.
+    let svg_open = "<svg class=\"icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">";
+    assert!(
+        html.matches(svg_open).count() == 16,
+        "index.html must carry 16 stroke-set SVGs (5 nav + 1 search + 8 summary + 2 empty)"
+    );
+    assert!(
+        login.matches(svg_open).count() == 5,
+        "login.html must carry 5 stroke-set SVGs (3 checks + lock + arrow)"
+    );
+    for token in ["M9 18l6-6-6-6", "M5 12h14", "caret.innerHTML"] {
+        assert!(app.contains(token), "app.js must implement `{token}`");
+    }
+    for token in [
+        "summary-icon",
+        "empty-mark",
+        "check-disc",
+        "lock-icon",
+        "aria-current=\"page\"",
+    ] {
+        assert!(
+            html.contains(token) || login.contains(token),
+            "icon hooks and active-state names must stay `{token}`"
+        );
+    }
+
+    // Icon size/width tokens defined once and wired per site.
+    for token in [
+        "--icon-sm:14px",
+        "--icon-md:16px",
+        "--icon-lg:20px",
+        "--icon-stroke:1.8",
+        "stroke-width:var(--icon-stroke)",
+        ".check-disc",
+        "svg.icon",
+    ] {
+        assert!(css.contains(token), "styles.css must implement `{token}`");
+    }
+
+    // Declared type: 16px base, body 1rem/1.6, named scale, tabular
+    // figures, 70ch prose guard, sane long-token wrapping.
+    for token in [
+        "html{font-size:16px}",
+        "body{font-size:1rem;line-height:1.6}",
+        "--text-xl:16px",
+        "--text-2xl:20px",
+        "font-variant-numeric:tabular-nums",
+        "max-width:70ch",
+        "overflow-wrap:anywhere",
+    ] {
+        assert!(css.contains(token), "styles.css must implement `{token}`");
+    }
+
+    // Shared motion: enter/exit durations (exit ~64% of enter), named
+    // easings, asymmetric press exits, token-driven caret, no bare
+    // one-duration-everywhere on interactive rules, guard kept.
+    for token in [
+        "--dur-enter:140ms",
+        "--dur-exit:90ms",
+        "--ease-standard",
+        "--ease-out",
+        "transition-duration:var(--dur-exit)",
+        "transition:transform var(--dur-enter)",
+        "prefers-reduced-motion",
+    ] {
+        assert!(css.contains(token), "styles.css must implement `{token}`");
+    }
+    assert!(
+        !css.contains("120ms ease"),
+        "interactive transitions must run on the shared tokens, not bare 120ms"
+    );
+
+    // Slice 1–4 contracts intact: targets, touch, labels, summaries,
+    // contrast pairs, filter state, unknown fallback, z-scale, deep links.
+    for token in [
+        "min-height:44px",
+        "touch-action:manipulation",
+        "renderErrorSummary",
+        "fleet-filter-error",
+        "aria-current",
+        "--focus:#9aa5ff",
+        "forge.filter-state.v1",
+        "view-unknown",
+        "--z-skip:60",
+        "applyWorkbenchProjectParam",
+        "loginNextTarget",
+        "scrollIntoViewRespectingMotion",
+    ] {
+        let present = html.contains(token)
+            || login.contains(token)
+            || css.contains(token)
+            || app.contains(token);
+        assert!(present, "prior-slice token `{token}` must stay intact");
+    }
+}

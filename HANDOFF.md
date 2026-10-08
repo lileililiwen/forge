@@ -2,6 +2,58 @@
 
 ## Current state
 
+### gate-contract-size-split delivered and archived (2026-10-08)
+
+File 1 of the source-file-size grind per
+`openspec/changes/archive/2026-10-08-source-file-size-remediation/design.md`
+§9 (verbatim-move rules per §10 decision ledger). Tests-side only;
+no behavior change anywhere.
+
+Move (`tests/gate_contract.rs` 1157 lines deleted,
+`tests/gate_contract/` created): `main.rs` (file doc, all shared
+helpers, `GateRun` struct, five `mod` declarations; `fn` →
+`pub(crate) fn` per the `tests/kit_contract/` precedent) plus five
+scenario-family submodules — `documented_help` (5),
+`passing` (7), `blocked` (7), `review_required` (1),
+`unknown_runtime` (8). Every one of the 28 `#[test]` function
+bodies copied verbatim (verified by substring assertion against
+the original); no cleanup, no renames. No `src/` change, no `mod`
+change in `src/lib.rs` or `src/main.rs`, no public
+symbol/route/CLI/env change.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `cargo test --test gate_contract` pre-move | **28 passed / 0 failed / 0 ignored** |
+| `cargo test --test gate_contract` post-move | **28 passed / 0 failed / 0 ignored** (identical) |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **88 passed / 0 failed** after archive (+1 new canonical spec) |
+| `git diff --check` | clean |
+| `./target/debug/forge gate --dry-run` | plan rendered; 9 required checks |
+| `./target/debug/forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change is tests-side only and the gate evaluates `src/`, so the count is unchanged); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive gate-contract-size-split --yes` | `gate-contract-size-split: create` (+1); **no `--skip-specs`**; archived as `2026-10-08-gate-contract-size-split`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior entries (src-file splitting program; harness
+timeout investigation).
+
+Files changed: `tests/gate_contract.rs` (deleted),
+`tests/gate_contract/` (`main.rs` + 5 submodules), new
+`openspec/changes/archive/2026-10-08-gate-contract-size-split/`
+(proposal, design, tasks, delta spec), new canonical spec
+`openspec/specs/gate-contract-size-split/spec.md` (+1),
+`HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `15081e8`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### portal-data-table-performance delivered and archived (2026-10-08)
 
 Slice 6 of the frontend UI/UX audit (LAST; queue is now empty).

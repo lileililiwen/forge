@@ -119,9 +119,13 @@ scripts/web.sh start
 scripts/web.sh status
 ```
 
-Default ports: API on `http://127.0.0.1:8765`, web UI on
+Default ports: API on `http://127.0.0.1:8766`, web UI on
 `http://127.0.0.1:4173`. Override either with `--api-port` or
-`--web-port`. To rebuild before starting, pass `--build` to `start`.
+`--web-port`. The script stages `frontend/` into a per-service
+directory under `.forge/run/web-root/` and rewrites `config.js`
+with the API base URL the operator chose, so the web UI follows
+`--api-port` instead of silently failing to reach the API. To
+rebuild before starting, pass `--build` to `start`.
 
 To enable the dashboard's "Workspace onboarding" panel, set
 `FORGE_ADMIN_PROJECTS_ROOT` to the folder holding your projects before
@@ -172,7 +176,7 @@ the same ones the script invokes:
 
 ```sh
 # Terminal 1 — the API
-./target/debug/forge api serve --bind 127.0.0.1 --port 8765
+./target/debug/forge api serve --bind 127.0.0.1 --port 8766
 
 # Terminal 2 — the web page
 ./target/debug/forge web serve --bind 127.0.0.1 --port 4173

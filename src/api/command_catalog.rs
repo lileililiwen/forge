@@ -2262,9 +2262,10 @@ impl CatalogBuilder {
             Identity,
             Project,
         );
-        self.cli_only(Some("identity"), "setup", "Initialize the one Forge-wide portal administrator (password is read without terminal echo).", Identity, Forge, SessionAdmin, REASON_TTY_HIDDEN, none);
-        self.cli_only(Some("identity"), "change-password", "Replace the Forge-wide administrator password without changing the email; revokes every active browser session (new password read without terminal echo).", Identity, Forge, SessionAdmin, REASON_TTY_HIDDEN, none);
+        self.cli_only(Some("identity"), "setup", "Initialize the one Forge-wide portal administrator; the password is read without terminal echo, or from stdin with `--password-stdin`.", Identity, Forge, SessionAdmin, REASON_TTY_HIDDEN, none);
+        self.cli_only(Some("identity"), "change-password", "Replace the Forge-wide administrator password without changing the email; revokes every active browser session (new password read without terminal echo, or from stdin with `--password-stdin`).", Identity, Forge, SessionAdmin, REASON_TTY_HIDDEN, none);
         self.cli_only(Some("identity"), "generate-password", "Print one strong random password from operating-system entropy without reading or writing the registry.", Identity, Forge, Read, REASON_LOCAL_SECRET, none);
+        self.cli_only(Some("identity"), "status", "Report whether the one Forge-wide administrator is configured and the stored email (never the password); reads the local registry directly.", Identity, Forge, Read, REASON_LOCAL_FS, caps_local);
         self.leaf(
             Some("identity"),
             "validate-config",
@@ -2630,14 +2631,14 @@ mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 232 Clap paths (probe-verified from
+        // The row count equals the 233 Clap paths (probe-verified from
         // `Cli::command()`, including the `identity change-password` and
         // `identity generate-password` leaf commands, the `workspace` /
         // `workspace.sync` bulk-convergence paths and the `plugins` /
-        // `plugins.list` registry paths, plus the new `classify.derive`
-        // path) plus the explicit top-level `help` row, plus the new
-        // `classify.apply` path.
-        assert_eq!(rows().len(), 233);
+        // `plugins.list` registry paths, plus the `classify.derive` and
+        // `classify.apply` paths, plus the new `identity.status` path) plus
+        // the explicit top-level `help` row.
+        assert_eq!(rows().len(), 234);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 

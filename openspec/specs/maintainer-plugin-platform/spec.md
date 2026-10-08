@@ -1,7 +1,7 @@
 # maintainer-plugin-platform Specification
 
 ## Purpose
-TBD - created by archiving change maintainer-plugin-platform. Update Purpose after archive.
+Observe each registered project's own compose/CI facts, derive a reviewable profile/lifecycle/domain classification from local evidence, publish approved metadata through a named plugin registry, and expose the fleet filter row and per-project Maintain card without mutating any remote directly.
 ## Requirements
 ### Requirement: Registered projects carry compose and CI evidence
 

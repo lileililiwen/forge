@@ -74,6 +74,20 @@ pub fn is_configured(db_path: &Path) -> Result<bool, String> {
     .map_err(|err| err.to_string())
 }
 
+/// The configured administrator's email, or `None` when no administrator
+/// exists. Reads only the `email` column; the password hash is never
+/// selected here.
+pub fn email(db_path: &Path) -> Result<Option<String>, String> {
+    let db = connection(db_path)?;
+    db.query_row(
+        "SELECT email FROM forge_admin WHERE singleton = 1",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|err| err.to_string())
+}
+
 pub fn authenticate(db_path: &Path, email: &str, password: &str) -> Result<Option<String>, String> {
     let db = connection(db_path)?;
     let stored: Option<(String, String)> = db

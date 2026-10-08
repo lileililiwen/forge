@@ -117,12 +117,12 @@ Live analytics aggregate evidence for the interest store is likewise a provider-
 
 All 29 baseline and audit changes plus the sibling-integration packages
 (orders 30 through 39) are archived and promoted to their canonical specs.
-`openspec list` reports no active changes, so `HANDOFF.md` carries no
-`current_spec` pointer — the governance checker requires the line to be absent,
-not set to `none`, when the queue is empty. A new implementation cycle selects
-exactly one eligible change and follows implement-one-change → local verify/Gate
-→ strict validate → archive, committing only related work, updating and
-committing handoff, then stopping without pushing.
+When the queue is empty, `HANDOFF.md` carries no `current_spec` pointer — the
+governance checker requires the line to be absent, not set to `none`, in that
+state. A new implementation cycle selects exactly one eligible change and
+follows implement-one-change → local verify/Gate → strict validate → archive,
+committing only related work, updating and committing handoff, then stopping
+without pushing.
 
 ## Idea-to-production workflow changes (delivered)
 

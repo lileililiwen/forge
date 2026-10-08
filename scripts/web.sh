@@ -3,13 +3,23 @@
 # over a browser: the standalone web UI on `forge web serve` and
 # the JSON API the web UI calls on `forge api serve`.
 #
-# Usage: scripts/web.sh {start|stop|restart|status|logs}
+# Usage: scripts/web.sh {start|stop|restart|status|logs|reset-password}
 #
 # Ports: API on 127.0.0.1:8766, web UI on 127.0.0.1:4173. Both
 # bind loopback by default; the operator may override --api-port
 # or --web-port for a different layout. The script never publishes
 # a non-loopback bind; the operator runs a reverse proxy in front
 # if a public listener is required.
+#
+# `start` ensures a Forge administrator exists (the credential store
+# keeps only an Argon2id hash, so an existing password can never be
+# recovered) and prints the login URL, the account email and, when it
+# just created the account, the generated password. When an account
+# already exists it prints the email and points at `reset-password`
+# instead of inventing a password. `reset-password` generates, sets
+# and prints a fresh password once; it revokes existing sessions. The
+# password is printed to stdout only: never written to .forge/run/state,
+# never placed in argv, never logged.
 #
 # The web UI is vendored with a hard-coded API base URL
 # (frontend/config.js). When --api-port is set, the script
@@ -19,20 +29,23 @@
 #
 # State: pidfiles under .forge/run/, log under .forge/log/,
 # generated web root under .forge/run/web-root/. All are
-# gitignored.
+# gitignored. FORGE_BIN, FORGE_WEB_RUN_DIR, FORGE_WEB_LOG_DIR and
+# FORGE_WEB_ROOT_DIR override the binary and runtime paths (used by
+# the contract test to isolate a throwaway run directory).
 
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="$ROOT/target/debug/forge"
+BIN="${FORGE_BIN:-$ROOT/target/debug/forge}"
 API_HOST="127.0.0.1"
 API_PORT="8766"
 PROJECTS_ROOT=""
 WEB_HOST="127.0.0.1"
 WEB_PORT="4173"
-RUN_DIR="$ROOT/.forge/run"
-LOG_DIR="$ROOT/.forge/log"
-WEB_ROOT_DIR="$RUN_DIR/web-root"
+ADMIN_EMAIL="operator@example.com"
+RUN_DIR="${FORGE_WEB_RUN_DIR:-$ROOT/.forge/run}"
+LOG_DIR="${FORGE_WEB_LOG_DIR:-$ROOT/.forge/log}"
+WEB_ROOT_DIR="${FORGE_WEB_ROOT_DIR:-$RUN_DIR/web-root}"
 API_PIDFILE="$RUN_DIR/api.pid"
 WEB_PIDFILE="$RUN_DIR/web.pid"
 API_LOG="$LOG_DIR/api.log"
@@ -42,21 +55,26 @@ DO_BUILD=""
 
 usage() {
   cat >&2 <<EOF
-usage: scripts/web.sh {start|stop|restart|status|logs} [--api-port <p>] [--web-port <p>] [--projects-root <path>] [--build]
+usage: scripts/web.sh {start|stop|restart|status|logs|reset-password} [--api-port <p>] [--web-port <p>] [--projects-root <path>] [--admin-email <address>] [--build]
 
-  start    Build (if --build) and start both services in the background.
-  stop     Stop both services.
-  restart  stop + start.
-  status   Print whether each service is listening, its pid, and its log path.
-  logs     Tail both logs (Ctrl-C to exit).
+  start           Build (if --build) and start both services in the background.
+                  Ensures an administrator exists and prints the login URL,
+                  account email and (on first creation) the password.
+  stop            Stop both services.
+  restart         stop + start.
+  status          Print whether each service is listening, its pid, and its log path.
+  logs            Tail both logs (Ctrl-C to exit).
+  reset-password  Generate a fresh administrator password, set it
+                  non-interactively and print it once. Revokes existing sessions.
 
 Options:
-  --api-port        <p>      Override the API listener port (default 8766).
-  --web-port        <p>      Override the web UI listener port (default 4173).
-  --projects-root   <path>   Set FORGE_ADMIN_PROJECTS_ROOT for the API
-                             process so the web UI's bulk Workspace
-                             onboarding panel can discover siblings.
-  --build                   Rebuild the binary with \`cargo build\` before starting.
+  --api-port        <p>        Override the API listener port (default 8766).
+  --web-port        <p>        Override the web UI listener port (default 4173).
+  --projects-root   <path>     Set FORGE_ADMIN_PROJECTS_ROOT for the API
+                               process so the web UI's bulk Workspace
+                               onboarding panel can discover siblings.
+  --admin-email     <address>  Administrator email (default operator@example.com).
+  --build                      Rebuild the binary with \`cargo build\` before starting.
 EOF
 }
 
@@ -188,6 +206,47 @@ start_one() {
   fi
 }
 
+admin_status_field() {
+  # $1 = `forge identity status` output, $2 = field name
+  printf '%s\n' "$1" | sed -n "s/^$2:[[:space:]]*//p" | head -n1
+}
+
+print_login_banner() {
+  email="$1"
+  password="$2"
+  printf '\n'
+  printf 'web: login URL:  http://%s:%s/\n' "$WEB_HOST" "$WEB_PORT"
+  printf 'web: account:    %s\n' "$email"
+  if [ -n "$password" ]; then
+    printf 'web: password:   %s\n' "$password"
+    printf 'web: shown once and not recoverable; store it now.\n'
+  else
+    printf 'web: password:   (unchanged; run `scripts/web.sh reset-password` for a new one)\n'
+  fi
+  printf '\n'
+}
+
+# Ensure a Forge administrator exists before the services bind. The store
+# keeps only an Argon2id hash, so an existing password can never be printed:
+# on first creation we set one and print it once; when an account already
+# exists we print the email and point at `reset-password`, never inventing
+# a password.
+ensure_admin() {
+  status="$("$BIN" identity status 2>/dev/null || true)"
+  configured="$(admin_status_field "$status" configured)"
+  current_email="$(admin_status_field "$status" email)"
+  if [ "$configured" = "true" ]; then
+    print_login_banner "${current_email:-$ADMIN_EMAIL}" ""
+    return 0
+  fi
+  password="$("$BIN" identity generate-password --length 20)"
+  if ! printf '%s\n' "$password" | "$BIN" identity setup --email "$ADMIN_EMAIL" --password-stdin >/dev/null; then
+    echo "web: failed to initialize the administrator account" >&2
+    exit 1
+  fi
+  print_login_banner "$ADMIN_EMAIL" "$password"
+}
+
 cmd_start() {
   ensure_layout
   if [ -n "$DO_BUILD" ]; then
@@ -198,10 +257,38 @@ cmd_start() {
     echo "web: binary $BIN is missing; pass --build to build it" >&2
     exit 1
   fi
+  ensure_admin
   save_state
   start_one "api" "$API_HOST" "$API_PORT" "$API_LOG" "$API_PIDFILE" api serve
   prepare_web_root || exit 1
   start_one "web" "$WEB_HOST" "$WEB_PORT" "$WEB_LOG" "$WEB_PIDFILE" web serve --root "$WEB_ROOT_DIR"
+}
+
+cmd_reset_password() {
+  ensure_layout
+  if [ ! -x "$BIN" ]; then
+    echo "web: binary $BIN is missing; pass --build to build it" >&2
+    exit 1
+  fi
+  status="$("$BIN" identity status 2>/dev/null || true)"
+  configured="$(admin_status_field "$status" configured)"
+  current_email="$(admin_status_field "$status" email)"
+  password="$("$BIN" identity generate-password --length 20)"
+  if [ "$configured" = "true" ]; then
+    email="${current_email:-$ADMIN_EMAIL}"
+    if ! printf '%s\n' "$password" | "$BIN" identity change-password --password-stdin >/dev/null; then
+      echo "web: failed to reset the administrator password" >&2
+      exit 1
+    fi
+    echo "web: existing browser sessions were revoked."
+  else
+    email="$ADMIN_EMAIL"
+    if ! printf '%s\n' "$password" | "$BIN" identity setup --email "$email" --password-stdin >/dev/null; then
+      echo "web: failed to initialize the administrator account" >&2
+      exit 1
+    fi
+  fi
+  print_login_banner "$email" "$password"
 }
 
 cmd_stop() {
@@ -255,6 +342,7 @@ while [ "$#" -gt 0 ]; do
     --api-port) [ "$#" -ge 2 ] || { echo "web: --api-port requires a value" >&2; exit 2; }; API_PORT="$2"; shift 2 ;;
     --web-port) [ "$#" -ge 2 ] || { echo "web: --web-port requires a value" >&2; exit 2; }; WEB_PORT="$2"; shift 2 ;;
     --projects-root) [ "$#" -ge 2 ] || { echo "web: --projects-root requires a value" >&2; exit 2; }; PROJECTS_ROOT="$2"; shift 2 ;;
+    --admin-email) [ "$#" -ge 2 ] || { echo "web: --admin-email requires a value" >&2; exit 2; }; ADMIN_EMAIL="$2"; shift 2 ;;
     --build)    DO_BUILD=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) echo "web: unknown argument '$1'" >&2; usage; exit 2 ;;
@@ -266,6 +354,7 @@ case "$cmd" in
   restart) cmd_stop; cmd_start ;;
   status)  cmd_status ;;
   logs)    cmd_logs ;;
+  reset-password) cmd_reset_password ;;
   -h|--help) usage; exit 0 ;;
   *) echo "web: unknown command '$cmd'" >&2; usage; exit 2 ;;
 esac

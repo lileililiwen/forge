@@ -1318,15 +1318,24 @@ enum IdentityCommands {
         /// Administrator email used by the Forge browser login.
         #[arg(long)]
         email: String,
+        /// Read exactly one password line from stdin instead of prompting; no terminal or confirmation is required.
+        #[arg(long)]
+        password_stdin: bool,
     },
     /// Replace the Forge-wide administrator password without changing the email; revokes every active browser session (new password read without terminal echo).
-    ChangePassword,
+    ChangePassword {
+        /// Read exactly one password line from stdin instead of prompting; no terminal or confirmation is required.
+        #[arg(long)]
+        password_stdin: bool,
+    },
     /// Print one strong random password from operating-system entropy without reading or writing the registry.
     GeneratePassword {
         /// Password length in characters (default 20; accepted 12 to 128).
         #[arg(long, default_value_t = 20)]
         length: usize,
     },
+    /// Report whether the Forge-wide administrator is configured and its email (never the password).
+    Status,
     /// Validate the manifest's `identity:` block without contacting any provider.
     ValidateConfig {
         /// Registered project id or filesystem path (default: current directory).
@@ -9413,14 +9422,22 @@ fn cmd_identity(
     format: Format,
 ) -> Result<Output, ForgeError> {
     match command {
-        IdentityCommands::Setup { email } => {
-            let password = read_secret("New Forge password: ")?;
-            let confirmation = read_secret("Confirm password: ")?;
-            if password != confirmation {
-                return Err(ForgeError::IdentityInvalid {
-                    reason: "password confirmation does not match".to_string(),
-                });
-            }
+        IdentityCommands::Setup {
+            email,
+            password_stdin,
+        } => {
+            let password = if *password_stdin {
+                read_password_stdin()?
+            } else {
+                let password = read_secret("New Forge password: ")?;
+                let confirmation = read_secret("Confirm password: ")?;
+                if password != confirmation {
+                    return Err(ForgeError::IdentityInvalid {
+                        reason: "password confirmation does not match".to_string(),
+                    });
+                }
+                password
+            };
             forge::identity::global::setup(db_path, email, &password)
                 .map_err(|reason| ForgeError::IdentityInvalid { reason })?;
             Ok(as_output(
@@ -9432,14 +9449,19 @@ fn cmd_identity(
                 serde_json::json!({ "contract": "forge-admin-login/1.0.0", "email": email.trim().to_ascii_lowercase(), "initialized": true }),
             ))
         }
-        IdentityCommands::ChangePassword => {
-            let password = read_secret("New Forge password: ")?;
-            let confirmation = read_secret("Confirm password: ")?;
-            if password != confirmation {
-                return Err(ForgeError::IdentityInvalid {
-                    reason: "password confirmation does not match".to_string(),
-                });
-            }
+        IdentityCommands::ChangePassword { password_stdin } => {
+            let password = if *password_stdin {
+                read_password_stdin()?
+            } else {
+                let password = read_secret("New Forge password: ")?;
+                let confirmation = read_secret("Confirm password: ")?;
+                if password != confirmation {
+                    return Err(ForgeError::IdentityInvalid {
+                        reason: "password confirmation does not match".to_string(),
+                    });
+                }
+                password
+            };
             forge::identity::global::change_password(db_path, &password)
                 .map_err(|reason| ForgeError::IdentityInvalid { reason })?;
             Ok(as_output(
@@ -9456,6 +9478,29 @@ fn cmd_identity(
                 format,
                 password.clone(),
                 serde_json::json!({ "contract": "forge-admin-login/1.0.0", "length": *length, "password": password }),
+            ))
+        }
+        IdentityCommands::Status => {
+            let configured = forge::identity::global::is_configured(db_path)
+                .map_err(|reason| ForgeError::IdentityInvalid { reason })?;
+            let email = if configured {
+                forge::identity::global::email(db_path)
+                    .map_err(|reason| ForgeError::IdentityInvalid { reason })?
+            } else {
+                None
+            };
+            let human = match &email {
+                Some(address) => format!("configured: true\nemail: {address}"),
+                None => "configured: false".to_string(),
+            };
+            Ok(as_output(
+                format,
+                human,
+                serde_json::json!({
+                    "contract": "forge-admin-login/1.0.0",
+                    "configured": configured,
+                    "email": email,
+                }),
             ))
         }
         IdentityCommands::ValidateConfig { target } => {
@@ -9931,6 +9976,24 @@ fn read_secret(prompt: &str) -> Result<String, ForgeError> {
             reason: "hidden password setup is unsupported on this platform".to_string(),
         })
     }
+}
+
+/// Read exactly one password line from stdin for `--password-stdin`. Unlike
+/// [`read_secret`] this never requires a terminal and never prompts, so a
+/// script can pipe the value in without exposing it in argv.
+fn read_password_stdin() -> Result<String, ForgeError> {
+    use std::io::BufRead;
+    let mut value = String::new();
+    let read = std::io::stdin().lock().read_line(&mut value);
+    read.map_err(|_| ForgeError::IdentityInvalid {
+        reason: "cannot read password from stdin".to_string(),
+    })?;
+    if value.is_empty() {
+        return Err(ForgeError::IdentityInvalid {
+            reason: "no password was provided on stdin".to_string(),
+        });
+    }
+    Ok(value.trim_end_matches(['\r', '\n']).to_string())
 }
 
 fn delete_session_file_at(

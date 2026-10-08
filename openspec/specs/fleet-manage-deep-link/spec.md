@@ -1,7 +1,7 @@
 # fleet-manage-deep-link Specification
 
 ## Purpose
-TBD - created by archiving change fleet-manage-deep-link. Update Purpose after archive.
+Deep-link every fleet project action through shareable `?project=` workbench and management URLs that survive reload, back/forward and the login handoff without ever navigating off-origin.
 ## Requirements
 ### Requirement: A managed project's fleet action boots that project in the workbench
 

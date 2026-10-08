@@ -18,6 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -325,8 +326,18 @@ pub fn validate_response(response: &PublishProviderResponse) -> Result<(), Provi
     }
     let rendered =
         serde_json::to_string(response).map_err(|_| ProviderContractError::SecretLeak)?;
+    if contains_secret_marker(&rendered) {
+        return Err(ProviderContractError::SecretLeak);
+    }
+    Ok(())
+}
+
+/// The shared secret-leak marker check. A provider response that
+/// carries a credential shape is refused before it reaches the
+/// journal or the operator.
+fn contains_secret_marker(rendered: &str) -> bool {
     let lower = rendered.to_lowercase();
-    if [
+    [
         "password=",
         "token=",
         "secret=",
@@ -335,10 +346,6 @@ pub fn validate_response(response: &PublishProviderResponse) -> Result<(), Provi
     ]
     .iter()
     .any(|marker| lower.contains(marker))
-    {
-        return Err(ProviderContractError::SecretLeak);
-    }
-    Ok(())
 }
 
 /// Outcome of validating a single progress event line emitted by a
@@ -508,14 +515,19 @@ pub fn select_provider(config: &ProviderConfig, id: &str) -> Result<ProviderEntr
     Ok(entry.clone())
 }
 
-pub fn invoke_provider(
+/// Run one provider process: bounded argv (the configured command
+/// with no extra arguments), JSON on stdin, stdout collected,
+/// stderr lines handed to `on_stderr_line`, per-run timeout, and
+/// the same kill-on-timeout discipline for every caller. This is
+/// the single process-management core both the publish transport
+/// and the metadata transport use, so a metadata request gets the
+/// same timeout and secret-leak discipline as a publish request.
+fn run_provider_process(
     entry: &ProviderEntry,
-    request: &PublishProviderRequest,
+    input: &[u8],
     folder: &Path,
-) -> Result<PublishProviderResponse, ForgeError> {
-    let input = serde_json::to_vec(request).map_err(|error| ForgeError::PublishInvalid {
-        reason: format!("cannot encode publish provider request: {error}"),
-    })?;
+    on_stderr_line: impl Fn(&str) + Send + 'static,
+) -> Result<(Vec<u8>, std::process::ExitStatus), ForgeError> {
     let mut child = Command::new(&entry.command)
         .current_dir(folder)
         .stdin(Stdio::piped())
@@ -526,7 +538,7 @@ pub fn invoke_provider(
             reason: format!("cannot start publish provider `{}`: {error}", entry.id),
         })?;
     if let Some(mut stdin) = child.stdin.take() {
-        if let Err(error) = crate::process::write_request(&mut stdin, &input) {
+        if let Err(error) = crate::process::write_request(&mut stdin, input) {
             // A genuine write failure leaves the provider running; reap it
             // before reporting, so no live provider is left behind.
             let _ = child.kill();
@@ -539,48 +551,12 @@ pub fn invoke_provider(
             });
         }
     }
-    let progress_reader = child.stderr.take().map(|stderr| {
-        let provider_id = entry.id.clone();
-        let operation_id = request.operation_id.clone();
-        let project_id = request.project_id.clone();
-        let queue_id = request.queue_id.clone();
+    let stderr_reader = child.stderr.take().map(|stderr| {
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stderr);
             let mut line = String::new();
             while reader.read_line(&mut line).unwrap_or(0) > 0 {
-                if let Ok(event) = serde_json::from_str::<Value>(line.trim()) {
-                    match classify_progress_event(
-                        &event,
-                        &operation_id,
-                        &project_id,
-                        queue_id.as_deref(),
-                    ) {
-                        ProgressEventDecision::Accepted { detail } => {
-                            let phase = event
-                                .get("phase")
-                                .and_then(Value::as_str)
-                                .unwrap_or("?");
-                            let status = event
-                                .get("status")
-                                .and_then(Value::as_str)
-                                .unwrap_or("?");
-                            eprintln!(
-                                "forge publish provider={provider_id} project={project_id} phase={phase} status={status} {detail}"
-                            );
-                        }
-                        ProgressEventDecision::Malformed { reason } => {
-                            eprintln!(
-                                "forge publish provider={provider_id} project={project_id} progress malformed: {reason}"
-                            );
-                        }
-                        ProgressEventDecision::Mismatched => {
-                            eprintln!(
-                                "forge publish provider={provider_id} progress event id mismatch; ignoring line"
-                            );
-                        }
-                        ProgressEventDecision::Ignored => {}
-                    }
-                }
+                on_stderr_line(line.trim());
                 line.clear();
             }
         })
@@ -611,11 +587,50 @@ pub fn invoke_provider(
                 entry.id
             ),
         })?;
-    if let Some(reader) = progress_reader {
+    if let Some(reader) = stderr_reader {
         let _ = reader.join();
     }
+    Ok((output.stdout, output.status))
+}
+
+pub fn invoke_provider(
+    entry: &ProviderEntry,
+    request: &PublishProviderRequest,
+    folder: &Path,
+) -> Result<PublishProviderResponse, ForgeError> {
+    let input = serde_json::to_vec(request).map_err(|error| ForgeError::PublishInvalid {
+        reason: format!("cannot encode publish provider request: {error}"),
+    })?;
+    let provider_id = entry.id.clone();
+    let operation_id = request.operation_id.clone();
+    let project_id = request.project_id.clone();
+    let queue_id = request.queue_id.clone();
+    let (stdout, status) = run_provider_process(entry, &input, folder, move |line| {
+        if let Ok(event) = serde_json::from_str::<Value>(line) {
+            match classify_progress_event(&event, &operation_id, &project_id, queue_id.as_deref()) {
+                ProgressEventDecision::Accepted { detail } => {
+                    let phase = event.get("phase").and_then(Value::as_str).unwrap_or("?");
+                    let status = event.get("status").and_then(Value::as_str).unwrap_or("?");
+                    eprintln!(
+                        "forge publish provider={provider_id} project={project_id} phase={phase} status={status} {detail}"
+                    );
+                }
+                ProgressEventDecision::Malformed { reason } => {
+                    eprintln!(
+                        "forge publish provider={provider_id} project={project_id} progress malformed: {reason}"
+                    );
+                }
+                ProgressEventDecision::Mismatched => {
+                    eprintln!(
+                        "forge publish provider={provider_id} progress event id mismatch; ignoring line"
+                    );
+                }
+                ProgressEventDecision::Ignored => {}
+            }
+        }
+    })?;
     let response: PublishProviderResponse =
-        serde_json::from_slice(&output.stdout).map_err(|error| ForgeError::PublishInvalid {
+        serde_json::from_slice(&stdout).map_err(|error| ForgeError::PublishInvalid {
             reason: format!(
                 "publish provider `{}` returned invalid JSON: {error}",
                 entry.id
@@ -627,12 +642,98 @@ pub fn invoke_provider(
             entry.id
         ),
     })?;
-    if !output.status.success() {
+    if !status.success() {
         return Err(ForgeError::PublishInvalid {
+            reason: format!("publish provider `{}` failed: status {}", entry.id, status),
+        });
+    }
+    Ok(response)
+}
+
+/// Versioned contract for the metadata propose request kind.
+pub const METADATA_PROPOSE_CONTRACT: &str = "forge-metadata-propose/0.1.0";
+
+/// Request to propose a metadata change through a plugin. `mode`
+/// is always `"pr"` from `classify apply`: direct mutation is not
+/// reachable from that path.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MetadataProposeRequest {
+    pub contract: String,
+    pub operation_id: String,
+    pub project_id: String,
+    pub fields: BTreeMap<String, Value>,
+    pub mode: String,
+}
+
+/// What the plugin reported back for a metadata propose request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataProposeResponse {
+    pub contract: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub changes: Vec<Value>,
+    /// The reviewed change set's PR reference (URL or id).
+    #[serde(default)]
+    pub pr: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Validate a metadata propose response: the contract must match
+/// and the serialized response must not carry a credential shape.
+pub fn validate_metadata_response(
+    response: &MetadataProposeResponse,
+) -> Result<(), ProviderContractError> {
+    if response.contract != METADATA_PROPOSE_CONTRACT {
+        return Err(ProviderContractError::ContractMismatch(
+            response.contract.clone(),
+        ));
+    }
+    let rendered =
+        serde_json::to_string(response).map_err(|_| ProviderContractError::SecretLeak)?;
+    if contains_secret_marker(&rendered) {
+        return Err(ProviderContractError::SecretLeak);
+    }
+    Ok(())
+}
+
+/// Invoke a metadata plugin over the same transport as
+/// [`invoke_provider`]: same bounded argv, same per-run timeout,
+/// same secret-leak rejection. Only the request/response schema
+/// differs.
+pub fn invoke_metadata_provider(
+    entry: &ProviderEntry,
+    request: &MetadataProposeRequest,
+    folder: &Path,
+) -> Result<MetadataProposeResponse, ForgeError> {
+    let input = serde_json::to_vec(request).map_err(|error| ForgeError::PublishInvalid {
+        reason: format!("cannot encode metadata propose request: {error}"),
+    })?;
+    let provider_id = entry.id.clone();
+    let (stdout, status) = run_provider_process(entry, &input, folder, move |line| {
+        if !line.is_empty() {
+            eprintln!("forge metadata provider={provider_id}: {line}");
+        }
+    })?;
+    let response: MetadataProposeResponse =
+        serde_json::from_slice(&stdout).map_err(|error| ForgeError::PublishInvalid {
             reason: format!(
-                "publish provider `{}` failed: status {}",
-                entry.id, output.status
+                "metadata provider `{}` returned invalid JSON: {error}",
+                entry.id
             ),
+        })?;
+    validate_metadata_response(&response).map_err(|error| ForgeError::PublishInvalid {
+        reason: format!(
+            "metadata provider `{}` returned invalid response: {error}",
+            entry.id
+        ),
+    })?;
+    if !status.success() {
+        return Err(ForgeError::PublishInvalid {
+            reason: format!("metadata provider `{}` failed: status {}", entry.id, status),
         });
     }
     Ok(response)

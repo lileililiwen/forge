@@ -41,9 +41,13 @@
 //! other provider id is refused at normalization so a model cannot
 //! be implicitly cited as the source of truth.
 
+pub mod apply;
+pub mod derive;
 pub mod proposal;
 pub mod review;
 
+pub use apply::{apply, ApplyOutcome};
+pub use derive::{derive, MAX_DERIVE_TAGS, MAX_DOMAIN_CHARS};
 pub use proposal::{
     parse_confidence, parse_kind, parse_provider, Confidence, Proposal, ProposalConflict,
     ProposalEvidence, ProposalId, ProposalKind, ProposalState, Provider, MAX_EVIDENCE_PATH_CHARS,

@@ -61,6 +61,16 @@
               </div>
             </div>
             <div id="empty-state" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">▦</span><h3>No registered projects</h3><p>Forge is always listed here; your registered and observed projects appear once they are added or read from an explicit source.</p><p class="next-action">Start with <code>forge import ./your-project --accept</code></p></div>
+            <div class="fleet-filters" role="group" aria-label="Filter projects by catalog predicates">
+              <label class="fleet-filter"><span class="sr-only">Language</span><input id="filter-language" type="text" placeholder="Language" autocomplete="off"></label>
+              <label class="fleet-filter"><span class="sr-only">Lifecycle</span><input id="filter-lifecycle" type="text" placeholder="Lifecycle" autocomplete="off"></label>
+              <label class="fleet-filter"><span class="sr-only">Profile</span><input id="filter-profile" type="text" placeholder="Profile" autocomplete="off"></label>
+              <label class="fleet-filter"><span class="sr-only">Compose</span><input id="filter-compose" type="text" placeholder="Compose" autocomplete="off"></label>
+              <label class="fleet-filter"><span class="sr-only">CI</span><input id="filter-ci" type="text" placeholder="CI" autocomplete="off"></label>
+              <label class="fleet-filter"><span class="sr-only">Tag</span><input id="filter-tag" type="text" placeholder="Tag" autocomplete="off"></label>
+              <button id="filter-clear" class="button button-quiet" type="button">Clear</button>
+            </div>
+            <p id="fleet-filter-error" class="fleet-filter-error" role="status" hidden></p>
             <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name, profile or source filter.</p></div>
             <div class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
               <table><thead><tr><th scope="col">Project</th><th scope="col">Details</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody id="project-rows"></tbody></table>
@@ -112,6 +122,11 @@
                 <label id="wb-confirm-wrap" class="wb-confirm" hidden><input id="wb-confirm" type="checkbox"> I confirm this will write to the project files.</label>
                 <div id="wb-plan-result" class="wb-plan-result" hidden></div>
                 <div id="wb-apply-result" class="wb-plan-result" hidden></div>
+              </section>
+              <section class="wb-card wb-plan" aria-labelledby="wb-maintain-title">
+                <div class="panel-heading"><div><h3 id="wb-maintain-title">Maintain</h3><p class="muted">What the remote last said about this project, what Forge derived from it, and one action that publishes the approved set through the configured plugins. Nothing here writes until you preview and confirm it.</p></div><div class="panel-tools"><button id="wb-maintain-refresh" class="button button-quiet" type="button">Refresh</button></div></div>
+                <div id="wb-maintain-body" class="wb-maintain-body"><p class="muted">Loading maintainer data…</p></div>
+                <div id="wb-maintain-actions" class="wb-actions-list"></div>
               </section>
               <div class="workbench-grid">
                 <section class="wb-card" aria-labelledby="wb-manifest-title">

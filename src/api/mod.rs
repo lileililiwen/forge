@@ -128,6 +128,12 @@ mod fleet;
 /// the JSON API fleet projection depends on the typed view
 /// structs it returns.
 mod fleet_data;
+/// Per-project maintainer surface (`forge-project-maintain/0.1.0`) backing
+/// `GET /v1/admin/projects/{id}/maintain` and the `classify/approve`,
+/// `classify/reject` and `classify/apply` preview → confirm → apply routes.
+/// Read-only observation plus typed, digest-bound decisions only — the
+/// browser addresses a project by validated id and never sends a path.
+mod maintain;
 /// Session-gated portfolio controls and cross-project evidence views
 /// (`forge-web-portfolio-controls/0.1.0`) backing `/v1/admin/portfolio*`.
 /// Forge-owned metadata writes reuse registry Core only; imported,
@@ -493,6 +499,31 @@ pub enum Route {
     /// and profile-readiness sub-checks reduced to one overall state.
     /// Session-gated; the root is resolved server-side from a validated id.
     AdminProjectStatus {
+        id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/maintain` — read-only maintainer
+    /// projection (`forge-project-maintain/0.1.0`): the GitHub observation
+    /// as Forge last saw it (with freshness, or an honest `unavailable`
+    /// with the reason), the derived classification proposals (bounded)
+    /// and the configured plugin registry. Session-gated; invokes no
+    /// plugin and writes nothing.
+    AdminProjectMaintain {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/classify/approve` — preview, then
+    /// confirm- and digest-bound approve of one classification proposal.
+    AdminProjectClassifyApprove {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/classify/reject` — preview, then
+    /// confirm- and digest-bound reject of one classification proposal.
+    AdminProjectClassifyReject {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/classify/apply` — preview, then
+    /// confirm- and digest-bound apply of the approved set through the
+    /// configured metadata plugin (PR mode only).
+    AdminProjectClassifyApply {
         id: String,
     },
     /// `GET /v1/admin/projects/{id}/plan` — side-effect-free upgrade plan
@@ -965,6 +996,28 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("GET", ["v1", "admin", "projects", id, "status"]) => Some(Route::AdminProjectStatus {
             id: (*id).to_string(),
         }),
+        // Maintainer surface: the read-only per-project projection plus
+        // the three preview → confirm → apply decision routes. Literal
+        // `maintain`/`classify` segments never collide with the
+        // lifecycle arms above, so no existing route is shadowed.
+        ("GET", ["v1", "admin", "projects", id, "maintain"]) => Some(Route::AdminProjectMaintain {
+            id: (*id).to_string(),
+        }),
+        ("POST", ["v1", "admin", "projects", id, "classify", "approve"]) => {
+            Some(Route::AdminProjectClassifyApprove {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "classify", "reject"]) => {
+            Some(Route::AdminProjectClassifyReject {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "classify", "apply"]) => {
+            Some(Route::AdminProjectClassifyApply {
+                id: (*id).to_string(),
+            })
+        }
         // Portfolio routes: `/evidence` is a reserved second segment and is
         // matched before the generic `{id}` arm so a literal path never reads
         // as a project id. `{kind}`/`{action}` are validated keys, not paths.
@@ -1198,6 +1251,10 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectStatus { .. }
+        | Route::AdminProjectMaintain { .. }
+        | Route::AdminProjectClassifyApprove { .. }
+        | Route::AdminProjectClassifyReject { .. }
+        | Route::AdminProjectClassifyApply { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -1356,6 +1413,10 @@ pub fn handle(
             | Route::AdminFleetStatus
             | Route::AdminProjectDetail { .. }
             | Route::AdminProjectStatus { .. }
+            | Route::AdminProjectMaintain { .. }
+            | Route::AdminProjectClassifyApprove { .. }
+            | Route::AdminProjectClassifyReject { .. }
+            | Route::AdminProjectClassifyApply { .. }
             | Route::AdminProjectPlan { .. }
             | Route::AdminProjectApply { .. }
             | Route::AdminProjectFeature { .. }
@@ -1401,7 +1462,7 @@ pub fn handle(
     // routes demand any valid session; mutating routes
     // demand admin:access. A token for project A cannot
     // authorize project B.
-    let actor = match authorize(db_path, &route, request, now) {
+    let actor = match authorize(config, db_path, &route, request, now) {
         Ok(actor) => actor,
         Err(response) => return response,
     };
@@ -1480,6 +1541,10 @@ pub fn handle(
         Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectStatus { .. }
+        | Route::AdminProjectMaintain { .. }
+        | Route::AdminProjectClassifyApprove { .. }
+        | Route::AdminProjectClassifyReject { .. }
+        | Route::AdminProjectClassifyApply { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -1535,6 +1600,7 @@ fn alt_method(method: &str) -> &'static str {
 /// identity surface so a token minted for project A cannot
 /// authorize project B.
 fn authorize(
+    config: &ApiConfig,
     db_path: &Path,
     route: &Route,
     request: &ApiRequest,
@@ -1542,6 +1608,41 @@ fn authorize(
 ) -> Result<String, ApiResponse> {
     if matches!(route, Route::Healthz | Route::GitHubPush) {
         return Ok(String::new());
+    }
+    // The browser fleet filter row calls the read-only catalog query with
+    // its administrator session cookie: the cookie is HttpOnly, so browser
+    // JS cannot present it as an Authorization Bearer header. A valid
+    // administrator session already reads the richer
+    // `GET /v1/admin/projects` fleet, so accepting it here grants nothing
+    // new; without any session the route still 401s. Bearer callers are
+    // unaffected: a present Bearer token always takes the bearer path
+    // below, and a hostile origin is still refused on the cookie path.
+    if matches!(route, Route::CatalogQuery { .. }) && request.bearer_token.is_none() {
+        if !admin::allowed_origin(config, request.header("origin")) {
+            return Err(admin::error(
+                403,
+                "admin-origin-rejected",
+                "request origin is not allowed",
+            ));
+        }
+        let cookie = request
+            .cookies
+            .get("forge_admin_session")
+            .map(String::as_str)
+            .unwrap_or("");
+        return match crate::identity::global::session_valid(db_path, cookie) {
+            Ok(true) => Ok(String::new()),
+            _ => Err(ApiResponse::json(
+                401,
+                serde_json::json!({
+                    "error": {
+                        "code": "api-unauthorized",
+                        "message": "administrator session is required"
+                    },
+                    "contract": API_CONTRACT_VERSION,
+                }),
+            )),
+        };
     }
     let token = request.bearer_token.as_deref().ok_or_else(|| {
         ApiResponse::json(
@@ -1581,6 +1682,10 @@ fn authorize(
         | Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectStatus { .. }
+        | Route::AdminProjectMaintain { .. }
+        | Route::AdminProjectClassifyApprove { .. }
+        | Route::AdminProjectClassifyReject { .. }
+        | Route::AdminProjectClassifyApply { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }

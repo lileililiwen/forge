@@ -135,6 +135,39 @@ struct LoginBody {
     password: String,
 }
 
+/// Shared preview → confirm → apply dispatch for the per-field
+/// classification decisions. Approve and reject differ only in the
+/// direction; both require a JSON body carrying the `proposal` id
+/// (`<kind>-<hash>`) and echo the digest-bound confirmation the
+/// browser's action control renders.
+fn classify_decide(
+    config: &ApiConfig,
+    db_path: &Path,
+    request: &ApiRequest,
+    id: &str,
+    approve: bool,
+) -> ApiResponse {
+    if !is_json(request) {
+        return cors(
+            config,
+            request,
+            error(
+                415,
+                "admin-content-type-required",
+                "classify decisions require application/json",
+            ),
+        );
+    }
+    guarded(db_path, request, |req| {
+        let body = req.json_body();
+        if approve {
+            super::maintain::classify_approve(db_path, id, &body, req)
+        } else {
+            super::maintain::classify_reject(db_path, id, &body, req)
+        }
+    })
+}
+
 pub(super) fn handle(
     config: &ApiConfig,
     db_path: &Path,
@@ -168,6 +201,32 @@ pub(super) fn handle(
         Route::AdminProjectStatus { id } => guarded(db_path, request, |_| {
             super::status::project_status(db_path, id)
         }),
+        Route::AdminProjectMaintain { id } => {
+            guarded(db_path, request, |_| super::maintain::maintain(db_path, id))
+        }
+        Route::AdminProjectClassifyApprove { id } => {
+            classify_decide(config, db_path, request, id, true)
+        }
+        Route::AdminProjectClassifyReject { id } => {
+            classify_decide(config, db_path, request, id, false)
+        }
+        Route::AdminProjectClassifyApply { id } => {
+            if !is_json(request) {
+                return cors(
+                    config,
+                    request,
+                    error(
+                        415,
+                        "admin-content-type-required",
+                        "classify apply requires application/json",
+                    ),
+                );
+            }
+            guarded(db_path, request, |req| {
+                let body = req.json_body();
+                super::maintain::classify_apply(db_path, id, &body, req)
+            })
+        }
         Route::AdminProjectPlan { id } => guarded(db_path, request, |req| {
             let feature = req.query.as_deref().and_then(parse_feature_query);
             super::workbench::plan(db_path, id, feature.as_deref())
@@ -2533,7 +2592,7 @@ fn commands(db_path: &Path, request: &ApiRequest) -> ApiResponse {
     ApiResponse::json(200, super::command_catalog::envelope())
 }
 
-fn allowed_origin(config: &ApiConfig, origin: Option<&str>) -> bool {
+pub(super) fn allowed_origin(config: &ApiConfig, origin: Option<&str>) -> bool {
     origin == Some(config.frontend_origin.as_str())
 }
 

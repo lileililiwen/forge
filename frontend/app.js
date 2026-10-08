@@ -145,6 +145,10 @@
     const sourceFilter = document.getElementById("source-filter").value;
     const filtered = projects.filter((project) => {
       if (sourceFilter && project.source !== sourceFilter) return false;
+      // The catalog predicate set, fetched from GET /v1/projects/catalog:
+      // the same Core query `forge project list` runs for the same
+      // predicate. Null means no predicate is active.
+      if (fleetFilterIds && !fleetFilterIds.has(project.identity)) return false;
       return `${project.name} ${project.identity} ${project.profile}`.toLowerCase().includes(query);
     });
     body.replaceChildren();
@@ -206,6 +210,86 @@
     select.value = identity;
     loadWorkbenchDetail(identity);
     document.getElementById("workbench").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ---- Fleet filter row (catalog predicates) -----------------------------
+  //
+  // The six inputs above the project table carry the catalog's existing
+  // predicates — language, lifecycle, profile, compose, CI, tag — wired to
+  // `GET /v1/projects/catalog`, which already accepts all of them. The
+  // response's project ids constrain the fleet table; the free-text search
+  // and the source filter keep applying on top, so all three compose. No
+  // new endpoint: the browser only reads the shared Core query.
+  let fleetFilterIds = null;
+  let fleetFilterTimer = null;
+
+  const FLEET_FILTER_FIELDS = [
+    ["filter-language", "language"],
+    ["filter-lifecycle", "lifecycle"],
+    ["filter-profile", "profile"],
+    ["filter-compose", "compose"],
+    ["filter-ci", "ci"],
+    ["filter-tag", "tag"],
+  ];
+
+  function fleetFilterParams() {
+    const params = new URLSearchParams();
+    for (const [id, key] of FLEET_FILTER_FIELDS) {
+      const value = document.getElementById(id).value.trim();
+      if (value) params.append(key, value);
+    }
+    params.append("limit", "1000");
+    return params;
+  }
+
+  function fleetFiltersActive() {
+    return FLEET_FILTER_FIELDS.some(([id]) => document.getElementById(id).value.trim() !== "");
+  }
+
+  function showFleetFilterError(message) {
+    const error = document.getElementById("fleet-filter-error");
+    if (!message) { error.hidden = true; error.textContent = ""; return; }
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  async function refreshFleetFilters() {
+    showFleetFilterError("");
+    if (!fleetFiltersActive()) {
+      fleetFilterIds = null;
+      renderProjects(window.__forgeProjects || []);
+      return;
+    }
+    let data;
+    try {
+      data = await request(`/v1/projects/catalog?${fleetFilterParams().toString()}`, {
+        headers: { Accept: "application/json" },
+      });
+    } catch (err) {
+      // A failed predicate read must never present an unfiltered table as
+      // a filtered one: the constraint is lifted and the failure is shown.
+      fleetFilterIds = null;
+      showFleetFilterError(`Catalog filters are unavailable right now — showing all projects. (${(err && err.message) || "request failed"})`);
+      renderProjects(window.__forgeProjects || []);
+      return;
+    }
+    const records = (data.catalog && data.catalog.records) || [];
+    fleetFilterIds = new Set(records.map((record) => record.project_id));
+    renderProjects(window.__forgeProjects || []);
+  }
+
+  function initFleetFilters() {
+    for (const [id] of FLEET_FILTER_FIELDS) {
+      document.getElementById(id).addEventListener("input", () => {
+        window.clearTimeout(fleetFilterTimer);
+        fleetFilterTimer = window.setTimeout(refreshFleetFilters, 250);
+      });
+    }
+    document.getElementById("filter-clear").addEventListener("click", () => {
+      for (const [id] of FLEET_FILTER_FIELDS) document.getElementById(id).value = "";
+      window.clearTimeout(fleetFilterTimer);
+      refreshFleetFilters();
+    });
   }
 
   function loadCommands() {
@@ -427,8 +511,203 @@
     }
   }
 
-  function renderLifecycle(manifest) {
-    // `GET /v1/admin/projects/{id}` returns `manifest` as a flat, path-free
+  // ---- Maintain card (per-project maintainer surface) --------------------
+  //
+  // Above the read-only cards: the GitHub observation as Forge last saw it
+  // (with its freshness, or an honest unavailable-with-reason — never empty
+  // fields), the derived classification proposals with per-field
+  // approve/reject, and one action applying the approved set through the
+  // plugins. The approve/reject/apply controls are the catalog-driven
+  // `buildActionControl` cards, so they inherit the preview → confirm →
+  // apply discipline and the typed-field guarantees; the per-proposal
+  // buttons only prefill and open the matching card.
+  function maintainPath(id) {
+    return `/v1/admin/projects/${encodeURIComponent(id)}/maintain`;
+  }
+
+  async function loadMaintain(id) {
+    const body = document.getElementById("wb-maintain-body");
+    const actions = document.getElementById("wb-maintain-actions");
+    if (!body || !actions) return;
+    body.replaceChildren(el("p", "muted", "Loading maintainer data…"));
+    actions.replaceChildren();
+    let data;
+    try {
+      data = await request(maintainPath(id), { headers: { Accept: "application/json" } });
+    } catch (err) {
+      body.replaceChildren(el("p", "muted", (err && err.message) || "Maintainer data is unavailable right now."));
+      return;
+    }
+    renderMaintainBody(data);
+    renderMaintainActions();
+  }
+
+  async function reloadMaintainBody() {
+    if (!workbench.id) return;
+    try {
+      const data = await request(maintainPath(workbench.id), { headers: { Accept: "application/json" } });
+      renderMaintainBody(data);
+    } catch (_) {
+      // The action card already reports its own outcome; stale proposals
+      // stay visible until the next refresh rather than being wiped.
+    }
+  }
+
+  function renderMaintainBody(data) {
+    const body = document.getElementById("wb-maintain-body");
+    body.replaceChildren();
+    body.append(renderMaintainObservation(data.github || {}));
+    body.append(renderMaintainProposals(data.proposals || []));
+    body.append(renderMaintainPlugins(data.plugins || []));
+  }
+
+  function renderMaintainObservation(github) {
+    const wrap = el("div", "wb-maintain-section");
+    wrap.append(el("h4", "wb-maintain-head", "GitHub observation"));
+    // A blank field and an unreachable field are different facts: any
+    // state other than current/stale renders the reason, never empty rows.
+    if (github.state !== "current" && github.state !== "stale") {
+      const box = el("p", "muted");
+      box.textContent = github.reason
+        ? `GitHub remote unavailable — ${github.reason}`
+        : "GitHub remote unavailable.";
+      wrap.append(box);
+      return wrap;
+    }
+    const list = el("dl", "detail-list");
+    const add = (term, value) => {
+      const name = el("dt", null, term);
+      const detail = el("dd", null, (value === null || value === undefined || value === "" || (Array.isArray(value) && !value.length)) ? "—" : String(Array.isArray(value) ? value.join(", ") : value));
+      list.append(name, detail);
+    };
+    add("Description", github.description);
+    add("Topics", github.topics);
+    add("Homepage", github.homepage);
+    add("Language", github.language);
+    add("Freshness", `${github.freshness || "unknown"}${github.observed_at ? ` · observed ${github.observed_at}` : ""}`);
+    wrap.append(list);
+    return wrap;
+  }
+
+  function renderMaintainProposals(proposals) {
+    const wrap = el("div", "wb-maintain-section");
+    wrap.append(el("h4", "wb-maintain-head", "Derived proposals"));
+    if (!proposals.length) {
+      wrap.append(el("p", "muted", "No derived proposals yet. Run `forge classify derive` in a terminal to derive some from this project's own evidence."));
+      return wrap;
+    }
+    const tableWrap = el("div", "table-scroll compact");
+    tableWrap.setAttribute("tabindex", "0");
+    tableWrap.setAttribute("role", "region");
+    tableWrap.setAttribute("aria-label", "Derived classification proposals");
+    const table = el("table");
+    const head = el("thead");
+    const headRow = el("tr");
+    for (const label of ["Kind", "State", "Confidence", "Evidence", "Suggested", "Decision"]) {
+      const th = el("th", null, label);
+      th.setAttribute("scope", "col");
+      headRow.append(th);
+    }
+    head.append(headRow);
+    table.append(head);
+    const body = el("tbody");
+    for (const proposal of proposals) {
+      const row = el("tr");
+      row.append(textCell(proposal.kind), textCell(proposal.state), textCell(proposal.confidence));
+      const evidence = proposal.evidence_count === undefined || proposal.evidence_count === null
+        ? "—"
+        : String(proposal.evidence_count);
+      row.append(textCell(evidence), textCell(proposal.suggested_at || "—"));
+      const decision = el("td");
+      if (proposal.state === "Suggested" || proposal.state === "suggested") {
+        const approve = el("button", "button button-quiet wb-maintain-decide", "Approve");
+        approve.type = "button";
+        approve.dataset.proposal = proposal.id;
+        approve.dataset.decision = "classify.approve";
+        approve.setAttribute("aria-label", `Approve proposal ${proposal.id}`);
+        const reject = el("button", "button button-quiet wb-maintain-decide", "Reject");
+        reject.type = "button";
+        reject.dataset.proposal = proposal.id;
+        reject.dataset.decision = "classify.reject";
+        reject.setAttribute("aria-label", `Reject proposal ${proposal.id}`);
+        decision.append(approve, reject);
+      } else {
+        decision.textContent = "—";
+      }
+      row.append(decision);
+      body.append(row);
+    }
+    table.append(body);
+    tableWrap.append(table);
+    wrap.append(tableWrap);
+    for (const button of wrap.querySelectorAll(".wb-maintain-decide")) {
+      button.addEventListener("click", () => openMaintainDecision(button.dataset.decision, button.dataset.proposal));
+    }
+    return wrap;
+  }
+
+  function renderMaintainPlugins(plugins) {
+    const wrap = el("div", "wb-maintain-section");
+    wrap.append(el("h4", "wb-maintain-head", "Plugins"));
+    if (!plugins.length) {
+      wrap.append(el("p", "muted", "No plugins configured — the apply action will refuse until a metadata plugin is declared."));
+      return wrap;
+    }
+    const list = el("ul", "wb-plan-steps");
+    for (const plugin of plugins) {
+      const state = plugin.state && plugin.state !== "available" && plugin.reason
+        ? ` — ${plugin.state}: ${plugin.reason}`
+        : ` — ${plugin.state || (plugin.enabled ? "enabled" : "disabled")}`;
+      list.append(el("li", null, `${plugin.id} (${plugin.kind || "unknown kind"})${state}`));
+    }
+    wrap.append(list);
+    return wrap;
+  }
+
+  // Prefill the matching Maintain action card with this proposal and open
+  // it, so the operator reviews the typed preview and confirms — the
+  // buttons never decide anything by themselves.
+  function openMaintainDecision(commandId, proposalId) {
+    const card = document.querySelector(`#wb-maintain-actions .wb-action-card[data-command="${commandId}"]`);
+    if (!card) {
+      showWorkbenchNotice("The Maintain actions are unavailable right now — the command catalog could not be loaded.");
+      return;
+    }
+    const body = card.querySelector(".wb-action-body");
+    if (body && body.hidden) card.querySelector(".wb-action-head").click();
+    const field = card.querySelector('.wb-action-body input[type="text"]');
+    if (field) {
+      field.value = proposalId;
+      field.focus();
+    }
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // The three Maintain actions, rendered from the command catalog with no
+  // bespoke wiring: per-field approve, per-field reject, and the one apply
+  // of the approved set. A catalog that has not loaded leaves an honest
+  // empty state instead of dead buttons.
+  function renderMaintainActions() {
+    const box = document.getElementById("wb-maintain-actions");
+    box.replaceChildren();
+    if (!workbench.id) return;
+    const wanted = ["classify.approve", "classify.reject", "classify.apply"];
+    const rows = wanted.map((id) => catalogCommands.find(
+      (command) => command.id === id && command.execution && command.execution.route.includes("{id}"),
+    ));
+    if (rows.some((row) => !row)) {
+      box.append(el("p", "muted", "Maintain actions are unavailable right now — the command catalog could not be loaded."));
+      return;
+    }
+    for (const command of rows) {
+      box.append(buildActionControl(command, {
+        projectId: workbench.id,
+        onSuccess: () => reloadMaintainBody(),
+      }));
+    }
+  }
+
+  function renderLifecycle(manifest) {    // `GET /v1/admin/projects/{id}` returns `manifest` as a flat, path-free
     // view of the project's own `forge.yaml` — the same object
     // `renderManifest` reads. It carries no filesystem path by design, so the
     // lifecycle card shows the git remote and last commit instead: those are
@@ -555,6 +834,7 @@
     renderOperations(data.operations || []);
     populateFeatures(data.manifest || {});
     renderProjectActions();
+    loadMaintain(id);
     document.getElementById("workbench-title").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -1327,6 +1607,7 @@
     operation_id: "Operation id",
     reason: "Reason",
     target: "Target environment",
+    proposal: "Proposal id",
   };
   const PARAM_HINTS = {
     feature: "e.g. auth",
@@ -1339,6 +1620,7 @@
     operation_id: "copied from the delivery status above",
     reason: "why this is needed",
     target: "staging or production",
+    proposal: "e.g. description-a1b2c3d4",
   };
   function paramLabel(param) {
     if (PARAM_LABELS[param.name]) return PARAM_LABELS[param.name];
@@ -1369,6 +1651,10 @@
     });
     document.getElementById("wb-plan").addEventListener("click", planUpgrade);
     document.getElementById("wb-apply").addEventListener("click", applyUpgrade);
+    document.getElementById("wb-maintain-refresh").addEventListener("click", () => {
+      if (!workbench.id) { showWorkbenchNotice("Select a managed project first."); return; }
+      loadMaintain(workbench.id);
+    });
   }
 
   // ---- Portfolio controls
@@ -2002,6 +2288,7 @@
       const refresh = () => renderProjects(window.__forgeProjects || projects);
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);
+      initFleetFilters();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }
     document.getElementById("sign-out").addEventListener("click", async (event) => {
       const button = event.currentTarget; button.disabled = true;

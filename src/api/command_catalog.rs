@@ -89,6 +89,17 @@ const WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY: &str =
 const WEB_ROUTE_PROJECT_STATUS: &str = super::status::ROUTE_PROJECT_STATUS;
 const WEB_ROUTE_FLEET_STATUS: &str = super::status::ROUTE_FLEET_STATUS;
 
+/// Maintainer-surface typed routes (`forge-project-maintain/0.1.0`). These
+/// reference the maintain module's own route constants so the catalog and
+/// the live endpoints can never name different paths: the read-only
+/// per-project maintainer projection plus the three preview +
+/// confirm/digest-bound classification decision routes the browser's
+/// Maintain card drives through `buildActionControl`.
+const WEB_ROUTE_PROJECT_MAINTAIN: &str = super::maintain::ROUTE_PROJECT_MAINTAIN;
+const WEB_ROUTE_CLASSIFY_APPROVE: &str = super::maintain::ROUTE_CLASSIFY_APPROVE;
+const WEB_ROUTE_CLASSIFY_REJECT: &str = super::maintain::ROUTE_CLASSIFY_REJECT;
+const WEB_ROUTE_CLASSIFY_APPLY: &str = super::maintain::ROUTE_CLASSIFY_APPLY;
+
 /// Project-management typed routes (`forge-web-project-management`). These name
 /// the exact admin paths the router registers so the catalog and the live
 /// endpoints can never diverge: `forge new`, `forge import` and
@@ -144,6 +155,10 @@ const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY,
     WEB_ROUTE_PROJECT_STATUS,
     WEB_ROUTE_FLEET_STATUS,
+    WEB_ROUTE_PROJECT_MAINTAIN,
+    WEB_ROUTE_CLASSIFY_APPROVE,
+    WEB_ROUTE_CLASSIFY_REJECT,
+    WEB_ROUTE_CLASSIFY_APPLY,
     WEB_ROUTE_ADMIN_PROJECT_NEW,
     WEB_ROUTE_ADMIN_PROJECT_IMPORT,
     WEB_ROUTE_ADMIN_PROJECT_REGISTER,
@@ -1325,6 +1340,28 @@ impl CatalogBuilder {
         );
         self.leaf(
             Some("classify"),
+            "derive",
+            "Derive classification proposals from repository evidence (no model, no network, no project-field write).",
+            Quality,
+            Project,
+            LocalWrite,
+            NotYetWeb,
+            caps_local,
+        );
+        self.web_exec(
+            Some("classify"),
+            "apply",
+            "Apply the approved classification set outward through the configured metadata plugin (PR mode only).",
+            Quality,
+            Project,
+            RemoteWrite,
+            WEB_ROUTE_CLASSIFY_APPLY,
+            "POST",
+            &[],
+            caps_provider,
+        );
+        self.leaf(
+            Some("classify"),
             "list",
             "List every recorded classification proposal for the named project.",
             Quality,
@@ -1343,24 +1380,37 @@ impl CatalogBuilder {
             NotYetWeb,
             caps_local,
         );
-        self.leaf(
+        // The per-field classification decisions are browser-executable
+        // through the maintainer surface: each resolves to its typed
+        // preview + confirm/digest-bound admin route and carries the
+        // proposal id (`<kind>-<hash>`) as its only structured parameter.
+        // The read-only maintainer projection
+        // (`GET /v1/admin/projects/{id}/maintain`) stays a row-less
+        // implemented route — like the workspace-onboarding web-only
+        // routes — because it has no CLI path and the catalog covers
+        // exactly one row per Clap path.
+        self.web_exec(
             Some("classify"),
             "approve",
-            "Approve a `Suggested` proposal after explicit confirmation.",
+            "Approve a `Suggested` classification proposal after preview and explicit confirmation.",
             Quality,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_CLASSIFY_APPROVE,
+            "POST",
+            &[("proposal", "string", true)],
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("classify"),
             "reject",
-            "Reject a `Suggested` proposal after explicit confirmation.",
+            "Reject a `Suggested` classification proposal after preview and explicit confirmation.",
             Quality,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_CLASSIFY_REJECT,
+            "POST",
+            &[("proposal", "string", true)],
             caps_local,
         );
 
@@ -1738,6 +1788,30 @@ impl CatalogBuilder {
         self.leaf(Some("provider"), "matrix", "Report the provider matrix; without `--live` every row is `not-run` and never claims support.", Release, Provider, Read, NotYetWeb, none);
         self.provider_required(Some("provider"), "run", "Drive one controlled round trip for a provider with provenance and teardown (live rows require FORGE_PROVIDER_LIVE=1).", Release, Provider, LocalWrite, caps_provider);
         self.leaf(Some("provider"), "inspect", "Describe one provider's boundary, binary override, secret and teardown rules without probing.", Release, Provider, Read, NotYetWeb, none);
+
+        // ---------------------------------------------------------------- plugins
+        // The plugin registry: every configured external integration
+        // (GitHub, OpenPanel, any future remote) enumerated as a named
+        // plugin with a declared kind and capability list. `plugins.list`
+        // is a read of the operator's own config file; it invokes no
+        // plugin and contacts nothing.
+        self.group(
+            None,
+            "plugins",
+            "List every configured plugin (GitHub, OpenPanel, any future remote) with its kind, enabled state and declared capabilities.",
+            Release,
+            Provider,
+        );
+        self.leaf(
+            Some("plugins"),
+            "list",
+            "List every configured plugin with its kind, state and capabilities.",
+            Release,
+            Provider,
+            Read,
+            NotYetWeb,
+            none,
+        );
 
         // ---------------------------------------------------------------- fleet & catalog surfaces
         // fleet
@@ -2556,12 +2630,14 @@ mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 228 Clap paths (probe-verified from
+        // The row count equals the 232 Clap paths (probe-verified from
         // `Cli::command()`, including the `identity change-password` and
-        // `identity generate-password` leaf commands and the `workspace` /
-        // `workspace.sync` bulk-convergence paths) plus the explicit
-        // top-level `help` row.
-        assert_eq!(rows().len(), 229);
+        // `identity generate-password` leaf commands, the `workspace` /
+        // `workspace.sync` bulk-convergence paths and the `plugins` /
+        // `plugins.list` registry paths, plus the new `classify.derive`
+        // path) plus the explicit top-level `help` row, plus the new
+        // `classify.apply` path.
+        assert_eq!(rows().len(), 233);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 
@@ -2596,6 +2672,9 @@ mod tests {
                 ("check", WEB_ROUTE_PROJECT_STATUS),
                 ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
                 ("spec.apply", WEB_ROUTE_ADMIN_SPEC_APPLY),
+                ("classify.apply", WEB_ROUTE_CLASSIFY_APPLY),
+                ("classify.approve", WEB_ROUTE_CLASSIFY_APPROVE),
+                ("classify.reject", WEB_ROUTE_CLASSIFY_REJECT),
                 ("release.prepare", WEB_ROUTE_ADMIN_RELEASE_PLAN),
                 ("release.apply", WEB_ROUTE_ADMIN_RELEASE),
                 ("deploy.plan", WEB_ROUTE_ADMIN_DEPLOY_PLAN),
@@ -2686,6 +2765,9 @@ mod tests {
                 "feature.upgrade",
                 "spec.generate",
                 "spec.apply",
+                "classify.apply",
+                "classify.approve",
+                "classify.reject",
                 "release.apply",
                 "deploy.apply",
                 "publish",
@@ -2741,6 +2823,13 @@ mod tests {
                     ("reason", "string", false),
                 ],
             ),
+            // The classify apply resolves the approved set server-side
+            // from the project's recorded proposals, so it has no
+            // browser-supplied typed parameters; approve/reject each
+            // carry only the proposal id (`<kind>-<hash>`).
+            ("classify.apply", vec![]),
+            ("classify.approve", vec![("proposal", "string", true)]),
+            ("classify.reject", vec![("proposal", "string", true)]),
             ("release.apply", vec![("version", "string", true)]),
             ("deploy.apply", vec![("target", "string", false)]),
             // The bare publish resolves the provider, project and revision
@@ -2789,7 +2878,10 @@ mod tests {
                     assert!(execution.digest_bound, "row {}", row.id);
                     assert!(
                         !execution.parameters.is_empty()
-                            || matches!(row.id.as_str(), "publish" | "delivery.preflight"),
+                            || matches!(
+                                row.id.as_str(),
+                                "publish" | "delivery.preflight" | "classify.apply"
+                            ),
                         "row {} must carry typed parameters unless every input is server-resolved",
                         row.id
                     );

@@ -30,6 +30,7 @@ pub mod import;
 pub mod kit;
 pub mod mcp;
 pub mod planner;
+pub mod plugins;
 pub mod policy;
 pub mod portal;
 pub mod portfolio;

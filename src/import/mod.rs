@@ -425,7 +425,7 @@ fn detect_auth(deps: &str, dir: &Path, recognized: bool) -> Detection {
     }
 }
 
-fn detect_docker(dir: &Path) -> Detection {
+pub(crate) fn detect_docker(dir: &Path) -> Detection {
     let mut evidence = Vec::new();
     for file in [
         "Dockerfile",
@@ -454,7 +454,7 @@ fn detect_docker(dir: &Path) -> Detection {
     }
 }
 
-fn detect_ci(dir: &Path) -> Detection {
+pub(crate) fn detect_ci(dir: &Path) -> Detection {
     let mut found = Vec::new();
     let mut evidence = Vec::new();
     if dir_has_entries(dir, ".github/workflows") {

@@ -697,6 +697,76 @@ fn the_git_source_reads_only_a_declared_working_tree() {
 }
 
 #[test]
+fn compose_and_ci_are_observed_from_each_registered_project_directory() {
+    // `compose` was hard-coded to `None` for the local source even though the
+    // detection already existed in `import::detect_docker`, so the documented
+    // `--compose` predicate could never match a registered project. `ci` was
+    // fed from the registry's `quality_status` — a quality verdict like
+    // `warn`/`fail`, not a CI fact — so `--ci` could not match either. Both
+    // are facts about the project's own directory and are now observed there.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = db_path(tmp.path());
+
+    // docker + compose, with GitHub Actions.
+    let both = tmp.path().join("both");
+    write_project(&both, "both", "rust-web", "L2", "rust");
+    fs::write(both.join("Dockerfile"), "FROM scratch").unwrap();
+    fs::write(both.join("compose.yaml"), "services: {}").unwrap();
+    fs::create_dir_all(both.join(".github/workflows")).unwrap();
+    fs::write(both.join(".github/workflows/ci.yml"), "on: push").unwrap();
+
+    // a container file alone is not compose.
+    let docker_only = tmp.path().join("docker-only");
+    write_project(&docker_only, "docker-only", "rust-web", "L2", "rust");
+    fs::write(docker_only.join("Dockerfile"), "FROM scratch").unwrap();
+
+    // neither.
+    let bare = tmp.path().join("bare");
+    write_project(&bare, "bare", "rust-web", "L1", "rust");
+
+    for dir in [&both, &docker_only, &bare] {
+        assert!(run(&db, &["register", dir.to_str().unwrap()])
+            .status
+            .success());
+    }
+
+    let page = run_json(&db, &["project", "list"]);
+    let records = records_of(&page);
+    let by_id = |id: &str| {
+        records
+            .iter()
+            .find(|r| r["project_id"] == id)
+            .unwrap_or_else(|| panic!("no record for {id}: {page}"))
+            .clone()
+    };
+
+    assert_eq!(by_id("both")["compose"], "docker+compose");
+    assert_eq!(by_id("both")["ci"], "github-actions");
+    // A Dockerfile is not compose.
+    assert_eq!(by_id("docker-only")["compose"], "docker");
+    assert!(by_id("docker-only")["ci"].is_null());
+    // Neither is reported as absent rather than as an empty string.
+    assert!(by_id("bare")["compose"].is_null());
+    assert!(by_id("bare")["ci"].is_null());
+
+    // The documented predicate now matches, and only the compose project.
+    let page = run_json(&db, &["project", "list", "--compose", "docker+compose"]);
+    let ids: Vec<&str> = records_of(&page)
+        .iter()
+        .map(|r| r["project_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["both"]);
+
+    // …and the CI predicate matches the project that declares CI.
+    let page = run_json(&db, &["project", "list", "--ci", "github-actions"]);
+    let ids: Vec<&str> = records_of(&page)
+        .iter()
+        .map(|r| r["project_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["both"]);
+}
+
+#[test]
 fn inspect_returns_every_record_for_one_project_and_refuses_an_unknown_id() {
     let tmp = tempfile::tempdir().unwrap();
     let db = local_fleet(tmp.path());

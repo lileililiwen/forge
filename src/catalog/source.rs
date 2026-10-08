@@ -485,6 +485,31 @@ fn local_record(
     } else {
         EvidenceState::Unavailable
     };
+    // Compose and CI are facts about the project's own directory, so they are
+    // observed from that directory rather than inherited from a registry
+    // column. `compose` was hard-coded to `None` here even though the
+    // detection already existed in `import::detect_docker`, which made the
+    // documented `--compose` predicate return nothing for every registered
+    // project. `ci` was fed from `quality_status`, which is a quality verdict
+    // (`warn`/`fail`), not a CI fact — so `--ci` could never match either.
+    //
+    // An unreadable directory yields `None` with evidence already marked
+    // `Unavailable` above: Forge must not report a state it could not observe.
+    let (compose, ci) = if project.available {
+        let dir = Path::new(&project.path);
+        if dir.is_dir() {
+            let docker = crate::import::detect_docker(dir);
+            let ci_detection = crate::import::detect_ci(dir);
+            (
+                docker.value.as_deref().and_then(non_empty_ref),
+                ci_detection.value.as_deref().and_then(non_empty_ref),
+            )
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
     CatalogRecord {
         project_id: project.id.clone(),
         name: Some(clean_field(&project.name)),
@@ -509,8 +534,8 @@ fn local_record(
             .and_then(non_empty_ref)
             .map(|stack| vec![stack])
             .unwrap_or_default(),
-        ci: project.quality_status.as_deref().and_then(non_empty_ref),
-        compose: None,
+        ci,
+        compose,
         evidence,
     }
     .with_freshness(max_age_seconds, now)

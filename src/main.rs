@@ -86,6 +86,7 @@ use forge::planner::{
     validate_intent, write_plan_receipt, Intent, IntentAction, IntentConstraint,
     IntentResolveOutcome, IntentValidationOutcome, PLANNER_CONTRACT_VERSION,
 };
+use forge::plugins;
 use forge::policy::{run_driftwatch, DriftWatchConfig};
 use forge::portal::{
     build_dashboard_with_fleet, build_section_view_with_fleet, parse_section,
@@ -106,6 +107,7 @@ use forge::provider::{
     render_row_human as render_provider_row_human, run_controlled as run_provider_controlled,
     RunOptions as ProviderRunOptions, PROVIDER_CONTRACT_VERSION, PROVIDER_SYNTHETIC_PROJECT,
 };
+use forge::publish::providers;
 use forge::publish::{
     jenkins::JenkinsAdapter,
     providers::{
@@ -149,6 +151,11 @@ use forge::upgrade::{
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+/// Versioned contract for `forge plugins`. Additive: a plugin that does
+/// not recognise a request kind answers `unsupported`, which the
+/// registry reports as a capability gap rather than a failed run.
+const PLUGINS_CONTRACT: &str = "forge-plugins/0.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
@@ -488,6 +495,12 @@ enum Commands {
     Provider {
         #[command(subcommand)]
         command: ProviderCommands,
+    },
+    /// List every configured plugin (GitHub, OpenPanel, any future remote)
+    /// with its kind, enabled state and declared capabilities.
+    Plugins {
+        #[command(subcommand)]
+        command: PluginsCommands,
     },
     /// Inspect and select standalone or optional external governance providers.
     Governance {
@@ -1944,6 +1957,16 @@ enum ReadinessCommands {
 }
 
 #[derive(Debug, Subcommand)]
+enum PluginsCommands {
+    /// List every configured plugin with its kind, state and capabilities.
+    List {
+        /// Project directory whose `.forge/providers.yaml` is read (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum ProviderCommands {
     /// Report the provider matrix. Without `--live` every row is `not-run`; a not-run row never claims support.
     Matrix {
@@ -2436,6 +2459,21 @@ enum DescribeCommands {
 enum ClassifyCommands {
     /// Suggest a bounded classification for the named project.
     Suggest(SemanticSuggestArgs),
+    /// Derive classification proposals from repository evidence (no model, no network, no project-field write).
+    Derive {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+    },
+    /// Apply approved classification metadata outward through the configured metadata plugin (PR mode only).
+    Apply {
+        /// Registered project id or filesystem path (default: current directory).
+        #[arg(default_value = ".")]
+        target: String,
+        /// Required explicit confirmation; without it the command refuses.
+        #[arg(long)]
+        confirm: bool,
+    },
     /// List every recorded classification proposal for the named project.
     List {
         /// Registered project id or filesystem path (default: current directory).
@@ -2798,6 +2836,7 @@ fn main() -> ExitCode {
         Commands::Portfolio { command } => cmd_portfolio(&db_path, command, cli.format),
         Commands::Readiness { command } => cmd_readiness(command, cli.format),
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
+        Commands::Plugins { command } => cmd_plugins(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
         Commands::Project { command } => cmd_project(&db_path, command, cli.format),
@@ -2806,7 +2845,7 @@ fn main() -> ExitCode {
         Commands::Standard { command } => cmd_standard(command, cli.format),
         Commands::Remediate { command } => cmd_remediate(&db_path, command, cli.format),
         Commands::Describe { command } => cmd_describe(command, cli.format),
-        Commands::Classify { command } => cmd_classify(command, cli.format),
+        Commands::Classify { command } => cmd_classify(&db_path, command, cli.format),
         Commands::Delivery { command } => cmd_delivery(&db_path, command, cli.format),
         Commands::Studio { command } => cmd_studio(&db_path, command, cli.format),
         Commands::Gate { .. } => {
@@ -3901,13 +3940,43 @@ fn cmd_describe(command: &DescribeCommands, format: Format) -> Result<Output, Fo
     }
 }
 
-fn cmd_classify(command: &ClassifyCommands, format: Format) -> Result<Output, ForgeError> {
+fn cmd_classify(
+    db_path: &Path,
+    command: &ClassifyCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
     match command {
         ClassifyCommands::Suggest(args) => {
             let kind = ProposalKind::Domain;
             let request = build_suggest_request(kind, args)?;
             let outcome = semantic::suggest(&request)?;
             semantic_suggest_output(&outcome, format)
+        }
+        ClassifyCommands::Apply { target, confirm } => {
+            let project_path = resolve_spec_target(target)?;
+            let outcome = forge::semantic::apply(&project_path, *confirm)?;
+            let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&project_path, None)
+                .map_err(|err| ForgeError::SemanticInvalid {
+                    reason: format!("cannot resolve project id: {err}"),
+                })?;
+            let registry = forge::registry::Registry::open(db_path)?;
+            registry.record_operation(
+                "classify.apply",
+                &manifest.project.id,
+                "succeeded",
+                &format!(
+                    "plugin={} fields={} pr={}",
+                    outcome.plugin_id,
+                    outcome.fields.join(","),
+                    outcome.pr_reference.as_deref().unwrap_or("unknown")
+                ),
+            )?;
+            classify_apply_output(&outcome, format)
+        }
+        ClassifyCommands::Derive { target } => {
+            let project_path = resolve_spec_target(target)?;
+            let outcomes = forge::semantic::derive(&project_path)?;
+            semantic_derive_output(&outcomes, format)
         }
         ClassifyCommands::List { target } => {
             let project_path = resolve_spec_target(target)?;
@@ -4197,6 +4266,67 @@ fn semantic_suggest_output(
             "(no proposal stored)"
         ),
     };
+    Ok(as_output(format, human, json))
+}
+
+fn classify_apply_output(
+    outcome: &forge::semantic::ApplyOutcome,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "contract": forge::publish::providers::METADATA_PROPOSE_CONTRACT,
+        "plugin": outcome.plugin_id,
+        "fields": outcome.fields,
+        "pr": outcome.pr_reference,
+        "changes": outcome.changes,
+        "note": outcome.note,
+    });
+    let human = format!(
+        "classify apply: plugin={} fields={} pr={}\n{}",
+        outcome.plugin_id,
+        outcome.fields.join(", "),
+        outcome.pr_reference.as_deref().unwrap_or("unknown"),
+        outcome.note
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn semantic_derive_output(
+    outcomes: &[forge::semantic::SuggestOutcome],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "contract": forge::semantic::SEMANTIC_CONTRACT_VERSION,
+        "proposals": outcomes.iter().map(|outcome| serde_json::json!({
+            "status": outcome.status_label(),
+            "note": outcome.note,
+            "files_written": outcome.files_written,
+            "proposal": outcome.proposal,
+        })).collect::<Vec<_>>(),
+    });
+    let mut human = String::new();
+    for outcome in outcomes {
+        match outcome.proposal.as_ref() {
+            Some(proposal) => human.push_str(&format!(
+                "semantic {}: {} ({})\n  files: {}\n  {}\n",
+                outcome.status_label(),
+                proposal.id.dir_name(),
+                proposal.confidence.label(),
+                if outcome.files_written.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    outcome.files_written.join(", ")
+                },
+                outcome.note
+            )),
+            None => human.push_str(&format!(
+                "semantic {}: {}\n  {}\n",
+                outcome.status_label(),
+                outcome.note,
+                "(no proposal stored)"
+            )),
+        }
+    }
     Ok(as_output(format, human, json))
 }
 
@@ -11607,6 +11737,118 @@ fn cmd_readiness_check(profiles: &[String], format: Format) -> Result<Output, Fo
                 }
             );
             Err(err)
+        }
+    }
+}
+
+/// Read the optional sibling `plugins:` block from a provider config.
+///
+/// The block is parsed from the same file as `providers:` rather than a
+/// second file, so one config file describes every plugin and the two lists
+/// cannot drift apart. A file with no `plugins:` key yields an empty
+/// descriptor set — every plugin is then a delivery plugin, which is what
+/// every configuration that exists today already means.
+fn load_plugin_descriptors(path: &Path) -> Result<plugins::PluginConfig, ForgeError> {
+    plugins::load_descriptors(path)
+}
+
+fn cmd_plugins(
+    db_path: &Path,
+    command: &PluginsCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        PluginsCommands::List { project } => {
+            // A missing config is an honest empty registry, not a failure:
+            // "no plugins configured" is a real answer, and an operator with
+            // no providers.yaml yet should see that, not a stack trace.
+            let dir = Path::new(project);
+            let config_path = plugins::resolve_config_path(Some(dir));
+            if !config_path.is_file() {
+                // The JSON contract holds on this path too: "no plugins
+                // configured" is an answer, not a failure, and a caller
+                // asking for JSON must get JSON.
+                if matches!(format, Format::Json | Format::Ndjson) {
+                    return Ok(Output::Json(serde_json::json!({
+                        "contract": PLUGINS_CONTRACT,
+                        "config": config_path.to_string_lossy(),
+                        "plugins": [],
+                    })));
+                }
+                let mut lines = vec!["No plugins configured.".to_string()];
+                lines.push(format!("Looked for {}", config_path.display()));
+                lines.push(
+                    "Add a `providers:` entry to declare one; a plugin without a \
+                     descriptor is treated as a delivery plugin."
+                        .to_string(),
+                );
+                return Ok(Output::Human(lines.join("\n")));
+            }
+            let provider_config = providers::load_config(&config_path)?;
+            // Descriptors live in a sibling `plugins:` block in the same file.
+            // A file without one is the existing shape: every plugin is then a
+            // delivery plugin, which is what every configuration in the wild
+            // already means.
+            let descriptors = load_plugin_descriptors(&config_path)?;
+            let records = plugins::list(&provider_config, &descriptors);
+            let _ = db_path;
+            match format {
+                Format::Json | Format::Ndjson => {
+                    let payload = serde_json::json!({
+                        "contract": PLUGINS_CONTRACT,
+                        "config": config_path.to_string_lossy(),
+                        "plugins": records
+                            .iter()
+                            .map(|record| serde_json::json!({
+                                "id": record.id,
+                                "kind": record.kind.as_str(),
+                                "enabled": record.enabled,
+                                "state": record.state.as_str(),
+                                "reason": record.state.reason(),
+                                "command": record.command.to_string_lossy(),
+                                "capabilities": record.capability_list(),
+                                "description": record.description,
+                            }))
+                            .collect::<Vec<_>>(),
+                    });
+                    Ok(Output::Json(payload))
+                }
+                _ => {
+                    if records.is_empty() {
+                        return Ok(Output::Human(format!(
+                            "No plugins configured in {}",
+                            config_path.display()
+                        )));
+                    }
+                    let mut lines = Vec::new();
+                    for record in &records {
+                        lines.push(format!(
+                            "{}  {}  {}{}",
+                            record.id,
+                            record.kind.as_str(),
+                            record.state.as_str(),
+                            match record.state.reason() {
+                                Some(reason) => format!("  ({reason})"),
+                                None => String::new(),
+                            }
+                        ));
+                        lines.push(format!("    command: {}", record.command.to_string_lossy()));
+                        lines.push(format!(
+                            "    capabilities: {}",
+                            if record.capabilities.is_empty() {
+                                "none (this plugin advertises nothing it can be trusted with)"
+                                    .to_string()
+                            } else {
+                                record.capability_list().join(", ")
+                            }
+                        ));
+                        if let Some(description) = &record.description {
+                            lines.push(format!("    {description}"));
+                        }
+                    }
+                    Ok(Output::Human(lines.join("\n")))
+                }
+            }
         }
     }
 }

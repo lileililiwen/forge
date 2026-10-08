@@ -105,26 +105,32 @@ scripts/release-check.sh --gate-profile rust-web --gate-profile nextjs-web --gat
 ### Normal user quickstart (just run it)
 
 Build once, then run two small server processes: the API (data) and the web
-page. Open two terminals in the Forge checkout.
+page. The `scripts/web.sh` helper manages the pair as one unit (pidfiles
+under `.forge/run/`, logs under `.forge/log/`).
 
 ```sh
 cargo build
 ```
 
-Terminal 1 — the API. Replace `/path/to/your/workspace` with the folder
-holding your projects (this is what enables the dashboard's “Workspace
-onboarding” panel; without it, project creation from the browser is
-refused):
+Start both listeners in the background, then check the state:
 
 ```sh
-FORGE_ADMIN_PROJECTS_ROOT=/path/to/your/workspace \
-  ./target/debug/forge api serve --bind 127.0.0.1 --port 8766
+scripts/web.sh start
+scripts/web.sh status
 ```
 
-Terminal 2 — the web page:
+Default ports: API on `http://127.0.0.1:8765`, web UI on
+`http://127.0.0.1:4173`. Override either with `--api-port` or
+`--web-port`. To rebuild before starting, pass `--build` to `start`.
+
+To enable the dashboard's "Workspace onboarding" panel, set
+`FORGE_ADMIN_PROJECTS_ROOT` to the folder holding your projects before
+starting the API. The script sets up both services; the variable is
+inherited from the shell that runs `scripts/web.sh start`:
 
 ```sh
-./target/debug/forge web serve --bind 127.0.0.1 --port 4173 --root frontend
+export FORGE_ADMIN_PROJECTS_ROOT=/path/to/your/workspace
+scripts/web.sh start
 ```
 
 Then open <http://127.0.0.1:4173/> and sign in. First ever run? Create the
@@ -141,18 +147,41 @@ revoked, then sign in again):
 ./target/debug/forge identity change-password
 ```
 
-**Restart** (for example after updating Forge): stop both servers, rebuild,
-start them again:
+**Restart** (for example after updating Forge): stop both services,
+rebuild, start them again.
 
 ```sh
-pkill -f "forge api serve"; pkill -f "forge web serve"
-cargo build
-# then run the two commands above again
+scripts/web.sh restart --build
 ```
 
-**Stop**: `pkill -f "forge api serve"; pkill -f "forge web serve"`.
+**Stop** both listeners:
 
-In the dashboard, “Workspace onboarding” discovers every sibling directory
+```sh
+scripts/web.sh stop
+```
+
+**Tail the logs** while they're running (Ctrl-C to detach):
+
+```sh
+scripts/web.sh logs
+```
+
+If you prefer to drive the two listeners by hand (for example when running
+them under a different process supervisor), the underlying commands are
+the same ones the script invokes:
+
+```sh
+# Terminal 1 — the API
+./target/debug/forge api serve --bind 127.0.0.1 --port 8765
+
+# Terminal 2 — the web page
+./target/debug/forge web serve --bind 127.0.0.1 --port 4173
+```
+
+To stop the manually-spawned processes, use the same pattern the script
+uses: `pkill -f "forge api serve"; pkill -f "forge web serve"`.
+
+In the dashboard, "Workspace onboarding" discovers every sibling directory
 automatically — tick what you want, Preview, tick confirm, Run, and the
 projects appear in the fleet.
 

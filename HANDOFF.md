@@ -2,6 +2,39 @@
 
 current_spec: none
 
+## Completed: platform-testing-postgres-fixture (archived 2026-10-08)
+
+New test-only package `Platform.Persistence.Postgres.Testing` (0.1.0):
+`PostgresTestServer` boots one `postgres:17.6-alpine` container per test
+assembly (xUnit `ICollectionFixture`; version probe proves a real server;
+`:latest`/untagged images rejected; username/password overridable; dispose
+removes the container). `EnsureTemplateSeededAsync` runs the caller-supplied
+`Func<string, CancellationToken, Task>` migration exactly once per template
+(no EF dependency); `CreateIsolatedDatabaseAsync` clones per test via
+`CREATE DATABASE ... TEMPLATE` (caller names preserved and validated, unique
+default). Central pins added (`Npgsql 10.0.0`, `Testcontainers.PostgreSql
+4.15.0`); manifest regenerated to 79 packages; architecture suite extended
+(project inventory, Npgsql+Testcontainers-only boundary rules, image-pin
+rule; manifest tripwire 78 → 79); docs in `docs/packages.md` + README matrix.
+
+**Verification:** `tests/Platform.Persistence.Postgres.Tests` 19/19
+(container shared across two test classes by id/name equality, clone
+freshness, exactly-once spy migration under concurrent + sequential seeding,
+caller/unique names, Docker-free guard tests; 0 skipped with Docker present,
+Docker-gated tests `Skip` with reason when Docker is absent);
+`tests/Platform.Architecture.Tests` 383/383;
+`generate-package-manifest.sh --check` clean; `check-public-api.sh` exit 0;
+`openspec validate platform-testing-postgres-fixture --strict` valid, post-archive
+`validate --specs --strict` 58/58; `git diff --check` clean.
+
+Archive: `openspec/changes/archive/2026-10-08-platform-testing-postgres-fixture/`.
+Spec: `openspec/specs/platform-testing-postgres/spec.md`.
+Implementation commit: `ceb2d65` (`Implement platform-testing-postgres-fixture`).
+
+**Next:** `openspec list` is empty; consumer adoption (e.g. chronicleaf
+retiring its local fixture onto this package) happens in the consumer
+repositories, not here. `driftwatch.toml` remains untracked and untouched.
+
 ## Completed: platform-react-app-templates (archived 2026-10-08)
 
 Added `@platform/react-templates` with separate public, user-dashboard, and

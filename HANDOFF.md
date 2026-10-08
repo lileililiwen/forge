@@ -2,6 +2,68 @@
 
 ## Current state
 
+### supervised-agent-contract-size-split delivered and archived (2026-10-08)
+
+File 2 of the source-file-size grind per
+`openspec/changes/archive/2026-10-08-source-file-size-remediation/design.md`
+§9 (verbatim-move rules per §10 decision ledger). Tests-side only;
+no behavior change anywhere.
+
+Move (`tests/supervised_agent_contract.rs` 1201 lines deleted,
+`tests/supervised_agent_contract/` created): `main.rs` (file doc,
+all shared helpers, `Fixture` struct + impl, `code_of`,
+four `mod` declarations; `fn` → `pub(crate) fn` per the
+`tests/kit_contract/` precedent) plus four provider-scenario
+submodules — `legacy_session` (3), `ariadex` (12),
+`sisyphusfy` (9), `native_toolchain` (5). Every one of the 29
+`#[test]` function bodies copied verbatim (verified by substring
+assertion against the original at split time); no cleanup, no
+renames. No `src/` change, no `mod` change in `src/lib.rs` or
+`src/main.rs`, no public symbol/route/CLI/env change.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `cargo test --test supervised_agent_contract` pre-move | **29 passed / 0 failed / 0 ignored** |
+| `cargo test --test supervised_agent_contract` post-move | **29 passed / 0 failed / 0 ignored** (identical) |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | **PASS** after archive (archiver-stamped TBD Purpose replaced with a source-backed sentence; stale pointer removed) |
+| `openspec validate --all --strict --no-interactive` | **89 passed / 0 failed** active; **89 passed / 0 failed** after archive (+1 new canonical spec) |
+| `git diff --check` | clean |
+| `./target/debug/forge gate --dry-run` | plan rendered; 9 required checks |
+| `./target/debug/forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change is tests-side only and the gate evaluates `src/`, so the count is unchanged); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive supervised-agent-contract-size-split --yes` | `supervised-agent-contract-size-split: create` (+1); **no `--skip-specs`**; archived as `2026-10-08-supervised-agent-contract-size-split`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior entries (src-file splitting program; harness
+timeout investigation).
+
+One implementation note: the split script's visibility regex briefly
+over-matched a `proj: &Path` function parameter (`pub(crate) proj`);
+reverted to the verbatim parameter before `cargo fmt`, so the
+shipped helpers differ from the original only by `pub(crate)` on
+the items themselves. The delta spec carried a real `## Purpose`
+sentence, but the archiver still stamped TBD; the canonical spec's
+Purpose was replaced with the source-backed sentence above in this
+same change (governance PASS after).
+
+Files changed: `tests/supervised_agent_contract.rs` (deleted),
+`tests/supervised_agent_contract/` (`main.rs` + 4 submodules), new
+`openspec/changes/archive/2026-10-08-supervised-agent-contract-size-split/`
+(proposal, design, tasks, delta spec), new canonical spec
+`openspec/specs/supervised-agent-contract-size-split/spec.md` (+1),
+`HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `7b6cc1b`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### gate-contract-size-split delivered and archived (2026-10-08)
 
 File 1 of the source-file-size grind per

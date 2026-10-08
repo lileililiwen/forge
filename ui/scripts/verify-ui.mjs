@@ -42,6 +42,11 @@ export const REQUIRED_ARTIFACTS = [
   'ui/packages/design-tokens/dist/tokens.ts',
   'ui/packages/react-ui/src/components.tsx',
   'ui/packages/react-shell/src/shell.tsx',
+  'ui/packages/react-templates/package.json',
+  'ui/packages/react-templates/src/index.ts',
+  'ui/packages/react-templates/src/layouts.tsx',
+  'ui/packages/react-templates/src/theme.tsx',
+  'ui/packages/react-templates/styles.css',
   'src/Platform.UI.Razor/wwwroot/platform-ui.css',
 ];
 
@@ -143,6 +148,78 @@ export function verify(root = repositoryRoot) {
     if (byName.get(name).literal !== value) {
       fail('ui-orphan-literal', `tokens.ts declares ${name} as "${value}" but tokens.json resolves it to "${byName.get(name).literal}"`);
     }
+  }
+
+  // Framework themes consume a complete semantic color map for each supported
+  // mode. Values must resolve to the source token tree, not to a second palette.
+  const themeMap = /export const semanticColorValues = \{([\s\S]*?)\} as const;/.exec(ts);
+  if (!themeMap) fail('ui-theme-map-missing', 'tokens.ts does not export semanticColorValues for framework theme adapters');
+  const semanticColors = new Map(
+    tokens.filter((token) => token.path.startsWith('semantic.color.'))
+      .map((token) => [token.path.slice('semantic.color.'.length), token]),
+  );
+  const expectedByMode = { light: new Map([...semanticColors].map(([name, token]) => [name, token.literal])), dark: new Map([...semanticColors].map(([name, token]) => [name, token.literal])) };
+  for (const { mode, groups } of readThemeOverrides(source)) {
+    for (const group of groups.filter((item) => item.group === 'color')) {
+      for (const { key, alias } of group.entries) {
+        const target = tokens.find((token) => token.path === alias);
+        if (!target) fail('ui-theme-map-invalid', `${mode}.${key} references undeclared token {${alias}}`);
+        expectedByMode[mode]?.set(key, target.literal);
+      }
+    }
+  }
+  for (const mode of ['light', 'dark']) {
+    const modeObject = new RegExp(`(?:^|[, ])${mode}: \\{([^{}]*)\\}`).exec(themeMap[1]);
+    if (!modeObject) fail('ui-theme-map-missing', `tokens.ts does not emit the ${mode} semantic theme`);
+    const actual = new Map([...modeObject[1].matchAll(/([A-Za-z_$][A-Za-z0-9_$]*):\s*"((?:[^"\\]|\\.)*)"/g)].map((match) => [match[1], match[2]]));
+    for (const [name, value] of expectedByMode[mode]) {
+      if (actual.get(name) !== value) fail('ui-theme-map-invalid', `${mode}.${name} is ${actual.get(name) ?? 'missing'}, expected ${value} from tokens.json`);
+    }
+    for (const name of actual.keys()) {
+      if (!expectedByMode[mode].has(name)) fail('ui-theme-map-invalid', `${mode}.${name} is not a semantic color in tokens.json`);
+    }
+  }
+
+  const templatePackage = JSON.parse(read(root, 'ui/packages/react-templates/package.json'));
+  if (templatePackage.name !== '@platform/react-templates') fail('ui-template-package-invalid', 'react-templates package name does not match @platform/react-templates');
+  if (templatePackage.exports?.['.'] !== './src/index.ts' || templatePackage.exports?.['./styles.css'] !== './styles.css') {
+    fail('ui-template-package-invalid', '@platform/react-templates must expose its public entry point and stylesheet');
+  }
+  if (!templatePackage.peerDependencies?.antd) fail('ui-template-package-invalid', '@platform/react-templates must declare Ant Design as a peer dependency');
+  if (!templatePackage.peerDependencies?.['@types/react']) fail('ui-template-package-invalid', '@platform/react-templates must declare React typings as a peer dependency');
+  if (!templatePackage.dependencies?.['@platform/react-ui'] || !templatePackage.dependencies?.['@platform/react-shell']) {
+    fail('ui-template-package-invalid', '@platform/react-templates must compose the existing platform UI and shell packages');
+  }
+
+  const layouts = read(root, 'ui/packages/react-templates/src/layouts.tsx');
+  const templateTheme = read(root, 'ui/packages/react-templates/src/theme.tsx');
+  const templateStyles = read(root, 'ui/packages/react-templates/styles.css');
+  for (const component of ['PublicPageLayout', 'UserDashboardLayout', 'AdminDashboardLayout', 'DataTable']) {
+    if (!layouts.includes(`function ${component}`)) fail('ui-template-export-missing', `${component} is not implemented in react-templates`);
+  }
+  if (/export\s+(?:function|const)\s+(?:Button|Field|Card|Badge|State)\b/.test(layouts)) {
+    fail('ui-template-duplicate-primitive', 'react-templates exports a primitive already owned by @platform/react-ui');
+  }
+  for (const marker of ['platform-skip-link', 'aria-label="Main navigation"', 'AppShell', 'role="region"', 'tabIndex={0}']) {
+    if (!layouts.includes(marker)) fail('ui-template-accessibility-missing', `react-templates is missing ${marker}`);
+  }
+  for (const marker of ["kind=\"forbidden\"", 'headingRef.current?.focus()', 'onRetry &&']) {
+    if (!layouts.includes(marker)) fail('ui-template-state-missing', `react-templates is missing ${marker}`);
+  }
+  for (const marker of ['semanticColorValues', 'tokenValues', 'colorPrimary', 'controlOutline']) {
+    if (!templateTheme.includes(marker)) fail('ui-template-theme-missing', `react-templates theme does not map ${marker}`);
+  }
+  if (/#(?:[0-9a-f]{3,8})\b|\brgb\(/i.test(templateTheme) || /#[0-9a-f]{3,8}\b|\brgb\(/i.test(templateStyles)) {
+    fail('ui-template-color-literal', 'react-templates contains a color literal instead of a semantic token');
+  }
+  if (!templateStyles.includes('@media (max-width: 48rem)') || !templateStyles.includes('@media (max-width: 30rem)')) {
+    fail('ui-template-breakpoint-missing', 'react-templates must use the declared responsive breakpoint scale');
+  }
+  for (const marker of ['.platform-data-table-region > .ant-table-wrapper', 'minmax(0, 1fr)']) {
+    if (!templateStyles.includes(marker)) fail('ui-template-responsive-contract', `react-templates styles are missing ${marker}`);
+  }
+  if (templateStyles.includes('@import')) {
+    fail('ui-template-stylesheet-import', 'react-templates stylesheet must not rely on paths outside its packed artifact');
   }
 
   // V6: no emitted token from 0.1.0 is dropped or renamed (design.md section 5, D15).

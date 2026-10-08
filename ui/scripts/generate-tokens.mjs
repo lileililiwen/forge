@@ -112,6 +112,30 @@ const tokensObject = objectLiteral(
 
 const tokenValues = objectLiteral(tokens.map((token) => [token.name, JSON.stringify(token.literal)]));
 
+// Concrete semantic values for framework theme adapters. Theme overrides are
+// resolved from the same source tree as CSS, so adapters never carry a second
+// light/dark palette.
+const semanticValuesByMode = { light: new Map(), dark: new Map() };
+for (const [name, token] of semantics) semanticValuesByMode.light.set(name, token.literal);
+for (const [name, value] of semanticValuesByMode.light) semanticValuesByMode.dark.set(name, value);
+for (const { mode, groups } of readThemeOverrides(source)) {
+  if (!semanticValuesByMode[mode]) semanticValuesByMode[mode] = new Map(semanticValuesByMode.light);
+  for (const group of groups) {
+    if (group.group !== 'color') continue;
+    for (const { key, alias } of group.entries) {
+      const target = tokens.find((token) => token.path === alias);
+      if (!target) throw new Error(`generate-tokens: theme override ${mode} for ${key} references undeclared {${alias}}`);
+      semanticValuesByMode[mode].set(key, target.literal);
+    }
+  }
+}
+const semanticValuesObject = objectLiteral(
+  Object.entries(semanticValuesByMode).map(([mode, values]) => [
+    mode,
+    objectLiteral([...values].map(([name, value]) => [name, JSON.stringify(value)])),
+  ]),
+);
+
 const ts = [
   '/** Generated from tokens.json. Do not edit. */',
   `export const tokens = ${tokensObject} as const;`,
@@ -119,8 +143,12 @@ const ts = [
   '/** Every declared token name and its alias-resolved value. */',
   `export const tokenValues = ${tokenValues} as const;`,
   '',
+  '/** Semantic color values resolved from tokens.json for framework theme adapters. */',
+  `export const semanticColorValues = ${semanticValuesObject} as const;`,
+  '',
   'export type TokenName = keyof typeof tokenValues;',
   'export type PlatformTheme = \'light\' | \'dark\';',
+  'export type SemanticColorName = keyof typeof semanticColorValues.light;',
   '',
 ].join('\n');
 

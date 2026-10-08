@@ -26,6 +26,11 @@ const ARTIFACTS = [
   'ui/packages/react-ui/src/components.tsx',
   'ui/packages/react-ui/styles.css',
   'ui/packages/react-shell/src/shell.tsx',
+  'ui/packages/react-templates/package.json',
+  'ui/packages/react-templates/src/index.ts',
+  'ui/packages/react-templates/src/layouts.tsx',
+  'ui/packages/react-templates/src/theme.tsx',
+  'ui/packages/react-templates/styles.css',
   'src/Platform.UI.Razor/wwwroot/platform-tokens.css',
   'src/Platform.UI.Razor/wwwroot/platform-ui.css',
 ];
@@ -75,7 +80,7 @@ const cases = [
   },
   {
     name: 'ui-alias-unresolved in a theme override',
-    expected: /ui-alias-unresolved.*theme\.dark\.color\.primary/s,
+    expected: /ui-theme-map-invalid: dark\.primary references undeclared token/s,
     apply: (root) => edit(root, 'ui/tokens/tokens.json', (json) => json.replace('"primary": "{color.blue.300}"', '"primary": "{color.blue.999}"')),
   },
   {
@@ -117,6 +122,11 @@ const cases = [
     name: 'pre-existing gate: focus-visible removed',
     expected: /missing focus-visible styling/,
     apply: (root) => edit(root, 'ui/packages/react-ui/styles.css', (css) => css.replaceAll(':focus-visible', ':focus')),
+  },
+  {
+    name: 'template forbidden state removed',
+    expected: /ui-template-state-missing.*forbidden/s,
+    apply: (root) => edit(root, 'ui/packages/react-templates/src/layouts.tsx', (source) => source.replace('<State kind="forbidden">{forbidden}</State>', '<State kind="error">{forbidden}</State>')),
   },
   {
     name: 'pre-existing gate: required artifact removed',

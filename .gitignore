@@ -10,6 +10,9 @@ TestResults/
 *.snupkg
 artifacts/
 packages/
+!ui/packages/
+!ui/packages/react-templates/
+!ui/packages/react-templates/**
 coverage/
 *.DotSettings.user
 .codegraph/

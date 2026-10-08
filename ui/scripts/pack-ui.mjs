@@ -35,6 +35,7 @@ const PACKAGES = [
   { directory: 'react-ui', name: '@platform/react-ui' },
   { directory: 'react-shell', name: '@platform/react-shell' },
   { directory: 'react-auth', name: '@platform/react-auth' },
+  { directory: 'react-templates', name: '@platform/react-templates' },
 ];
 
 /** Never packed, whatever the `files` array says. */

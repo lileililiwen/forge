@@ -1,5 +1,91 @@
 # Platform UI: tokens, the feed, and conformance
 
+## React application templates
+
+`@platform/react-templates` provides three distinct starting layouts: `PublicPageLayout`
+for content-first public routes, `UserDashboardLayout` for signed-in user tasks, and
+`AdminDashboardLayout` for permission-aware admin navigation. It also provides
+`PlatformThemeProvider`, which maps generated light/dark semantic tokens to Ant Design,
+and `DataTable` for the complex data display that is not covered by the base primitives.
+Dashboard layouts move focus to the page heading when `currentPath` changes. `DataTable`
+accepts caller-provided loading, empty, error, and forbidden messages; the retry button only
+appears when an `onRetry` callback is supplied.
+
+The platform keeps one implementation of base controls. Use `@platform/react-ui` for
+`Button`, `Field`, `Card`, `Badge`, and `State`; use Ant Design through the template
+package for data tables and advanced controls. Do not add a second button/input/card
+layer or write page-specific palette values.
+
+Consumers must vendor the `@platform/react-templates` tarball and its platform feed
+dependencies as described below, and must install a compatible Ant Design peer from
+their package source (`antd >=5 <7`). Import the design-token CSS and template CSS once
+at the application entry point, along with the React UI primitive stylesheet, then wrap
+the application with `PlatformThemeProvider`.
+Ant Design itself is a peer and is not copied into the platform tarball.
+
+Example consumer setup (use the exact tarball filenames and digests from the feed):
+
+```json
+{
+  "dependencies": {
+    "@platform/design-tokens": "file:vendor/platform-ui/platform-design-tokens-0.1.0.tgz",
+    "@platform/react-ui": "file:vendor/platform-ui/platform-react-ui-0.1.0.tgz",
+    "@platform/react-shell": "file:vendor/platform-ui/platform-react-shell-0.1.0.tgz",
+    "@platform/react-templates": "file:vendor/platform-ui/platform-react-templates-0.1.0.tgz",
+    "antd": "^6.0.0",
+    "@types/react": "^18.0.0"
+  }
+}
+```
+
+```tsx
+import '@platform/design-tokens/dist/tokens.css';
+import '@platform/react-ui/styles.css';
+import '@platform/react-templates/styles.css';
+import { AdminDashboardLayout, DataTable, PlatformThemeProvider } from '@platform/react-templates';
+
+export function AccountsPage() {
+  return (
+    <PlatformThemeProvider mode="light">
+      <AdminDashboardLayout
+        brand="Example"
+        title="Accounts"
+        user={{ authenticated: true, displayName: 'Admin', permissions: ['accounts.read'] }}
+        navigation={[{ id: 'accounts', label: 'Accounts', href: '/admin/accounts', permission: 'accounts.read' }]}
+        currentPath="/admin/accounts"
+      >
+        <DataTable
+          label="Accounts"
+          rowKey="id"
+          rows={[]}
+          columns={[{ title: 'Name', dataIndex: 'name', key: 'name' }]}
+          emptyMessage="No accounts have been created yet."
+        />
+      </AdminDashboardLayout>
+    </PlatformThemeProvider>
+  );
+}
+```
+
+Use `PublicPageLayout` for visitor-facing content and `UserDashboardLayout` for signed-in
+customer tasks. Their props are explicit so an agent does not need to invent a navigation
+model or infer authorization from the route. `DataTable` rows and columns are typed by
+Ant Design; provide a stable `rowKey` for the consumer's domain record.
+
+AI agents should choose a layout by audience, supply explicit headings/navigation and
+loading/empty/error/recovery states, and keep domain data and authorization in the
+consumer. Public pages should prioritize content and one primary action; user dashboards
+should prioritize the user's current tasks; admin dashboards may use denser tables and
+filters. Keep wide tables inside the labeled `DataTable` scroll region. Give every action
+a visible text label, use semantic state text as well as color, provide text/table
+alternatives for charts, and do not add gradients, one-off palette literals, deeply
+nested cards, or hover-only behavior by default.
+
+Before adopting a template, review it at 320, 375, 768, 1024, and 1280 CSS pixels; use
+keyboard-only navigation; check the accessibility tree and focus visibility; and review
+light/dark mode and reduced motion. Permission-filtered navigation is presentation only:
+the application's backend must authorize every protected operation.
+
 This directory is the platform's design-token layer: the single token source, the
 generator that turns it into shipped artifacts, the committed feed that makes those
 artifacts resolvable from another repository, and the frozen baseline the

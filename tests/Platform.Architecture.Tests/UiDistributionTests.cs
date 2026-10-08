@@ -193,7 +193,7 @@ public sealed class UiDistributionTests
         // tokens, and the two semantic colors platform-shared-auth-pages measured its
         // way to), so a 0.2.0 bump would signal a contract change that did not happen.
         // The digest, not the version, is the load-bearing check.
-        foreach (var package in new[] { "design-tokens", "react-ui", "react-shell", "react-auth" })
+        foreach (var package in new[] { "design-tokens", "react-ui", "react-shell", "react-auth", "react-templates" })
         {
             var manifest = JsonDocument.Parse(
                 File.ReadAllText(Path($"ui/packages/{package}/package.json"))).RootElement;
@@ -204,6 +204,44 @@ public sealed class UiDistributionTests
             "sha256",
             File.ReadAllText(Path("ui/scripts/verify-ui-feed.mjs")),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void React_templates_use_platform_tokens_and_do_not_duplicate_base_primitives()
+    {
+        var package = JsonDocument.Parse(
+            File.ReadAllText(Path("ui/packages/react-templates/package.json"))).RootElement;
+        Assert.Equal("@platform/react-templates", package.GetProperty("name").GetString());
+        Assert.Equal("./src/index.ts", package.GetProperty("exports").GetProperty(".").GetString());
+        Assert.Equal("./styles.css", package.GetProperty("exports").GetProperty("./styles.css").GetString());
+        Assert.Equal(">=18", package.GetProperty("peerDependencies").GetProperty("react").GetString());
+        Assert.Equal(">=18", package.GetProperty("peerDependencies").GetProperty("@types/react").GetString());
+        Assert.Equal(">=5 <7", package.GetProperty("peerDependencies").GetProperty("antd").GetString());
+
+        var layouts = File.ReadAllText(Path("ui/packages/react-templates/src/layouts.tsx"));
+        foreach (var layout in new[] { "PublicPageLayout", "UserDashboardLayout", "AdminDashboardLayout", "DataTable" })
+        {
+            Assert.Contains($"function {layout}", layouts, StringComparison.Ordinal);
+        }
+        Assert.Contains("headingRef.current?.focus()", layouts, StringComparison.Ordinal);
+        Assert.Contains("kind=\"forbidden\"", layouts, StringComparison.Ordinal);
+        foreach (var primitive in new[] { "Button", "Field", "Card", "Badge", "State" })
+        {
+            Assert.DoesNotMatch($"export\\s+(?:function|const)\\s+{primitive}\\b", layouts);
+        }
+
+        var theme = File.ReadAllText(Path("ui/packages/react-templates/src/theme.tsx"));
+        Assert.Contains("semanticColorValues", theme, StringComparison.Ordinal);
+        Assert.Contains("tokenValues", theme, StringComparison.Ordinal);
+        Assert.False(Regex.IsMatch(theme, "#(?:[0-9a-f]{3,8})\\b|\\brgb\\(", RegexOptions.IgnoreCase));
+
+        var styles = File.ReadAllText(Path("ui/packages/react-templates/styles.css"));
+        Assert.Contains("@media (max-width: 48rem)", styles, StringComparison.Ordinal);
+        Assert.Contains("@media (max-width: 30rem)", styles, StringComparison.Ordinal);
+        Assert.Contains(".platform-data-table-region > .ant-table-wrapper", styles, StringComparison.Ordinal);
+        Assert.Contains("minmax(0, 1fr)", styles, StringComparison.Ordinal);
+        Assert.DoesNotContain("@import", styles, StringComparison.Ordinal);
+        Assert.False(Regex.IsMatch(styles, "#[0-9a-f]{3,8}\\b|\\brgb\\(", RegexOptions.IgnoreCase));
     }
 
     [Fact]

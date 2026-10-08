@@ -682,6 +682,23 @@ impl CatalogBuilder {
         );
         self.group(
             None,
+            "workspace",
+            "Converge a workspace root into the registry with a per-directory report.",
+            Registry,
+            Workspace,
+        );
+        self.cli_only(
+            Some("workspace"),
+            "sync",
+            "Scan the immediate children of a workspace root and register or adopt each one.",
+            Registry,
+            Workspace,
+            LocalWrite,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.group(
+            None,
             "graduation",
             "Graduate a local `platform.idea-graduation` artifact into a project.",
             Registry,
@@ -2539,11 +2556,12 @@ mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 226 Clap paths (probe-verified from
+        // The row count equals the 228 Clap paths (probe-verified from
         // `Cli::command()`, including the `identity change-password` and
-        // `identity generate-password` leaf commands) plus the explicit
+        // `identity generate-password` leaf commands and the `workspace` /
+        // `workspace.sync` bulk-convergence paths) plus the explicit
         // top-level `help` row.
-        assert_eq!(rows().len(), 227);
+        assert_eq!(rows().len(), 229);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 

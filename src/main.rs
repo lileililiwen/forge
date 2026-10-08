@@ -77,7 +77,9 @@ use forge::identity::{
     terminate_session, validate_callback, validate_claims, validate_session, AuthCallback,
     IdentityConfig, IdentityOutcome, ProviderClaims, IDENTITY_CONTRACT_VERSION,
 };
-use forge::import::{adopt_import, inspect_import, render_proposal_human};
+use forge::import::{
+    adopt_import, inspect_import, render_proposal_human, sync_workspace, WORKSPACE_SYNC_CONTRACT,
+};
 use forge::planner::{
     apply_plan as apply_planner_plan, intent_hash, plans_dir, render_apply_human,
     render_intent_validation_human, render_plan_human, resolve_plan as resolve_planner_plan,
@@ -219,6 +221,11 @@ enum Commands {
         /// Explicit project id overriding the directory-name default.
         #[arg(long)]
         id: Option<String>,
+    },
+    /// Converge a workspace root into the registry with a per-directory report.
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommands,
     },
     /// Validate a local `platform.idea-graduation` artifact and, on
     /// explicit confirmation, create a project from its brief.
@@ -558,6 +565,16 @@ enum Commands {
     Studio {
         #[command(subcommand)]
         command: StudioCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum WorkspaceCommands {
+    /// Scan the immediate children of ROOT and register or adopt each one.
+    Sync {
+        /// Workspace root (default: current directory).
+        #[arg(default_value = ".")]
+        root: PathBuf,
     },
 }
 
@@ -2631,6 +2648,14 @@ fn main() -> ExitCode {
         return cmd_gate(&db_path, args, *dry_run, *timeout_secs, cli.format);
     }
 
+    // Workspace sync prints its per-directory report to stdout even when
+    // some directories failed, so it owns its exit code instead of using
+    // the generic error path (exit 0 iff no directory failed; skips never
+    // fail the run).
+    if let Commands::Workspace { command } = &cli.command {
+        return cmd_workspace(&db_path, command, cli.format);
+    }
+
     let result = match &cli.command {
         Commands::List => cmd_list(&db_path, cli.format),
         Commands::Inspect { target } => cmd_inspect(&db_path, target, cli.format),
@@ -2651,6 +2676,13 @@ fn main() -> ExitCode {
             cli.format,
         ),
         Commands::Graduation { command } => cmd_graduation(&db_path, command, cli.format),
+        Commands::Workspace { .. } => {
+            // Handled by the early `if let` above (the sync run owns its
+            // exit code so the per-directory report still prints when some
+            // directories failed); this arm exists only to keep the match
+            // exhaustive.
+            return ExitCode::from(2);
+        }
         Commands::Profile { command } => cmd_profile(command, cli.format),
         Commands::Kit { command } => cmd_kit(command, cli.format),
         Commands::New {
@@ -2923,6 +2955,97 @@ fn cmd_import(
     let human = render_proposal_human(&proposal);
     let json = serde_json::json!({"proposal": proposal});
     Ok(as_output(format, human, json))
+}
+
+fn cmd_workspace(db_path: &Path, command: &WorkspaceCommands, format: Format) -> ExitCode {
+    match command {
+        WorkspaceCommands::Sync { root } => cmd_workspace_sync(db_path, root, format),
+    }
+}
+
+/// Converge one workspace root into the registry and report every
+/// directory. The report always prints (human table or the versioned JSON
+/// envelope); the exit code is 0 iff no directory failed.
+fn cmd_workspace_sync(db_path: &Path, root: &Path, format: Format) -> ExitCode {
+    // A missing or non-directory ROOT is refused before the registry is
+    // even opened, so the failed run touches nothing.
+    if !root.is_dir() {
+        let err = ForgeError::PathUnavailable {
+            path: root.display().to_string(),
+        };
+        render_error(&err, format);
+        return ExitCode::from(err.exit_code() as u8);
+    }
+    let mut registry = match open_registry(db_path) {
+        Ok(registry) => registry,
+        Err(err) => {
+            render_error(&err, format);
+            return ExitCode::from(err.exit_code() as u8);
+        }
+    };
+    let report = match sync_workspace(&mut registry, root) {
+        Ok(report) => report,
+        Err(err) => {
+            render_error(&err, format);
+            return ExitCode::from(err.exit_code() as u8);
+        }
+    };
+    match format {
+        Format::Human | Format::Table => {
+            println!("{}", render_workspace_sync_human(&report));
+        }
+        Format::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&workspace_sync_json(&report)).unwrap()
+            );
+        }
+        Format::Ndjson => {
+            println!(
+                "{}",
+                serde_json::to_string(&workspace_sync_json(&report)).unwrap()
+            );
+        }
+    }
+    if report.failed() {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// One `ok|already|skipped|failed <leaf> [<detail>]` line per directory in
+/// sorted order, then the summary count line.
+fn render_workspace_sync_human(report: &forge::import::WorkspaceSyncReport) -> String {
+    let mut lines = Vec::with_capacity(report.entries.len() + 1);
+    for entry in &report.entries {
+        let detail = match entry.outcome.as_str() {
+            "ok" | "already" => entry.id.clone().unwrap_or_default(),
+            "skipped" if entry.reason.as_deref() == Some("ambiguous") => {
+                "ambiguous (re-run one directory with --profile)".to_string()
+            }
+            _ => entry.reason.clone().unwrap_or_default(),
+        };
+        if detail.is_empty() {
+            lines.push(entry.outcome.clone() + " " + &entry.directory);
+        } else {
+            lines.push(format!("{} {} {detail}", entry.outcome, entry.directory));
+        }
+    }
+    lines.push(format!(
+        "synced {}, already {}, skipped {}, failed {}",
+        report.summary.ok, report.summary.already, report.summary.skipped, report.summary.failed
+    ));
+    lines.join("\n")
+}
+
+fn workspace_sync_json(report: &forge::import::WorkspaceSyncReport) -> serde_json::Value {
+    serde_json::json!({
+        "contract": WORKSPACE_SYNC_CONTRACT,
+        "root": report.root,
+        "entries": report.entries,
+        "summary": report.summary,
+    })
 }
 
 /// Map a graduation refusal to the single typed Core error. The

@@ -2,6 +2,86 @@
 
 ## Current state
 
+### Two open defects found by browser-driving the dashboard (2026-10-08, NOT fixed)
+
+Driving the running dashboard with Playwright (rather than
+reading the source) surfaced two defects that are recorded
+here and deliberately **not fixed**. Both are outside the
+browser surface, so neither belonged to
+`lifecycle-tracked-project-view` or to the follow-up
+`2486f9e` UI fix. Each needs its own change.
+
+#### Defect 1 — `GET /v1/admin/projects/{id}` takes ~27 seconds
+
+`build_health` in `src/api/workbench.rs` (around line 261)
+runs `run_driftwatch` **and** `run_doctor` inline, in the
+request path, every time the workbench opens a project:
+
+```rust
+let policy_outcome = run_driftwatch(dir, &DriftWatchConfig::from_env());
+match run_doctor(dir, None, observation.as_ref(), Some(&policy_outcome)) { ... }
+```
+
+Measured in the browser on `argoscope`:
+`performance.getEntriesByType('resource')` reported
+**27,242 ms** for that single request. A direct `curl` of
+the same authenticated route reported ~6.5 s, so the cost
+is real on the server side and varies with what the
+project's own toolchain does.
+
+Why this matters to the operator: the frontend's `request()`
+helper has no timeout, so opening a project leaves the
+workbench looking hung for the better part of half a
+minute. This is very likely the dominant cause of the
+workbench reading as "broken" rather than as a design
+problem.
+
+The honest read is that an external-checker run and a full
+doctor pass are **not** read operations and should not be
+inline in a GET. Candidate remediations, none chosen yet:
+bound the workbench's health projection to the cached
+`doctor` result already in the registry; move the live pass
+behind an explicit operator action with its own progress
+state; or run it once and cache per `(project, commit)`.
+Whichever is picked must keep the existing contract
+honest — a health row must never claim a pass it did not
+compute.
+
+#### Defect 2 — there is no way to take a project to its death
+
+The operator asked to track a project "from new to publish
+or to death". The "death" half does not exist:
+
+```
+$ forge --help | grep -iE "retire|archive|deprecate|remove|delete|unregister|tombstone"
+(no output — exit 1)
+```
+
+There is no `retire` / `archive` / `deprecate` /
+`unregister` CLI command, and no matching admin route. The
+lifecycle-tracked workbench defines a **Retire** action
+group, and that group is therefore **structurally empty**:
+`lifecycleStageFor()` maps any future `retire.*` /
+`deprecate.*` command into it, and no such command exists
+yet. The group is hidden rather than faked, because
+rendering a button that cannot do anything is worse than
+its absence.
+
+What "death" has to mean is an open product decision, not
+an implementation detail: a project reaches its end
+retrospectively (archived upstream, superseded, abandoned,
+deleted) or when its operator decides to stop maintaining
+it. That decision needs the owner's ruling before a change
+package can be authored, because the answer determines the
+schema (a tombstone row? a `lifecycle` column on
+`projects`? a journal-only record?), whether the project
+disappears from the fleet or stays visible as retired, and
+what happens to its share/publication records.
+
+Neither defect is attributable to any delivered change, and
+neither blocks the operator's other work. Both are
+recorded here so the next change can pick one up.
+
 ### lifecycle-tracked-project-view delivered and archived (2026-10-08)
 
 `lifecycle-tracked-project-view` is implemented, verified and

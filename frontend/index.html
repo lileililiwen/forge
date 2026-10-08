@@ -15,7 +15,7 @@
       <aside class="sidebar" aria-label="Forge navigation">
         <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">F</span><span>Forge</span></a>
         <p class="side-label">WORKSPACE</p>
-        <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" href="#management"><span aria-hidden="true">＋</span> Manage projects</a><a class="nav-link" href="#portfolio"><span aria-hidden="true">◈</span> Portfolio</a><a class="nav-link" href="#delivery"><span aria-hidden="true">⇪</span> Delivery</a><a class="nav-link" href="#commands"><span aria-hidden="true">⌘</span> Commands</a></nav>
+            <nav><a class="nav-link nav-active" href="index.html" aria-current="page"><span aria-hidden="true">▦</span> All projects</a><a class="nav-link" href="#workbench"><span aria-hidden="true">⚙</span> Workbench</a><a class="nav-link" href="#management"><span aria-hidden="true">＋</span> Manage projects</a><a class="nav-link" href="#portfolio"><span aria-hidden="true">◈</span> Portfolio</a><a class="nav-link" href="#delivery"><span aria-hidden="true">⇪</span> Delivery</a></nav>
         <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span><span>Local workspace</span></div>
       </aside>
       <main id="main-content" class="main-area">
@@ -68,7 +68,7 @@
           </section>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title">
             <div class="panel-heading">
-              <div><h2 id="workbench-title">Project workbench</h2><p class="muted">Inspect one managed project and run its typed upgrade workflow. Every action runs through the crate's own validated in-process operations — never a shell.</p></div>
+              <div><h2 id="workbench-title">Project workbench</h2><p class="muted">Open one managed project, see its current maturity, and run the actions that move it forward. Every action runs through the crate's own validated in-process operations — never a shell.</p></div>
               <div class="panel-tools">
                 <label class="filter-box"><span class="sr-only">Select a managed project</span>
                   <select id="workbench-project"><option value="">Choose a managed project…</option></select>
@@ -77,8 +77,40 @@
               </div>
             </div>
             <div id="workbench-notice" class="notice notice-error" role="alert" hidden></div>
-            <p id="workbench-empty" class="empty-state compact">Select a managed project to load its manifest, health, evidence and available workflows.</p>
+            <p id="workbench-empty" class="empty-state compact">Select a managed project to load its lifecycle, manifest, evidence and available actions.</p>
             <div id="workbench-body" hidden>
+              <section class="wb-card wb-lifecycle" aria-labelledby="wb-lifecycle-title">
+                <div class="panel-heading">
+                  <div>
+                    <h3 id="wb-lifecycle-title">Lifecycle</h3>
+                    <p class="muted" id="wb-lifecycle-summary">Maturity, target, and the actions available right now. The buttons below drive the project from here to publish, or to retirement.</p>
+                  </div>
+                </div>
+                <dl id="wb-lifecycle" class="detail-list lifecycle-list">
+                  <dt>Maturity</dt><dd id="wb-lifecycle-maturity">—</dd>
+                  <dt>Target</dt><dd id="wb-lifecycle-target">—</dd>
+                  <dt>Profile</dt><dd id="wb-lifecycle-profile">—</dd>
+                  <dt>Path</dt><dd id="wb-lifecycle-path">—</dd>
+                  <dt>Last updated</dt><dd id="wb-lifecycle-updated">—</dd>
+                </dl>
+              </section>
+              <section class="wb-card wb-plan" aria-labelledby="wb-authoring-title">
+                <div class="panel-heading"><div><h3 id="wb-authoring-title">Manage this project</h3><p class="muted">The actions below are the typed lifecycle commands that apply to this project right now: adopt, feature, spec, upgrade, plan release, publish, deploy, retire. Each control is rendered from the same execution contract the CLI uses; preview returns a digest and changes nothing; confirming runs the same in-process operation. Only structured fields are accepted — never a shell command or a path you type.</p></div></div>
+                <div id="wb-actions" class="wb-actions-list wb-actions-grouped"></div>
+              </section>
+              <section class="wb-card wb-plan" aria-labelledby="wb-upgrade-title">
+                <div class="panel-heading"><div><h3 id="wb-upgrade-title">Upgrade workflow</h3><p class="muted">Plan first — it changes nothing. Confirm applies the exact plan you reviewed; a stale or changed plan is refused and nothing is written.</p></div></div>
+                <div class="wb-plan-tools">
+                  <label class="filter-box"><span class="sr-only">Target one feature (optional)</span>
+                    <select id="wb-feature"><option value="">All outdated features</option></select>
+                  </label>
+                  <button id="wb-plan" class="button button-quiet" type="button">Plan upgrade (read-only)</button>
+                  <button id="wb-apply" class="button" type="button" disabled>Apply confirmed plan</button>
+                </div>
+                <label id="wb-confirm-wrap" class="wb-confirm" hidden><input id="wb-confirm" type="checkbox"> I confirm this will write to the project files.</label>
+                <div id="wb-plan-result" class="wb-plan-result" hidden></div>
+                <div id="wb-apply-result" class="wb-plan-result" hidden></div>
+              </section>
               <div class="workbench-grid">
                 <section class="wb-card" aria-labelledby="wb-manifest-title">
                   <h3 id="wb-manifest-title">Manifest &amp; profile</h3>
@@ -100,11 +132,6 @@
                   <p class="muted">Read-only staged-delivery phase from the journal. Providers and adapters run only after you preview and confirm an action below.</p>
                   <div id="wb-delivery" class="wb-health" role="status" aria-live="polite"></div>
                 </section>
-                <section class="wb-card" aria-labelledby="wb-workflows-title">
-                  <h3 id="wb-workflows-title">Workflows</h3>
-                  <p class="muted">Honest availability from the command catalog: only wired actions are actionable; others show why they stay in the terminal.</p>
-                  <ul id="wb-workflows" class="workflow-list" role="status" aria-live="polite"></ul>
-                </section>
                 <section class="wb-card" aria-labelledby="wb-evidence-title">
                   <h3 id="wb-evidence-title">Journal evidence</h3>
                   <div class="table-scroll compact" tabindex="0" role="region" aria-label="Project journal evidence">
@@ -112,23 +139,6 @@
                   </div>
                 </section>
               </div>
-              <section class="wb-card wb-plan" aria-labelledby="wb-upgrade-title">
-                <div class="panel-heading"><div><h3 id="wb-upgrade-title">Upgrade workflow</h3><p class="muted">Plan first — it changes nothing. Confirm applies the exact plan you reviewed; a stale or changed plan is refused and nothing is written.</p></div></div>
-                <div class="wb-plan-tools">
-                  <label class="filter-box"><span class="sr-only">Target one feature (optional)</span>
-                    <select id="wb-feature"><option value="">All outdated features</option></select>
-                  </label>
-                  <button id="wb-plan" class="button button-quiet" type="button">Plan upgrade (read-only)</button>
-                  <button id="wb-apply" class="button" type="button" disabled>Apply confirmed plan</button>
-                </div>
-                <label id="wb-confirm-wrap" class="wb-confirm" hidden><input id="wb-confirm" type="checkbox"> I confirm this will write to the project files.</label>
-                <div id="wb-plan-result" class="wb-plan-result" hidden></div>
-                <div id="wb-apply-result" class="wb-plan-result" hidden></div>
-              </section>
-              <section class="wb-card wb-plan" aria-labelledby="wb-authoring-title">
-                <div class="panel-heading"><div><h3 id="wb-authoring-title">Project actions</h3><p class="muted">Run the project's own typed <code>feature</code> and <code>spec</code> Core lifecycle commands. Each control below is rendered from the command catalog's execution contract, not hard-wired: preview returns a digest and changes nothing; confirming runs the same in-process operation the CLI does. Only structured fields are accepted — never a shell command or a path you type.</p></div></div>
-                <div id="wb-actions" class="wb-actions-list"></div>
-              </section>
             </div>
           </section>
           <section id="management" class="project-panel" aria-labelledby="management-title">
@@ -270,32 +280,6 @@
                 </div>
                 <div id="delivery-action-result" class="wb-plan-result" hidden></div>
               </section>
-            </div>
-          </section>
-          <section id="commands" class="project-panel" aria-labelledby="commands-title">
-            <div class="panel-heading"><div><h2 id="commands-title">Command catalog (reference)</h2><p id="command-count" class="muted">Loading the CLI command catalog…</p><p class="muted">Browse the CLI surface. To run things, use the workbench and management panels above — every runnable command lives there.</p></div>
-              <div class="panel-tools">
-                <label class="search-box"><span class="sr-only">Search commands</span><span aria-hidden="true">⌕</span><input id="command-search" type="search" placeholder="Search commands" autocomplete="off"></label>
-                <label class="filter-box"><span class="sr-only">Filter by category</span>
-                  <select id="category-filter"><option value="">All categories</option></select>
-                </label>
-                <label class="filter-box"><span class="sr-only">Filter by state</span>
-                  <select id="availability-filter">
-                    <option value="">All states</option>
-                    <option value="web">Web</option>
-                    <option value="not_yet_web">Not in web yet</option>
-                    <option value="cli_only">CLI only</option>
-                    <option value="provider_required">Provider required</option>
-                    <option value="project_capability_required">Project capability required</option>
-                    <option value="disabled">Disabled</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div id="commands-error" class="notice notice-error" role="alert" hidden></div>
-            <div id="command-no-results" class="empty-state compact" hidden><h3>No matching commands</h3><p>Try a different command name, category or state filter.</p></div>
-            <div id="commands-table" class="table-scroll" tabindex="0" role="region" aria-label="Forge CLI command catalog" hidden>
-              <table><thead><tr><th scope="col">Command</th><th scope="col">Category</th><th scope="col">Risk</th><th scope="col">State</th><th scope="col">CLI invocation</th><th scope="col">Guidance</th></tr></thead><tbody id="command-rows"></tbody></table>
             </div>
           </section>
         </section>

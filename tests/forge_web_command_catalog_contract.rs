@@ -524,7 +524,7 @@ fn catalog_covers_the_real_help_output_of_the_binary() {
 }
 
 #[test]
-fn frontend_ships_the_catalog_as_labels_never_execution() {
+fn frontend_uses_the_catalog_for_per_project_buttons_not_a_reference_page() {
     let app = std::fs::read_to_string("frontend/app.js").unwrap();
     let html = std::fs::read_to_string("frontend/index.html").unwrap();
 
@@ -534,27 +534,47 @@ fn frontend_ships_the_catalog_as_labels_never_execution() {
     );
     assert!(app.contains("credentials: \"include\""));
     assert!(
-        app.contains("Command catalog unavailable"),
-        "app.js must render an honest unavailable state"
-    );
-    assert!(
-        app.contains("command-no-results"),
-        "unknown searches must show an empty state"
+        app.contains("lifecycleStageFor"),
+        "app.js must group the executable rows by lifecycle stage so the workbench renders one button per stage"
     );
     assert!(
         !app.contains("eval("),
         "the frontend must never evaluate command text"
     );
 
-    assert!(html.contains("id=\"commands\""));
-    assert!(html.contains("id=\"command-search\"") && html.contains("type=\"search\""));
-    assert!(html.contains("id=\"command-rows\""));
-    // The catalog renders inside the standalone assets; nothing moved into Rust.
+    // The catalog-as-reference page is gone. The workbench derives its
+    // buttons from the same JSON endpoint; the operator never sees a
+    // table of every CLI command.
+    assert!(
+        !html.contains("id=\"commands\""),
+        "the standalone Command catalog page is removed; per-project buttons are the only surface"
+    );
+    assert!(
+        !html.contains("id=\"command-search\""),
+        "the catalog search input is removed"
+    );
+    assert!(
+        !html.contains("id=\"command-rows\""),
+        "the catalog table body is removed"
+    );
+    assert!(
+        !html.contains("id=\"command-no-results\""),
+        "the catalog empty state is removed"
+    );
+    // The workbench surfaces the catalog rows as buttons, in a grouped
+    // card whose id is wb-actions.
+    assert!(
+        html.contains("id=\"wb-actions\"") && html.contains("wb-actions-grouped"),
+        "the workbench renders the catalog rows as grouped action buttons"
+    );
+
+    // The catalog stays in Rust; nothing moved into the assets.
     let admin_rs = std::fs::read_to_string("src/api/admin.rs").unwrap();
     let catalog_rs = std::fs::read_to_string("src/api/command_catalog.rs").unwrap();
     for source in [&admin_rs, &catalog_rs] {
         assert!(
-            !source.contains("<html") && !source.contains("<body") && !source.contains("html!")
+            !source.contains("<html") && !source.contains("<body") && !source.contains("html!"),
+            "the catalog source must not embed HTML"
         );
     }
 }

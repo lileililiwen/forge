@@ -208,102 +208,23 @@
     document.getElementById("workbench").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function renderCommands(commands) {
-    const body = document.getElementById("command-rows");
-    const query = document.getElementById("command-search").value.trim().toLowerCase();
-    const categoryFilter = document.getElementById("category-filter").value;
-    const availabilityFilter = document.getElementById("availability-filter").value;
-    const filtered = commands.filter((command) => {
-      if (categoryFilter && command.category !== categoryFilter) return false;
-      if (availabilityFilter && command.availability !== availabilityFilter) return false;
-      return `${command.id} ${command.summary} ${command.cli_invocation}`.toLowerCase().includes(query);
-    });
-    body.replaceChildren();
-    for (const command of filtered) {
-      const row = document.createElement("tr");
-
-      const name = document.createElement("td");
-      const idWrap = document.createElement("div");
-      idWrap.className = `command-id depth-${(command.id.match(/\./g) || []).length}`;
-      const idLabel = document.createElement("span");
-      idLabel.textContent = command.label;
-      const pathNote = document.createElement("span");
-      pathNote.className = "command-path";
-      pathNote.textContent = command.parent_id ? `${command.parent_id} › ` : "";
-      idWrap.append(pathNote, idLabel);
-      name.append(idWrap);
-      row.append(name);
-
-      const category = document.createElement("td");
-      category.append(makeBadge(CATEGORY_LABELS[command.category] || command.category, "category"));
-      row.append(category);
-
-      const risk = document.createElement("td");
-      risk.append(makeBadge(RISK_LABELS[command.risk] || command.risk, RISK_BADGE[command.risk] || "risk-read"));
-      row.append(risk);
-
-      const state = document.createElement("td");
-      state.append(makeBadge(AVAILABILITY_LABELS[command.availability] || command.availability, AVAILABILITY_BADGE[command.availability] || "cat-gap"));
-      row.append(state);
-
-      // The CLI invocation is display-only text inside <code>: the browser
-      // never executes it and the API has no shell/eval route to run it.
-      const invocation = document.createElement("td");
-      const code = document.createElement("code");
-      code.textContent = command.cli_invocation;
-      invocation.append(code);
-      row.append(invocation);
-
-      const guidance = document.createElement("td");
-      const guidanceText = document.createElement("p");
-      guidanceText.className = "command-guidance";
-      guidanceText.textContent = command.availability === "web"
-        ? `Available through this dashboard (${command.route}).`
-        : command.reason || "—";
-      guidance.append(guidanceText);
-      row.append(guidance);
-
-      body.append(row);
-    }
-    document.getElementById("command-no-results").hidden = commands.length === 0 || filtered.length > 0;
-    document.getElementById("commands-table").hidden = filtered.length === 0;
-    document.getElementById("command-count").textContent = `${filtered.length} of ${commands.length} CLI command${commands.length === 1 ? "" : "s"}`;
-  }
-
-  function showCommandsError(message) {    const error = document.getElementById("commands-error");
-    error.textContent = message;
-    error.hidden = false;
-    document.getElementById("commands-table").hidden = true;
-    document.getElementById("command-no-results").hidden = true;
-    document.getElementById("command-count").textContent = "Command catalog unavailable";
-  }
-
   function loadCommands() {
     // The catalog is static descriptive metadata. A failure here never
-    // hides the project fleet, and it shows an honest unavailable state.
+    // hides the project fleet, and the workbench renders an honest
+    // empty state for the actions card. The catalog is consumed by
+    // the workbench to derive per-project buttons; the standalone
+    // catalog-as-reference page is gone.
     return request("/v1/admin/commands", { headers: { Accept: "application/json" } })
       .then((data) => {
-        const commands = data.commands || [];
-        // Keep the executable rows (those carrying an `execution` block)
-        // available to the workbench so it can render a runnable control
-        // per row generically, straight from the catalog contract.
-        catalogCommands = commands;
-        const select = document.getElementById("category-filter");
-        for (const category of data.categories || []) {
-          const option = document.createElement("option");
-          option.value = category.id;
-          option.textContent = `${category.label} (${category.count})`;
-          select.append(option);
-        }
-        const refresh = () => renderCommands(commands);
-        document.getElementById("command-search").addEventListener("input", refresh);
-        document.getElementById("category-filter").addEventListener("change", refresh);
-        document.getElementById("availability-filter").addEventListener("change", refresh);
-        refresh();
+        catalogCommands = data.commands || [];
         if (workbench.id) renderProjectActions();
         renderManagementActions();
       })
-      .catch(() => showCommandsError("Command catalog unavailable. Start the Forge API and reload; every CLI command stays discoverable in the terminal meanwhile."));
+      .catch(() => {
+        catalogCommands = [];
+        if (workbench.id) renderProjectActions();
+        renderManagementActions();
+      });
   }
 
   // ---- Project workbench (single managed project) ------------------------
@@ -506,22 +427,42 @@
     }
   }
 
-  function renderWorkflows(workflows) {
-    const list = document.getElementById("wb-workflows");
-    list.replaceChildren();
-    for (const workflow of workflows) {
-      const li = document.createElement("li"); li.className = "workflow-item";
-      const name = document.createElement("strong"); name.textContent = workflow.label || workflow.id;
-      li.append(name, " ", makeBadge(AVAILABILITY_LABELS[workflow.availability] || workflow.availability, AVAILABILITY_BADGE[workflow.availability] || "cat-gap"));
-      if (!workflow.available) {
-        const why = document.createElement("p"); why.className = "workflow-reason"; why.textContent = workflow.reason || "Not available in the browser.";
-        li.append(why);
-      } else {
-        const where = document.createElement("p"); where.className = "workflow-reason"; where.textContent = `Runs through ${workflow.route || "a typed in-process operation"}.`;
-        li.append(where);
-      }
-      list.append(li);
+  function renderLifecycle(manifest) {
+    const project = (manifest && manifest.project) || {};
+    const profile = (manifest && manifest.profile) || {};
+    const maturity = document.getElementById("wb-lifecycle-maturity");
+    const target = document.getElementById("wb-lifecycle-target");
+    const profileEl = document.getElementById("wb-lifecycle-profile");
+    const pathEl = document.getElementById("wb-lifecycle-path");
+    const updatedEl = document.getElementById("wb-lifecycle-updated");
+    const m = project.maturity || "—";
+    const t = project.target_maturity || "—";
+    maturity.textContent = m;
+    target.textContent = t;
+    profileEl.textContent = profile.id || project.profile || "—";
+    pathEl.textContent = project.path || "—";
+    updatedEl.textContent = project.observed_at || "—";
+    const summary = document.getElementById("wb-lifecycle-summary");
+    if (m === "—") {
+      summary.textContent = "Maturity is not yet declared. The buttons below drive the project from here to publish, or to retirement.";
+    } else {
+      const stage = describeMaturity(m);
+      summary.textContent = `This project is at maturity ${m} (${stage}). The buttons below are the actions available at this stage; click one to plan, preview, and confirm.`;
     }
+  }
+
+  // A maturity level names the project lifecycle stage an operator sees
+  // in the workbench header. The level itself comes from the manifest
+  // schema; the description here is the operator-visible gloss.
+  const MATURITY_LABELS = {
+    L0: "prototype — bring it into the registry",
+    L1: "scaffolded — declare its target maturity",
+    L2: "working — build features, upgrade, plan a release",
+    L3: "releasing — publish, deploy, monitor delivery",
+    L4: "production — keep it healthy, retire if it dies",
+  };
+  function describeMaturity(level) {
+    return MATURITY_LABELS[level] || "unknown maturity level";
   }
 
   function renderOperations(operations) {
@@ -587,9 +528,9 @@
     document.getElementById("workbench-body").hidden = false;
     renderManifest(data.manifest || {});
     renderHealth(data.health || { state: "unavailable" });
+    renderLifecycle(data.manifest || {});
     loadProjectStatus(id);
     loadProjectDelivery(id);
-    renderWorkflows(data.workflows || []);
     renderOperations(data.operations || []);
     populateFeatures(data.manifest || {});
     renderProjectActions();
@@ -754,6 +695,31 @@
     return `${action} — ${parts.join("; ") || "no parameters"}`;
   }
 
+  // Lifecycle stages, in the order an operator reads the page. Every
+  // per-project action below carries an `lifecycle_stage` (one of these
+  // keys) so the workbench can group buttons by what the operator is
+  // trying to do, not by what the CLI command is named.
+  const LIFECYCLE_STAGES = [
+    { key: "adopt",      label: "Adopt",        help: "Bring the project into the registry or remove it from the fleet." },
+    { key: "day-to-day", label: "Day-to-day",   help: "Work on the project: features, spec, upgrades, doctor, checker." },
+    { key: "release",    label: "Release",      help: "Plan, apply, publish, deploy: the path from working to production." },
+    { key: "retire",     label: "Retire",       help: "Deprecate, archive, or remove a project that is at the end of its life." },
+  ];
+
+  // Map catalog id prefixes to a lifecycle stage. The catalog already
+  // groups every CLI command under one of these subcommands; this is
+  // the same grouping the operator sees in `forge --help`, surfaced as
+  // a button in the project view.
+  function lifecycleStageFor(command) {
+    if (!command || !command.id) return "day-to-day";
+    const id = command.id;
+    if (id.startsWith("new.") || id.startsWith("import.") || id.startsWith("register.") || id.startsWith("workspace.") || id.startsWith("graduation.")) return "adopt";
+    if (id.startsWith("feature.") || id.startsWith("spec.") || id.startsWith("upgrade.") || id.startsWith("doctor.") || id.startsWith("kit.") || id.startsWith("test.") || id.startsWith("commit.")) return "day-to-day";
+    if (id.startsWith("release.") || id.startsWith("deploy.") || id.startsWith("publish.") || id.startsWith("delivery.")) return "release";
+    if (id.startsWith("retire") || id === "retire" || id.startsWith("deprecate") || id === "deprecate") return "retire";
+    return "day-to-day";
+  }
+
   function renderProjectActions() {
     const box = document.getElementById("wb-actions");
     if (!box) return;
@@ -766,10 +732,28 @@
       (command) => command.execution && command.execution.route.includes("{id}"),
     );
     if (!rows.length) {
-      box.append(el("p", "muted", "No browser-executable actions are available for this project yet."));
+      box.append(el("p", "muted", "No browser-executable actions are available for this project right now. Reload after the API and its catalog are reachable."));
       return;
     }
-    for (const command of rows) box.append(buildActionControl(command));
+    // Group by lifecycle stage so the operator sees the buttons in the
+    // order they would act on them: adopt, day-to-day, release, retire.
+    const groups = new Map();
+    for (const stage of LIFECYCLE_STAGES) groups.set(stage.key, []);
+    for (const command of rows) groups.get(lifecycleStageFor(command)).push(command);
+    for (const stage of LIFECYCLE_STAGES) {
+      const group = groups.get(stage.key);
+      if (!group || !group.length) continue;
+      const wrap = el("div", "wb-actions-group");
+      const head = el("h4", "wb-actions-head");
+      head.textContent = stage.label;
+      const help = el("p", "muted wb-actions-help");
+      help.textContent = stage.help;
+      wrap.append(head, help);
+      const list = el("div", "wb-actions-list");
+      for (const command of group) list.append(buildActionControl(command));
+      wrap.append(list);
+      box.append(wrap);
+    }
   }
 
   // ---- Dashboard-level project management (creation / adoption) -----------

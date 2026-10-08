@@ -98,3 +98,32 @@ html{scroll-padding-top:76px}*{box-sizing:border-box}body{margin:0;min-width:320
 .wb-maintain-decide{margin-right:6px;min-height:28px;padding:0 10px;font-size:11px}
 #wb-maintain-actions{margin-top:12px}
 #main-content,section[id]{scroll-margin-top:76px}#main-content:focus:not(:focus-visible){outline:none}
+/* ---- slice 2: touch-first responsive targets ----
+ * One appended override block (equal specificity wins the cascade):
+ * >=44px operator hit areas via min-height (padding/density untouched),
+ * tap-delay removal, 120ms press feedback, safe-area insets, dvh twins. */
+a,button,input,select,textarea,label{touch-action:manipulation}
+body{min-height:100vh;min-height:100dvh;padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px)}
+.auth-layout{min-height:calc(100vh - 52px);min-height:calc(100dvh - 52px)}
+.app-shell{min-height:calc(100vh - 42px);min-height:calc(100dvh - 42px)}
+.button{min-height:44px;cursor:pointer;transition:opacity 120ms ease,background-color 120ms ease,border-color 120ms ease}
+.button-quiet{min-height:44px;cursor:pointer;transition:opacity 120ms ease,background-color 120ms ease,border-color 120ms ease}
+.button-primary{min-height:44px}
+.nav-link{min-height:44px;cursor:pointer;transition:opacity 120ms ease,background-color 120ms ease}
+.filter-box{min-height:44px;height:auto}
+.fleet-filter input{height:auto;min-height:44px}
+.search-box{height:auto;min-height:44px}
+.login-form input{height:auto;min-height:44px}
+.wb-field input[type=text],.wb-action-card input[type=text]{height:auto;min-height:44px}
+#ws-rows input[type=text]{height:auto;min-height:44px}
+.wb-maintain-decide{min-height:44px;cursor:pointer}
+.wb-action-head{transition:opacity 120ms ease,background-color 120ms ease}
+.button:active,.button-quiet:active,.nav-link:active,.wb-action-head:active{opacity:.7}
+.wb-confirm{min-height:44px;cursor:pointer}
+input[type=checkbox]{cursor:pointer}
+#ws-rows input[type=checkbox]{width:20px;height:20px;cursor:pointer}
+.topbar{top:env(safe-area-inset-top,0px);padding-top:env(safe-area-inset-top,0px)}
+.sidebar{padding-top:calc(24px + env(safe-area-inset-top,0px))}
+.skip-link{top:calc(12px + env(safe-area-inset-top,0px));left:calc(12px + env(safe-area-inset-left,0px))}
+@media(max-width:850px){.sidebar{padding-top:calc(12px + env(safe-area-inset-top,0px))}}
+@media(max-width:560px){.auth-layout{min-height:calc(100vh - 42px);min-height:calc(100dvh - 42px)}.sidebar{padding-top:calc(10px + env(safe-area-inset-top,0px))}}

@@ -19,6 +19,17 @@
   };
   const session = () => request("/v1/admin/session", { headers: { Accept: "application/json" } });
 
+  // Slice 2: programmatic smooth scroll honors reduced motion. The CSS
+  // `prefers-reduced-motion` guard cannot override an explicit JS
+  // `{ behavior: "smooth" }` option, so the check lives here at the call
+  // site. Missing targets never throw; absent `matchMedia` keeps "smooth".
+  function scrollIntoViewRespectingMotion(target, options) {
+    if (!target || typeof target.scrollIntoView !== "function") return;
+    const reduce = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ block: (options && options.block) || "start", behavior: reduce ? "auto" : "smooth" });
+  }
+
   // ---- Dashboard routing -------------------------------------------------
   //
   // Every sidebar destination is a real, deep-linkable path served as the one
@@ -842,7 +853,7 @@
       field.value = proposalId;
       field.focus();
     }
-    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    scrollIntoViewRespectingMotion(card, { block: "center" });
   }
 
   // The three Maintain actions, rendered from the command catalog with no
@@ -997,7 +1008,7 @@
     populateFeatures(data.manifest || {});
     renderProjectActions();
     loadMaintain(id);
-    document.getElementById("workbench-title").scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollIntoViewRespectingMotion(document.getElementById("workbench-title"), { block: "start" });
   }
 
   function renderPlan(result) {

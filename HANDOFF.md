@@ -2,6 +2,45 @@
 
 ## Current state
 
+### Governance placeholder debt cleared (2026-10-08)
+
+The openspec archiver stamps a TBD Purpose line into every new canonical
+spec. The gate's `governance-quality` check pins every one of those
+markers as an error, so 14 web admin/portal specs delivered between
+2026-10-06 and 2026-10-07 carried stale `## Purpose: TBD - created by
+archiving change X. Update Purpose after archive.` placeholders. This
+commit authors a one-sentence Purpose line for each, summarizing what
+its Requirements actually deliver, drawn from the spec text itself:
+
+| Spec | Authored Purpose |
+|---|---|
+| `forge-admin-login` | Authenticate the single Forge-wide administrator with an Argon2id-hashed credential, bounded session cookie, and CLI-managed password lifecycle. |
+| `forge-web-command-catalog` | Expose an authenticated, versioned web catalog of every CLI command with truthful availability, structured execution blocks, and no generic shell execution. |
+| `forge-web-command-execution` | Execute handler-backed CLI commands from the browser under the same confirm-and-digest discipline the CLI uses, with no shell or argv interpolation. |
+| `forge-web-delivery-controls` | Plan, confirm, and track browser-triggered repository or external delivery mutations with honest provider outcomes and server-side credential isolation. |
+| `forge-web-portfolio-controls` | Manage Forge-owned portfolio metadata and surface cross-project evidence with honest source states, freshness, and privacy thresholds. |
+| `forge-web-project-actions` | Run `feature remove`, `feature upgrade`, and `spec apply` from the browser as catalog-rendered, confirm-and-digest-bound Core delegations with no subprocess or provider execution. |
+| `forge-web-project-delivery` | Surface read-only project delivery status and execute health-gated preflight, stage, promote, and Hermora retry under confirm-and-digest discipline. |
+| `forge-web-project-deployment` | Plan and apply project deploys from the browser under confirm-and-digest discipline, delegating to the in-process deploy engine with server-side credentials. |
+| `forge-web-project-fleet` | Aggregate the Forge-self record, every local project, configured external sources, and recent publish history into a single authenticated fleet view. |
+| `forge-web-project-management` | Create, import, and register projects from the browser via confirm-and-digest-bound Core delegations that resolve paths only from server-side state. |
+| `forge-web-project-publish` | Plan and apply provider publishes from the browser under confirm-and-digest discipline with server-side provider resolution and honest outcome reporting. |
+| `forge-web-project-release` | Plan and apply project releases from the browser under confirm-and-digest discipline, delegating to the in-process release engine with server-side credentials. |
+| `forge-web-project-status` | Surface read-only project status and a fleet readiness summary from the in-process doctor, checker, and readiness projection with honest sub-check states. |
+| `forge-web-project-workbench` | Provide project-scoped browser workflows that plan before every write, execute only typed Core contracts, and show partial failures honestly. |
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `node scripts/check-spec-governance.mjs` | **0 findings** (was 14 ERROR) |
+| `openspec validate --all --strict --no-interactive` | **81 passed / 0 failed** |
+| `git diff --check` | clean |
+| `forge gate` (mandatory local run) | `governance-quality` now **pass** (0 of 5 in scope); other 2 fails (`source-file-size` 50/119, `tests`/`declared-verification` environmental adapter timeouts) remain pre-existing — see the `forge-workspace-sync` entry above for the follow-up boundary |
+
+Commit: `70bb702`. Nothing pushed. No `current_spec` pointer remains
+because no OpenSpec change is active.
+
 ### forge-workspace-sync delivered and archived (2026-10-08)
 
 `forge-workspace-sync` is implemented, verified and archived as

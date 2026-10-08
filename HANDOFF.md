@@ -2,6 +2,90 @@
 
 ## Current state
 
+### lifecycle-tracked-project-view delivered and archived (2026-10-08)
+
+`lifecycle-tracked-project-view` is implemented, verified and
+archived as
+`openspec/changes/archive/2026-10-08-lifecycle-tracked-project-view`,
+creating the `lifecycle-tracked-project-view` spec (three
+new requirements, one removed). The standalone "Command
+catalog (reference)" browser page is gone; the per-project
+workbench is now lifecycle-tracked.
+
+The workbench's first card is **Lifecycle**: maturity
+(`L0`…`L4`), target maturity, profile, path, last update,
+plus a one-line operator-gloss of the maturity level. The
+second card is **Manage this project**, which renders one
+button per available action, grouped by lifecycle stage:
+**Adopt** (e.g. `forge new`, `forge import`, `forge register`,
+`forge workspace sync`, `forge graduation`), **Day-to-day**
+(`forge feature`, `forge spec`, `forge upgrade`, `forge doctor`,
+`forge kit`, `forge test`, `forge commit`), **Release**
+(`forge release`, `forge deploy`, `forge publish`,
+`forge delivery`), and **Retire** (future `retire.*` /
+`deprecate.*` commands; the default stage for an unmatched
+catalog id is Day-to-day). Each button runs the existing
+preview → confirm flow; no new confirmation machinery.
+
+The implementation is a strict refactor of the browser
+surface; no CLI, no JSON API, no registry/journal schema,
+no Rust module changes. The catalog JSON endpoint
+`/v1/admin/commands` stays; the workbench is the only
+consumer. The `forge-web-command-catalog` /
+`forge-web-command-execution` /
+`forge-web-command-workflows` spec files are unchanged.
+
+- `frontend/index.html`:
+  - "Commands" nav link removed.
+  - `<section id="commands">` (the catalog page) removed.
+  - Workbench reorder: Lifecycle → Manage this project →
+    Upgrade workflow → read-only cards (manifest, health,
+    status, delivery, journal evidence).
+  - Lifecycle card has a `<dl id="wb-lifecycle">` with
+    `wb-lifecycle-maturity` / `-target` / `-profile` /
+    `-path` / `-updated` cells.
+- `frontend/app.js`:
+  - `renderCommands` / `showCommandsError` / `renderWorkflows`
+    removed.
+  - `renderLifecycle(manifest)` and `describeMaturity(level)`
+    added.
+  - `LIFECYCLE_STAGES` and `lifecycleStageFor(command)` added;
+    `renderProjectActions` groups executable rows by stage.
+  - `loadCommands` keeps the JSON fetch but no longer
+    populates the catalog-page filter widgets.
+- `frontend/styles.css`:
+  - `.command-table` / `.command-id` / `.command-path` /
+    `.command-guidance` / `.depth-1` / `.depth-2` removed.
+  - `.wb-lifecycle` / `.lifecycle-list` /
+    `.wb-actions-grouped` / `.wb-actions-group` /
+    `.wb-actions-head` / `.wb-actions-help` added.
+- `tests/forge_web_command_catalog_contract.rs`:
+  - `frontend_ships_the_catalog_as_labels_never_execution`
+    replaced by
+    `frontend_uses_the_catalog_for_per_project_buttons_not_a_reference_page`,
+    which asserts the catalog page is gone and the workbench
+    groups the catalog rows as buttons (8 tests stay
+    green).
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors (pre-existing warnings only) |
+| `cargo test --bin forge` (catalog parity) | **7 passed / 0 failed** |
+| `forge_web_command_catalog_contract` (8, including the renamed test) / `forge_web_command_workflows_contract` (5) / `forge_web_command_execution_contract` (5) / `forge_admin_api_contract` (4) | all green; the renamed test asserts the new shape |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **83 passed / 0 failed** (before and after archive) |
+| `git diff --check` | clean |
+| `openspec archive lifecycle-tracked-project-view --yes` | `lifecycle-tracked-project-view: create` (+3, -1); **no `--skip-specs`**; archived as `2026-10-08-lifecycle-tracked-project-view`; `openspec list` subsequently reports **no active changes** |
+| `forge gate` (mandatory local run) | unchanged from prior changes: `governance-quality` pass; `source-file-size` fail (50/119 — pre-existing); `tests` / `declared-verification` unresolved (environmental adapter timeouts); **0 attributable** to this change |
+| `openspec list` | no active changes |
+
+Implementation commit: `2d5fae1`. Nothing pushed. No
+`current_spec` pointer remains because no OpenSpec change
+is active.
+
 ### remove-api-ui delivered and archived (2026-10-08)
 
 `remove-api-ui` is implemented, verified and archived as

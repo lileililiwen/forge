@@ -387,3 +387,101 @@ fn workbench_and_login_links_carry_the_project() {
         assert!(app.contains(token), "app.js must implement `{token}`");
     }
 }
+
+#[test]
+fn slice_four_layout_navigation_tokens() {
+    // Static contract for `portal-layout-navigation` (slice 4): unknown
+    // paths render an honest empty state, filter/search state survives
+    // navigation with `?project=` staying URL-owned, breakpoints cover
+    // 375/768/1024/1440 plus short landscape, the small-phone sidebar
+    // keeps every destination reachable without page scroll, and a named
+    // z-index scale orders the layers.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let app = std::fs::read_to_string(root.join("frontend/app.js")).expect("app.js");
+    let html = std::fs::read_to_string(root.join("frontend/index.html")).expect("index.html");
+    let css = std::fs::read_to_string(root.join("frontend/styles.css")).expect("styles.css");
+
+    // Unknown-route fallback: an honest section, cleared nav state, and a
+    // named crumb — never a silent fleet render.
+    assert!(
+        html.contains("id=\"view-unknown\""),
+        "index.html must declare the unknown-route section"
+    );
+    let unknown = html
+        .split_once("id=\"view-unknown\"")
+        .and_then(|(_, rest)| rest.split_once("</nav>"))
+        .map(|(nav, _)| nav)
+        .expect("unknown nav");
+    for route in NAV_ROUTES {
+        assert!(
+            unknown.contains(route),
+            "the unknown state must link the real destination {route}"
+        );
+    }
+    for token in [
+        "view-unknown",
+        "Page not found",
+        "VIEW_CRUMBS.unknown",
+        "unknown.hidden = known",
+    ] {
+        assert!(app.contains(token), "app.js must implement `{token}`");
+    }
+    assert!(
+        !app.contains("VIEW_CRUMBS.projects;") || app.contains("VIEW_CRUMBS.unknown"),
+        "the crumb fallback must name the miss, not the fleet"
+    );
+
+    // Filter/search preservation with the URL owning `?project=`.
+    for token in [
+        "forge.filter-state.v1",
+        "FILTER_STATE_IDS",
+        "persistFilterState",
+        "restoreFilterState",
+        "renderProjectsFromInputs",
+        "initFilterStatePersistence",
+        "project-search",
+        "source-filter",
+        "filter-language",
+        "filter-tag",
+        "sessionStorage",
+    ] {
+        assert!(app.contains(token), "app.js must implement `{token}`");
+    }
+
+    // Breakpoint scale: 1024 + 375 + short landscape join the existing
+    // 850/560 rules; desktop above 1024px keeps its values.
+    for token in [
+        "max-width:1024px",
+        "max-width:375px",
+        "orientation:landscape",
+        "max-height:500px",
+    ] {
+        assert!(css.contains(token), "styles.css must declare `{token}`");
+    }
+
+    // Small-phone sidebar: the nav scrolls in-row (no page-level forced
+    // scroll) and every destination stays on one reachable line.
+    for token in [
+        ".sidebar nav{display:flex",
+        "overflow-x:auto",
+        "white-space:nowrap",
+        "unknown-nav",
+    ] {
+        assert!(css.contains(token), "styles.css must implement `{token}`");
+    }
+
+    // Named z-index scale with the skip link topmost.
+    for token in [
+        "--z-sticky:10",
+        "--z-nav:30",
+        "--z-dropdown:40",
+        "--z-banner:45",
+        "--z-overlay:50",
+        "--z-skip:60",
+        "z-index:var(--z-skip)",
+        "z-index:var(--z-sticky)",
+        "z-index:var(--z-nav)",
+    ] {
+        assert!(css.contains(token), "styles.css must implement `{token}`");
+    }
+}

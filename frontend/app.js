@@ -62,6 +62,7 @@
     management: { crumb: "Manage projects", title: "Manage projects · Forge" },
     portfolio: { crumb: "Portfolio", title: "Portfolio · Forge" },
     delivery: { crumb: "Delivery", title: "Delivery · Forge" },
+    unknown: { crumb: "Page not found", title: "Page not found · Forge" },
   };
 
   function normalizePath(pathname) {
@@ -91,18 +92,26 @@
   let lastRouteView = null;
 
   function renderRoute() {
-    const view = viewForPath(window.location.pathname);
+    // Unknown pathnames render an honest empty state, never the fleet: a
+    // pathname outside the route allowlist is not the projects view, so no
+    // sidebar link claims it and the crumb/title name the miss. Server-side
+    // unknown paths still 404 on hard load; this branch covers any
+    // client-side unknown pathname (history entries, hand-built URLs).
+    const known = isRoutePath(window.location.pathname);
+    const view = known ? viewForPath(window.location.pathname) : "unknown";
     for (const [name, id] of Object.entries(VIEW_IDS)) {
       const element = document.getElementById(id);
       if (element) element.hidden = name !== view;
     }
+    const unknown = document.getElementById("view-unknown");
+    if (unknown) unknown.hidden = known;
     for (const link of document.querySelectorAll(".sidebar nav .nav-link")) {
-      const active = link.dataset.route === view;
+      const active = known && link.dataset.route === view;
       link.classList.toggle("nav-active", active);
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     }
-    const chrome = VIEW_CRUMBS[view] || VIEW_CRUMBS.projects;
+    const chrome = VIEW_CRUMBS[view] || VIEW_CRUMBS.unknown;
     const crumb = document.getElementById("topbar-crumb");
     if (crumb) crumb.textContent = chrome.crumb;
     document.title = chrome.title;
@@ -117,6 +126,16 @@
     // project. The helper is a no-op until the fleet has populated the
     // project selector, and never touches anything for a bare `/workbench`.
     if (view === "workbench") applyWorkbenchProjectParam();
+    // Returning to the projects view restores the operator's typed
+    // search/filter context (see `restoreFilterState`) and re-applies it.
+    // The boot render (`lastRouteView` still null) skips this: the
+    // dashboard boot below restores before its first table render, and an
+    // early catalog fetch here would race authentication. Same-view
+    // `?project=` reconciliations never restore, so deep-link focus
+    // behavior is intact.
+    if (view === "projects" && lastRouteView !== null && view !== lastRouteView) {
+      if (restoreFilterState()) renderProjectsFromInputs();
+    }
     // Focus-on-route-change: on a view *switch* only, move focus to the
     // main content region so screen-reader users hear the new view's
     // landmark. `preventScroll` preserves back/forward scroll restoration;
@@ -134,6 +153,11 @@
 
   function navigateTo(path) {
     const next = splitRoute(path);
+    // Snapshot the operator's typed filter/search context before leaving:
+    // the snapshot restores on boot and on switching back into the
+    // projects view (see `restoreFilterState`). `?project=` selection
+    // is never snapshotted — the URL stays its source of truth.
+    persistFilterState();
     // The query string is part of the address: a same-view navigation that
     // only changes `?project=` (fleet "Manage" rows) must still push state so
     // reload and back/forward see the project the operator picked.
@@ -158,6 +182,80 @@
       event.preventDefault();
       navigateTo(url.pathname + url.search);
     });
+  }
+
+  // ---- Filter/search state preservation (slice 4) -----------------------
+  //
+  // The fleet search box, source filter, and six catalog predicate inputs
+  // keep DOM values while the session lives, but a reload wipes them and
+  // back/forward never restores what the operator typed. This snapshot
+  // (tab-scoped `sessionStorage`, typed filter strings only) restores on
+  // dashboard boot and on switching back into the projects view, then
+  // re-runs the fleet render path. Project selection is deliberately
+  // excluded: `?project=` is always read from the URL, never storage.
+  const FILTER_STATE_KEY = "forge.filter-state.v1";
+  const FILTER_STATE_IDS = [
+    "project-search",
+    "source-filter",
+    "filter-language",
+    "filter-lifecycle",
+    "filter-profile",
+    "filter-compose",
+    "filter-ci",
+    "filter-tag",
+  ];
+
+  function readFilterState() {
+    const state = {};
+    for (const id of FILTER_STATE_IDS) {
+      const field = document.getElementById(id);
+      if (field) state[id] = field.value;
+    }
+    return state;
+  }
+
+  function persistFilterState() {
+    try {
+      window.sessionStorage.setItem(FILTER_STATE_KEY, JSON.stringify(readFilterState()));
+    } catch (_) { /* storage denied: live input values rule */ }
+  }
+
+  // Applies the snapshot to the live inputs; true when at least one value
+  // changed. Missing inputs and unparseable stores degrade to a no-op.
+  function restoreFilterState() {
+    let saved = null;
+    try {
+      saved = JSON.parse(window.sessionStorage.getItem(FILTER_STATE_KEY) || "null");
+    } catch (_) {
+      return false;
+    }
+    if (!saved || typeof saved !== "object") return false;
+    let changed = false;
+    for (const id of FILTER_STATE_IDS) {
+      const field = document.getElementById(id);
+      if (!field || typeof saved[id] !== "string") continue;
+      if (field.value !== saved[id]) {
+        field.value = saved[id];
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  // Re-apply the fleet render path after a restore: active predicates
+  // re-query the catalog, otherwise the local search/source render runs.
+  function renderProjectsFromInputs() {
+    if (fleetFiltersActive()) refreshFleetFilters();
+    else renderProjects(window.__forgeProjects || []);
+  }
+
+  function initFilterStatePersistence() {
+    for (const id of FILTER_STATE_IDS) {
+      const field = document.getElementById(id);
+      if (!field) continue;
+      field.addEventListener("input", persistFilterState);
+      field.addEventListener("change", persistFilterState);
+    }
   }
 
   async function loginPage() {
@@ -3055,8 +3153,13 @@
       if (!hasOthers && data.summary && data.summary.registered === 0) {
         document.getElementById("empty-state").hidden = false;
       }
+      // Restore the operator's typed search/filter context from before a
+      // reload (see `restoreFilterState`), then render through the inputs
+      // so the table matches them from the first paint.
+      const restoredFilters = restoreFilterState();
       if (projects.length) {
-        renderProjects(projects);
+        if (restoredFilters) renderProjectsFromInputs();
+        else renderProjects(projects);
         document.querySelector(".table-scroll").hidden = false;
       }
       initWorkbench(projects);
@@ -3068,6 +3171,7 @@
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);
       initFleetFilters();
+      initFilterStatePersistence();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }
     document.getElementById("sign-out").addEventListener("click", async (event) => {
       const button = event.currentTarget; button.disabled = true;

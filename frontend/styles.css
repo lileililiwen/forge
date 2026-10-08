@@ -149,3 +149,26 @@ input[type=checkbox]{cursor:pointer}
 .password-wrap{display:flex;gap:8px;align-items:stretch}
 .password-wrap input{flex:1;min-width:0}
 .password-toggle{flex:none}
+/* ---- slice 4: breakpoint scale, nav reachability, z-index layers ----
+ * Scale: base desktop (>1024px, wide end toward 1440 bounded by
+ * .content-wrap min(1260px,100%)) unchanged; <=1024px laptop tightening;
+ * the existing <=850px rule is the 768 tablet step (sidebar becomes the
+ * top row); <=560px large-phone kept; <=375px small-phone compaction;
+ * short-landscape compacts the auth hero only when landscape AND
+ * <=500px tall (desktop landscape excluded). The sidebar nav scrolls
+ * in-row so all 5 destinations stay reachable with no page-level
+ * horizontal scroll. Layering: named --z-* rungs replace the lone magic
+ * z-index; skip stays topmost. 44px minima from slice 2 are untouched. */
+:root{--z-sticky:10;--z-nav:30;--z-dropdown:40;--z-banner:45;--z-overlay:50;--z-skip:60}
+.skip-link{z-index:var(--z-skip)}
+.topbar{z-index:var(--z-sticky)}
+.sidebar{z-index:var(--z-nav)}
+.panel-tools{position:relative;z-index:var(--z-dropdown)}
+.notice,.error-summary{position:relative;z-index:var(--z-banner)}
+.wb-action-card.is-open{position:relative;z-index:var(--z-overlay)}
+.app-shell,.sidebar,.sidebar nav,.main-area{min-width:0}
+.unknown-nav{display:flex;flex-wrap:wrap;gap:10px;margin:0 22px 22px;padding:0}
+@media(max-width:1024px){.content-wrap{padding:32px clamp(16px,3vw,40px) 48px}}
+@media(max-width:850px){.sidebar nav{display:flex;align-items:center;gap:4px;overflow-x:auto;min-width:0;scrollbar-width:thin}.sidebar nav .nav-link{flex:none;white-space:nowrap}}
+@media(max-width:375px){.content-wrap{padding:24px 10px 40px}.sidebar{flex-wrap:wrap;gap:10px;padding:8px 10px}.sidebar nav{margin-left:0;width:100%}.nav-link{padding:9px 10px;font-size:11px}.topbar{padding:0 12px}.page-heading{margin-bottom:18px}.auth-story{padding:20px}.story-copy h1{font-size:32px}.panel-heading{padding:16px 14px 0}.unknown-nav{margin:0 14px 16px}}
+@media(orientation:landscape) and (max-height:500px){.auth-layout{grid-template-columns:minmax(280px,.9fr) minmax(320px,1.1fr);padding:12px}.auth-story{min-height:0;padding:22px}.story-copy{margin:24px 0}.story-copy h1{font-size:32px}.story-description{margin-top:10px}.story-points{margin-top:16px}.content-wrap{padding-top:24px}}

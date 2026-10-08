@@ -2,6 +2,67 @@
 
 ## Current state
 
+### portal-focus-route-contrast delivered and archived (2026-10-08)
+
+Slice 1 of the frontend UI/UX audit (P1 accessibility focus+contrast;
+slices 2–6 stay QUEUED, not authored). `frontend/` only, vanilla
+HTML/CSS/JS; no API/registry/journal/CLI/catalog change.
+
+Fix (`frontend/app.js`, `frontend/index.html`, `frontend/login.html`,
+`frontend/styles.css`):
+
+- `renderRoute` moves focus to `#main-content` (`tabindex="-1"`,
+  `preventScroll`) on view switches only (`lastRouteView` guard);
+  same-view `?project=` reconciliations never steal focus, so
+  fleet-manage-deep-link reload/back-forward/login behavior is intact.
+- `html { scroll-padding-top: 76px }`, sticky 60px `.topbar`,
+  `scroll-margin-top` on the region + `section[id]` (focus-not-obscured).
+- `login.html` `color-scheme` `light` → `dark`, paired with the shared
+  dark token set.
+- `--faint` `#7d8698` → `#8b93a6`: worst pair (badge-chip blend `#202329`)
+  4.30:1 → 5.11:1; every `--faint`/`--muted` normal-text pair now ≥5.1:1.
+- `--focus: #9aa5ff` defined and wired to all `:focus-visible` rules (two
+  sites referenced an undefined `var(--focus)`); login inputs keep
+  `border-color` and gain a 2px outline at 8.4:1 on the input background.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `forge_web_navigation_contract` | **6 passed / 0 failed** |
+| `forge_web_manage_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `forge_web_workbench_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (focus move causes no regression) |
+| post-change contrast audit (relative-luminance ratios) | all PASS: badge-blend faint 5.11:1, placeholder/action-cli faint 5.60:1, th/updated/security-note faint 6.09:1, sidebar/topbar pairs 6.46–7.94:1, focus indicator 8.21–8.72:1 (needs: 4.5:1 text, 3:1 focus) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **87 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file), governance-quality **1 ERROR** (pre-existing from the prior change — see below); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portal-focus-route-contrast --yes` | `portal-web-ui: update` (+4); **no `--skip-specs`**; archived as `2026-10-08-portal-focus-route-contrast`; `openspec list` reports **no active changes** |
+
+Pre-existing failure not attributable to this change (recorded, not
+fixed — separate change):
+
+- `governance-quality`: `check-spec-governance` flags
+  `openspec/specs/fleet-manage-deep-link/spec.md:4` TBD Purpose
+  placeholder, stamped by the prior change's archiver after its Gate run
+  (its HANDOFF entry records governance-quality pass while active). This
+  change touches no canonical spec except `portal-web-ui` (+4 real
+  requirements, Purpose intact). Remediation: a follow-up change authoring
+  a source-backed Purpose line for the `fleet-manage-deep-link` spec.
+
+Files changed: `frontend/app.js`, `frontend/index.html`,
+`frontend/login.html`, `frontend/styles.css`,
+`openspec/specs/portal-web-ui/spec.md` (+4), new
+`openspec/changes/archive/2026-10-08-portal-focus-route-contrast/`
+(proposal, design, tasks, delta spec), `HANDOFF.md` (this entry).
+
+Commits: implementation `d14143c`, HANDOFF evidence (this commit).
+`openspec list` reports no active changes; no `current_spec` pointer
+remains. Nothing pushed.
+
 ### fleet-manage-deep-link delivered and archived (2026-10-08)
 
 Bug: opening `http://127.0.0.1:4173/management?project=alethefy` does not

@@ -26,7 +26,7 @@ use crate::fleet::{self, FleetFreshness};
 use crate::publish::inventory;
 use crate::registry::{PublishedOperation, Registry};
 
-use super::ui::data::load_fleet_list;
+use super::fleet_data::load_fleet_list;
 
 /// Versioned contract for the normalized web fleet envelope. Bumped to
 /// `0.2.0` when the `published` source and the per-row `publish` object were

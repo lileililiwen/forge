@@ -122,6 +122,12 @@ pub mod command_catalog;
 /// stays CLI-only.
 mod delivery;
 mod fleet;
+/// Read-only fleet list loaders used by `src/api/fleet.rs`. The
+/// loader was previously part of the in-process portal UI data
+/// path (`src/api/ui/data.rs`); it survives the removal because
+/// the JSON API fleet projection depends on the typed view
+/// structs it returns.
+mod fleet_data;
 /// Session-gated portfolio controls and cross-project evidence views
 /// (`forge-web-portfolio-controls/0.1.0`) backing `/v1/admin/portfolio*`.
 /// Forge-owned metadata writes reuse registry Core only; imported,
@@ -138,11 +144,6 @@ mod project_management;
 /// readiness projections only — never a shell, a write or an external
 /// adapter — and never serializes an absolute filesystem path.
 mod status;
-/// Sub-module that serves the in-process portal UI on the
-/// same loopback listener (`GET /ui`, `GET /ui/projects/{id}`,
-/// `POST /ui/projects/{id}/publish`). Rendered with
-/// [`maud`](https://docs.rs/maud).
-pub mod ui;
 /// Typed, session-gated single-project workbench (`forge-project-workbench/
 /// 0.1.0`) backing `GET /v1/admin/projects/{id}`, its `/plan` and `/apply`
 /// subroutes. Reuses typed in-process Core functions only — never a shell —
@@ -703,36 +704,6 @@ pub enum Route {
     /// of an `unknown` publication attempt, bound to its exact digest.
     AdminDeliveryReconcile,
     AdminOptions,
-    /// `GET /ui` — in-process portal UI fleet list.
-    UiFleet,
-    /// `GET /ui/sign-in?project=<id>&return=<path>` —
-    /// anonymous sign-in start; builds a challenge and
-    /// redirects to the configured provider.
-    UiSignIn,
-    /// `GET /ui/auth/callback?code=…&state=…` — anonymous
-    /// OIDC callback; consumes the challenge and mints a
-    /// browser session.
-    UiAuthCallback,
-    /// `POST /ui/sign-out` — same-origin sign-out that
-    /// revokes only the calling project's session and
-    /// clears the browser cookie.
-    UiSignOut,
-    /// `GET /ui/projects/{id}` — project detail.
-    UiProjectDetail {
-        id: String,
-    },
-    /// `POST /ui/projects/{id}/publish` — confirm-gated republish.
-    UiProjectPublish {
-        id: String,
-    },
-    /// `POST /ui/projects/{id}/portfolio` — user-owned metadata write.
-    UiProjectPortfolio {
-        id: String,
-    },
-    /// `GET /ui/studio/{id}` — read-only Studio page.
-    UiStudioProject {
-        id: String,
-    },
     /// `GET /v1/studio/{id}/spec` — read the Studio session.
     StudioSpec {
         id: String,
@@ -1091,19 +1062,6 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             .parse::<i64>()
             .ok()
             .map(|id| Route::GetOperation { op_id: id }),
-        ("GET", ["ui"]) => Some(Route::UiFleet),
-        ("GET", ["ui", "sign-in"]) => Some(Route::UiSignIn),
-        ("GET", ["ui", "auth", "callback"]) => Some(Route::UiAuthCallback),
-        ("POST", ["ui", "sign-out"]) => Some(Route::UiSignOut),
-        ("GET", ["ui", "projects", id]) => Some(Route::UiProjectDetail {
-            id: (*id).to_string(),
-        }),
-        ("POST", ["ui", "projects", id, "publish"]) => Some(Route::UiProjectPublish {
-            id: (*id).to_string(),
-        }),
-        ("POST", ["ui", "projects", id, "portfolio"]) => Some(Route::UiProjectPortfolio {
-            id: (*id).to_string(),
-        }),
         ("GET", ["v1", "projects", id, "portfolio"]) => Some(Route::PortfolioProject {
             id: (*id).to_string(),
         }),
@@ -1166,11 +1124,6 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         }),
         ("POST", ["v1", "projects", id, "delivery", "hermora", "retry"]) => {
             Some(Route::DeliveryHermoraRetry {
-                id: (*id).to_string(),
-            })
-        }
-        ("GET", ["ui", "projects", id, "studio"]) | ("GET", ["ui", "studio", id]) => {
-            Some(Route::UiStudioProject {
                 id: (*id).to_string(),
             })
         }
@@ -1285,13 +1238,7 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         Route::ListProjects
         | Route::InspectProject { .. }
         | Route::Doctor { .. }
-        | Route::Governance { .. }
-        | Route::UiFleet
-        | Route::UiSignIn
-        | Route::UiAuthCallback
-        | Route::UiSignOut
-        | Route::UiProjectDetail { .. }
-        | Route::UiStudioProject { .. } => None,
+        | Route::Governance { .. } => None,
         Route::PortfolioProject { .. } => None,
         Route::CreateProject
         | Route::AddFeature { .. }
@@ -1303,11 +1250,9 @@ fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::PortfolioReview { .. }
         | Route::PortfolioEvidence { .. }
         | Route::ApplyDeployment { .. }
-        | Route::UiProjectPublish { .. }
         // Every share route, preview included, demands admin:access:
         // previewing the candidate manifest reveals which projects an
         // operator considers publishable, which is itself private.
-        | Route::UiProjectPortfolio { .. }
         | Route::GetShare { .. }
         | Route::SetShare { .. }
         | Route::RemoveShare { .. }
@@ -1456,38 +1401,9 @@ pub fn handle(
     // routes demand any valid session; mutating routes
     // demand admin:access. A token for project A cannot
     // authorize project B.
-    //
-    // The in-process portal UI routes (`Route::UiFleet`,
-    // `Route::UiProjectDetail`, `Route::UiProjectPublish`,
-    // `Route::UiProjectPortfolio`, the new
-    // `Route::UiSignIn`, `Route::UiAuthCallback`,
-    // `Route::UiSignOut`) carry their own auth flow: the
-    // existing `authorize()` helper looks for the bearer in
-    // `request.bearer_token` (the JSON transport) but the
-    // UI accepts it through `?token=<id>` as well, so we
-    // short-circuit before `authorize()` and let the UI
-    // handlers do the bearer/origin checks themselves.
-    // `Route::UiSignIn` and `Route::UiAuthCallback` are
-    // anonymous by design (the challenge is the proof-in-
-    // progress); `Route::UiSignOut` runs its own session
-    // lookup so it can revoke the owning project's session
-    // regardless of the route's permission posture.
-    let actor = if !matches!(
-        route,
-        Route::UiFleet
-            | Route::UiSignIn
-            | Route::UiAuthCallback
-            | Route::UiSignOut
-            | Route::UiProjectDetail { .. }
-            | Route::UiProjectPublish { .. }
-            | Route::UiProjectPortfolio { .. }
-    ) {
-        match authorize(db_path, &route, request, now) {
-            Ok(actor) => actor,
-            Err(response) => return response,
-        }
-    } else {
-        String::new()
+    let actor = match authorize(db_path, &route, request, now) {
+        Ok(actor) => actor,
+        Err(response) => return response,
     };
 
     // 2. Dispatch.
@@ -1521,22 +1437,6 @@ pub fn handle(
         Route::ApplyDeployment { id } => handle_apply_deployment(db_path, &id, request, now),
         Route::GitHubPush => handle_github_push(db_path, request),
         Route::GetOperation { op_id } => handle_get_operation(db_path, op_id),
-        Route::UiFleet => ui::routes::handle_fleet(db_path, config, request),
-        Route::UiSignIn => ui::routes::handle_sign_in(db_path, config, request),
-        Route::UiAuthCallback => ui::routes::handle_auth_callback(db_path, config, request, now),
-        Route::UiSignOut => ui::routes::handle_sign_out(db_path, config, request, now),
-        Route::UiProjectDetail { id } => {
-            ui::routes::handle_project_detail(db_path, config, request, &id)
-        }
-        Route::UiProjectPublish { id } => {
-            ui::routes::handle_project_publish(db_path, config, request, &id)
-        }
-        Route::UiProjectPortfolio { id } => {
-            ui::routes::handle_project_portfolio(db_path, config, request, &id)
-        }
-        Route::UiStudioProject { id } => {
-            ui::routes::handle_studio_project(db_path, config, request, &id)
-        }
         Route::PortfolioProject { id } => handle_portfolio_project(db_path, &id, now),
         Route::PortfolioTag { id } => handle_portfolio_tag(db_path, request, &id),
         Route::PortfolioRelation { id } => handle_portfolio_relation(db_path, request, &id),
@@ -1673,15 +1573,7 @@ fn authorize(
     let result: Result<String, ApiResponse> = match route {
         Route::Healthz => Ok(String::new()),
         Route::GitHubPush => Ok(String::new()),
-        // UI routes do their own auth flow; the dispatch
-        // short-circuits before reaching this match, but
-        // Rust requires the arms anyway. The new sign-in,
-        // callback, and sign-out routes are explicit: the
-        // sign-in/callback handlers are anonymous, and the
-        // sign-out handler resolves the cookie to the
-        // owning project itself.
-        Route::UiFleet
-        | Route::AdminSessionGet
+        Route::AdminSessionGet
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
         | Route::AdminProjects
@@ -1725,14 +1617,7 @@ fn authorize(
         | Route::AdminDeliveryApprove
         | Route::AdminDeliveryPublish
         | Route::AdminDeliveryReconcile
-        | Route::AdminOptions
-        | Route::UiSignIn
-        | Route::UiAuthCallback
-        | Route::UiSignOut
-        | Route::UiProjectDetail { .. }
-        | Route::UiProjectPublish { .. }
-        | Route::UiProjectPortfolio { .. }
-        | Route::UiStudioProject { .. } => Ok(String::new()),
+        | Route::AdminOptions => Ok(String::new()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known

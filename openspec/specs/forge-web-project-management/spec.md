@@ -1,7 +1,7 @@
 # forge-web-project-management Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-management. Update Purpose after archive.
+Create, import, and register projects from the browser via confirm-and-digest-bound Core delegations that resolve paths only from server-side state.
 ## Requirements
 ### Requirement: Browser creation and adoption of projects from structured fields
 

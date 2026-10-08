@@ -1,7 +1,7 @@
 # forge-web-project-publish Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-publish. Update Purpose after archive.
+Plan and apply provider publishes from the browser under confirm-and-digest discipline with server-side provider resolution and honest outcome reporting.
 ## Requirements
 ### Requirement: Browser planning of a provider publish
 

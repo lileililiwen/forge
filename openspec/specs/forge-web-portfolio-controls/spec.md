@@ -1,7 +1,7 @@
 # forge-web-portfolio-controls Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-portfolio-controls. Update Purpose after archive.
+Manage Forge-owned portfolio metadata and surface cross-project evidence with honest source states, freshness, and privacy thresholds.
 ## Requirements
 ### Requirement: Portfolio-owned metadata controls
 

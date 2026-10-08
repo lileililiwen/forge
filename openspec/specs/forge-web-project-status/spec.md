@@ -1,7 +1,7 @@
 # forge-web-project-status Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-status. Update Purpose after archive.
+Surface read-only project status and a fleet readiness summary from the in-process doctor, checker, and readiness projection with honest sub-check states.
 ## Requirements
 ### Requirement: Read-only project status projection
 

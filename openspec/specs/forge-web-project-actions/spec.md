@@ -1,7 +1,7 @@
 # forge-web-project-actions Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-actions. Update Purpose after archive.
+Run `feature remove`, `feature upgrade`, and `spec apply` from the browser as catalog-rendered, confirm-and-digest-bound Core delegations with no subprocess or provider execution.
 ## Requirements
 ### Requirement: Browser execution of Core-backed project lifecycle writes
 

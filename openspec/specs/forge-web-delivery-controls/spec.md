@@ -1,7 +1,7 @@
 # forge-web-delivery-controls Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-delivery-controls. Update Purpose after archive.
+Plan, confirm, and track browser-triggered repository or external delivery mutations with honest provider outcomes and server-side credential isolation.
 ## Requirements
 ### Requirement: Reviewable typed operation plans
 

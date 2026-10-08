@@ -1,7 +1,7 @@
 # forge-web-project-release Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-release. Update Purpose after archive.
+Plan and apply project releases from the browser under confirm-and-digest discipline, delegating to the in-process release engine with server-side credentials.
 ## Requirements
 ### Requirement: Browser planning of a project release
 

@@ -1,7 +1,7 @@
 # forge-web-project-delivery Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-delivery. Update Purpose after archive.
+Surface read-only project delivery status and execute health-gated preflight, stage, promote, and Hermora retry under confirm-and-digest discipline.
 ## Requirements
 ### Requirement: Read-only browser delivery status
 

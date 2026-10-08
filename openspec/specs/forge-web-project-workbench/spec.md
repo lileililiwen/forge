@@ -1,7 +1,7 @@
 # forge-web-project-workbench Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-workbench. Update Purpose after archive.
+Provide project-scoped browser workflows that plan before every write, execute only typed Core contracts, and show partial failures honestly.
 ## Requirements
 ### Requirement: Project-scoped typed workflows
 

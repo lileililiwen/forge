@@ -1,7 +1,7 @@
 # forge-web-project-deployment Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-deployment. Update Purpose after archive.
+Plan and apply project deploys from the browser under confirm-and-digest discipline, delegating to the in-process deploy engine with server-side credentials.
 ## Requirements
 ### Requirement: Browser planning of a project deploy
 

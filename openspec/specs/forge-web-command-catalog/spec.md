@@ -1,7 +1,7 @@
 # forge-web-command-catalog Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-command-catalog. Update Purpose after archive.
+Expose an authenticated, versioned web catalog of every CLI command with truthful availability, structured execution blocks, and no generic shell execution.
 ## Requirements
 ### Requirement: Exhaustive CLI command coverage
 

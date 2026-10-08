@@ -1,7 +1,7 @@
 # forge-admin-login Specification
 
 ## Purpose
-TBD - created by archiving change forge-global-admin-portal. Update Purpose after archive.
+Authenticate the single Forge-wide administrator with an Argon2id-hashed credential, bounded session cookie, and CLI-managed password lifecycle.
 ## Requirements
 ### Requirement: One Forge administrator credential
 

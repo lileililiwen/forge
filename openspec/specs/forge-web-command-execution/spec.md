@@ -1,7 +1,7 @@
 # forge-web-command-execution Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-command-execution. Update Purpose after archive.
+Execute handler-backed CLI commands from the browser under the same confirm-and-digest discipline the CLI uses, with no shell or argv interpolation.
 ## Requirements
 ### Requirement: Browser execution of handler-backed authoring commands
 

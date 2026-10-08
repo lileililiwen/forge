@@ -1,7 +1,7 @@
 # forge-web-project-fleet Specification
 
 ## Purpose
-TBD - created by archiving change forge-web-project-fleet. Update Purpose after archive.
+Aggregate the Forge-self record, every local project, configured external sources, and recent publish history into a single authenticated fleet view.
 ## Requirements
 ### Requirement: Complete authenticated fleet aggregation
 

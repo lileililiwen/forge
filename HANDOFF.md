@@ -2,6 +2,73 @@
 
 ## Current state
 
+### portal-form-error-feedback delivered and archived (2026-10-08)
+
+Slice 3 of the frontend UI/UX audit (form labels + error feedback;
+slices 4–6 stay QUEUED, not authored). `frontend/` only, vanilla
+HTML/CSS/JS; no API/registry/journal/CLI/catalog change.
+
+Fix (`frontend/index.html`, `frontend/login.html`, `frontend/app.js`,
+`frontend/styles.css` appended slice-3 override block):
+
+- Visible labels: fleet filter row (6 inputs) uses stacked visible
+  labels (placeholders kept as examples) + one shared row hint
+  (blank-means-any); delivery allowlist/publish/reconcile/lookup inputs
+  and portfolio tag/review/project selects relabelled from `sr-only` to
+  visible `label.field` stacks with per-field helper text; workbench
+  action-card boolean params gain visible labels and all card fields a
+  visible `*` required marker. 44px targets and layout from slice 2
+  unchanged (`.field` inputs re-assert `min-height:44px`).
+- Error summaries: one shared `renderErrorSummary` helper (heading +
+  per-field links, focus moved to the `tabindex="-1"` container,
+  retained inline errors) plus `setFieldError`/`clearFieldError`
+  (`aria-invalid`, `aria-describedby` add/remove) wired into login,
+  portfolio add-tag/record-review (validation + server), delivery
+  set/approve/publish/reconcile/lookup (validation + refusals),
+  `buildActionControl` cards (gather + refused preview/run), and
+  workspace bulk / management scoped preview/run. `fleet-filter-error`
+  `role="status"` → `role="alert"`.
+- Login: password show/hide toggle (`type=button`, `aria-pressed`,
+  `aria-controls`, Show/Hide; value/`name`/`autocomplete` untouched, no
+  paste blocking), visible `*` required indicators + legend line.
+- Typed-field guarantee intact: payload shapes and endpoints unchanged
+  (fetch route set identical before/after); no new endpoint.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `node --check frontend/app.js` | clean |
+| static token audit over shipped files | **35 / 35**: 19 scoped visible labels, fleet `role=alert`, 5 summary containers + card summary, toggle + pressed/controls, autocomplete/names intact, required markers, 6 fleet `aria-describedby`, 4 helpers + focus move, fetch routes unchanged, old router/deep-link tokens intact, slice-3 CSS tokens |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `forge_web_navigation_contract` | **6 passed / 0 failed** |
+| `forge_web_manage_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `forge_web_workbench_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **87 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portal-form-error-feedback --yes` | `portal-web-ui: update` (+3); **no `--skip-specs`**; archived as `2026-10-08-portal-form-error-feedback`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior slices (src-file splitting program; harness
+timeout investigation).
+
+Files changed: `frontend/app.js`, `frontend/index.html`,
+`frontend/login.html`, `frontend/styles.css`,
+`openspec/specs/portal-web-ui/spec.md` (+3), new
+`openspec/changes/archive/2026-10-08-portal-form-error-feedback/`
+(proposal, design, tasks, delta spec), `HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `bb0c9b6`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### portal-touch-responsive-targets delivered and archived (2026-10-08)
 
 Slice 2 of the frontend UI/UX audit (touch/manipulation responsiveness;

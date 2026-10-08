@@ -2,6 +2,65 @@
 
 ## Current state
 
+### portfolio-contract-size-split delivered and archived (2026-10-08)
+
+File 3 of the source-file-size grind per
+`openspec/changes/archive/2026-10-08-source-file-size-remediation/design.md`
+§9 (verbatim-move rules per §10 decision ledger). Tests-side only;
+no behavior change anywhere.
+
+Move (`tests/portfolio_contract.rs` 1261 lines deleted,
+`tests/portfolio_contract/` created): `main.rs` (file doc, all
+shared helpers, `drive` / `api_request` / `api_json` /
+`seed_two_projects` seed fixtures, two `mod` declarations; `fn` →
+`pub(crate) fn` per the `tests/kit_contract/` precedent) plus two
+CLI-vs-HTTP submodules — `cli` (17), `http` (6). Every one of the
+23 `#[test]` function bodies copied verbatim (verified by
+substring assertion against the original at split time: each of
+the 23 names occurs exactly once across the three new files); no
+cleanup, no renames. No `src/` change, no `mod` change in
+`src/lib.rs` or `src/main.rs`, no public symbol/route/CLI/env
+change.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `cargo test --test portfolio_contract` pre-move | **23 passed / 0 failed / 0 ignored** |
+| `cargo test --test portfolio_contract` post-move | **23 passed / 0 failed / 0 ignored** (identical) |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | **PASS** after archive (archiver-stamped TBD Purpose replaced with a source-backed sentence; stale pointer removed) |
+| `openspec validate --all --strict --no-interactive` | **90 passed / 0 failed** active; **90 passed / 0 failed** after archive (+1 new canonical spec) |
+| `git diff --check` | clean |
+| `./target/debug/forge gate --dry-run` | plan rendered; 9 required checks |
+| `./target/debug/forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change is tests-side only and the gate evaluates `src/`, so the count is unchanged); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portfolio-contract-size-split --yes` | `portfolio-contract-size-split: create` (+1); **no `--skip-specs`**; archived as `2026-10-08-portfolio-contract-size-split`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior entries (src-file splitting program; harness
+timeout investigation).
+
+The delta spec carried a real `## Purpose` sentence, but the
+archiver still stamped TBD; the canonical spec's Purpose was
+replaced with the source-backed sentence above in this same change
+(governance PASS after).
+
+Files changed: `tests/portfolio_contract.rs` (deleted),
+`tests/portfolio_contract/` (`main.rs` + 2 submodules), new
+`openspec/changes/archive/2026-10-08-portfolio-contract-size-split/`
+(proposal, design, tasks, delta spec), new canonical spec
+`openspec/specs/portfolio-contract-size-split/spec.md` (+1),
+`HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `e007840`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### supervised-agent-contract-size-split delivered and archived (2026-10-08)
 
 File 2 of the source-file-size grind per

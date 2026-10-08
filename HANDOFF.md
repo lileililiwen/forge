@@ -1,6 +1,113 @@
 # Forge handoff
 
+current_spec: fleet-manage-deep-link
+
 ## Current state
+
+### fleet-manage-deep-link ACTIVE, uncommitted (2026-10-08)
+
+Bug: opening `http://127.0.0.1:4173/management?project=alethefy` does not
+focus/manage alethefy. Live state (read-only; nothing on the live pair
+was changed):
+
+| Fact | Evidence |
+|---|---|
+| alethefy is NOT registered | live registry holds 7 records (`argoscope`, `demoapp`, `localonly`, `mnemora`, `native-react-preview`, `net-app`, `portdemo42170`); none is alethefy |
+| alethefy is observed/unmanaged | `GET /v1/admin/projects` (throwaway mirror of live: registry copy + `FORGE_ADMIN_PROJECTS_ROOT=/home/paul/code`): `management: "observed"`, `source: "published"` (forge-publish-history, 25 such rows), `capabilities: []`, no conflict |
+| alethefy is onboardable | sibling exists, no `forge.yaml`, import-decidable (`python-service`, high confidence), workspace candidate `unregistered` + selectable, derived id `alethefy` |
+| Fleet Manage action for it | `<a href="/management?project=alethefy">Manage</a>` — correct destination for an unmanaged project |
+
+Browser repro (throwaway mirror on ports 56195/50627, real Chromium;
+live pair only read, never written):
+
+- Authenticated `/management?project=alethefy` ticks alethefy with a
+  naming notice (parameter handling itself works).
+- **Signed-out exact URL reproduces the report**: bounce to `login.html`,
+  after sign-in land on `index.html` — `?project=alethefy` lost, alethefy
+  never focused. Root cause: the login handoff drops the deep link.
+- `/workbench?project=alethefy` boots an empty workbench: no
+  `?project=` support there. Managed rows use an "Open" button to bare
+  `/workbench` (not shareable, lost on reload).
+
+Fix (`frontend/app.js` only; no API/registry/catalog/CLI change):
+
+- Workbench reads `?project=` on every route render once the fleet has
+  populated its selector (`workbenchProjectParam` /
+  `applyWorkbenchProjectParam`, `wbAutoParam`/`wbFleetReady` guards):
+  managed id selects + loads; unknown id loads nothing + honest notice;
+  absent id changes nothing (plain `/workbench` byte-identical behavior).
+- Fleet "Open" navigates to `/workbench?project=<id>`; hand selection via
+  dropdown/Load routes through the same URL so it stays deep-linkable.
+- `/management?project=<registered-id>` `replaceState`-redirects to
+  `/workbench?project=<id>`; all other non-selectable/unknown states keep
+  the select-nothing notice.
+- Login handoff carries `login.html?next=<path+query>` and returns to it
+  only when it is a validated same-origin route path (`loginNextTarget`
+  + `isRoutePath`); anything else falls back to `index.html`, never
+  off-origin.
+
+Evidence (this change active, uncommitted):
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| new `forge_web_workbench_deep_link_browser` | **1 passed / 0 failed** (Open-URL + boot, direct boot, reload, unknown id, back/forward across two managed ids, registered redirect, signed-out management + workbench round-trips, hostile `next`) |
+| `forge_web_navigation_contract` (extended token test) | **6 passed / 0 failed** |
+| `forge_web_manage_deep_link_browser` | **1 passed / 0 failed** (no regression) |
+| `forge_web_command_catalog_contract` / `forge_web_maintainer_surface_contract` | **9 / 5 passed, 0 failed** |
+| `cargo test --lib command_catalog` / `cargo test --bin forge` | **7 / 7 passed, 0 failed** |
+| wider web set: fleet 11, execution 5, delivery-controls 10, management 9, onboarding 10, workbench 11, admin-api 4, portfolio 11, status 10, actions 6 | all passed, 0 failed |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **87 passed / 0 failed** |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| mirror retest of the exact reported URL (signed-out + signed-in, both views, hostile `next`) | all behaviors verified in Chromium |
+
+Pre-existing failures unrelated to this change (recorded, not fixed —
+separate harnesses, separate changes):
+
+- `forge_web_workspace_onboarding_browser`: asserts dashboard order
+  `workbench < management < commands`, but `#commands-title` no longer
+  exists since archived `lifecycle-tracked-project-view` removed the
+  catalog page. Remediation: update the harness order assertion to the
+  lifecycle-tracked layout.
+- `forge_web_project_delivery_browser`: calls `selectOption` on
+  `#workbench-project` while the projects view is visible; fails
+  identically with pristine `HEAD` `frontend/app.js` (verified via
+  stash). Remediation: navigate to `/workbench` (now
+  `/workbench?project=<id>`) before selecting.
+
+Manual retest (throwaway mirror; live data untouched):
+
+```sh
+# registry copy + fresh admin on the copy only:
+cp ~/.local/share/forge/registry.db /tmp/mirror.db
+sqlite3 /tmp/mirror.db "DELETE FROM forge_admin; DELETE FROM forge_admin_sessions;"
+printf '<pw>' | ./target/debug/forge --registry /tmp/mirror.db identity setup --email o@e.t --password-stdin
+FORGE_FRONTEND_ORIGIN=http://127.0.0.1:<WEB> FORGE_ADMIN_PROJECTS_ROOT=/home/paul/code \
+  ./target/debug/forge --registry /tmp/mirror.db api serve --bind 127.0.0.1 --port <API> &
+./target/debug/forge web serve --bind 127.0.0.1 --port <WEB> --root <frontend-copy-with-fixed-config> &
+```
+
+| Step | Expect |
+|---|---|
+| Signed out → `http://<WEB>/management?project=alethefy` → sign in | returns to that URL, alethefy row ticked + named notice |
+| Signed in → `/workbench?project=<managed>` | selector set + detail loaded; reload keeps; unknown id → empty state + `nothing was loaded` notice |
+| Signed in → `/management?project=<registered>` | URL becomes `/workbench?project=<id>`, detail loads |
+| `login.html?next=https://example.invalid/` → sign in | lands on `index.html`, stays on-origin |
+
+Files changed (uncommitted, nothing pushed): `frontend/app.js`,
+`tests/forge_web_navigation_contract.rs`, `HANDOFF.md` (this entry +
+pointer), new `openspec/changes/fleet-manage-deep-link/` (proposal,
+design, tasks, delta spec), new
+`tests/browser/workbench-deep-link-check.mjs`,
+`tests/forge_web_workbench_deep_link_browser.rs`. Pre-existing
+uncommitted companions kept as found:
+`tests/browser/manage-deep-link-check.mjs`,
+`tests/forge_web_manage_deep_link_browser.rs`. No archive and no commit
+per operator direction; the change stays active.
 
 ### forge-web-navigation-routing delivered and archived (2026-10-08)
 

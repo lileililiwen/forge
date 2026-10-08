@@ -6,11 +6,15 @@
 //!
 //! - every dashboard path (`/projects`, `/workbench`, `/management`,
 //!   `/portfolio`, `/delivery`) plus `/index.html` returns 200 with
-//!   `text/html` and the exact application-shell bytes;
+//!   `text/html` and the exact application-shell bytes, including with a
+//!   `?project=` query string (the fleet "Manage" deep link survives reload);
 //! - `/` still serves `login.html`;
 //! - the server stays an exact allowlist: an unknown path and traversal
 //!   attempts still 404 and never leak a file body;
-//! - the sidebar carries the real paths and no `#fragment` navigation.
+//! - the sidebar carries the real paths and no `#fragment` navigation;
+//! - every fleet Manage link carries its project identity in the URL and the
+//!   project-scoped management view boots that project (unknown/empty ids
+//!   select nothing, plain /management stays the global bulk view).
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -170,6 +174,34 @@ fn every_dashboard_route_serves_the_application_shell() {
 }
 
 #[test]
+fn dashboard_routes_keep_serving_the_shell_with_a_query_string() {
+    // The fleet "Manage" deep link (`/management?project=<id>`) must survive
+    // a reload: the web listener strips the query before its exact-path
+    // allowlist match and returns the same application shell. An unknown
+    // path with a query string must still 404.
+    let tmp = TempDir::new().expect("tempdir");
+    let root = web_root(&tmp);
+    let shell = std::fs::read(root.join("index.html")).expect("read shell");
+
+    let port = free_port();
+    let _server = start_web(&root, port);
+
+    let (status, content_type, body) = http_get(port, "/management?project=deep-link-alpha");
+    assert_eq!(status, 200, "GET /management?project= must be served");
+    assert_eq!(content_type, "text/html; charset=utf-8");
+    assert_eq!(
+        body, shell,
+        "GET /management?project= must return the shell bytes"
+    );
+
+    let (status, _, _) = http_get(port, "/does-not-exist?project=deep-link-alpha");
+    assert_eq!(
+        status, 404,
+        "GET /does-not-exist?project= must not be served"
+    );
+}
+
+#[test]
 fn the_server_stays_an_exact_allowlist() {
     let tmp = TempDir::new().expect("tempdir");
     let root = web_root(&tmp);
@@ -232,4 +264,126 @@ fn the_sidebar_uses_real_paths_and_no_fragment_navigation() {
         !app.contains("href = \"#"),
         "no fragment navigation may remain in app.js"
     );
+}
+
+#[test]
+fn manage_links_carry_the_project_and_the_destination_boots_it() {
+    // Regression test: clicking a fleet row's "Manage" action must navigate
+    // to the management view with that project's identity in the URL, and
+    // the destination must lead with the project-scoped card for that id
+    // (bulk hidden) — never the global bulk table as the primary content.
+    // Plain /management keeps the bulk view; unknown or empty ids select
+    // nothing. Real path routing only — no `#fragment` navigation.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let app = std::fs::read_to_string(root.join("frontend/app.js")).expect("app.js");
+    let html = std::fs::read_to_string(root.join("frontend/index.html")).expect("index.html");
+
+    // Every per-row Manage entry point carries the project identity.
+    assert!(
+        app.contains("/management?project="),
+        "fleet Manage links must carry `?project=`"
+    );
+    assert!(
+        app.contains("encodeURIComponent(project.identity)"),
+        "the carried identity must be the row's project identity"
+    );
+
+    // SPA navigation preserves the query string instead of dropping it.
+    assert!(
+        app.contains("url.pathname + url.search"),
+        "the click interceptor must preserve the query string"
+    );
+    assert!(
+        app.contains("window.location.search"),
+        "route changes must account for the query string"
+    );
+
+    // The destination reads the parameter on every route render (boot,
+    // reload, back/forward) and reconciles the scoped card with it.
+    for token in [
+        "applyManagementProjectParam",
+        "managementProjectParam",
+        "mgmtHasProjectParam",
+        "mgmtScoped",
+        "mgmt-project-preview",
+        "mgmtScopedPreview",
+        "mgmtScopedRun",
+        "URLSearchParams",
+        "ws.discovered",
+    ] {
+        assert!(app.contains(token), "app.js must implement `{token}`");
+    }
+
+    // With `?project=` present the scoped card leads and the bulk table
+    // hides; without it the bulk view is exact.
+    for token in ["id=\"mgmt-project\"", "id=\"ws-bulk\""] {
+        assert!(html.contains(token), "index.html must declare `{token}`");
+    }
+    assert!(
+        app.contains("mgmt-project") && app.contains("ws-bulk"),
+        "app.js must toggle the scoped card against the bulk table"
+    );
+
+    // Unknown and empty ids are handled safely: nothing is ticked and the
+    // operator is told so — the wrong project is never loaded.
+    assert!(
+        app.contains("nothing was selected"),
+        "an unmatched project id must select nothing and say so"
+    );
+    assert!(
+        !app.contains("href = \"#"),
+        "no fragment navigation may remain in app.js"
+    );
+}
+
+#[test]
+fn workbench_and_login_links_carry_the_project() {
+    // Regression test: a managed fleet row's "Open" action must navigate to
+    // the workbench with that project's identity in the URL; the workbench
+    // must read it on every route render (boot, reload, back/forward) once
+    // the fleet has populated its selector; a registered id on the
+    // management view must redirect to the workbench; and the login
+    // round-trip must carry the deep link back after sign-in. Real path
+    // routing only — no `#fragment` navigation, no off-origin `next`.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let app = std::fs::read_to_string(root.join("frontend/app.js")).expect("app.js");
+
+    // The managed row action carries the project identity to the workbench.
+    assert!(
+        app.contains("/workbench?project="),
+        "fleet Open actions must carry `?project=`"
+    );
+
+    // The workbench destination reconciles the parameter with its selector.
+    for token in [
+        "applyWorkbenchProjectParam",
+        "workbenchProjectParam",
+        "wbAutoParam",
+        "wbFleetReady",
+    ] {
+        assert!(app.contains(token), "app.js must implement `{token}`");
+    }
+
+    // Unknown workbench ids load nothing and say so; a bare workbench URL
+    // never auto-loads.
+    assert!(
+        app.contains("nothing was loaded"),
+        "an unmatched workbench id must load nothing and say so"
+    );
+
+    // A registered workspace candidate redirects to the managing view.
+    assert!(
+        app.contains("match.state === \"registered\""),
+        "a registered management param must redirect to the workbench"
+    );
+
+    // The login handoff carries the deep link and validates it as a
+    // same-origin route before returning to it.
+    for token in [
+        "loginNextTarget",
+        "login.html?next=",
+        "isRoutePath(url.pathname)",
+    ] {
+        assert!(app.contains(token), "app.js must implement `{token}`");
+    }
 }

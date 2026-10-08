@@ -166,7 +166,27 @@
             <div class="panel-heading">
               <div><h2 id="management-title">Bring a workspace into Forge</h2><p class="muted">For more than a couple of sibling projects, use the bulk Workspace onboarding panel below: it discovers every directory under the server-configured project root, lets you tick which ones to import or register, previews one digest-bound batch, and only writes on your confirmation. The single-project <code>forge new</code> / <code>forge import</code> / <code>forge register</code> forms below are the right tool when the directory does not exist yet, or when you are onboarding one project at a time.</p></div>
             </div>
-            <section class="wb-card wb-plan" aria-labelledby="ws-title">
+            <section class="wb-card wb-plan" aria-labelledby="mgmt-project-title" id="mgmt-project" hidden>
+              <div class="panel-heading"><div><h3 id="mgmt-project-title">Project onboarding</h3><p class="muted" id="mgmt-project-summary">Loading the requested project…</p></div>
+                <div class="panel-tools">
+                  <a id="mgmt-project-all" class="button button-quiet" href="/management">Show all workspace candidates</a>
+                </div>
+              </div>
+              <div id="mgmt-project-notice" class="notice" role="status" aria-live="polite" hidden></div>
+              <dl id="mgmt-project-detail" class="detail-list"></dl>
+              <div class="wb-plan-tools">
+                <label class="filter-box"><span class="sr-only">Id override for this project</span><input id="mgmt-project-id" type="text" placeholder="id override" autocomplete="off"></label>
+                <label class="filter-box"><span class="sr-only">Profile override for this project</span><input id="mgmt-project-profile" type="text" placeholder="profile override" autocomplete="off"></label>
+                <button id="mgmt-project-preview" class="button button-quiet" type="button" disabled>Preview selection</button>
+              </div>
+              <div id="mgmt-project-preview-result" class="wb-plan-result" hidden></div>
+              <label id="mgmt-project-confirm-wrap" class="wb-confirm" hidden><input id="mgmt-project-confirm" type="checkbox"> I confirm onboarding exactly this reviewed project.</label>
+              <div class="wb-plan-tools">
+                <button id="mgmt-project-run" class="button" type="button" disabled>Run confirmed onboarding</button>
+              </div>
+              <div id="mgmt-project-apply-result" class="wb-plan-result" hidden></div>
+            </section>
+            <section class="wb-card wb-plan" aria-labelledby="ws-title" id="ws-bulk">
               <div class="panel-heading"><div><h3 id="ws-title">Bulk Workspace onboarding</h3><p class="muted">Discover every sibling directory under the server-configured project root, then import or register a selection in one reviewed batch. Discovery re-reads the workspace live, so newly added siblings appear on Refresh with no other change. Nothing is written until you review the preview and confirm exactly that selection.</p></div>
                 <div class="panel-tools">
                   <button id="ws-discover" class="button button-quiet" type="button">Discover workspace</button>

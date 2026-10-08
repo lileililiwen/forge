@@ -66,6 +66,12 @@
     return Object.prototype.hasOwnProperty.call(VIEW_BY_PATH, normalizePath(pathname));
   }
 
+  function splitRoute(path) {
+    const queryIndex = path.indexOf("?");
+    if (queryIndex === -1) return { pathname: path, search: "" };
+    return { pathname: path.slice(0, queryIndex), search: path.slice(queryIndex) };
+  }
+
   function renderRoute() {
     const view = viewForPath(window.location.pathname);
     for (const [name, id] of Object.entries(VIEW_IDS)) {
@@ -82,11 +88,29 @@
     const crumb = document.getElementById("topbar-crumb");
     if (crumb) crumb.textContent = chrome.crumb;
     document.title = chrome.title;
+    // The management view carries an optional `?project=` deep link (see
+    // `applyManagementProjectParam`): with the key present the scoped card
+    // leads and the bulk table hides; without it the bulk view is exact.
+    // Reconciling on every route render keeps reload and back/forward
+    // honest; candidate matching waits for workspace discovery.
+    if (view === "management") applyManagementProjectParam();
+    // The workbench carries the same optional `?project=` deep link (see
+    // `applyWorkbenchProjectParam`): a managed id selects and loads that
+    // project. The helper is a no-op until the fleet has populated the
+    // project selector, and never touches anything for a bare `/workbench`.
+    if (view === "workbench") applyWorkbenchProjectParam();
   }
 
   function navigateTo(path) {
-    if (normalizePath(window.location.pathname) !== normalizePath(path)) {
-      window.history.pushState(null, "", path);
+    const next = splitRoute(path);
+    // The query string is part of the address: a same-view navigation that
+    // only changes `?project=` (fleet "Manage" rows) must still push state so
+    // reload and back/forward see the project the operator picked.
+    if (
+      normalizePath(window.location.pathname) !== normalizePath(next.pathname) ||
+      window.location.search !== next.search
+    ) {
+      window.history.pushState(null, "", next.pathname + next.search);
     }
     renderRoute();
   }
@@ -101,7 +125,7 @@
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin || !isRoutePath(url.pathname)) return;
       event.preventDefault();
-      navigateTo(url.pathname);
+      navigateTo(url.pathname + url.search);
     });
   }
 
@@ -109,9 +133,28 @@
     const form = document.getElementById("login-form");
     const error = document.getElementById("login-error");
     const setup = document.getElementById("setup-state");
+    // Where to return after sign-in: the `?next=` dashboard route the
+    // unauthenticated dashboard boot carried here, or null for the default
+    // `index.html`. Only a same-origin path on the dashboard route
+    // allowlist is honored — anything else (absolute URL, foreign origin,
+    // unknown path, the login page itself) is dropped so `next` can never
+    // navigate off-origin.
+    const loginNextTarget = () => {
+      const raw = (new URLSearchParams(window.location.search).get("next") || "").trim();
+      if (raw === "") return null;
+      let url;
+      try {
+        url = new URL(raw, window.location.origin);
+      } catch (_) {
+        return null;
+      }
+      if (url.origin !== window.location.origin || !isRoutePath(url.pathname)) return null;
+      return url.pathname + url.search;
+    };
+    const next = loginNextTarget();
     try {
       const state = await session();
-      if (state.authenticated) { window.location.replace("index.html"); return; }
+      if (state.authenticated) { window.location.replace(next || "index.html"); return; }
       if (!state.configured) {
         setup.hidden = false;
         setup.textContent = `Set up your Forge administrator from a terminal with: ${state.setup_command || "forge identity setup --email you@example.com"}`;
@@ -135,7 +178,7 @@
           body: JSON.stringify({ email: form.elements.email.value, password: form.elements.password.value }),
         });
         form.elements.password.value = "";
-        window.location.assign("index.html");
+        window.location.assign(next || "index.html");
       } catch (_) {
         error.textContent = "Email or password is incorrect.";
         error.hidden = false;
@@ -275,7 +318,10 @@
         action.append(open);
       } else if (!project.conflict) {
         const link = document.createElement("a");
-        link.href = "/management";
+        // Carry the project identity: the management view reads `?project=`
+        // on load and ticks that project's workspace row. A bare
+        // `/management` link cannot say which project the operator picked.
+        link.href = `/management?project=${encodeURIComponent(project.identity)}`;
         link.textContent = "Manage";
         link.setAttribute("aria-label", `Manage ${project.name}: onboard it from the workspace panel`);
         action.append(link);
@@ -292,10 +338,11 @@
   }
 
   function openInWorkbench(identity) {
-    const select = document.getElementById("workbench-project");
-    if (select) select.value = identity;
-    navigateTo("/workbench");
-    loadWorkbenchDetail(identity);
+    // Carry the project identity: the workbench view reads `?project=` on
+    // load and boots that managed project. A bare `/workbench` navigation
+    // cannot say which project the operator picked, is lost on reload, and
+    // is invisible to back/forward. The route render applies the load.
+    navigateTo(`/workbench?project=${encodeURIComponent(identity)}`);
   }
 
   // ---- Fleet filter row (catalog predicates) -----------------------------
@@ -408,6 +455,15 @@
   const HEALTH_LABELS = { healthy: "Healthy", stale: "Stale", issues: "Has issues", unavailable: "Unavailable" };
   const HEALTH_BADGE = { healthy: "state-done", stale: "state-stale", issues: "state-failed", unavailable: "state-observed" };
   const workbench = { id: null, digest: null, idempotencyKey: null, delivery: null };
+  // The last `?project=` value the workbench applied itself. Guards the
+  // route render against re-fetching the detail on unrelated re-renders
+  // while still following a changed parameter (reload, back/forward, fleet
+  // "Open" on another row).
+  let wbAutoParam = null;
+  // True once the fleet has populated the workbench selector (even with
+  // zero managed projects). The `?project=` apply waits for this instead
+  // of mistaking "not loaded yet" for "no such project".
+  let wbFleetReady = false;
   // The catalog rows fetched once by `loadCommands`; the workbench renders a
   // runnable confirm-gated control for every row that carries an `execution`
   // block, so the inventory itself — not a hard-wired widget — is actionable.
@@ -1180,7 +1236,10 @@
   // previewed as one digest-bound batch, then confirmed; per-item results
   // are reported honestly and the fleet is reloaded on demand.
   const WS_CHUNK = 25;
-  const ws = { candidates: [], digests: null, payload: null };
+  const ws = { candidates: [], digests: null, payload: null, discovered: false, autoSelected: null };
+  // Project-scoped management state: when `?project=` is present the
+  // management view leads with this single candidate (never the bulk table).
+  const mgmtScoped = { param: null, candidate: null, digest: null, payload: null };
 
   function wsNotice(message) {
     const box = document.getElementById("ws-notice");
@@ -1220,6 +1279,260 @@
     const chosen = wsSelected().length > 0;
     document.getElementById("ws-select-all").disabled = !any;
     document.getElementById("ws-preview").disabled = !chosen;
+  }
+
+  // ---- Management deep link (`/management?project=<identity>`) ------------
+  //
+  // Every fleet "Manage" row links here with its project identity, so a
+  // detail visitor lands on a project-scoped onboarding card for that id —
+  // never on the global bulk table as the primary content. The URL is the
+  // source of truth: the web listener serves the shell for any query string
+  // (reload safe), and `renderRoute` re-applies this on every `popstate`
+  // (back/forward safe). An unknown or empty id selects nothing and says
+  // so — it never selects the wrong project. The bulk table never ticks a
+  // row for a deep link; hand ticks there are left alone.
+  function managementProjectParam() {
+    const id = (new URLSearchParams(window.location.search).get("project") || "").trim();
+    return id === "" ? null : id;
+  }
+
+  function wsRowTick(directory) {
+    return document.querySelector(`#ws-rows tr[data-directory="${CSS.escape(directory)}"] input[type="checkbox"]`);
+  }
+
+  function mgmtHasProjectParam() {
+    return new URLSearchParams(window.location.search).has("project");
+  }
+
+  function mgmtScopedNotice(message) {
+    const box = document.getElementById("mgmt-project-notice");
+    if (!box) return;
+    box.textContent = message;
+    box.hidden = false;
+  }
+
+  function mgmtScopedClear() {
+    const box = document.getElementById("mgmt-project-notice");
+    if (box) { box.hidden = true; box.textContent = ""; }
+  }
+
+  function mgmtScopedResetFlow() {
+    mgmtScoped.digest = null;
+    mgmtScoped.payload = null;
+    const result = document.getElementById("mgmt-project-preview-result");
+    if (result) { result.replaceChildren(); result.hidden = true; }
+    const applyBox = document.getElementById("mgmt-project-apply-result");
+    if (applyBox) { applyBox.replaceChildren(); applyBox.hidden = true; }
+    const confirmWrap = document.getElementById("mgmt-project-confirm-wrap");
+    if (confirmWrap) confirmWrap.hidden = true;
+    const confirm = document.getElementById("mgmt-project-confirm");
+    if (confirm) confirm.checked = false;
+    const run = document.getElementById("mgmt-project-run");
+    if (run) run.disabled = true;
+  }
+
+  function mgmtScopedSignal(candidate) {
+    if (candidate.profile) return `${profileWords(candidate.profile)} (${candidate.confidence || "unknown"})`;
+    if (candidate.manifest) return "manifest";
+    return "—";
+  }
+
+  function mgmtScopedRender(candidate, id) {
+    const title = document.getElementById("mgmt-project-title");
+    const summary = document.getElementById("mgmt-project-summary");
+    const detail = document.getElementById("mgmt-project-detail");
+    const preview = document.getElementById("mgmt-project-preview");
+    if (title) title.textContent = `Onboard ${candidate.directory || id} into Forge`;
+    if (summary) {
+      summary.textContent = candidate.selectable
+        ? `Project-scoped onboarding for “${id}” — only this project's import/register actions are shown below. Nothing is written until you preview and confirm it.`
+        : `Project “${id}” cannot be onboarded right now — nothing was selected.`;
+    }
+    if (detail) {
+      detail.replaceChildren();
+      detail.append(detailRow("Directory", candidate.directory || "—"));
+      detail.append(detailRow("Project id", candidate.id || "—"));
+      detail.append(detailRow("Action", candidate.action || "—"));
+      detail.append(detailRow("Profile signal", mgmtScopedSignal(candidate)));
+      const state = candidate.reason ? `${candidate.state}: ${candidate.reason}` : (candidate.state || "—");
+      detail.append(detailRow("State", state));
+    }
+    if (preview) preview.disabled = !candidate.selectable;
+  }
+
+  async function mgmtScopedPreview() {
+    mgmtScopedClear();
+    const candidate = mgmtScoped.candidate;
+    if (!candidate) { mgmtScopedNotice("No project is selected — nothing was previewed."); return; }
+    const item = { directory: candidate.directory };
+    const idOverride = (document.getElementById("mgmt-project-id") || {}).value || "";
+    const profileOverride = (document.getElementById("mgmt-project-profile") || {}).value || "";
+    if (idOverride.trim()) item.id = idOverride.trim();
+    if (profileOverride.trim()) item.profile = profileOverride.trim();
+    const box = document.getElementById("mgmt-project-preview-result");
+    box.replaceChildren(); box.hidden = false;
+    box.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to onboard exactly this project."));
+    const list = el("ul", "wb-plan-steps");
+    box.append(list);
+    const { ok, body } = await wsPostChunk([item]);
+    if (!ok) {
+      box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "The preview was refused. Nothing was written."));
+      mgmtScoped.digest = null; mgmtScoped.payload = null;
+      document.getElementById("mgmt-project-run").disabled = true;
+      return;
+    }
+    for (const plan of body.preview || []) {
+      const line = plan.blocked
+        ? `${plan.directory}: BLOCKED — ${plan.blocked}`
+        : `${plan.directory}: ${plan.action} as ${plan.id} (${profileWords(plan.profile)})`;
+      list.append(el("li", null, line));
+    }
+    mgmtScoped.digest = body.plan_digest;
+    mgmtScoped.payload = [item];
+    document.getElementById("mgmt-project-confirm-wrap").hidden = false;
+    document.getElementById("mgmt-project-run").disabled = false;
+  }
+
+  async function mgmtScopedRun() {
+    mgmtScopedClear();
+    if (!mgmtScoped.payload || !mgmtScoped.digest) { mgmtScopedNotice("Preview this project before running."); return; }
+    if (!document.getElementById("mgmt-project-confirm").checked) { mgmtScopedNotice("Tick the confirmation box — this writes the manifest and registry row."); return; }
+    document.getElementById("mgmt-project-run").disabled = true;
+    const box = document.getElementById("mgmt-project-apply-result");
+    box.replaceChildren(); box.hidden = false;
+    const { ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ items: mgmtScoped.payload, confirm: true, plan_digest: mgmtScoped.digest }),
+    });
+    const list = el("ul", "wb-plan-steps");
+    if (!ok && !(body && body.results)) {
+      box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "The run was refused. Nothing was written."));
+      if (body && body.preview && body.plan_digest) {
+        box.append(el("p", "muted", "The selection changed: review a refreshed preview and confirm again."));
+      }
+      return;
+    }
+    for (const result of body.results || []) {
+      list.append(el("li", null, result.ok
+        ? `${result.directory}: onboarded as ${result.id}`
+        : `${result.directory}: FAILED (${(result.code || "error")}) — ${result.message || "see journal"}`));
+    }
+    box.append(el("p", "wb-plan-head", `Onboarded ${body.succeeded ?? 0} of ${(body.succeeded ?? 0) + (body.failed ?? 0)} selected director${(body.succeeded ?? 0) + (body.failed ?? 0) === 1 ? "y" : "ies"}.`));
+    box.append(list);
+    mgmtScoped.digest = null; mgmtScoped.payload = null;
+    document.getElementById("mgmt-project-confirm").checked = false;
+    document.getElementById("mgmt-project-confirm-wrap").hidden = true;
+    await wsDiscover();
+    await wsReloadFleet();
+  }
+
+  function applyManagementProjectParam() {
+    // Project-scoped vs bulk is decided by the presence of the `?project=`
+    // key — not its value. A deep link always leads with the single-project
+    // card and hides the bulk table, so a detail visitor never meets the
+    // global "bring a workspace" panel as the primary content. Plain
+    // `/management` (no key) keeps the bulk view exactly as before.
+    const scoped = document.getElementById("mgmt-project");
+    const bulk = document.getElementById("ws-bulk");
+    const hasParam = mgmtHasProjectParam();
+    if (scoped) scoped.hidden = !hasParam;
+    if (bulk) bulk.hidden = !!hasParam;
+    if (!hasParam) {
+      // Leaving a deep link releases only its own suggestion; hand ticks stay.
+      if (ws.autoSelected) {
+        const prior = wsRowTick(ws.autoSelected.directory);
+        if (prior) prior.checked = false;
+        ws.autoSelected = null;
+        wsRefreshButtons();
+      }
+      mgmtScoped.param = null;
+      mgmtScoped.candidate = null;
+      mgmtScopedResetFlow();
+      mgmtScopedClear();
+      return;
+    }
+    const id = managementProjectParam();
+    // A present-but-empty `?project=` names nothing: scoped notice, no pick.
+    if (!id) {
+      mgmtScoped.param = "";
+      mgmtScoped.candidate = null;
+      mgmtScopedResetFlow();
+      const title = document.getElementById("mgmt-project-title");
+      if (title) title.textContent = "Project onboarding";
+      const summary = document.getElementById("mgmt-project-summary");
+      if (summary) summary.textContent = "No project id was given — nothing was selected.";
+      const detail = document.getElementById("mgmt-project-detail");
+      if (detail) detail.replaceChildren();
+      const preview = document.getElementById("mgmt-project-preview");
+      if (preview) preview.disabled = true;
+      mgmtScopedNotice("No project id was given — nothing was selected.");
+      if (ws.autoSelected) {
+        const prior = wsRowTick(ws.autoSelected.directory);
+        if (prior) prior.checked = false;
+        ws.autoSelected = null;
+        wsRefreshButtons();
+      }
+      return;
+    }
+    // Release the previous deep link's bulk suggestion (the scoped view
+    // itself never ticks the bulk table).
+    if (ws.autoSelected && ws.autoSelected.param !== id) {
+      const prior = wsRowTick(ws.autoSelected.directory);
+      if (prior) prior.checked = false;
+      ws.autoSelected = null;
+      wsRefreshButtons();
+    }
+    // Candidates arrive asynchronously via `wsDiscover`. Until the first
+    // successful discovery there is nothing to match — show the scoped
+    // loading state and leave the bulk table hidden.
+    if (!ws.discovered) {
+      const title = document.getElementById("mgmt-project-title");
+      if (title) title.textContent = `Onboard ${id} into Forge`;
+      const summary = document.getElementById("mgmt-project-summary");
+      if (summary) summary.textContent = `Project-scoped onboarding for “${id}” — reading the workspace…`;
+      mgmtScopedNotice(`Reading the workspace for “${id}”…`);
+      return;
+    }
+    // Already rendered for this URL — respect whatever the operator did
+    // since (including a scoped preview) instead of re-rendering it.
+    if (mgmtScoped.param === id && mgmtScoped.candidate) return;
+    mgmtScoped.param = id;
+    mgmtScoped.candidate = null;
+    mgmtScopedResetFlow();
+    const match = ws.candidates.find((c) => c.id === id) || ws.candidates.find((c) => c.directory === id);
+    if (!match) {
+      const title = document.getElementById("mgmt-project-title");
+      if (title) title.textContent = "Project onboarding";
+      const summary = document.getElementById("mgmt-project-summary");
+      if (summary) summary.textContent = "No matching project — nothing was selected.";
+      const detail = document.getElementById("mgmt-project-detail");
+      if (detail) detail.replaceChildren();
+      const preview = document.getElementById("mgmt-project-preview");
+      if (preview) preview.disabled = true;
+      mgmtScopedNotice(`No onboardable workspace entry matches “${id}” — nothing was selected.`);
+      return;
+    }
+    if (match.state === "registered") {
+      // Already managed: the onboarding panels cannot manage this
+      // project, but the workbench can — land there instead of reporting
+      // that it cannot be onboarded. The workbench never bounces back for
+      // a managed id, so this cannot loop. `replaceState` (not a push) so
+      // Back returns past this redirect instead of re-triggering it.
+      window.history.replaceState(null, "", `/workbench?project=${encodeURIComponent(id)}`);
+      renderRoute();
+      return;
+    }
+    if (!match.selectable) {
+      mgmtScoped.candidate = null;
+      mgmtScopedRender({ ...match, selectable: false }, id);
+      const why = match.state ? ` (${match.state}${match.reason ? `: ${match.reason}` : ""})` : "";
+      mgmtScopedNotice(`${match.id || match.directory} cannot be onboarded right now${why} — nothing was selected.`);
+      return;
+    }
+    mgmtScoped.candidate = match;
+    mgmtScopedRender(match, id);
+    mgmtScopedNotice(`Selected ${match.directory} for onboarding — review the preview below, then confirm. Nothing is written until you confirm it.`);
   }
 
   function renderWsFleetHint(candidates) {
@@ -1308,6 +1621,10 @@
     wsNotice(`Found ${ws.candidates.length} directories (${onboardable} onboardable) of ${data.total} total. New siblings appear here on Refresh.`);
     renderWsFleetHint(ws.candidates);
     wsRefreshButtons();
+    ws.discovered = true;
+    // A `?project=` deep link (or a reload carrying one) can only be matched
+    // once this table exists; the call is a no-op without the parameter.
+    applyManagementProjectParam();
   }
 
   function wsSelectAll() {
@@ -1446,6 +1763,8 @@
     document.getElementById("ws-preview").addEventListener("click", wsPreview);
     document.getElementById("ws-run").addEventListener("click", wsRun);
     document.getElementById("ws-reload").addEventListener("click", () => window.location.reload());
+    document.getElementById("mgmt-project-preview").addEventListener("click", mgmtScopedPreview);
+    document.getElementById("mgmt-project-run").addEventListener("click", mgmtScopedRun);
   }
 
   function buildActionControl(command, scope = {}) {
@@ -1729,10 +2048,12 @@
     document.getElementById("workbench-load").addEventListener("click", () => {
       const id = select.value;
       if (!id) { showWorkbenchNotice("Select a managed project first."); return; }
-      loadWorkbenchDetail(id);
+      // Route through the URL so the open project stays deep-linkable;
+      // the route render applies the load exactly once.
+      navigateTo(`/workbench?project=${encodeURIComponent(id)}`);
     });
     select.addEventListener("change", () => {
-      if (select.value) loadWorkbenchDetail(select.value);
+      if (select.value) navigateTo(`/workbench?project=${encodeURIComponent(select.value)}`);
       else { document.getElementById("workbench-body").hidden = true; document.getElementById("workbench-empty").hidden = false; clearWorkbenchNotice(); }
     });
     document.getElementById("wb-plan").addEventListener("click", planUpgrade);
@@ -1741,6 +2062,47 @@
       if (!workbench.id) { showWorkbenchNotice("Select a managed project first."); return; }
       loadMaintain(workbench.id);
     });
+    // A `?project=` deep link (or a reload carrying one) can only be matched
+    // once this selector exists; the call is a no-op without the parameter.
+    wbFleetReady = true;
+    applyWorkbenchProjectParam();
+  }
+
+  // ---- Workbench deep link (`/workbench?project=<identity>`) --------------
+  //
+  // Every managed fleet row's "Open" action navigates here with its project
+  // identity, so the operator lands on the workbench with that project
+  // selected and loaded. The URL is the source of truth when it names a
+  // project: boot, reload and back/forward all reconcile through
+  // `renderRoute`. A bare `/workbench` never auto-loads and never disturbs
+  // a hand-made selection; an unknown id loads nothing and says so.
+  function workbenchProjectParam() {
+    const id = (new URLSearchParams(window.location.search).get("project") || "").trim();
+    return id === "" ? null : id;
+  }
+
+  function applyWorkbenchProjectParam() {
+    const select = document.getElementById("workbench-project");
+    // The fleet has not populated the selector yet (direct deep-link load
+    // races the async fleet fetch): `initWorkbench` applies the parameter
+    // once the options exist.
+    if (!select || !wbFleetReady) return;
+    const id = workbenchProjectParam();
+    // No (or empty) parameter: a plain `/workbench` visit changes nothing —
+    // whatever the operator opened by hand stays open.
+    if (!id) return;
+    // Already showing (or already loading) this project: respect whatever
+    // the operator did since instead of re-fetching the detail.
+    if (workbench.id === id || wbAutoParam === id) return;
+    const known = Array.from(select.options).some((option) => option.value === id);
+    if (!known) {
+      wbAutoParam = null;
+      showWorkbenchNotice(`No managed project matches “${id}” — nothing was loaded.`);
+      return;
+    }
+    select.value = id;
+    wbAutoParam = id;
+    loadWorkbenchDetail(id);
   }
 
   // ---- Portfolio controls
@@ -2345,7 +2707,14 @@
     let state;
     try { state = await session(); }
     catch (_) { showDashboardError("Forge API is unavailable. Start the API and reload this page."); return; }
-    if (!state.authenticated) { window.location.replace("login.html"); return; }
+    if (!state.authenticated) {
+      // Carry the deep link through sign-in: after authenticating, the
+      // login page returns here (see `loginNextTarget`). A bare entry
+      // still lands on `index.html` because an invalid `next` is dropped.
+      const here = window.location.pathname + window.location.search;
+      window.location.replace(`login.html?next=${encodeURIComponent(here)}`);
+      return;
+    }
     loadCommands();
     let projects = [];
     try {

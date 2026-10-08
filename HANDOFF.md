@@ -2,6 +2,77 @@
 
 ## Current state
 
+### portal-icon-type-motion delivered and archived (2026-10-08)
+
+Slice 5 of the frontend UI/UX audit (consistent icon set, readable
+type scale, shared motion tokens; slice 6 stays QUEUED, not authored).
+`frontend/` only, vanilla HTML/CSS/JS; no API/registry/journal/CLI/
+catalog change. No external font/CDN fetch — system stacks and inline
+SVG only.
+
+Fix (`frontend/index.html`, `frontend/login.html`, `frontend/app.js`,
+`frontend/styles.css` appended slice-5 block + 3 surgical base edits,
+`tests/forge_web_navigation_contract.rs` +1 test):
+
+- Icons: all 23 glyph sites become inline SVG from one stroke set (24
+  viewBox, `currentColor`, round caps/joins, `--icon-stroke:1.8`,
+  `--icon-sm/md/lg` 14/16/20px) — 5 sidebar nav, 1 search, 8 summary
+  cards, 2 empty marks (`index.html`); 3 story checks (new
+  `.check-disc` spans), lock, submit arrow (`login.html`); workbench
+  disclosure caret `▸` → chevron SVG and submit restore-string arrow
+  (`app.js`, zero logic change — the 90° open-rotation rule keeps
+  working on the wrapper span). Decorative SVGs keep `aria-hidden`;
+  all visible labels, `sr-only` names, and `aria-current` intact; no
+  emoji anywhere (`·`/`—`/prose arrows are punctuation, kept).
+- Type: explicit `html{font-size:16px}` base, body `1rem/1.6` (the one
+  intended vertical change), `--text-*` scale wired at identical
+  computed sizes, `tabular-nums` for counts/ids/digests/timestamps,
+  `70ch` guard on previously-uncapped prose (already-narrow blocks
+  untouched), `.wb-digest` `break-all` → `overflow-wrap:anywhere`. No
+  color token touched — every 4.5:1 pair stands by construction.
+- Motion: shared `--dur-enter:140ms` (inside the slice-2 80–150ms
+  press band) / `--dur-exit:90ms` (≈64% of enter) with
+  `--ease-standard`/`--ease-out`; slice-2 declarations rewired to the
+  tokens (single source, no dead literals), press/active states exit
+  fast, caret rotates on the enter token; transform/opacity-only, no
+  layout-shift animation, reduced-motion guard kept verbatim.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `node --check frontend/app.js` + HTML parse | clean |
+| glyph purge over shipped files | **0 remaining** (`▦⚙＋◈⇪⌕⌁✔↻⌀Σ✓●▸` gone from icon sites; `→` gone from button markup; `break-all` gone) |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `forge_web_navigation_contract` | **8 passed / 0 failed** (+1 slice-5 token test) |
+| `forge_web_manage_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `forge_web_workbench_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression; one initial flake, green on 2 consecutive reruns) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **87 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portal-icon-type-motion --yes` | `portal-web-ui: update` (+3); **no `--skip-specs`**; archived as `2026-10-08-portal-icon-type-motion`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior slices (src-file splitting program; harness
+timeout investigation).
+
+Files changed: `frontend/app.js`, `frontend/index.html`,
+`frontend/login.html`, `frontend/styles.css`,
+`tests/forge_web_navigation_contract.rs`,
+`openspec/specs/portal-web-ui/spec.md` (+3), new
+`openspec/changes/archive/2026-10-08-portal-icon-type-motion/`
+(proposal, design, tasks, delta spec), `HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `0cee5ad`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### portal-layout-navigation delivered and archived (2026-10-08)
 
 Slice 4 of the frontend UI/UX audit (responsive layout, nav

@@ -53,7 +53,24 @@
 .wb-confirm input{width:15px;height:15px;accent-color:var(--accent)}
 .wb-plan-result{margin-top:12px;padding:12px 14px;border:1px solid rgba(94,106,210,.4);border-radius:8px;background:var(--accent-soft);font-size:11px;color:#d6dbff;line-height:1.6}
 .wb-actions-list{display:flex;flex-direction:column;gap:14px}
-.wb-action-card{border:1px solid var(--line);border-radius:10px;background:var(--raise);padding:14px 16px}
+.wb-action-card{border:1px solid var(--line);border-radius:10px;background:var(--raise);padding:0}
+.wb-action-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 16px;background:none;border:0;color:var(--ink);font:inherit;text-align:left;cursor:pointer;min-height:44px}
+.wb-action-head:hover{background:rgba(255,255,255,.02)}
+.wb-action-head:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.wb-action-card.is-open .wb-action-head{background:rgba(255,255,255,.03)}
+.wb-action-caret{color:var(--faint);font-size:11px;transition:transform .12s ease}
+.wb-action-card.is-open .wb-action-caret{transform:rotate(90deg)}
+.wb-action-headtext{display:flex;flex-direction:column;gap:1px;min-width:0}
+.wb-action-label{font-size:13px;font-weight:600}
+.wb-action-cli{font-size:10px;color:var(--faint);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wb-action-body{padding:0 16px 14px}
+.wb-action-summary{margin:0 0 10px;font-size:12px;line-height:1.5}
+.wb-action-body .wb-plan-tools{display:flex;flex-wrap:wrap;gap:12px}
+.wb-field{display:flex;flex-direction:column;gap:4px;min-width:170px}
+.wb-field-label{font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.wb-field input[type=text]{height:34px;padding:0 10px;border:1px solid var(--line-strong);border-radius:8px;background:#0c0f16;color:var(--ink)}
+.wb-field input[type=text]:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.wb-field input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent)}
 .wb-action-title{margin:0 0 4px;font-size:13px}
 .wb-action-card .wb-plan-tools{margin-top:10px}
 .wb-action-card input[type=text]{min-width:180px;height:34px;padding:0 10px;border:1px solid var(--line-strong);border-radius:8px;background:#0c0f16;color:var(--ink)}

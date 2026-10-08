@@ -524,6 +524,78 @@ fn catalog_covers_the_real_help_output_of_the_binary() {
 }
 
 #[test]
+fn workbench_collapses_actions_into_choices_with_human_titles_and_field_hints() {
+    let app = std::fs::read_to_string("frontend/app.js").unwrap();
+    let css = std::fs::read_to_string("frontend/styles.css").unwrap();
+
+    // The wall of pre-expanded forms was the reason the workbench read as
+    // unhuman: every action rendered its inputs on screen at once, so a
+    // project with a dozen executable rows showed a dozen forms before the
+    // operator had chosen anything. Actions must be collapsed rows, and
+    // opening one must close the others.
+    assert!(
+        app.contains("wb-action-head"),
+        "each action must render a collapsed header row"
+    );
+    assert!(
+        app.contains("body.hidden = !opening") && app.contains("aria-expanded"),
+        "the header must toggle the form and report its expanded state"
+    );
+    assert!(
+        app.contains("other.querySelector(\".wb-action-body\").hidden = true"),
+        "opening one action must close every other action"
+    );
+    assert!(
+        css.contains(".wb-action-head") && css.contains(".wb-action-caret"),
+        "the collapsed row and its affordance need styles"
+    );
+
+    // `command.label` is only the leaf subcommand, so `spec apply`,
+    // `release apply` and `deploy apply` all read as the single word "apply".
+    // The title must come from the row's own human summary instead.
+    assert!(
+        app.contains("humanActionTitle"),
+        "the action title must be derived, not the bare subcommand label"
+    );
+    assert!(
+        app.contains("wb-action-cli"),
+        "the CLI invocation belongs beside the title as secondary text, never as it"
+    );
+
+    // A field labelled only by its parameter name gives an operator nothing to
+    // act on; every field needs a human label and, where a format is knowable,
+    // an example.
+    assert!(
+        app.contains("paramLabel") && app.contains("paramHint"),
+        "every action field needs a human label and a hint"
+    );
+    assert!(
+        app.contains("Feature name") && app.contains("e.g. auth"),
+        "the fields must say what to type, in the operator's words"
+    );
+    assert!(
+        !app.contains("field.placeholder = param.kind === \"string_array\""),
+        "a placeholder that echoes the parameter name is exactly the defect"
+    );
+
+    // The lifecycle card must read the flat manifest the API actually returns.
+    // `GET /v1/admin/projects/{id}` returns `manifest` un-nested, so reading
+    // `manifest.project.maturity` silently renders every field as "—".
+    assert!(
+        app.contains("(manifest && manifest.maturity)"),
+        "the lifecycle card must read the flat manifest shape"
+    );
+    assert!(
+        !app.contains("manifest.project.maturity"),
+        "reading a nested path the API never returns leaves the card blank"
+    );
+    assert!(
+        app.contains("nextStep"),
+        "the lifecycle summary must distinguish no-target, at-target and working-toward"
+    );
+}
+
+#[test]
 fn frontend_uses_the_catalog_for_per_project_buttons_not_a_reference_page() {
     let app = std::fs::read_to_string("frontend/app.js").unwrap();
     let html = std::fs::read_to_string("frontend/index.html").unwrap();

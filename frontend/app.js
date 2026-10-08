@@ -428,38 +428,59 @@
   }
 
   function renderLifecycle(manifest) {
-    const project = (manifest && manifest.project) || {};
-    const profile = (manifest && manifest.profile) || {};
-    const maturity = document.getElementById("wb-lifecycle-maturity");
-    const target = document.getElementById("wb-lifecycle-target");
-    const profileEl = document.getElementById("wb-lifecycle-profile");
-    const pathEl = document.getElementById("wb-lifecycle-path");
-    const updatedEl = document.getElementById("wb-lifecycle-updated");
-    const m = project.maturity || "—";
-    const t = project.target_maturity || "—";
-    maturity.textContent = m;
-    target.textContent = t;
-    profileEl.textContent = profile.id || project.profile || "—";
-    pathEl.textContent = project.path || "—";
-    updatedEl.textContent = project.observed_at || "—";
+    // `GET /v1/admin/projects/{id}` returns `manifest` as a flat, path-free
+    // view of the project's own `forge.yaml` — the same object
+    // `renderManifest` reads. It carries no filesystem path by design, so the
+    // lifecycle card shows the git remote and last commit instead: those are
+    // the facts an operator actually uses to identify a project.
+    const m = (manifest && manifest.maturity) || "—";
+    const t = (manifest && manifest.target_maturity) || "—";
+    document.getElementById("wb-lifecycle-maturity").textContent = m;
+    document.getElementById("wb-lifecycle-target").textContent = t;
+    document.getElementById("wb-lifecycle-profile").textContent =
+      (manifest && manifest.profile) || "—";
+    document.getElementById("wb-lifecycle-stack").textContent =
+      (manifest && manifest.stack) || "—";
+    document.getElementById("wb-lifecycle-remote").textContent =
+      (manifest && manifest.git_remote) || "—";
+    document.getElementById("wb-lifecycle-commit").textContent =
+      (manifest && manifest.last_commit) || "—";
+    document.getElementById("wb-lifecycle-updated").textContent =
+      (manifest && manifest.observed_at) || "—";
+
     const summary = document.getElementById("wb-lifecycle-summary");
     if (m === "—") {
-      summary.textContent = "Maturity is not yet declared. The buttons below drive the project from here to publish, or to retirement.";
-    } else {
-      const stage = describeMaturity(m);
-      summary.textContent = `This project is at maturity ${m} (${stage}). The buttons below are the actions available at this stage; click one to plan, preview, and confirm.`;
+      summary.textContent =
+        "This project has no declared maturity yet. The buttons below are the actions available now; click one to plan, preview, and confirm.";
+      return;
     }
+    summary.textContent =
+      `This project is at maturity ${m} — ${describeMaturity(m)}. ` + nextStep(m, t);
   }
 
-  // A maturity level names the project lifecycle stage an operator sees
-  // in the workbench header. The level itself comes from the manifest
-  // schema; the description here is the operator-visible gloss.
+  // What the operator does next. Three distinct cases; collapsing them into one
+  // sentence produced "No target maturity is declared" for a project that had
+  // declared L1, which is the opposite of the truth.
+  function nextStep(current, target) {
+    if (target === "—") {
+      return "It has no target maturity, so pick one before planning an upgrade.";
+    }
+    if (target === current) {
+      return "Its target maturity is the level it is already at, so there is no maturity gap to close.";
+    }
+    return `It is working toward ${target}.`;
+  }
+
+  // A maturity level names the project lifecycle stage an operator sees in
+  // the workbench header. The level itself comes from the manifest schema;
+  // the description here is the operator-visible gloss, and it must say what
+  // the operator does next rather than restate the level.
   const MATURITY_LABELS = {
-    L0: "prototype — bring it into the registry",
-    L1: "scaffolded — declare its target maturity",
-    L2: "working — build features, upgrade, plan a release",
-    L3: "releasing — publish, deploy, monitor delivery",
-    L4: "production — keep it healthy, retire if it dies",
+    L0: "prototype — nothing is committed yet; adopt it into the registry to start tracking it",
+    L1: "scaffolded — the project builds; declare a target maturity and add features",
+    L2: "working — features in flight; upgrade dependencies, plan a release, publish when ready",
+    L3: "releasing — publish, deploy, and watch delivery until the evidence is green",
+    L4: "sustained — keep it healthy; retire it when the work is done",
   };
   function describeMaturity(level) {
     return MATURITY_LABELS[level] || "unknown maturity level";
@@ -1067,8 +1088,37 @@
     const scoped = execution.route.includes("{id}");
     const projectId = scope.projectId === undefined ? workbench.id : scope.projectId;
     const card = el("div", "wb-action-card");
-    card.append(el("h4", "wb-action-title", `${command.label} — forge ${command.id.replace(/\./g, " ")}`));
-    card.append(el("p", "muted", command.summary));
+    card.dataset.command = command.id;
+
+    // One open form at a time. A wall of pre-expanded forms is the reason the
+    // workbench read as unhuman: twelve stacked inputs, most of them
+    // irrelevant to the project's current state, with no indication which
+    // action matters now. Collapsed to a row, the operator sees a list of
+    // choices and opens the one they want.
+    const head = el("button", "wb-action-head");
+    head.type = "button";
+    head.setAttribute("aria-expanded", "false");
+    const caret = el("span", "wb-action-caret", "▸");
+    caret.setAttribute("aria-hidden", "true");
+    const headText = el("span", "wb-action-headtext");
+    // The human label leads; the CLI invocation is secondary, for the operator
+    // who wants to reproduce the action in a terminal. It is never the title.
+    //
+    // `command.label` is only the leaf subcommand, so three different rows read
+    // as the same word: "apply" for `spec apply`, `release apply` and
+    // `deploy apply`. The catalog summary already opens with a distinct human
+    // phrase for each ("Apply a verified release plan", "Apply a routing
+    // decision"), so the title is that phrase, falling back to the label only
+    // when the summary has no leading clause to borrow.
+    headText.append(el("span", "wb-action-label", humanActionTitle(command)));
+    headText.append(el("span", "wb-action-cli", `forge ${command.id.replace(/\./g, " ")}`));
+    head.append(caret, headText);
+    card.append(head);
+
+    const body = el("div", "wb-action-body");
+    body.hidden = true;
+    card.append(body);
+    body.append(el("p", "muted wb-action-summary", command.summary));
 
     // One typed control per declared parameter (a closed scalar kind maps to a
     // matching input); there is deliberately no free-text command/path/argv.
@@ -1081,14 +1131,21 @@
       ? workbench.delivery
       : {};
     for (const param of execution.parameters || []) {
-      const label = el("label", "search-box");
+      // A stacked field (label above input), not the topbar's inline
+      // `search-box`: reusing that class collapsed the label into the input
+      // row at the wrong size. The visually-hidden span still carries the
+      // accessible name, including the required/optional hint.
+      const label = el("label", "wb-field");
       label.append(el("span", "sr-only", `${param.name}${param.required ? " (required)" : " (optional)"}`));
       let field;
       if (param.kind === "boolean") {
         field = el("input"); field.type = "checkbox"; field.checked = false;
       } else {
         field = el("input"); field.type = "text"; field.autocomplete = "off";
-        field.placeholder = param.kind === "string_array" ? `${param.name}, comma-separated` : param.name;
+        // Say what to type, not just the field name. A field labelled only
+        // `feature` gives an operator nothing to act on.
+        field.placeholder = paramHint(param);
+        label.append(el("span", "wb-field-label", paramLabel(param)));
         const known = prefill[param.name];
         if ((typeof known === "string" && known) || typeof known === "number") {
           field.value = String(known);
@@ -1098,7 +1155,7 @@
       tools.append(label);
       inputs.push({ param, field });
     }
-    card.append(tools);
+    if (inputs.length) body.append(tools);
 
     const state = { digest: null, payload: null, idempotencyKey: null };
     const result = el("div", "wb-plan-result"); result.hidden = true;
@@ -1213,8 +1270,85 @@
       showError(applied, status);
     });
 
-    card.append(confirmWrap, runWrap, result);
+    body.append(confirmWrap, runWrap, result);
+
+    // Opening one action closes the others. An operator working through a
+    // project sees one form, not twelve.
+    head.addEventListener("click", () => {
+      const opening = body.hidden;
+      for (const other of document.querySelectorAll(".wb-action-card[data-command]")) {
+        if (other === card) continue;
+        other.querySelector(".wb-action-body").hidden = true;
+        other.querySelector(".wb-action-head").setAttribute("aria-expanded", "false");
+        other.classList.remove("is-open");
+      }
+      body.hidden = !opening;
+      head.setAttribute("aria-expanded", String(opening));
+      card.classList.toggle("is-open", opening);
+      if (opening && !inputs.length) previewBtn.focus();
+    });
+    card.classList.add("is-collapsed");
     return card;
+  }
+
+  // The catalog's `label` is only the leaf subcommand, so `spec apply`,
+  // `release apply` and `deploy apply` all read as the single word "apply".
+  // Each summary already opens with a distinct human phrase, so the title
+  // borrows that clause and falls back to the label when there is none to
+  // borrow. Derived from the catalog contract, not hardcoded per command.
+  function humanActionTitle(command) {
+    const summary = (command.summary || "").trim();
+    if (summary) {
+      // Split on the separators the catalog summaries actually use. Sourcing
+      // these from the summaries keeps the title distinct per action without a
+      // per-command table that would rot on the next command added.
+      const clause = summary.split(/[:;—]/)[0].trim();
+      if (clause && clause.length <= 96) return clause.replace(/[.,]$/, "");
+    }
+    // Two `delivery` rows share the clause prefix "Invoke the provider's
+    // `publish` for …", so a long clause is not just verbose but ambiguous.
+    // Falling back to the command family keeps them distinguishable without the
+    // browser inventing per-command prose it cannot keep honest.
+    if (command.parent_id) return `${command.parent_id} · ${command.label || command.id}`;
+    return command.label || command.id;
+  }
+
+  // A field labelled only by its parameter name (`feature`, `version`,
+  // `operation_id`) gives an operator nothing to act on. These labels and
+  // placeholders say what to type, in the operator's words.
+  const PARAM_LABELS = {
+    feature: "Feature name",
+    version: "Version",
+    spec: "Spec name",
+    decision: "Routing decision",
+    project: "Project name",
+    id: "Project id",
+    profile: "Profile",
+    operation_id: "Operation id",
+    reason: "Reason",
+    target: "Target environment",
+  };
+  const PARAM_HINTS = {
+    feature: "e.g. auth",
+    version: "e.g. 2.1",
+    spec: "e.g. auth-refactor",
+    decision: "deterministic, semantic, or manual",
+    project: "the project's directory name",
+    id: "lowercase-with-dashes",
+    profile: "e.g. rust-web",
+    operation_id: "copied from the delivery status above",
+    reason: "why this is needed",
+    target: "staging or production",
+  };
+  function paramLabel(param) {
+    if (PARAM_LABELS[param.name]) return PARAM_LABELS[param.name];
+    return param.name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  }
+  function paramHint(param) {
+    if (param.kind === "string_array") {
+      return `${paramLabel(param).toLowerCase()}, comma-separated`;
+    }
+    return PARAM_HINTS[param.name] || param.name.replace(/_/g, " ");
   }
 
   function initWorkbench(projects) {

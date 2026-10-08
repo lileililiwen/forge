@@ -2,6 +2,39 @@
 
 current_spec: none
 
+## Completed: platform-react-app-templates (archived 2026-10-08)
+
+Added `@platform/react-templates` with separate public, user-dashboard, and
+admin-dashboard layouts; a generated-token Ant Design theme adapter; and a
+keyboard-reachable, labeled data table that handles loading, empty, failure,
+forbidden, and retry states. Navigation changes move focus to the dashboard
+heading. The package exposes explicit root and stylesheet entry points, declares
+React, React typings, and Ant Design peer contracts, and is shipped in the
+deterministic UI feed. The guide records AI-agent composition rules and the
+backend authorization boundary. Flutter remains a separate follow-up.
+
+**Verification:** `scripts/quality-gate.sh` passed: .NET solution build (one
+existing `NETSDK1086` warning), all tests, the React UI verifier and its 16
+negative cases, and 56 OpenSpec checks. After archival,
+`openspec validate --specs --strict --no-interactive` passed 57/57 and
+`openspec list` reported no active changes. Token generation and feed packaging
+passed; two pack runs produced identical tarball hashes. The feed self-check
+matched all five tarballs. A temporary consumer outside the repository installed
+the vendored token, React UI, shell, and template tarballs plus React 18.3.1 and
+Ant Design 5.27.6. TypeScript 5.9.3 checking passed. Playwright/Chromium verified
+all three layouts at 320, 375, 768, 1024, and 1280 CSS pixels with no page-level
+overflow; wide tables scrolled in their labeled region through 1024px. Keyboard
+skip-link and route-heading focus, the accessibility tree, reduced motion,
+loading/empty/error/forbidden/retry states, permission filtering, light/dark theme,
+and heading contrast (17.06:1 in both modes) passed. `git diff --check` passed.
+
+Archive: `openspec/changes/archive/2026-10-08-platform-react-app-templates/`.
+Implementation commit: `14f0e35` (`Add accessible React application templates`).
+
+**Next:** create a fresh OpenSpec proposal for `platform-flutter-ui-foundation`,
+the separately scoped Dart/Material 3 token and UI artifact. Do not start it in
+this cycle. `driftwatch.toml` is unrelated and remains untracked and untouched.
+
 ## Current: public-static-nuget-feed (COMPLETE, archived 2026-10-07)
 
 `Platform.*` IDs remain unchanged. Releases now build an immutable Sleet NuGet

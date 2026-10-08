@@ -251,6 +251,7 @@ is the single source of every token value, the generated CSS ships the canonical
 | --- | --- | --- | --- | --- |
 | `Platform.Testing` | Test/support | `Platform.Core`, `Platform.AspNetCore`, `Platform.Billing.Contracts`, `Platform.Eventing` | [§ Platform.Testing](docs/packages.md#platformtesting) | `ControllableClock`, `SubscriptionBuilder`, `EntitlementBuilder`, `FakeEntitlementStore`, `RecordingUsageMeter`, `RecordingEventBus`, `TransientFailureInjector`. Production projects must not reference this. |
 | `Platform.Testing.AspNetCore` | Test/support | `Platform.Core` + `Microsoft.AspNetCore.App` | [§ Platform.Testing.AspNetCore](docs/packages.md#platformtestingaspnetcore) | `PlatformTestWebApplicationFactory<TEntryPoint>` boots the consumer's real application over `TestServer` (pulls `Microsoft.AspNetCore.Mvc.Testing` transitively); one host per instance. Production projects must not reference this. |
+| `Platform.Persistence.Postgres.Testing` | Test/support | `Npgsql`, `Testcontainers.PostgreSql` | [§ Platform.Persistence.Postgres.Testing](docs/packages.md#platformpersistencepostgrestesting) | `PostgresTestServer` boots one pinned-image PostgreSQL container per test assembly, migrates once into a template database via a caller-supplied delegate, and clones per test. No EF dependency. Production projects must not reference this. |
 
 Product-specific EF Core entities, migrations, Stripe price IDs, invoice
 rules, plan names, and business workflows remain in consuming applications.

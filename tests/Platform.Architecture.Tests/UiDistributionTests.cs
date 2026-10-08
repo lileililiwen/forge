@@ -307,7 +307,7 @@ public sealed class UiDistributionTests
         // no references), and later capabilities took the manifest to 78; the
         // assertions below are what actually pin the UI capability's blast radius.
         var manifest = JsonDocument.Parse(File.ReadAllText(Path("eng/package-manifest.json"))).RootElement;
-        Assert.Equal(78, manifest.GetProperty("packages").GetArrayLength());
+        Assert.Equal(79, manifest.GetProperty("packages").GetArrayLength());
 
         var razor = manifest.GetProperty("packages").EnumerateArray()
             .Single(package => package.GetProperty("packageId").GetString() == "Platform.UI.Razor");

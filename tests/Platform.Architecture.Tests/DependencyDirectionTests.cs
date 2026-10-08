@@ -51,6 +51,7 @@ public class DependencyDirectionTests
         "src/Platform.Testing.AspNetCore/Platform.Testing.AspNetCore.csproj",
         "src/Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj",
         "src/Platform.Persistence.Postgres/Platform.Persistence.Postgres.csproj",
+        "src/Platform.Persistence.Postgres.Testing/Platform.Persistence.Postgres.Testing.csproj",
         "src/Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
         "src/Platform.Authorization/Platform.Authorization.csproj",
         "src/Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj",
@@ -594,6 +595,44 @@ public class DependencyDirectionTests
             violations.Length == 0,
             "Platform.Testing.AspNetCore must not reference an ORM, test framework, mocking framework or container runtime. Found: "
                 + string.Join(", ", violations));
+    }
+
+    [Fact]
+    public void Platform_Persistence_Postgres_Testing_references_only_npgsql_and_testcontainers()
+    {
+        // The shared Postgres fixture is ORM-neutral by contract: raw SQL over
+        // Npgsql plus the Testcontainers lifecycle, no project references, so
+        // the caller keeps choosing the migration mechanism.
+        Assert.Empty(ReadProjectReferences("src/Platform.Persistence.Postgres.Testing/Platform.Persistence.Postgres.Testing.csproj"));
+        Assert.Equal(
+            ["Npgsql", "Testcontainers.PostgreSql"],
+            ReadPackageReferences("src/Platform.Persistence.Postgres.Testing/Platform.Persistence.Postgres.Testing.csproj"));
+    }
+
+    [Fact]
+    public void Platform_Persistence_Postgres_Testing_has_no_ef_or_test_framework_reference()
+    {
+        var packages = ReadPackageReferences("src/Platform.Persistence.Postgres.Testing/Platform.Persistence.Postgres.Testing.csproj");
+        var violations = packages
+            .Where(package => package.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
+                || package.StartsWith("xunit", StringComparison.OrdinalIgnoreCase)
+                || package.StartsWith("Microsoft.NET.Test", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Platform.Persistence.Postgres.Testing must not reference EF Core or a test framework. Found: "
+                + string.Join(", ", violations));
+    }
+
+    [Fact]
+    public void Platform_Persistence_Postgres_Testing_default_image_is_pinned()
+    {
+        var text = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src/Platform.Persistence.Postgres.Testing/PostgresTestServerOptions.cs"));
+        Assert.Contains("postgres:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(":latest", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

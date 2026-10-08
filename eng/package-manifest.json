@@ -1080,6 +1080,28 @@
       "version": "0.1.0"
     },
     {
+      "description": "Assembly-shared PostgreSQL Testcontainers fixture with template-database cloning for platform consumers. Production projects must not reference this package.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Persistence.Postgres.Testing",
+      "packageReferences": [
+        {
+          "name": "Npgsql",
+          "version": ""
+        },
+        {
+          "name": "Testcontainers.PostgreSql",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Persistence.Postgres.Testing/Platform.Persistence.Postgres.Testing.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
       "description": "Provider-neutral privacy vocabulary: consent records and policy evaluation, subject-rights contracts, anonymization helpers.",
       "frameworkReferences": [],
       "isPackable": true,

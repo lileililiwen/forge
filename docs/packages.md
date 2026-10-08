@@ -642,6 +642,19 @@ over this core with the same exit codes.
 Optional Npgsql adapter over `Platform.Persistence.EfCore`. It contains only PostgreSQL options
 configuration (`UsePlatformPostgres`) and does not add contexts, migrations, or domain behavior.
 
+## Platform.Persistence.Postgres.Testing
+
+Test-only assembly-shared PostgreSQL fixture over Testcontainers. `PostgresTestServer`
+boots one pinned-image container per test assembly (hold it in an xUnit
+`ICollectionFixture`; it proves a real server with a version probe and removes
+the container on dispose). `EnsureTemplateSeededAsync` runs the caller-supplied
+`Func<string, CancellationToken, Task>` migration exactly once into a template
+database; `CreateIsolatedDatabaseAsync` clones it per test
+(`CREATE DATABASE ... TEMPLATE`), preserving caller-chosen names with a unique
+default. The package has no EF dependency: the delegate body (EF
+`MigrateAsync`, SQL scripts, ...) is caller code. Production projects must not
+reference this package.
+
 ## Platform.Persistence.Multitenancy
 
 Optional multitenancy adapter over `Platform.Persistence.EfCore` and `Platform.AspNetCore`.

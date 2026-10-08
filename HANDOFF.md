@@ -2,6 +2,79 @@
 
 ## Current state
 
+### source-file-size-remediation delivered and archived (2026-10-08)
+
+`source-file-size-remediation` is implemented, verified and
+archived as `openspec/changes/archive/2026-10-08-source-file-size-remediation`,
+creating the `source-file-size-remediation` spec (two
+requirements). The change is a **bounded first slice**: it
+converts `tests/kit_contract.rs` (the only `tests/` file over
+the 1000-line cap) to `tests/kit_contract/`, a directory of
+focused submodules, with the 60 `#[test]` functions (1
+`#[ignore]`) preserved verbatim and `cargo test --test
+kit_contract` reporting the same 59 passed / 1 ignored count
+as before the move.
+
+Honest scope of the gate impact: the `forge gate`
+`source-file-size` check evaluates `src/**/*.rs` only, not
+`tests/**`. Before this change, **50 of 119** `src/` files
+were over 1000 lines. After this change, **50 of 119** — the
+count is unchanged, because this slice targets the test
+target only. The change paves the way: it ships a working
+submodule pattern (Cargo's directory-based test targets with
+`main.rs` as the entry, `pub(crate)` visibility since the
+integration crate is its own root) and authors a follow-on
+roadmap in `design.md` §9 that lists the 51 oversized `src/`
+files (and 4 oversized `tests/` files) with the natural split
+axis for each. The roadmap is one-file-per-future-change
+work, not a single-package bolt-on.
+
+The implementation reuses Cargo's directory-based test
+target mechanism and changes no other boundary:
+
+- `tests/kit_contract.rs` (2376 lines) → `tests/kit_contract/`
+  with `main.rs` (file doc, shared helpers, `FeedRestore` RAII
+  struct, `mod` declarations) plus 8 submodules by concern:
+  `registration` (14 tests), `feed` (13), `prewiring` (4),
+  `tokens_and_assets` (8), `tampering` (4, one of which is
+  `#[ignore]`), `classification` (4), `upgrade` (8),
+  `manifest` (5). Total: 60 `#[test]` functions, identical
+  bodies to the prior file. Every function body is copied
+  verbatim; no "while I'm here" cleanup.
+- Visibility changes from `pub(super)` to `pub(crate)`
+  because a Rust integration test crate is its own root: the
+  previous `super::` would refer above the crate root and
+  would fail to compile.
+- No `mod ...;` declaration in `src/lib.rs` or `src/main.rs`
+  changes. No public symbol, journal column, route, CLI
+  argument, catalog row, env var, `--version` output, or
+  test name changes.
+
+New `openspec/changes/source-file-size-remediation/`
+(proposal / design / tasks / delta spec) and the follow-on
+roadmap in `design.md` §9 cover all 55 remaining oversized
+files. Each is a single, well-bounded, future OpenSpec
+change.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only |
+| new `cargo test --test kit_contract` | **59 passed / 0 failed / 1 ignored** (identical to before the move) |
+| `cargo test --bin forge` (catalog parity at 229) | **7 passed / 0 failed** |
+| `forge_web_command_catalog_contract` (8) / `forge_web_project_management_contract` (9) / `forge_admin_api_contract` (4) / `forge_web_fleet_contract` (11) / `portal_ui_contract` (39) | all green; no regression |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **82 passed / 0 failed** (before and after archive) |
+| `git diff --check` | clean |
+| `openspec archive source-file-size-remediation --yes` | `source-file-size-remediation: create` (+2); **no `--skip-specs`**; archived as `2026-10-08-source-file-size-remediation`; `openspec list` subsequently reports **no active changes** |
+| `forge gate` (mandatory local run) | `governance-quality` **pass**; `source-file-size` **fail (50 of 119) — unchanged from baseline** because the gate evaluates `src/` only and this change targets `tests/`; the 2 environmental adapter timeouts (`declared-verification`, `tests`) remain pre-existing; **0 attributable** to this change (the 9 new test files are all under 1000 lines) |
+| `openspec list` | no active changes |
+
+Implementation commit: `eb934e8`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### Governance placeholder debt cleared (2026-10-08)
 
 The openspec archiver stamps a TBD Purpose line into every new canonical

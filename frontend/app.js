@@ -72,6 +72,13 @@
     return { pathname: path.slice(0, queryIndex), search: path.slice(queryIndex) };
   }
 
+  // Last view `renderRoute` announced via focus. Guards focus-on-route-
+  // change: only a view *switch* moves focus to `#main-content`, so
+  // same-view `?project=` reconciliations (reload, back/forward across
+  // two managed ids, fleet row actions) never steal focus out of the
+  // operator's current control. Starts null so the boot render announces.
+  let lastRouteView = null;
+
   function renderRoute() {
     const view = viewForPath(window.location.pathname);
     for (const [name, id] of Object.entries(VIEW_IDS)) {
@@ -99,6 +106,19 @@
     // project. The helper is a no-op until the fleet has populated the
     // project selector, and never touches anything for a bare `/workbench`.
     if (view === "workbench") applyWorkbenchProjectParam();
+    // Focus-on-route-change: on a view *switch* only, move focus to the
+    // main content region so screen-reader users hear the new view's
+    // landmark. `preventScroll` preserves back/forward scroll restoration;
+    // the null-guard keeps shells without `#main-content` (login) safe.
+    // URL, history, and param handling above are untouched.
+    if (view !== lastRouteView) {
+      lastRouteView = view;
+      const main = document.getElementById("main-content");
+      if (main) {
+        if (!main.hasAttribute("tabindex")) main.setAttribute("tabindex", "-1");
+        try { main.focus({ preventScroll: true }); } catch (_) { /* non-focusable shell: view already shown */ }
+      }
+    }
   }
 
   function navigateTo(path) {

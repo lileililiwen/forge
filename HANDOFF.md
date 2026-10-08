@@ -1,8 +1,74 @@
-current_spec: remove-api-ui
-
 # Forge handoff
 
 ## Current state
+
+### remove-api-ui delivered and archived (2026-10-08)
+
+`remove-api-ui` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-08-remove-api-ui`,
+creating the `remove-api-ui` spec (one new requirement).
+The in-process HTML portal at `/ui/*` on the API listener
+(port 8765) is gone. The standalone web UI on `frontend/`,
+served by `forge web serve` on port 4173, is now the
+operator's only browser-facing control plane.
+
+The implementation is a pure deletion: the JSON API the web
+UI calls (`/v1/...`) is unchanged, every CLI subcommand is
+unchanged, and the registry/journal schema is unchanged.
+
+- `src/api/ui/` (5 files, 3,335 lines plus `static/`) is
+  deleted: `mod.rs`, `auth.rs`, `data.rs`, `render.rs`,
+  `routes.rs`. The `FleetRow`, `FleetListView` and
+  `load_fleet_list` types and function the JSON API fleet
+  projection depended on move to a new
+  `src/api/fleet_data.rs` module (227 lines, slimmer than
+  the prior `data.rs` — only the parts the JSON API uses).
+- `src/api/mod.rs` drops the `pub mod ui;`, the
+  `Route::UiFleet` / `Route::UiSignIn` /
+  `Route::UiAuthCallback` / `Route::UiSignOut` /
+  `Route::UiProjectDetail` / `Route::UiProjectPublish` /
+  `Route::UiProjectPortfolio` / `Route::UiStudioProject`
+  enum variants, the 6 `("GET|POST", ["ui", ...])`
+  pattern arms, the auth-bypass `if !matches!(route,
+  Route::Ui*)` block, the `ui::routes::handle_*` dispatch
+  arms, and the matching `Route::Ui*` arms in the
+  `required_permission` and `authorize` match expressions.
+- `src/api/fleet.rs` is updated to import `load_fleet_list`
+  from the new `super::fleet_data` module instead of the
+  deleted `super::ui::data`.
+- `tests/portal_ui_contract.rs` (1,431 lines),
+  `tests/portal_browser_a11y.rs` and
+  `tests/forge_portal_frontend_contract.rs` are deleted.
+- `openspec/specs/forge-web-human-dashboard` is deleted.
+  The other `forge-web-*` specs stay — they describe the
+  JSON API routes the web UI calls (`/v1/admin/...`),
+  not the deleted `/ui/*` HTML portal.
+- `forge identity init` (global admin password), the
+  `forge identity validate` manifest schema check, the
+  `forge identity challenge / callback / list / inspect /
+  terminate` OIDC CLI subcommands, the `forge portal
+  dashboard / view` CLI command, and the `forge` CLI
+  surface at large are all unchanged.
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build --workspace` | 0 errors (pre-existing warnings only) |
+| `cargo test --bin forge` (catalog parity at 229) | **7 passed / 0 failed** |
+| `forge_admin_api_contract` (4) / `forge_web_command_catalog_contract` (8) / `forge_web_command_execution_contract` (5) / `forge_web_workspace_onboarding_contract` (10) / `portal_contract` (10) / `portal_cross_surface` (6) / `identity_contract` (19) / `studio_api_contract` (2) / `api_contract` (11) | all green; no regression in the surviving suites |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **82 passed / 0 failed** (before and after archive) |
+| `git diff --check` | clean |
+| `openspec archive remove-api-ui --yes` | `remove-api-ui: create` (+1); **no `--skip-specs`**; archived as `2026-10-08-remove-api-ui`; `openspec list` subsequently reports **no active changes** |
+| `forge api serve` (PID 689308, port 8765) live | `GET /ui` → `route-not-found`; `GET /healthz` → `{"status":"ok",...}`; `GET /v1/admin/session` → admin-origin-rejected (expected) |
+| `forge web serve` (PID 700173, port 4173) live | `GET /` → `200 text/html`; web UI loads and exercises the JSON API |
+| `openspec list` | no active changes |
+
+Implementation commit: `8b5d99d` (and the prior
+`f5c9c5e`). Nothing pushed. No `current_spec` pointer
+remains because no OpenSpec change is active.
 
 ### source-file-size-remediation delivered and archived (2026-10-08)
 

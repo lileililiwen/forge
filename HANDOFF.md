@@ -2,6 +2,80 @@
 
 ## Current state
 
+### portal-layout-navigation delivered and archived (2026-10-08)
+
+Slice 4 of the frontend UI/UX audit (responsive layout, nav
+reachability, filter state, unknown fallback, z-index layering;
+slices 5–6 stay QUEUED, not authored). `frontend/` only, vanilla
+HTML/CSS/JS; no API/registry/journal/CLI/catalog change.
+
+Fix (`frontend/index.html` unknown section, `frontend/app.js`
+router + filter snapshot, `frontend/styles.css` appended slice-4
+override block, `tests/forge_web_navigation_contract.rs` +1 test):
+
+- Breakpoints toward 375/768/1024/1440: new `1024px` content-padding
+  tightening, new `375px` small-phone compaction, short-landscape gate
+  (`orientation:landscape` + `max-height:500px`, desktop landscape
+  excluded) compacting the auth hero; existing `850px` rule is the 768
+  tablet step; wide end toward 1440 stays bounded by the
+  `min(1260px,100%)` cap. Desktop above 1024px unchanged
+  (`styles.css` diff is purely additive — 0 removed lines).
+- 375px sidebar: nav becomes an in-row `overflow-x:auto` scroller with
+  `flex:none` nowrap links (brand-above/nav-below wrap at 375px); all 5
+  destinations reachable with no page-level horizontal scroll; active
+  link keeps `.nav-active` + `aria-current`; 44px minima kept.
+- Filter/search preservation: 8 controls (search, source, six
+  predicates) snapshot to tab-scoped `sessionStorage`
+  (`forge.filter-state.v1`, typed strings only) on input/change and on
+  `navigateTo`; restored on dashboard boot (before first table render)
+  and on switching back into the projects view, re-running the
+  predicate catalog query or local render. `?project=` never
+  snapshotted/restored — URL stays its source of truth.
+- Unknown route: `renderRoute` checks `isRoutePath` first; unknown
+  pathnames show the new `#view-unknown` section (explanation + 5 real
+  44px destination links), clear all nav active states, set the
+  "Page not found" crumb/title, and participate in the `lastRouteView`
+  focus guard. Missing section null-guards to the prior default.
+- Z-index scale: `--z-sticky:10 / --z-nav:30 / --z-dropdown:40 /
+  --z-banner:45 / --z-overlay:50 / --z-skip:60` wired to topbar,
+  sidebar, dropdown wrappers, notices/summaries, open action cards,
+  and the skip link (topmost; 20→60).
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `node --check frontend/app.js` | clean |
+| static token audit over shipped files | **16 / 16**: 1024px + 375px rules, short-landscape gate, sidebar scroll row + 375 wrap, 6-rung z-scale + skip/topbar/sidebar wiring, unknown section + 5 links + branch, 8-control snapshot + helpers, 44px minima, prior deep-link tokens, prior slice tokens, 12-endpoint route set identical before/after |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `forge_web_navigation_contract` | **7 passed / 0 failed** (+1 slice-4 token test) |
+| `forge_web_manage_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `forge_web_workbench_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **87 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portal-layout-navigation --yes` | `portal-web-ui: update` (+5); **no `--skip-specs`**; archived as `2026-10-08-portal-layout-navigation`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior slices (src-file splitting program; harness
+timeout investigation).
+
+Files changed: `frontend/app.js`, `frontend/index.html`,
+`frontend/styles.css`, `tests/forge_web_navigation_contract.rs`,
+`openspec/specs/portal-web-ui/spec.md` (+5), new
+`openspec/changes/archive/2026-10-08-portal-layout-navigation/`
+(proposal, design, tasks, delta spec), `HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `977e10f`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### portal-form-error-feedback delivered and archived (2026-10-08)
 
 Slice 3 of the frontend UI/UX audit (form labels + error feedback;

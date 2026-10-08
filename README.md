@@ -127,15 +127,22 @@ with the API base URL the operator chose, so the web UI follows
 `--api-port` instead of silently failing to reach the API. To
 rebuild before starting, pass `--build` to `start`.
 
-To enable the dashboard's "Workspace onboarding" panel, set
-`FORGE_ADMIN_PROJECTS_ROOT` to the folder holding your projects before
-starting the API. The script sets up both services; the variable is
-inherited from the shell that runs `scripts/web.sh start`:
+To enable the dashboard's "Workspace onboarding" panel (the
+bulk discover → preview → confirm flow that registers dozens
+of sibling projects in one reviewed batch, instead of
+clicking through a form per project), set the projects root
+the API should scan. The script accepts `--projects-root`:
 
 ```sh
-export FORGE_ADMIN_PROJECTS_ROOT=/path/to/your/workspace
-scripts/web.sh start
+scripts/web.sh start --projects-root /path/to/your/workspace
 ```
+
+Pass `--projects-root` to every subsequent `start` /
+`restart`; the script persists the path in its state file
+(`.forge/run/state`) so `status` shows the same value and
+`stop`/`restart` keep using it. The bulk panel needs the
+auth sign-in; the single-project forms above it keep
+working without it.
 
 Then open <http://127.0.0.1:4173/> and sign in. First ever run? Create the
 one administrator account first (type the password twice when asked):

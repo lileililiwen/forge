@@ -27,6 +27,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/target/debug/forge"
 API_HOST="127.0.0.1"
 API_PORT="8766"
+PROJECTS_ROOT=""
 WEB_HOST="127.0.0.1"
 WEB_PORT="4173"
 RUN_DIR="$ROOT/.forge/run"
@@ -41,7 +42,7 @@ DO_BUILD=""
 
 usage() {
   cat >&2 <<EOF
-usage: scripts/web.sh {start|stop|restart|status|logs} [--api-port <p>] [--web-port <p>] [--build]
+usage: scripts/web.sh {start|stop|restart|status|logs} [--api-port <p>] [--web-port <p>] [--projects-root <path>] [--build]
 
   start    Build (if --build) and start both services in the background.
   stop     Stop both services.
@@ -50,9 +51,12 @@ usage: scripts/web.sh {start|stop|restart|status|logs} [--api-port <p>] [--web-p
   logs     Tail both logs (Ctrl-C to exit).
 
 Options:
-  --api-port <p>  Override the API listener port (default 8766).
-  --web-port <p>  Override the web UI listener port (default 4173).
-  --build         Rebuild the binary with \`cargo build\` before starting.
+  --api-port        <p>      Override the API listener port (default 8766).
+  --web-port        <p>      Override the web UI listener port (default 4173).
+  --projects-root   <path>   Set FORGE_ADMIN_PROJECTS_ROOT for the API
+                             process so the web UI's bulk Workspace
+                             onboarding panel can discover siblings.
+  --build                   Rebuild the binary with \`cargo build\` before starting.
 EOF
 }
 
@@ -78,6 +82,7 @@ API_HOST="$API_HOST"
 API_PORT="$API_PORT"
 WEB_HOST="$WEB_HOST"
 WEB_PORT="$WEB_PORT"
+PROJECTS_ROOT="$PROJECTS_ROOT"
 EOF
 }
 
@@ -148,7 +153,11 @@ start_one() {
     echo "web: $label port $port is already bound by another process; refusing to start" >&2
     return 1
   fi
-  setsid nohup "$BIN" "$@" --bind "$host" --port "$port" > "$log" 2>&1 < /dev/null &
+  # Build a child-only env so the API process can see the
+  # projects root and any other state-bound env the script
+  # manages, without leaking the script's own shell state.
+  child_env="FORGE_ADMIN_PROJECTS_ROOT=$PROJECTS_ROOT"
+  setsid env $child_env nohup "$BIN" "$@" --bind "$host" --port "$port" > "$log" 2>&1 < /dev/null &
   pid=$!
   echo "$pid" > "$pidfile"
   i=0
@@ -157,7 +166,11 @@ start_one() {
     sleep 0.2
   done
   if is_listening "$port"; then
-    echo "web: $label started (pid $pid) on http://$host:$port; log: $log"
+    if [ -n "$PROJECTS_ROOT" ]; then
+      echo "web: $label started (pid $pid) on http://$host:$port; FORGE_ADMIN_PROJECTS_ROOT=$PROJECTS_ROOT; log: $log"
+    else
+      echo "web: $label started (pid $pid) on http://$host:$port; log: $log"
+    fi
   else
     echo "web: $label failed to bind $port; see $log" >&2
     rm -f "$pidfile"
@@ -191,6 +204,11 @@ cmd_stop() {
 
 cmd_status() {
   ensure_layout
+  if [ -n "$PROJECTS_ROOT" ]; then
+    printf 'cfg  FORGE_ADMIN_PROJECTS_ROOT=%s\n' "$PROJECTS_ROOT"
+  else
+    printf 'cfg  FORGE_ADMIN_PROJECTS_ROOT=(unset; bulk workspace onboarding in the web UI is unavailable)\n'
+  fi
   for entry in "api:$API_HOST:$API_PORT:$API_PIDFILE:$API_LOG" "web:$WEB_HOST:$WEB_PORT:$WEB_PIDFILE:$WEB_LOG"; do
     label=$(echo "$entry" | cut -d: -f1)
     host=$(echo "$entry" | cut -d: -f2)
@@ -226,6 +244,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --api-port) [ "$#" -ge 2 ] || { echo "web: --api-port requires a value" >&2; exit 2; }; API_PORT="$2"; shift 2 ;;
     --web-port) [ "$#" -ge 2 ] || { echo "web: --web-port requires a value" >&2; exit 2; }; WEB_PORT="$2"; shift 2 ;;
+    --projects-root) [ "$#" -ge 2 ] || { echo "web: --projects-root requires a value" >&2; exit 2; }; PROJECTS_ROOT="$2"; shift 2 ;;
     --build)    DO_BUILD=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) echo "web: unknown argument '$1'" >&2; usage; exit 2 ;;

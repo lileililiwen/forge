@@ -127,3 +127,25 @@ input[type=checkbox]{cursor:pointer}
 .skip-link{top:calc(12px + env(safe-area-inset-top,0px));left:calc(12px + env(safe-area-inset-left,0px))}
 @media(max-width:850px){.sidebar{padding-top:calc(12px + env(safe-area-inset-top,0px))}}
 @media(max-width:560px){.auth-layout{min-height:calc(100vh - 42px);min-height:calc(100dvh - 42px)}.sidebar{padding-top:calc(10px + env(safe-area-inset-top,0px))}}
+/* ---- slice 3: visible labels and error feedback ----
+ * Stacked visible labels replace the placeholder-only+sr-only pattern on
+ * the scoped inputs; error summaries and inline errors share one visual
+ * language. 44px minima are re-asserted for the relabelled controls. */
+.fleet-filter{flex-direction:column;align-items:stretch;gap:4px}
+.fleet-filter-label{font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.fleet-hint{margin:6px 22px 0}
+.field{display:flex;flex-direction:column;gap:4px;min-width:170px}
+.field-label{font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.required-mark{color:var(--amber)}
+.field-hint{margin:0;font-size:11px;color:var(--faint);line-height:1.5}
+.field-error{margin:0;font-size:11px;color:var(--amber);line-height:1.5}
+.field input[type=text],.field select{height:auto;min-height:44px;padding:0 10px;border:1px solid var(--line-strong);border-radius:8px;background:#0c0f16;color:var(--ink);font-size:12px}
+.field input[aria-invalid="true"],.fleet-filter input[aria-invalid="true"],.login-form input[aria-invalid="true"]{outline:2px solid var(--amber);outline-offset:1px}
+.error-summary{margin:0 0 12px;padding:12px 14px;border:1px solid var(--amber);border-radius:8px;background:rgba(242,183,111,.07)}
+.error-summary:focus{outline:2px solid var(--focus);outline-offset:2px}
+.error-summary-title{margin:0 0 8px;font-size:13px}
+.error-summary-list{margin:0;padding-left:18px;font-size:12px}
+.error-summary-list a{color:#c3cbff}
+.password-wrap{display:flex;gap:8px;align-items:stretch}
+.password-wrap input{flex:1;min-width:0}
+.password-toggle{flex:none}

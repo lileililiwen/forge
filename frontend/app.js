@@ -199,6 +199,9 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       error.hidden = true;
+      clearErrorSummary("login-error-summary");
+      clearFieldError("login-email", "login-error");
+      clearFieldError("login-password", "login-error");
       const button = form.querySelector("button[type=submit]");
       button.disabled = true;
       button.textContent = "Signing in…";
@@ -211,15 +214,35 @@
         form.elements.password.value = "";
         window.location.assign(next || "index.html");
       } catch (_) {
-        error.textContent = "Email or password is incorrect.";
+        const message = "Email or password is incorrect.";
+        error.textContent = message;
         error.hidden = false;
+        setFieldError("login-email", "login-error", message);
+        setFieldError("login-password", "login-error", message);
+        renderErrorSummary("login-error-summary", "There is a problem signing in", [
+          { fieldId: "login-email", label: "Email address", message },
+          { fieldId: "login-password", label: "Password", message },
+        ]);
         form.elements.password.value = "";
-        form.elements.password.focus();
       } finally {
         button.disabled = false;
         button.innerHTML = 'Sign in to your workspace <span aria-hidden="true">→</span>';
       }
     });
+    // Password show/hide: flips only the input type and the toggle state.
+    // The input's name, id, and autocomplete never change, and nothing
+    // blocks paste, so password managers keep working.
+    const passwordToggle = document.getElementById("login-password-toggle");
+    if (passwordToggle) {
+      passwordToggle.addEventListener("click", () => {
+        const input = document.getElementById("login-password");
+        if (!input) return;
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        passwordToggle.textContent = show ? "Hide" : "Show";
+        passwordToggle.setAttribute("aria-pressed", String(show));
+      });
+    }
   }
 
   function textCell(value, className) {
@@ -1141,6 +1164,86 @@
     return node;
   }
 
+  // ---- Form error summaries (slice 3) ------------------------------------
+  //
+  // Every failed submission renders a focusable summary (heading + one link
+  // per failing field) and keeps an inline error on each field, wired via
+  // `aria-describedby`. Focus moves to the summary so screen-reader and
+  // keyboard operators land on the recovery path. `target` is a container
+  // id or the container element itself (workbench cards build theirs
+  // dynamically); a missing container or field degrades to the retained
+  // inline/banner rendering instead of throwing.
+  function resolveSummary(target) {
+    return typeof target === "string" ? document.getElementById(target) : target;
+  }
+
+  function renderErrorSummary(target, heading, items) {
+    const container = resolveSummary(target);
+    if (!container) return;
+    container.replaceChildren();
+    if (!items || !items.length) { container.hidden = true; return; }
+    const title = document.createElement("h3");
+    title.className = "error-summary-title";
+    title.textContent = heading;
+    container.append(title);
+    const list = document.createElement("ul");
+    list.className = "error-summary-list";
+    for (const item of items) {
+      const li = document.createElement("li");
+      const field = item.fieldId ? document.getElementById(item.fieldId) : null;
+      if (field) {
+        const link = document.createElement("a");
+        link.href = `#${item.fieldId}`;
+        link.textContent = `${item.label}: ${item.message}`;
+        link.addEventListener("click", (event) => {
+          // Anchor navigation would fight the sticky topbar offset;
+          // focus the field directly instead.
+          event.preventDefault();
+          const target = document.getElementById(item.fieldId);
+          if (target) target.focus();
+        });
+        li.append(link);
+      } else {
+        li.textContent = item.label ? `${item.label}: ${item.message}` : item.message;
+      }
+      list.append(li);
+    }
+    container.append(list);
+    container.hidden = false;
+    try { container.focus({ preventScroll: true }); } catch (_) { /* summary already visible */ }
+  }
+
+  function clearErrorSummary(target) {
+    const container = resolveSummary(target);
+    if (container) { container.replaceChildren(); container.hidden = true; }
+  }
+
+  // Attach (or refresh) the inline error for one field: visible message,
+  // `aria-invalid`, and the error id in `aria-describedby`. Clearing
+  // removes the error id again so the describedby value returns to the
+  // helper text alone.
+  function setFieldError(fieldId, errorId, message) {
+    const field = document.getElementById(fieldId);
+    const inline = document.getElementById(errorId);
+    if (inline) { inline.textContent = message; inline.hidden = false; }
+    if (!field) return;
+    field.setAttribute("aria-invalid", "true");
+    const ids = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+    if (!ids.includes(errorId)) ids.push(errorId);
+    if (ids.length) field.setAttribute("aria-describedby", ids.join(" "));
+  }
+
+  function clearFieldError(fieldId, errorId) {
+    const field = document.getElementById(fieldId);
+    const inline = document.getElementById(errorId);
+    if (inline) { inline.textContent = ""; inline.hidden = true; }
+    if (!field) return;
+    field.removeAttribute("aria-invalid");
+    const ids = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean).filter((id) => id !== errorId);
+    if (ids.length) field.setAttribute("aria-describedby", ids.join(" "));
+    else field.removeAttribute("aria-describedby");
+  }
+
   function resetProjectActions() {
     const box = document.getElementById("wb-actions");
     if (box) box.replaceChildren();
@@ -1287,6 +1390,7 @@
   function wsClear() {
     document.getElementById("ws-notice").hidden = true;
     document.getElementById("ws-error").hidden = true;
+    clearErrorSummary("ws-error-summary");
   }
 
   function wsSelected() {
@@ -1345,6 +1449,7 @@
   function mgmtScopedClear() {
     const box = document.getElementById("mgmt-project-notice");
     if (box) { box.hidden = true; box.textContent = ""; }
+    clearErrorSummary("mgmt-error-summary");
   }
 
   function mgmtScopedResetFlow() {
@@ -1394,7 +1499,12 @@
   async function mgmtScopedPreview() {
     mgmtScopedClear();
     const candidate = mgmtScoped.candidate;
-    if (!candidate) { mgmtScopedNotice("No project is selected — nothing was previewed."); return; }
+    if (!candidate) {
+      const message = "No project is selected — nothing was previewed.";
+      mgmtScopedNotice(message);
+      renderErrorSummary("mgmt-error-summary", "There is a problem previewing the project", [{ label: "Project", message }]);
+      return;
+    }
     const item = { directory: candidate.directory };
     const idOverride = (document.getElementById("mgmt-project-id") || {}).value || "";
     const profileOverride = (document.getElementById("mgmt-project-profile") || {}).value || "";
@@ -1407,7 +1517,9 @@
     box.append(list);
     const { ok, body } = await wsPostChunk([item]);
     if (!ok) {
-      box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "The preview was refused. Nothing was written."));
+      const message = (body && body.error && body.error.message) || "The preview was refused. Nothing was written.";
+      box.append(el("p", "wb-plan-head", message));
+      renderErrorSummary("mgmt-error-summary", "The preview was refused", [{ label: "Project", message }]);
       mgmtScoped.digest = null; mgmtScoped.payload = null;
       document.getElementById("mgmt-project-run").disabled = true;
       return;
@@ -1426,8 +1538,22 @@
 
   async function mgmtScopedRun() {
     mgmtScopedClear();
-    if (!mgmtScoped.payload || !mgmtScoped.digest) { mgmtScopedNotice("Preview this project before running."); return; }
-    if (!document.getElementById("mgmt-project-confirm").checked) { mgmtScopedNotice("Tick the confirmation box — this writes the manifest and registry row."); return; }
+    if (!mgmtScoped.payload || !mgmtScoped.digest) {
+      const message = "Preview this project before running.";
+      mgmtScopedNotice(message);
+      renderErrorSummary("mgmt-error-summary", "There is a problem running the onboarding", [
+        { fieldId: "mgmt-project-preview", label: "Preview", message },
+      ]);
+      return;
+    }
+    if (!document.getElementById("mgmt-project-confirm").checked) {
+      const message = "Tick the confirmation box — this writes the manifest and registry row.";
+      mgmtScopedNotice(message);
+      renderErrorSummary("mgmt-error-summary", "There is a problem running the onboarding", [
+        { fieldId: "mgmt-project-confirm", label: "Confirmation", message },
+      ]);
+      return;
+    }
     document.getElementById("mgmt-project-run").disabled = true;
     const box = document.getElementById("mgmt-project-apply-result");
     box.replaceChildren(); box.hidden = false;
@@ -1438,7 +1564,9 @@
     });
     const list = el("ul", "wb-plan-steps");
     if (!ok && !(body && body.results)) {
-      box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "The run was refused. Nothing was written."));
+      const message = (body && body.error && body.error.message) || "The run was refused. Nothing was written.";
+      box.append(el("p", "wb-plan-head", message));
+      renderErrorSummary("mgmt-error-summary", "The onboarding run was refused", [{ label: "Project", message }]);
       if (body && body.preview && body.plan_digest) {
         box.append(el("p", "muted", "The selection changed: review a refreshed preview and confirm again."));
       }
@@ -1676,7 +1804,14 @@
   async function wsPreview() {
     wsClear();
     const items = wsSelected();
-    if (!items.length) { wsError("Tick at least one onboardable directory first."); return; }
+    if (!items.length) {
+      const message = "Tick at least one onboardable directory first.";
+      wsError(message);
+      renderErrorSummary("ws-error-summary", "There is a problem previewing the selection", [
+        { fieldId: "ws-select-all", label: "Selection", message },
+      ]);
+      return;
+    }
     const chunks = [];
     for (let i = 0; i < items.length; i += WS_CHUNK) chunks.push(items.slice(i, i + WS_CHUNK));
     const box = document.getElementById("ws-preview-result");
@@ -1688,7 +1823,9 @@
     for (const [index, chunk] of chunks.entries()) {
       const { ok, body } = await wsPostChunk(chunk);
       if (!ok) {
-        box.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || `Batch ${index + 1} was refused. Nothing was written.`));
+        const message = (body && body.error && body.error.message) || `Batch ${index + 1} was refused. Nothing was written.`;
+        box.append(el("p", "wb-plan-head", message));
+        renderErrorSummary("ws-error-summary", "The preview was refused", [{ label: `Batch ${index + 1}`, message }]);
         ws.digests = null; ws.payload = null;
         document.getElementById("ws-run").disabled = true;
         return;
@@ -1744,8 +1881,22 @@
 
   async function wsRun() {
     wsClear();
-    if (!ws.payload || !ws.digests || !ws.digests.length) { wsError("Preview the selection before running."); return; }
-    if (!document.getElementById("ws-confirm").checked) { wsError("Tick the confirmation box — this writes manifests and registry rows."); return; }
+    if (!ws.payload || !ws.digests || !ws.digests.length) {
+      const message = "Preview the selection before running.";
+      wsError(message);
+      renderErrorSummary("ws-error-summary", "There is a problem running the onboarding", [
+        { fieldId: "ws-preview", label: "Preview", message },
+      ]);
+      return;
+    }
+    if (!document.getElementById("ws-confirm").checked) {
+      const message = "Tick the confirmation box — this writes manifests and registry rows.";
+      wsError(message);
+      renderErrorSummary("ws-error-summary", "There is a problem running the onboarding", [
+        { fieldId: "ws-confirm", label: "Confirmation", message },
+      ]);
+      return;
+    }
     document.getElementById("ws-run").disabled = true;
     const box = document.getElementById("ws-apply-result");
     box.replaceChildren(); box.hidden = false;
@@ -1760,7 +1911,9 @@
         body: JSON.stringify({ items: chunk.items, confirm: true, plan_digest: chunk.digest }),
       });
       if (!ok && !(body && body.results)) {
-        list.append(el("li", null, `Batch ${index + 1} refused: ${(body && body.error && body.error.message) || "nothing was written."}`));
+        const message = `Batch ${index + 1} refused: ${(body && body.error && body.error.message) || "nothing was written."}`;
+        list.append(el("li", null, message));
+        renderErrorSummary("ws-error-summary", "The onboarding run was refused", [{ label: `Batch ${index + 1}`, message }]);
         if (body && body.preview && body.plan_digest) {
           list.append(el("li", null, "The selection changed: review a refreshed preview and confirm again."));
         }
@@ -1849,29 +2002,55 @@
     for (const param of execution.parameters || []) {
       // A stacked field (label above input), not the topbar's inline
       // `search-box`: reusing that class collapsed the label into the input
-      // row at the wrong size. The visually-hidden span still carries the
-      // accessible name, including the required/optional hint.
+      // row at the wrong size. The label text is visible and persistent;
+      // required fields carry a visible marker.
       const label = el("label", "wb-field");
-      label.append(el("span", "sr-only", `${param.name}${param.required ? " (required)" : " (optional)"}`));
+      const fieldId = `wb-${String(command.id).replace(/[^a-zA-Z0-9_-]/g, "-")}-${param.name}`;
+      const errorId = `${fieldId}-error`;
       let field;
       if (param.kind === "boolean") {
         field = el("input"); field.type = "checkbox"; field.checked = false;
+        field.id = fieldId;
+        const visible = el("span", "wb-field-label", `${paramLabel(param)}${param.required ? " *" : ""}`);
+        label.append(visible);
       } else {
         field = el("input"); field.type = "text"; field.autocomplete = "off";
+        field.id = fieldId;
         // Say what to type, not just the field name. A field labelled only
         // `feature` gives an operator nothing to act on.
         field.placeholder = paramHint(param);
-        label.append(el("span", "wb-field-label", paramLabel(param)));
+        const visible = el("span", "wb-field-label", `${paramLabel(param)}${param.required ? " *" : ""}`);
+        label.append(visible);
         const known = prefill[param.name];
         if ((typeof known === "string" && known) || typeof known === "number") {
           field.value = String(known);
         }
       }
-      label.append(field);
+      // Announced to assistive technology; no native validation UI fires
+      // because these inputs never submit a form.
+      if (param.required) field.required = true;
+      field.setAttribute("aria-describedby", errorId);
+      const inline = el("span", "field-error");
+      inline.id = errorId;
+      inline.hidden = true;
+      label.append(field, inline);
       tools.append(label);
-      inputs.push({ param, field });
+      inputs.push({ param, field, fieldId, errorId });
     }
     if (inputs.length) body.append(tools);
+
+    // Card-local error summary: heading plus one link per failing field.
+    // Focus moves here on a failed preview or refused run; the existing
+    // result rendering below is retained.
+    const summaryBox = el("div", "error-summary");
+    summaryBox.tabIndex = -1;
+    summaryBox.hidden = true;
+    body.append(summaryBox);
+
+    function clearCardErrors() {
+      clearErrorSummary(summaryBox);
+      for (const { fieldId, errorId } of inputs) clearFieldError(fieldId, errorId);
+    }
 
     const state = { digest: null, payload: null, idempotencyKey: null };
     const result = el("div", "wb-plan-result"); result.hidden = true;
@@ -1895,18 +2074,26 @@
 
     const gatherPayload = () => {
       const payload = {};
-      for (const { param, field } of inputs) {
+      const failures = [];
+      for (const { param, field, fieldId, errorId } of inputs) {
         if (param.kind === "boolean") {
           if (field.checked) payload[param.name] = true;
         } else if (param.kind === "string_array") {
           const values = field.value.split(",").map((v) => v.trim()).filter(Boolean);
-          if (param.required && !values.length) { showWorkbenchNotice(`Enter at least one ${param.name}.`); return null; }
+          if (param.required && !values.length) { failures.push({ fieldId, errorId, label: paramLabel(param), message: `Enter at least one ${param.name}.` }); continue; }
           if (values.length) payload[param.name] = values;
         } else {
           const value = field.value.trim();
-          if (param.required && !value) { showWorkbenchNotice(`Enter a ${param.name}.`); return null; }
+          if (param.required && !value) { failures.push({ fieldId, errorId, label: paramLabel(param), message: `Enter a ${param.name}.` }); continue; }
           if (value) payload[param.name] = value;
         }
+      }
+      if (failures.length) {
+        clearCardErrors();
+        showWorkbenchNotice(failures[0].message);
+        for (const failure of failures) setFieldError(failure.fieldId, failure.errorId, failure.message);
+        renderErrorSummary(summaryBox, "There is a problem with this action", failures);
+        return null;
       }
       return payload;
     };
@@ -1923,7 +2110,9 @@
     };
     const showError = (body, status) => {
       result.replaceChildren(); result.hidden = false;
-      result.append(el("p", "wb-plan-head", (body && body.error && body.error.message) || "The action was refused. Nothing was written."));
+      const message = (body && body.error && body.error.message) || "The action was refused. Nothing was written.";
+      result.append(el("p", "wb-plan-head", message));
+      renderErrorSummary(summaryBox, "The action was refused", [{ label: humanActionTitle(command), message }]);
       // A stale digest (409) returns a refreshed preview so the operator can
       // re-review and re-confirm rather than acting blind.
       if (body && body.preview && body.plan_digest) showPreview(body);
@@ -1931,6 +2120,7 @@
     };
     const showSuccess = (body) => {
       const message = "Done — recorded in the project journal.";
+      clearCardErrors();
       // Drop the reviewed digest and confirmation controls so the action cannot
       // be blindly re-armed, then refresh the workbench to show the new state.
       state.digest = null; state.payload = null; state.idempotencyKey = null;
@@ -1953,6 +2143,7 @@
     previewBtn.addEventListener("click", async () => {
       if (scoped && !projectId) { showWorkbenchNotice("Open a managed project first."); return; }
       clearWorkbenchNotice();
+      clearCardErrors();
       result.hidden = true; result.replaceChildren();
       confirmWrap.hidden = true; confirmBox.checked = false; runBtn.disabled = true;
       const payload = gatherPayload();
@@ -2275,8 +2466,27 @@
     const name = document.getElementById("portfolio-tag").value.trim();
     clearPortfolioNotice();
     clearPortfolioError();
-    if (!id) { showPortfolioError("Select a managed project first."); return; }
-    if (!name) { showPortfolioError("Enter a tag name."); return; }
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-project", "portfolio-project-error");
+    clearFieldError("portfolio-tag", "portfolio-tag-error");
+    if (!id) {
+      const message = "Select a managed project first.";
+      showPortfolioError(message);
+      setFieldError("portfolio-project", "portfolio-project-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem adding the tag", [
+        { fieldId: "portfolio-project", label: "Project", message },
+      ]);
+      return;
+    }
+    if (!name) {
+      const message = "Enter a tag name.";
+      showPortfolioError(message);
+      setFieldError("portfolio-tag", "portfolio-tag-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem adding the tag", [
+        { fieldId: "portfolio-tag", label: "Tag name", message },
+      ]);
+      return;
+    }
     try {
       await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/tags`, {
         method: "POST",
@@ -2287,7 +2497,12 @@
       showPortfolioNotice(`Tag “${name}” recorded for ${id}.`);
       await loadPortfolio();
     } catch (err) {
-      showPortfolioError(err.message || "The tag could not be recorded; nothing was changed.");
+      const message = (err && err.message) || "The tag could not be recorded; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-tag", "portfolio-tag-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem adding the tag", [
+        { fieldId: "portfolio-tag", label: "Tag name", message },
+      ]);
     }
   }
 
@@ -2296,8 +2511,27 @@
     const confidence = document.getElementById("portfolio-confidence").value;
     clearPortfolioNotice();
     clearPortfolioError();
-    if (!id) { showPortfolioError("Select a managed project first."); return; }
-    if (!confidence) { showPortfolioError("Choose a review confidence."); return; }
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-project", "portfolio-project-error");
+    clearFieldError("portfolio-confidence", "portfolio-confidence-error");
+    if (!id) {
+      const message = "Select a managed project first.";
+      showPortfolioError(message);
+      setFieldError("portfolio-project", "portfolio-project-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem recording the review", [
+        { fieldId: "portfolio-project", label: "Project", message },
+      ]);
+      return;
+    }
+    if (!confidence) {
+      const message = "Choose a review confidence.";
+      showPortfolioError(message);
+      setFieldError("portfolio-confidence", "portfolio-confidence-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem recording the review", [
+        { fieldId: "portfolio-confidence", label: "Review confidence", message },
+      ]);
+      return;
+    }
     try {
       await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/reviews`, {
         method: "POST",
@@ -2307,7 +2541,12 @@
       showPortfolioNotice(`Review recorded for ${id}.`);
       await loadPortfolio();
     } catch (err) {
-      showPortfolioError(err.message || "The review could not be recorded; nothing was changed.");
+      const message = (err && err.message) || "The review could not be recorded; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-confidence", "portfolio-confidence-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem recording the review", [
+        { fieldId: "portfolio-confidence", label: "Review confidence", message },
+      ]);
     }
   }
 
@@ -2374,6 +2613,43 @@
     const error = document.getElementById("delivery-error");
     error.hidden = true;
     error.textContent = "";
+  }
+
+  const DELIVERY_FIELDS = [
+    ["delivery-project", "delivery-project-error"],
+    ["delivery-title-input", "delivery-title-input-error"],
+    ["delivery-summary", "delivery-summary-error"],
+    ["delivery-category", "delivery-category-error"],
+    ["delivery-source", "delivery-source-error"],
+    ["delivery-opkey", "delivery-opkey-error"],
+    ["delivery-reconcile-id", "delivery-reconcile-id-error"],
+    ["delivery-reconcile-status", "delivery-reconcile-status-error"],
+    ["delivery-reconcile-digest", "delivery-reconcile-digest-error"],
+    ["delivery-lookup-key", "delivery-lookup-key-error"],
+  ];
+
+  function clearDeliveryFieldErrors() {
+    for (const [fieldId, errorId] of DELIVERY_FIELDS) clearFieldError(fieldId, errorId);
+  }
+
+  // Report one failed delivery submission: the banner keeps the first
+  // message, every failing field keeps its inline error, and focus moves
+  // to the summary with a link per field.
+  function deliverySubmitError(heading, failures) {
+    if (failures.length) showDeliveryError(failures[0].message);
+    clearErrorSummary("delivery-error-summary");
+    for (const failure of failures) {
+      if (failure.fieldId && failure.errorId) setFieldError(failure.fieldId, failure.errorId, failure.message);
+    }
+    renderErrorSummary("delivery-error-summary", heading, failures);
+  }
+
+  // A server refusal keeps its result rendering (see
+  // `renderDeliveryActionResult`) and gains a focused summary so the
+  // failure is announced with a target to land on.
+  function deliveryRefused(action, body, status) {
+    const message = (body && body.error && body.error.message) || `Delivery call returned HTTP ${status}.`;
+    renderErrorSummary("delivery-error-summary", `${action} was refused`, [{ label: action, message }]);
   }
 
   function renderDeliveryActionResult(result, status) {
@@ -2569,9 +2845,10 @@
     }
   }
 
+  // Null when no preview digest is loaded; callers report the failure
+  // through their own error summary so the banner text stays in one place.
   function requireDeliveryDigest() {
     if (!delivery.digest) {
-      showDeliveryError("No preview digest is loaded yet. Refresh delivery first.");
       return null;
     }
     return delivery.digest;
@@ -2580,12 +2857,14 @@
   async function deliverySetAllowlist(isRemove) {
     clearDeliveryNotice();
     clearDeliveryError();
+    clearErrorSummary("delivery-error-summary");
+    clearDeliveryFieldErrors();
     const id = document.getElementById("delivery-project").value;
-    if (!id) { showDeliveryError("Choose a project first."); return; }
+    if (!id) { deliverySubmitError("There is a problem with the share record", [{ fieldId: "delivery-project", errorId: "delivery-project-error", label: "Project", message: "Choose a project first." }]); return; }
     const digest = requireDeliveryDigest();
-    if (!digest) return;
+    if (!digest) { deliverySubmitError("There is a problem with the share record", [{ label: "Preview", message: "No preview digest is loaded yet. Refresh delivery first." }]); return; }
     const confirmEl = document.getElementById("delivery-set-confirm");
-    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this changes what may become public."); return; }
+    if (!confirmEl.checked) { deliverySubmitError("There is a problem with the share record", [{ fieldId: "delivery-set-confirm", label: "Confirmation", message: "Tick the confirmation box — this changes what may become public." }]); return; }
     const path = isRemove
       ? `/v1/admin/delivery/allowlist/${encodeURIComponent(id)}/remove`
       : `/v1/admin/delivery/allowlist/${encodeURIComponent(id)}`;
@@ -2609,6 +2888,7 @@
     document.getElementById("delivery-set").disabled = false;
     document.getElementById("delivery-remove").disabled = false;
     renderDeliveryActionResult(body, status);
+    if (!ok) deliveryRefused("Allowlist update", body, status);
     confirmEl.checked = false;
     await loadDelivery();
   }
@@ -2616,16 +2896,19 @@
   async function deliveryApprove() {
     clearDeliveryNotice();
     clearDeliveryError();
+    clearErrorSummary("delivery-error-summary");
+    clearDeliveryFieldErrors();
     const digest = requireDeliveryDigest();
-    if (!digest) return;
+    if (!digest) { deliverySubmitError("There is a problem approving the preview", [{ label: "Preview", message: "No preview digest is loaded yet. Refresh delivery first." }]); return; }
     const confirmEl = document.getElementById("delivery-approve-confirm");
-    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this approves the manifest for publication."); return; }
+    if (!confirmEl.checked) { deliverySubmitError("There is a problem approving the preview", [{ fieldId: "delivery-approve-confirm", label: "Confirmation", message: "Tick the confirmation box — this approves the manifest for publication." }]); return; }
     const { status, ok, body } = await requestStatus("/v1/admin/delivery/approve", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ confirm: true, plan_digest: digest }),
     });
     renderDeliveryActionResult(body, status);
+    if (!ok) deliveryRefused("Approval", body, status);
     confirmEl.checked = false;
     await loadDelivery();
   }
@@ -2633,12 +2916,14 @@
   async function deliveryPublish() {
     clearDeliveryNotice();
     clearDeliveryError();
+    clearErrorSummary("delivery-error-summary");
+    clearDeliveryFieldErrors();
     const digest = requireDeliveryDigest();
-    if (!digest) return;
+    if (!digest) { deliverySubmitError("There is a problem publishing", [{ label: "Preview", message: "No preview digest is loaded yet. Refresh delivery first." }]); return; }
     const key = document.getElementById("delivery-opkey").value.trim();
-    if (!key) { showDeliveryError("Enter an operation key (the idempotency identity for this publish)."); return; }
+    if (!key) { deliverySubmitError("There is a problem publishing", [{ fieldId: "delivery-opkey", errorId: "delivery-opkey-error", label: "Operation key", message: "Enter an operation key (the idempotency identity for this publish)." }]); return; }
     const confirmEl = document.getElementById("delivery-publish-confirm");
-    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this writes the approved manifest to the server target."); return; }
+    if (!confirmEl.checked) { deliverySubmitError("There is a problem publishing", [{ fieldId: "delivery-publish-confirm", label: "Confirmation", message: "Tick the confirmation box — this writes the approved manifest to the server target." }]); return; }
     document.getElementById("delivery-publish").disabled = true;
     const { status, ok, body } = await requestStatus("/v1/admin/delivery/publish", {
       method: "POST",
@@ -2647,6 +2932,7 @@
     });
     document.getElementById("delivery-publish").disabled = false;
     renderDeliveryActionResult(body, status);
+    if (!ok) deliveryRefused("Publish", body, status);
     confirmEl.checked = false;
     await loadDelivery();
   }
@@ -2654,21 +2940,26 @@
   async function deliveryReconcile() {
     clearDeliveryNotice();
     clearDeliveryError();
+    clearErrorSummary("delivery-error-summary");
+    clearDeliveryFieldErrors();
+    const failures = [];
     const idRaw = document.getElementById("delivery-reconcile-id").value.trim();
     const publicationId = Number(idRaw);
-    if (!idRaw || !Number.isInteger(publicationId)) { showDeliveryError("Enter the numeric publication id of the ambiguous attempt."); return; }
+    if (!idRaw || !Number.isInteger(publicationId)) failures.push({ fieldId: "delivery-reconcile-id", errorId: "delivery-reconcile-id-error", label: "Publication id", message: "Enter the numeric publication id of the ambiguous attempt." });
     const statusChoice = document.getElementById("delivery-reconcile-status").value;
-    if (!statusChoice) { showDeliveryError("Choose the outcome you observed (published or failed)."); return; }
+    if (!statusChoice) failures.push({ fieldId: "delivery-reconcile-status", errorId: "delivery-reconcile-status-error", label: "Observed outcome", message: "Choose the outcome you observed (published or failed)." });
     const digest = document.getElementById("delivery-reconcile-digest").value.trim();
-    if (!digest) { showDeliveryError("The attempt reference is missing — refresh delivery and try again."); return; }
+    if (!digest) failures.push({ fieldId: "delivery-reconcile-digest", errorId: "delivery-reconcile-digest-error", label: "Attempt reference", message: "The attempt reference is missing — refresh delivery and try again." });
+    if (failures.length) { deliverySubmitError("There is a problem reconciling the attempt", failures); return; }
     const confirmEl = document.getElementById("delivery-reconcile-confirm");
-    if (!confirmEl.checked) { showDeliveryError("Tick the confirmation box — this records the outcome as your explicit statement."); return; }
+    if (!confirmEl.checked) { deliverySubmitError("There is a problem reconciling the attempt", [{ fieldId: "delivery-reconcile-confirm", label: "Confirmation", message: "Tick the confirmation box — this records the outcome as your explicit statement." }]); return; }
     const { status, ok, body } = await requestStatus("/v1/admin/delivery/reconcile", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ confirm: true, publication_id: publicationId, status: statusChoice, plan_digest: digest }),
     });
     renderDeliveryActionResult(body, status);
+    if (!ok) deliveryRefused("Reconcile", body, status);
     confirmEl.checked = false;
     await loadDelivery();
   }
@@ -2676,13 +2967,15 @@
   async function deliveryLookup() {
     clearDeliveryNotice();
     clearDeliveryError();
+    clearErrorSummary("delivery-error-summary");
+    clearDeliveryFieldErrors();
     const key = document.getElementById("delivery-lookup-key").value.trim();
-    if (!key) { showDeliveryError("Enter an operation key to look up."); return; }
+    if (!key) { deliverySubmitError("There is a problem looking up the operation", [{ fieldId: "delivery-lookup-key", errorId: "delivery-lookup-key-error", label: "Operation key", message: "Enter an operation key to look up." }]); return; }
     let result;
     try {
       result = await request(`/v1/admin/delivery/operation/${encodeURIComponent(key)}`, { headers: { Accept: "application/json" } });
     } catch (err) {
-      showDeliveryError(err.message || "No publication with that operation key is recorded here.");
+      deliverySubmitError("There is a problem looking up the operation", [{ fieldId: "delivery-lookup-key", errorId: "delivery-lookup-key-error", label: "Operation key", message: (err && err.message) || "No publication with that operation key is recorded here." }]);
       return;
     }
     const box = document.getElementById("delivery-action-result");

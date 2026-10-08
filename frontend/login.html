@@ -33,10 +33,12 @@
           <p class="muted">Use your Forge administrator account to continue.</p>
           <div id="setup-state" class="notice" role="status" hidden></div>
           <form id="login-form" class="login-form">
-            <label for="login-email">Email address</label>
-            <input id="login-email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required>
-            <label for="login-password">Password</label>
-            <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+            <div id="login-error-summary" class="error-summary" tabindex="-1" hidden></div>
+            <p class="field-hint" id="login-required-hint">Fields marked <span class="required-mark" aria-hidden="true">*</span> are required.</p>
+            <label for="login-email">Email address <span class="required-mark" aria-hidden="true">*</span></label>
+            <input id="login-email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required aria-describedby="login-required-hint login-error">
+            <label for="login-password">Password <span class="required-mark" aria-hidden="true">*</span></label>
+            <div class="password-wrap"><input id="login-password" name="password" type="password" autocomplete="current-password" required aria-describedby="login-required-hint login-error"><button id="login-password-toggle" class="button-quiet password-toggle" type="button" aria-pressed="false" aria-controls="login-password">Show</button></div>
             <p id="login-error" class="form-error" role="alert" hidden></p>
             <button class="button button-primary" type="submit">Sign in to your workspace <span aria-hidden="true">→</span></button>
           </form>

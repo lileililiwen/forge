@@ -65,15 +65,16 @@
             </div>
             <div id="empty-state" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">▦</span><h3>No registered projects</h3><p>Forge is always listed here; your registered and observed projects appear once they are added or read from an explicit source.</p><p class="next-action">Start with <code>forge import ./your-project --accept</code></p></div>
             <div class="fleet-filters" role="group" aria-label="Filter projects by catalog predicates">
-              <label class="fleet-filter"><span class="sr-only">Language</span><input id="filter-language" type="text" placeholder="Language" autocomplete="off"></label>
-              <label class="fleet-filter"><span class="sr-only">Lifecycle</span><input id="filter-lifecycle" type="text" placeholder="Lifecycle" autocomplete="off"></label>
-              <label class="fleet-filter"><span class="sr-only">Profile</span><input id="filter-profile" type="text" placeholder="Profile" autocomplete="off"></label>
-              <label class="fleet-filter"><span class="sr-only">Compose</span><input id="filter-compose" type="text" placeholder="Compose" autocomplete="off"></label>
-              <label class="fleet-filter"><span class="sr-only">CI</span><input id="filter-ci" type="text" placeholder="CI" autocomplete="off"></label>
-              <label class="fleet-filter"><span class="sr-only">Tag</span><input id="filter-tag" type="text" placeholder="Tag" autocomplete="off"></label>
+              <label class="fleet-filter"><span class="fleet-filter-label">Language</span><input id="filter-language" type="text" placeholder="e.g. rust" autocomplete="off" aria-describedby="fleet-filter-hint fleet-filter-error"></label>
+              <label class="fleet-filter"><span class="fleet-filter-label">Lifecycle</span><input id="filter-lifecycle" type="text" placeholder="e.g. L2" autocomplete="off" aria-describedby="fleet-filter-hint fleet-filter-error"></label>
+              <label class="fleet-filter"><span class="fleet-filter-label">Profile</span><input id="filter-profile" type="text" placeholder="e.g. rust-web" autocomplete="off" aria-describedby="fleet-filter-hint fleet-filter-error"></label>
+              <label class="fleet-filter"><span class="fleet-filter-label">Compose</span><input id="filter-compose" type="text" placeholder="e.g. docker" autocomplete="off" aria-describedby="fleet-filter-hint fleet-filter-error"></label>
+              <label class="fleet-filter"><span class="fleet-filter-label">CI</span><input id="filter-ci" type="text" placeholder="e.g. github" autocomplete="off" aria-describedby="fleet-filter-hint fleet-filter-error"></label>
+              <label class="fleet-filter"><span class="fleet-filter-label">Tag</span><input id="filter-tag" type="text" placeholder="e.g. payments" autocomplete="off" aria-describedby="fleet-filter-hint fleet-filter-error"></label>
               <button id="filter-clear" class="button button-quiet" type="button">Clear</button>
             </div>
-            <p id="fleet-filter-error" class="fleet-filter-error" role="status" hidden></p>
+            <p id="fleet-filter-hint" class="field-hint fleet-hint">Blank means any; values match catalog predicates.</p>
+            <p id="fleet-filter-error" class="fleet-filter-error" role="alert" hidden></p>
             <div id="no-results" class="empty-state compact" hidden><h3>No matching projects</h3><p>Try a different project name, profile or source filter.</p></div>
             <div class="table-scroll" tabindex="0" role="region" aria-label="Project fleet" hidden>
               <table><thead><tr><th scope="col">Project</th><th scope="col">Details</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody id="project-rows"></tbody></table>
@@ -173,6 +174,7 @@
                 </div>
               </div>
               <div id="mgmt-project-notice" class="notice" role="status" aria-live="polite" hidden></div>
+              <div id="mgmt-error-summary" class="error-summary" tabindex="-1" hidden></div>
               <dl id="mgmt-project-detail" class="detail-list"></dl>
               <div class="wb-plan-tools">
                 <label class="filter-box"><span class="sr-only">Id override for this project</span><input id="mgmt-project-id" type="text" placeholder="id override" autocomplete="off"></label>
@@ -194,6 +196,7 @@
               </div>
               <div id="ws-notice" class="notice" role="status" aria-live="polite" hidden></div>
               <div id="ws-error" class="notice notice-error" role="alert" hidden></div>
+              <div id="ws-error-summary" class="error-summary" tabindex="-1" hidden></div>
               <div class="table-scroll compact" tabindex="0" role="region" aria-label="Workspace candidates" hidden id="ws-table-wrap">
                 <table><thead><tr><th scope="col">Onboard</th><th scope="col">Directory</th><th scope="col">Project id</th><th scope="col">Action</th><th scope="col">Profile signal</th><th scope="col">State</th><th scope="col">Id override</th><th scope="col">Profile override</th></tr></thead><tbody id="ws-rows"></tbody></table>
               </div>
@@ -234,15 +237,12 @@
             <p id="portfolio-project-empty" class="empty-state compact" hidden><span class="empty-mark" aria-hidden="true">◈</span>No portfolio records yet. Register projects and tag or review them to build the cross-project view.</p>
             <section class="wb-card" aria-labelledby="portfolio-metadata-title">
               <div class="panel-heading"><div><h3 id="portfolio-metadata-title">Manage Forge-owned metadata</h3><p class="muted">Tags, relations, reviews and goals are owned by Forge and editable here. Imported evidence cannot be edited from the browser.</p></div></div>
+              <div id="portfolio-error-summary" class="error-summary" tabindex="-1" hidden></div>
               <div class="wb-plan-tools">
-                <label class="filter-box"><span class="sr-only">Select a managed project</span>
-                  <select id="portfolio-project"><option value="">Choose a project…</option></select>
-                </label>
-                <label class="search-box"><span class="sr-only">Tag name</span><input id="portfolio-tag" type="text" placeholder="Add a tag" autocomplete="off"></label>
+                <label class="field" for="portfolio-project"><span class="field-label">Project <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-project" aria-describedby="portfolio-project-hint portfolio-project-error"><option value="">Choose a project…</option></select><span class="field-hint" id="portfolio-project-hint">The project the metadata is recorded on.</span><span class="field-error" id="portfolio-project-error" hidden></span></label>
+                <label class="field" for="portfolio-tag"><span class="field-label">Tag name <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-tag" type="text" placeholder="e.g. payments" autocomplete="off" aria-describedby="portfolio-tag-hint portfolio-tag-error"><span class="field-hint" id="portfolio-tag-hint">Lowercase words or dashes; recorded on the chosen project.</span><span class="field-error" id="portfolio-tag-error" hidden></span></label>
                 <button id="portfolio-add-tag" class="button button-quiet" type="button">Add tag</button>
-                <label class="filter-box"><span class="sr-only">Review confidence</span>
-                  <select id="portfolio-confidence"><option value="">Record a review…</option></select>
-                </label>
+                <label class="field" for="portfolio-confidence"><span class="field-label">Review confidence <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-confidence" aria-describedby="portfolio-confidence-hint portfolio-confidence-error"><option value="">Record a review…</option></select><span class="field-hint" id="portfolio-confidence-hint">Your confidence in the project's current state.</span><span class="field-error" id="portfolio-confidence-error" hidden></span></label>
                 <button id="portfolio-record-review" class="button" type="button">Record review</button>
               </div>
             </section>
@@ -285,12 +285,13 @@
                 <h3 id="delivery-actions-title">Confirmed actions</h3>
                 <p class="muted">Each action below requires an explicit confirmation tick and echoes the exact preview you reviewed. A changed or stale preview is refused and nothing is dispatched.</p>
                 <p class="wb-subtitle">Add / replace a share record</p>
+                <div id="delivery-error-summary" class="error-summary" tabindex="-1" hidden></div>
                 <div class="wb-plan-tools">
-                  <label class="filter-box"><span class="sr-only">Project</span><select id="delivery-project"><option value="">Choose a project…</option></select></label>
-                  <label class="search-box"><span class="sr-only">Title</span><input id="delivery-title-input" type="text" placeholder="Title" autocomplete="off"></label>
-                  <label class="search-box"><span class="sr-only">Summary</span><input id="delivery-summary" type="text" placeholder="Summary" autocomplete="off"></label>
-                  <label class="search-box"><span class="sr-only">Category</span><input id="delivery-category" type="text" placeholder="Category" autocomplete="off"></label>
-                  <label class="search-box"><span class="sr-only">Source URL</span><input id="delivery-source" type="text" placeholder="Source URL" autocomplete="off"></label>
+                  <label class="field" for="delivery-project"><span class="field-label">Project <span class="required-mark" aria-hidden="true">*</span></span><select id="delivery-project" aria-describedby="delivery-project-hint delivery-project-error"><option value="">Choose a project…</option></select><span class="field-hint" id="delivery-project-hint">The managed project the share record belongs to.</span><span class="field-error" id="delivery-project-error" hidden></span></label>
+                  <label class="field" for="delivery-title-input"><span class="field-label">Title</span><input id="delivery-title-input" type="text" placeholder="e.g. Forge 0.4 release" autocomplete="off" aria-describedby="delivery-title-input-hint delivery-title-input-error"><span class="field-hint" id="delivery-title-input-hint">Human title shown on the allowlist.</span><span class="field-error" id="delivery-title-input-error" hidden></span></label>
+                  <label class="field" for="delivery-summary"><span class="field-label">Summary</span><input id="delivery-summary" type="text" placeholder="e.g. Monthly stable build" autocomplete="off" aria-describedby="delivery-summary-hint delivery-summary-error"><span class="field-hint" id="delivery-summary-hint">One line describing what is shared.</span><span class="field-error" id="delivery-summary-error" hidden></span></label>
+                  <label class="field" for="delivery-category"><span class="field-label">Category</span><input id="delivery-category" type="text" placeholder="e.g. release" autocomplete="off" aria-describedby="delivery-category-hint delivery-category-error"><span class="field-hint" id="delivery-category-hint">Share category, e.g. release or snapshot.</span><span class="field-error" id="delivery-category-error" hidden></span></label>
+                  <label class="field" for="delivery-source"><span class="field-label">Source URL</span><input id="delivery-source" type="text" placeholder="e.g. https://example.invalid/repo" autocomplete="off" inputmode="url" aria-describedby="delivery-source-hint delivery-source-error"><span class="field-hint" id="delivery-source-hint">Public source address recorded with the share.</span><span class="field-error" id="delivery-source-error" hidden></span></label>
                   <label class="wb-confirm"><input id="delivery-set-confirm" type="checkbox"> Confirm allowlisting this project.</label>
                   <button id="delivery-set" class="button" type="button">Add to allowlist</button>
                   <button id="delivery-remove" class="button button-quiet" type="button">Withdraw record</button>
@@ -302,21 +303,21 @@
                 </div>
                 <p class="wb-subtitle">Publish the approved preview</p>
                 <div class="wb-plan-tools">
-                  <label class="search-box"><span class="sr-only">Operation key</span><input id="delivery-opkey" type="text" placeholder="Operation key" autocomplete="off"></label>
+                  <label class="field" for="delivery-opkey"><span class="field-label">Operation key <span class="required-mark" aria-hidden="true">*</span></span><input id="delivery-opkey" type="text" placeholder="e.g. publish-2026-10-08" autocomplete="off" aria-describedby="delivery-opkey-hint delivery-opkey-error"><span class="field-hint" id="delivery-opkey-hint">Idempotency identity for this publish; reuse is safe.</span><span class="field-error" id="delivery-opkey-error" hidden></span></label>
                   <label class="wb-confirm"><input id="delivery-publish-confirm" type="checkbox"> Confirm this writes the approved manifest to the server-configured target.</label>
                   <button id="delivery-publish" class="button" type="button">Publish approved preview</button>
                 </div>
                 <p class="wb-subtitle">Reconcile an ambiguous outcome</p>
                 <div class="wb-plan-tools">
-                  <label class="search-box"><span class="sr-only">Publication id</span><input id="delivery-reconcile-id" type="text" placeholder="Publication id" autocomplete="off"></label>
-                  <label class="filter-box"><span class="sr-only">Observed outcome</span><select id="delivery-reconcile-status"><option value="">Observed outcome…</option><option value="published">Published</option><option value="failed">Failed</option></select></label>
-                  <label class="search-box"><span class="sr-only">Attempt reference</span><input id="delivery-reconcile-digest" type="text" placeholder="Attempt reference" autocomplete="off"></label>
+                  <label class="field" for="delivery-reconcile-id"><span class="field-label">Publication id <span class="required-mark" aria-hidden="true">*</span></span><input id="delivery-reconcile-id" type="text" placeholder="e.g. 42" autocomplete="off" inputmode="numeric" aria-describedby="delivery-reconcile-id-hint delivery-reconcile-id-error"><span class="field-hint" id="delivery-reconcile-id-hint">Numeric id of the ambiguous attempt; pre-filled from status.</span><span class="field-error" id="delivery-reconcile-id-error" hidden></span></label>
+                  <label class="field" for="delivery-reconcile-status"><span class="field-label">Observed outcome <span class="required-mark" aria-hidden="true">*</span></span><select id="delivery-reconcile-status" aria-describedby="delivery-reconcile-status-hint delivery-reconcile-status-error"><option value="">Observed outcome…</option><option value="published">Published</option><option value="failed">Failed</option></select><span class="field-hint" id="delivery-reconcile-status-hint">What you observed outside Forge.</span><span class="field-error" id="delivery-reconcile-status-error" hidden></span></label>
+                  <label class="field" for="delivery-reconcile-digest"><span class="field-label">Attempt reference <span class="required-mark" aria-hidden="true">*</span></span><input id="delivery-reconcile-digest" type="text" placeholder="Digest from the preview" autocomplete="off" aria-describedby="delivery-reconcile-digest-hint delivery-reconcile-digest-error"><span class="field-hint" id="delivery-reconcile-digest-hint">Manifest reference of the attempt; pre-filled from status.</span><span class="field-error" id="delivery-reconcile-digest-error" hidden></span></label>
                   <label class="wb-confirm"><input id="delivery-reconcile-confirm" type="checkbox"> Confirm this records the outcome I observed.</label>
                   <button id="delivery-reconcile" class="button button-quiet" type="button">Reconcile attempt</button>
                 </div>
                 <p class="wb-subtitle">Look up an operation by key</p>
                 <div class="wb-plan-tools">
-                  <label class="search-box"><span class="sr-only">Operation key</span><input id="delivery-lookup-key" type="text" placeholder="Operation key" autocomplete="off"></label>
+                  <label class="field" for="delivery-lookup-key"><span class="field-label">Operation key <span class="required-mark" aria-hidden="true">*</span></span><input id="delivery-lookup-key" type="text" placeholder="e.g. publish-2026-10-08" autocomplete="off" aria-describedby="delivery-lookup-key-hint delivery-lookup-key-error"><span class="field-hint" id="delivery-lookup-key-hint">The operation key recorded at publish time.</span><span class="field-error" id="delivery-lookup-key-error" hidden></span></label>
                   <button id="delivery-lookup" class="button button-quiet" type="button">Read status</button>
                 </div>
                 <div id="delivery-action-result" class="wb-plan-result" hidden></div>

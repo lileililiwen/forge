@@ -2,6 +2,81 @@
 
 ## Current state
 
+### web-login-credential-bootstrap delivered and archived (2026-10-08)
+
+`web-login-credential-bootstrap` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-08-web-login-credential-bootstrap`,
+creating the `web-operator-credential-bootstrap` spec (3 requirements) and
+extending `forge-admin-login` (+2 requirements), promoted without
+`--skip-specs`. An operator can now run `scripts/web.sh start` and get a
+working login printed on the console; `scripts/web.sh reset-password`
+rotates it and prints the new one once.
+
+The implementation adds no new storage and reuses the existing Argon2id
+admin store unchanged:
+
+- `src/identity/global.rs`: `pub fn email(db_path)` reads only the `email`
+  column (never the hash).
+- `src/main.rs`: `identity status` (human `configured:`/`email:` lines or
+  `forge-admin-login/1.0.0` JSON with `configured` + `email`);
+  `--password-stdin` on `identity setup` and `identity change-password`
+  (one stdin line, no terminal, no confirmation; the interactive
+  double-entry path is byte-identical); no `--password` value flag exists.
+- `scripts/web.sh`: `--admin-email` (default `operator@example.com`),
+  `ensure_admin` called at the top of `start`, a new `reset-password`
+  subcommand, and a login banner printing URL + email + (only when it just
+  created/reset) the password to stdout. The password is never an argv
+  element, never written to `.forge/run/state`, never logged. `start` never
+  resets an existing account; it points at `reset-password`.
+  `FORGE_BIN`/`FORGE_WEB_RUN_DIR`/`FORGE_WEB_LOG_DIR`/`FORGE_WEB_ROOT_DIR`
+  let the contract test isolate a throwaway run directory.
+- `src/api/command_catalog.rs`: one `identity.status` CLI-only read row;
+  pinned row count 233 → 234 with the delta comment.
+- `ROADMAP.md`: the operating rule no longer asserts an empty queue while a
+  change is active (governance-quality finding introduced by this change).
+- `openspec/specs/maintainer-plugin-platform/spec.md`: its archiver TBD
+  Purpose is replaced with a source-backed one (the prior archive's
+  governance debt, cleared here).
+
+New `tests/web_login_credentials_contract.rs` (6 tests) drives the real
+binary and the real script:
+
+| Scenario | Asserts |
+|---|---|
+| `status_reports_fresh_then_configured_with_email` | fresh JSON `configured:false`/`email:null`; human `configured: false`; after `setup --password-stdin` `configured:true` + email; status never prints the password |
+| `setup_password_stdin_works_without_the_secret_in_argv` | piped password becomes the credential (authenticates); `--password <value>` is not a flag; `--help` advertises only `--password-stdin` |
+| `change_password_stdin_rotates_and_invalidates_a_prior_session` | old password stops working, new works, a pre-rotation session is revoked |
+| `a_short_password_on_stdin_is_refused` | <12 chars refused for setup (no row written) and for rotation (old credential survives) |
+| `reset_password_prints_once_and_never_writes_the_password_to_state` | banner email + password; printed password authenticates; `.forge/run/state` never holds it |
+| `start_creates_then_recognizes_the_account_without_inventing_a_password` | first `start` prints URL/email/password; second prints URL/email and no password, naming `reset-password` |
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only |
+| new `web_login_credentials_contract` | **6 passed / 0 failed** |
+| `plugins_contract` / `catalog_contract` | **9 / 18 passed, 0 failed** |
+| `classify_derive_contract` / `classify_apply_contract` | **6 / 5 passed, 0 failed** |
+| `forge_web_command_catalog_contract` / `forge_web_maintainer_surface_contract` | **9 / 5 passed, 0 failed** |
+| `cargo test --lib command_catalog` / `cargo test --bin forge` | **7 / 7 passed, 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | **PASS** (after this change) |
+| `openspec validate --all --strict --no-interactive` | **85 passed / 0 failed** (before archive) |
+| `git diff --check` | clean |
+| `openspec archive web-login-credential-bootstrap --yes` | `forge-admin-login: update` (+2), `web-operator-credential-bootstrap: create` (+3); **no `--skip-specs`**; archived as `2026-10-08-web-login-credential-bootstrap`; `openspec list` subsequently reports **no active changes** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no oversized `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout); governance-quality was 1 attributable before the ROADMAP fix and is **pass** after |
+| `openspec list` | no active changes |
+
+Manual smoke: `forge identity status` prints `configured: false` on a fresh
+registry and `configured: true` + email after setup; `scripts/web.sh
+reset-password` prints the banner and the printed password authenticates.
+
+Implementation commit: `362b057`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### maintainer-plugin-platform delivered and archived (2026-10-08)
 
 `maintainer-plugin-platform` is implemented, verified and archived as

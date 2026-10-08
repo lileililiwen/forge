@@ -2,6 +2,78 @@
 
 ## Current state
 
+### portal-touch-responsive-targets delivered and archived (2026-10-08)
+
+Slice 2 of the frontend UI/UX audit (touch/manipulation responsiveness;
+slices 3–6 stay QUEUED, not authored). `frontend/` only, vanilla
+HTML/CSS/JS; no API/registry/journal/CLI/catalog change.
+
+Fix (`frontend/styles.css` appended slice-2 override block,
+`frontend/index.html`, `frontend/login.html`, `frontend/app.js`):
+
+- Every operator control computes `min-height >= 44px` via `min-height`
+  (padding/font density untouched): `.button` (36→44), `.button-quiet`
+  (32→44), `.button-primary` (42→44), `.nav-link` (none→44),
+  `.filter-box` (32→44, `height:auto`), `.fleet-filter input`
+  (32→44), `.search-box` (38→44), `.login-form input` (42→44),
+  `.wb-field`/`.wb-action-card` text inputs (34→44), `#ws-rows` text
+  inputs (30→44), `.wb-maintain-decide` (28→44). Checkboxes keep their
+  visual (`.wb-confirm` labels carry the 44px hit area; `#ws-rows` boxes
+  20px in ≥44px rows).
+- `touch-action: manipulation` on `a,button,input,select,textarea,label`
+  removes the tap delay without disabling pan/zoom.
+- Press feedback: `transition: opacity/background-color 120ms ease`
+  (inside 80–150ms) + opacity-only `:active` (no layout shift);
+  `cursor:pointer` added to `.button-quiet`, `.nav-link`,
+  `.wb-maintain-decide`, checkboxes.
+- Safe areas: `.topbar` sticks at `env(safe-area-inset-top)` with
+  matching padding (60px total unchanged); `.sidebar` top padding gains
+  the inset at base/850px/560px widths; fixed `.skip-link` offsets gain
+  insets; `body` carries left/right/bottom insets; all `env()` calls have
+  `0px` fallbacks; both viewport metas gain `viewport-fit=cover`.
+- `100vh` → `100dvh` twins (vh kept first as fallback) at all four
+  sites: `body`, `.auth-layout`, `.app-shell`, 560px `.auth-layout`.
+- `scrollIntoViewRespectingMotion` helper honors
+  `prefers-reduced-motion` (`auto` vs `smooth`, null-guarded, degrades
+  without `matchMedia`); both call sites (`openMaintainDecision`
+  center, `loadWorkbenchDetail` start) route through it; no
+  unconditional `{ behavior: "smooth" }` remains (CSS guard alone cannot
+  override the explicit JS option).
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `forge_web_navigation_contract` | **6 passed / 0 failed** |
+| `forge_web_manage_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `forge_web_workbench_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| static token audit over shipped files | **19 / 19**: 11 target heights ≥44px + label area, `touch-action`, 120ms transition, `:active` opacity, cursor set, topbar/sidebar/skip-link/body insets with fallbacks, `viewport-fit=cover` ×2, 3 dvh twins, helper + 2 call sites + media query |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **87 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portal-touch-responsive-targets --yes` | `portal-web-ui: update` (+4); **no `--skip-specs`**; archived as `2026-10-08-portal-touch-responsive-targets`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior slices (src-file splitting program; harness
+timeout investigation).
+
+Files changed: `frontend/app.js`, `frontend/index.html`,
+`frontend/login.html`, `frontend/styles.css`,
+`openspec/specs/portal-web-ui/spec.md` (+4), new
+`openspec/changes/archive/2026-10-08-portal-touch-responsive-targets/`
+(proposal, design, tasks, delta spec), `HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `d05ed4d`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed.
+
 ### portal-focus-route-contrast delivered and archived (2026-10-08)
 
 Slice 1 of the frontend UI/UX audit (P1 accessibility focus+contrast;

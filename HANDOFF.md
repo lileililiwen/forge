@@ -2,6 +2,91 @@
 
 ## Current state
 
+### maintainer-plugin-platform delivered and archived (2026-10-08)
+
+`maintainer-plugin-platform` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-08-maintainer-plugin-platform`,
+creating the `maintainer-plugin-platform` spec (5 requirements) and
+promoting it without `--skip-specs`. Forge now observes each registered
+project's own compose/CI facts, derives a reviewable classification from
+local evidence, publishes the approved set outward through a named
+plugin registry, and exposes both the fleet filter row and the
+per-project Maintain card in the browser.
+
+The implementation reuses the existing boundaries and changes no
+transport:
+
+- `src/catalog/source.rs`: `local_record` populates `compose`/`ci` from
+  the project directory via the already-written
+  `import::detect_docker` / `import::detect_ci` (now `pub(crate)`),
+  replacing the hard-coded `compose: None` and the quality-verdict `ci`.
+  A project with neither reports `none`; `available` drives the
+  `unavailable` evidence state.
+- `src/semantic/derive.rs`: `forge classify derive [TARGET]` reads the
+  manifest's declared profile/maturity/target_maturity, the manifest
+  runtime language and the README's first heading, and records proposals
+  through the unchanged `forge-semantic-proposal/0.1.0` contract with
+  evidence and bounded confidence. No model, no network, no project-field
+  write. With no persisted GitHub observation in this slice, portfolio
+  tags fall back to the local runtime language and the evidence says so
+  — the design's declared adapter-absent fallback.
+- `src/semantic/apply.rs`: `forge classify apply [TARGET] --confirm` is
+  the only new write path. It refuses any non-`Approved` proposal by
+  name, refuses any approved value outside
+  `ALLOWED_PROPOSED_FIELDS`, and sends one
+  `forge-metadata-propose/0.1.0` request in `mode: "pr"` through
+  `invoke_metadata_provider`, which shares `run_provider_process` with
+  publish (bounded argv, per-run timeout, secret-leak rejection).
+- `src/plugins/mod.rs`: the registry over `providers.yaml` (plus an
+  optional sibling `plugins:` descriptor block). A descriptor-less plugin
+  is a `delivery` plugin, so no existing config changes; an unknown
+  capability or kind is `invalid`; a missing command is `unavailable`
+  without hiding the others. `forge plugins list` renders it.
+- `src/api/maintain.rs` + `src/api/mod.rs` + `src/main.rs`: the
+  read-only `GET /v1/admin/projects/{id}/maintain` projection and
+  confirm/digest-bound `classify/approve`, `classify/reject` and
+  `classify/apply` routes; the catalog admits the admin session cookie
+  (no bearer, origin-checked) on `GET /v1/projects/catalog` so the
+  browser filter row can call the same Core query.
+- `frontend/`: the fleet filter row (language, lifecycle, profile,
+  compose, CI, tag) composing with the free-text/source filters, and the
+  Maintain card (GitHub observation + freshness or honest
+  unavailable-with-reason, derived proposals with per-field
+  approve/reject, plugins, one apply) reusing `buildActionControl`.
+
+New contract suites drive the real binary: `catalog_contract` (+1:
+`compose_and_ci_are_observed_from_each_registered_project_directory`),
+`plugins_contract` (9), `classify_derive_contract` (6),
+`classify_apply_contract` (5),
+`forge_web_maintainer_surface_contract` (5) and the extended
+`forge_web_command_catalog_contract` (9).
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only |
+| `catalog_contract` / `plugins_contract` | **18 / 9 passed, 0 failed** |
+| `classify_derive_contract` / `classify_apply_contract` | **6 / 5 passed, 0 failed** |
+| `forge_web_command_catalog_contract` / `forge_web_maintainer_surface_contract` | **9 / 5 passed, 0 failed** |
+| `cargo test --lib command_catalog` / `cargo test --bin forge` | **7 / 7 passed, 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **84 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive maintainer-plugin-platform --yes` | `maintainer-plugin-platform: create` (+5); **no `--skip-specs`**; archived as `2026-10-08-maintainer-plugin-platform`; `openspec list` subsequently reports **no active changes** |
+| `forge gate` (mandatory local run) | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no oversized `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec list` | no active changes |
+
+Manual smoke: `forge plugins list` lists the configured jenkins
+(delivery, ready) and openpanel (delivery, disabled); `forge classify
+derive` on a fixture records `profile`/`lifecycle`/`domain` proposals
+with evidence; `forge project list --compose docker+compose` returns the
+fixture carrying `compose.yaml`.
+
+Implementation commit: `47b86b1`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### Two open defects found by browser-driving the dashboard (2026-10-08, NOT fixed)
 
 Driving the running dashboard with Playwright (rather than

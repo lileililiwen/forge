@@ -2,6 +2,86 @@
 
 ## Current state
 
+### portal-data-table-performance delivered and archived (2026-10-08)
+
+Slice 6 of the frontend UI/UX audit (LAST; queue is now empty).
+Sortable fleet columns with announced sort state, browser-side CSV
+export of the filtered rows, windowed/paginated rendering with honest
+counts, skeleton/shimmer placeholders with reserved count space.
+`frontend/` only, vanilla HTML/CSS/JS; no API/registry/journal/CLI/
+catalog change — the catalog `limit:1000` query and JSON shape stay
+exactly as-is.
+
+Fix (`frontend/index.html` sort headers + export button + pager,
+`frontend/app.js` filter→sort→page pipeline + CSV + skeleton,
+`frontend/styles.css` appended slice-6 block,
+`tests/forge_web_navigation_contract.rs` +1 test):
+
+- Sort: fleet `Project`/`Details`/`Status` headers become native
+  `<button>` controls (`Sort by <column>`, 44px minima) with
+  `aria-sort` on the `<th>` (`none` default, `ascending`/`descending`
+  on the active column); click cycles asc→desc→none (none restores API
+  order). Keys reuse the exact rendered strings (`name || identity`,
+  `fleetDetailsLine`, `projectStatusLine`, lowercased); ties break by
+  pre-sort index (stable). Sort applies after the untouched
+  free-text/source/catalog-predicate filter.
+- Export: `#fleet-export` (`Export filtered CSV`, disabled when the
+  filtered set is empty) downloads the filtered+sorted (pre-page) rows
+  as RFC-4180-escaped CSV (`name,identity,profile,details,status,
+  source,management`) via `Blob` + temp anchor
+  (`forge-projects.csv`); no endpoint, no server state.
+- Paging: `FLEET_PAGE_SIZE = 50` — at most one page mounted;
+  `#project-count` reports the honest window (`Showing X of Y
+  filtered (Z total)`); `#fleet-pager` Prev/Next (44px, labelled)
+  plus `#fleet-page-info` (`Page N of M`, `aria-live="polite"`).
+  Filter/sort changes reset to page 1 (clamped on shrink).
+- Loading: `renderFleetSkeleton` mounts 8 shimmer rows with
+  `aria-busy="true"` while `/v1/admin/projects` is in flight (error
+  path clears them via `showDashboardError`); delivery/maintain
+  loaders use the same `.skeleton` span (sr-only text kept for AT);
+  summary counts reserve space (`min-height`, `min-width:3ch`);
+  shimmer is background-position-only and collapses under the
+  `prefers-reduced-motion` guard; no layout property animates.
+
+Evidence at archive (change active for verification, archived after):
+
+| Check | Result |
+|---|---|
+| `node --check frontend/app.js` + HTML parse | clean |
+| static token audit over shipped files | **all present**: sort/export/pager/skeleton tokens; `limit:1000` query intact; prior-slice tokens intact (`lastRouteView`, filter-state, `view-unknown`, `--z-skip:60`, `--icon-stroke:1.8`, `--dur-enter:140ms`, 44px, touch, summaries); bare `120ms ease` still absent; no new export endpoint |
+| `cargo fmt` then `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 2 pre-existing warnings only |
+| `forge_web_navigation_contract` | **9 passed / 0 failed** (+1 slice-6 token test) |
+| `forge_web_manage_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression; exercises the refactored render path) |
+| `forge_web_workbench_deep_link_browser` (real Chromium) | **1 passed / 0 failed** (no regression) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **88 passed / 0 failed** active; **87 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **BLOCKED baseline-identical, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; fail: source-file-size **48 of 119** (pre-existing; this change adds no `src/` file); unresolved: declared-verification, tests (environmental `project-runtime` 60s adapter timeout) |
+| `openspec archive portal-data-table-performance --yes` | `portal-web-ui: update` (+4); **no `--skip-specs`**; archived as `2026-10-08-portal-data-table-performance`; `openspec list` reports **no active changes** |
+
+Pre-existing failures not attributable to this change (recorded, not
+fixed — separate harnesses, separate changes): `source-file-size`
+(`src/`-only gate; 48/119 both before and after) and the two
+`project-runtime` adapter-timeout unresolved items; remediation paths
+unchanged from prior slices (src-file splitting program; harness
+timeout investigation).
+
+Files changed: `frontend/app.js`, `frontend/index.html`,
+`frontend/styles.css`, `tests/forge_web_navigation_contract.rs`,
+`openspec/specs/portal-web-ui/spec.md` (+4), new
+`openspec/changes/archive/2026-10-08-portal-data-table-performance/`
+(proposal, design, tasks, delta spec), `HANDOFF.md` (this entry).
+
+Commits: implementation+archive+spec-promotion `bbd0773`, HANDOFF
+evidence (this commit). `openspec list` reports no active changes; no
+`current_spec` pointer remains. Nothing pushed. Queue is empty: all six
+UI/UX slices delivered (fleet-manage-deep-link,
+portal-focus-route-contrast, portal-touch-responsive-targets,
+portal-form-error-feedback, portal-layout-navigation,
+portal-icon-type-motion, portal-data-table-performance).
+
 ### portal-icon-type-motion delivered and archived (2026-10-08)
 
 Slice 5 of the frontend UI/UX audit (consistent icon set, readable

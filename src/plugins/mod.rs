@@ -41,13 +41,18 @@ use crate::publish::providers::{ProviderConfig, ProviderEntry};
 
 /// The closed capability vocabulary. A plugin may advertise any
 /// subset; anything outside this set is invalid.
-pub const CAPABILITIES: [&str; 6] = [
+pub const CAPABILITIES: [&str; 11] = [
     "topic",
     "description",
     "homepage",
     "language",
     "publish",
     "delivery",
+    "gate",
+    "quality",
+    "agent",
+    "contract",
+    "analytics",
 ];
 
 /// What a plugin is *for*, independent of which capabilities it
@@ -60,6 +65,14 @@ pub enum PluginKind {
     Metadata,
     /// Builds, publishes or promotes a deployed artifact.
     Delivery,
+    /// Runs policy/gate checks (driftwatchdog family).
+    Gate,
+    /// Runs quality checks (cargo-* family).
+    Quality,
+    /// Runs agent sessions (sisyphusfy/ariadex/mnemora family).
+    Agent,
+    /// Serves platform contracts (platform-contracts family).
+    Contract,
 }
 
 impl PluginKind {
@@ -67,6 +80,10 @@ impl PluginKind {
         match self {
             PluginKind::Metadata => "metadata",
             PluginKind::Delivery => "delivery",
+            PluginKind::Gate => "gate",
+            PluginKind::Quality => "quality",
+            PluginKind::Agent => "agent",
+            PluginKind::Contract => "contract",
         }
     }
 
@@ -74,6 +91,10 @@ impl PluginKind {
         match value {
             "metadata" => Some(PluginKind::Metadata),
             "delivery" => Some(PluginKind::Delivery),
+            "gate" => Some(PluginKind::Gate),
+            "quality" => Some(PluginKind::Quality),
+            "agent" => Some(PluginKind::Agent),
+            "contract" => Some(PluginKind::Contract),
             _ => None,
         }
     }
@@ -215,10 +236,22 @@ pub fn load_descriptors(path: &Path) -> Result<PluginConfig, crate::core::ForgeE
 /// A plugin whose command is missing is reported `Unavailable` and the
 /// remaining plugins are still listed: one broken entry must not hide
 /// the rest of the workspace's reach.
+///
+/// Resolution order per id: `providers.yaml` `plugins:` descriptor first
+/// (explicit override), then the builtin table consulting
+/// `kits/manifest.json` when it carries a `plugins` array, then the
+/// hardcoded builtin map, then the legacy delivery default.
 pub fn list(config: &ProviderConfig, descriptors: &PluginConfig) -> Vec<PluginRecord> {
     let mut records = Vec::with_capacity(config.providers.len());
     for entry in &config.providers {
-        records.push(record_for(entry, descriptor_for(descriptors, &entry.id)));
+        let explicit = descriptor_for(descriptors, &entry.id);
+        if explicit.is_some() {
+            records.push(record_for(entry, explicit));
+        } else if let Some(builtin) = builtin_descriptor(&entry.id) {
+            records.push(record_for(entry, Some(&builtin)));
+        } else {
+            records.push(record_for(entry, None));
+        }
     }
     records.sort_by(|a, b| a.id.cmp(&b.id));
     records
@@ -238,6 +271,136 @@ pub fn metadata_plugins<'a>(
                 && fields.iter().all(|field| record.maintains(field))
         })
         .collect()
+}
+
+/// Ready, enabled gate plugins in registry order, beside `metadata_plugins`.
+pub fn gate_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+    plugins_of_kind(records, PluginKind::Gate)
+}
+
+/// Ready, enabled quality plugins in registry order.
+pub fn quality_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+    plugins_of_kind(records, PluginKind::Quality)
+}
+
+/// Ready, enabled agent plugins in registry order.
+pub fn agent_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+    plugins_of_kind(records, PluginKind::Agent)
+}
+
+/// Ready, enabled contract plugins in registry order.
+pub fn contract_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+    plugins_of_kind(records, PluginKind::Contract)
+}
+
+fn plugins_of_kind<'a>(records: &'a [PluginRecord], kind: PluginKind) -> Vec<&'a PluginRecord> {
+    records
+        .iter()
+        .filter(|record| {
+            record.state == PluginState::Ready && record.enabled && record.kind == kind
+        })
+        .collect()
+}
+
+/// Builtin kind/capability table for well-known plugin ids.
+///
+/// `kits/manifest.json` is consulted first: when it exists and carries a
+/// `plugins: [{id, kind, capabilities, description}]` array, a matching
+/// entry wins over the hardcoded map below. A `providers.yaml`
+/// descriptor always overrides both (see `list`). An absent file, an
+/// unreadable file, or a file without a `plugins` key falls back to the
+/// hardcoded map, which is the documented builtin set:
+///
+/// driftwatchdog=gate, cargo-*=quality, sisyphusfy/ariadex/mnemora=agent,
+/// platform-contracts=contract, labrys/openpanel/jenkins-local/jenkins=delivery,
+/// argoscope/devloom=metadata+analytics.
+pub fn builtin_descriptor(id: &str) -> Option<PluginDescriptor> {
+    if let Some(from_manifest) = builtin_from_kits_manifest(id) {
+        return Some(from_manifest);
+    }
+    builtin_hardcoded(id)
+}
+
+fn builtin_hardcoded(id: &str) -> Option<PluginDescriptor> {
+    let (kind, capabilities): (&str, &[&str]) = if id == "driftwatchdog" {
+        ("gate", &["gate"])
+    } else if id.starts_with("cargo-") {
+        ("quality", &["quality"])
+    } else if id == "sisyphusfy" || id == "ariadex" || id == "mnemora" {
+        ("agent", &["agent"])
+    } else if id == "platform-contracts" {
+        ("contract", &["contract"])
+    } else if id == "labrys" || id == "openpanel" || id == "jenkins-local" || id == "jenkins" {
+        ("delivery", &["delivery"])
+    } else if id == "argoscope" || id == "devloom" {
+        ("metadata", &["analytics"])
+    } else {
+        return None;
+    };
+    Some(PluginDescriptor {
+        kind: Some(kind.to_string()),
+        capabilities: capabilities.iter().map(|c| c.to_string()).collect(),
+        description: Some(format!("builtin {kind} plugin `{id}`")),
+    })
+}
+
+fn kits_manifest_path() -> PathBuf {
+    if let Some(value) = std::env::var_os("FORGE_KITS_MANIFEST") {
+        let trimmed = value.to_string_lossy().trim().to_string();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    PathBuf::from("kits/manifest.json")
+}
+
+fn builtin_from_kits_manifest(id: &str) -> Option<PluginDescriptor> {
+    let path = kits_manifest_path();
+    let bytes = std::fs::read(path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let plugins = value.get("plugins")?.as_array()?;
+    for entry in plugins {
+        if entry.get("id")?.as_str()? != id {
+            continue;
+        }
+        let kind = entry
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let capabilities = entry
+            .get("capabilities")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let description = entry
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        // Only honor closed-vocabulary entries; anything else falls
+        // through to the hardcoded table so an edited feed cannot
+        // smuggle an unknown capability into Ready.
+        if let Some(ref k) = kind {
+            if PluginKind::parse(k).is_none() {
+                continue;
+            }
+        }
+        if capabilities
+            .iter()
+            .any(|c| !CAPABILITIES.contains(&c.as_str()))
+        {
+            continue;
+        }
+        return Some(PluginDescriptor {
+            kind,
+            capabilities,
+            description,
+        });
+    }
+    None
 }
 
 fn descriptor_for<'a>(descriptors: &'a PluginConfig, id: &str) -> Option<&'a PluginDescriptor> {
@@ -268,7 +431,7 @@ fn record_for(entry: &ProviderEntry, descriptor: Option<&PluginDescriptor>) -> P
                             entry,
                             PluginKind::Delivery,
                             format!(
-                                "unknown plugin kind `{raw}`; expected one of metadata|delivery"
+                                "unknown plugin kind `{raw}`; expected one of metadata|delivery|gate|quality|agent|contract"
                             ),
                         )
                     }

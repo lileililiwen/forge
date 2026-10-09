@@ -61,6 +61,18 @@
                     <option value="published">Published (Mac)</option>
                   </select>
                 </label>
+                <label class="filter-box"><span class="sr-only">Filter by capability group</span>
+                  <select id="cap-filter" aria-label="Filter by capability group">
+                    <option value="">All capability groups</option>
+                    <option value="gate">gate</option>
+                    <option value="quality">quality</option>
+                    <option value="agent">agent</option>
+                    <option value="contract">contract</option>
+                    <option value="analytics">analytics</option>
+                    <option value="delivery">delivery</option>
+                    <option value="metadata">metadata</option>
+                  </select>
+                </label>
                 <span id="updated-label" class="updated-label"></span>
               </div>
             </div>
@@ -117,7 +129,9 @@
                   <dt>Last observed</dt><dd id="wb-lifecycle-updated">—</dd>
                 </dl>
                 <h4 class="wb-rail-head">Lifecycle series</h4>
+                <p class="muted"><span id="cap-badge" role="status">Capability group: delivery</span></p>
                 <ol id="lifecycle-rail" class="lifecycle-rail" aria-label="Project lifecycle series"></ol>
+                <div id="wb-idea-entry" class="wb-idea-entry"><p class="muted">Idea entry loads with the workbench.</p></div>
               </section>
               <section class="wb-card wb-next" aria-labelledby="wb-next-title">
                 <div class="panel-heading">
@@ -338,6 +352,7 @@
                   <button id="delivery-lookup" class="button button-quiet" type="button">Read status</button>
                 </div>
                 <div id="delivery-action-result" class="wb-plan-result" role="status" hidden></div>
+                <div id="delivery-next-idea" class="wb-plan-result" role="status" hidden></div>
               </section>
               <section class="wb-card" aria-labelledby="github-metadata-title">
                 <h3 id="github-metadata-title">GitHub metadata</h3>

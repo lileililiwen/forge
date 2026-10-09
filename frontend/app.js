@@ -278,6 +278,39 @@
     else renderProjects(window.__forgeProjects || []);
   }
 
+  // ---- Capability grouping (flywheel-plugin-cap) ------------------------
+  // Client-side group derivation mirrors the portal `cap_group` attribute
+  // (profile-routed, delivery default) so the `#cap-filter` select filters
+  // without a new endpoint. The rail `#cap-badge` names the open project's
+  // group in words (never color-only).
+  const CAP_GROUPS = ["gate", "quality", "agent", "contract", "analytics", "delivery", "metadata"];
+
+  function projectCapGroup(project) {
+    if (!project) return "delivery";
+    if (project.cap_group && CAP_GROUPS.includes(project.cap_group)) return project.cap_group;
+    const profile = String(project.profile || "").toLowerCase();
+    if (profile.includes("contract") || profile.includes("component") || profile.includes("standard")) return "contract";
+    if (profile.includes("agent") || profile.includes("studio") || profile.includes("intent")) return "agent";
+    if (profile.includes("gate") || profile.includes("check") || profile.includes("doctor")) return "gate";
+    return "delivery";
+  }
+
+  function applyCapFilter() {
+    fleetPage = 1;
+    renderProjects(window.__forgeProjects || []);
+    const active = document.getElementById("cap-filter") ? document.getElementById("cap-filter").value : "";
+    const count = document.getElementById("project-count");
+    if (count && active) count.textContent += ` · cap group: ${active}`;
+  }
+
+  function renderCapBadge() {
+    const badge = document.getElementById("cap-badge");
+    if (!badge || !workbench.id) return;
+    const found = (window.__forgeProjects || []).find((p) => (p.identity || p.id) === workbench.id);
+    const group = projectCapGroup(found || { profile: "" });
+    badge.textContent = `Capability group: ${group}`;
+  }
+
   function initFilterStatePersistence() {
     for (const id of FILTER_STATE_IDS) {
       const field = document.getElementById(id);
@@ -482,8 +515,11 @@
   function fleetFilteredProjects(projects) {
     const query = document.getElementById("project-search").value.trim().toLowerCase();
     const sourceFilter = document.getElementById("source-filter").value;
+    const capEl = document.getElementById("cap-filter");
+    const capFilter = capEl ? capEl.value : "";
     return projects.filter((project) => {
       if (sourceFilter && project.source !== sourceFilter) return false;
+      if (capFilter && projectCapGroup(project) !== capFilter) return false;
       // The catalog predicate set, fetched from GET /v1/projects/catalog:
       // the same Core query `forge project list` runs for the same
       // predicate. Null means no predicate is active.
@@ -1593,6 +1629,72 @@
   function refreshLifecycleSeries() {
     renderLifecycleRail();
     renderNextBestAction();
+    renderCapBadge();
+    renderIdeaEntry();
+  }
+
+  // ---- Flywheel ends (flywheel-plugin-cap): idea entry + publish loop ---
+  // Step 0 (Idea) entry: graduation preview/import CLI preview plus a studio
+  // spec entry link. Publish→maintain loop: a successful delivery publish
+  // renders the Next-idea prompt with a `&step=idea` deep link and a maintain
+  // refresh shortcut firing the existing `#wb-maintain-refresh` control.
+  function renderIdeaEntry() {
+    const box = document.getElementById("wb-idea-entry");
+    if (!box || !workbench.id) return;
+    const id = workbench.id;
+    box.replaceChildren();
+    const head = el("p", "wb-plan-head", "Idea entry — start the next loop from here.");
+    box.append(head);
+    const grad = el("p", "wb-action-cli-copy");
+    grad.append(el("code", null, `forge graduation preview <artifact>  ·  forge graduation import <artifact> --path . --profile rust-web --confirm`));
+    box.append(grad);
+    const tools = el("div", "wb-plan-tools");
+    const studio = document.createElement("a");
+    studio.className = "button button-quiet";
+    studio.href = `/workbench?project=${encodeURIComponent(id)}&step=spec`;
+    studio.textContent = "Open studio spec entry (forge studio spec)";
+    tools.append(studio);
+    const gradLink = document.createElement("a");
+    gradLink.className = "button button-quiet";
+    gradLink.href = `/workbench?project=${encodeURIComponent(id)}&step=idea`;
+    gradLink.textContent = "Stay on Idea (forge graduation preview)";
+    tools.append(gradLink);
+    box.append(tools);
+  }
+
+  function maintainRefreshShortcut() {
+    const btn = el("button", "button button-quiet wb-maintain-shortcut");
+    btn.type = "button";
+    btn.textContent = "Refresh maintain view";
+    btn.setAttribute("aria-label", "Refresh the maintain view for this project");
+    btn.addEventListener("click", () => {
+      const refresh = document.getElementById("wb-maintain-refresh");
+      if (refresh) refresh.click();
+    });
+    return btn;
+  }
+
+  function renderDeliveryNextIdea(result) {
+    const box = document.getElementById("delivery-next-idea");
+    if (!box) return;
+    box.replaceChildren();
+    const ok = result && !result.error && (result.publication || result.accepted);
+    if (!ok) { box.hidden = true; return; }
+    box.hidden = false;
+    setResultRole(box, false);
+    box.append(el("p", "wb-plan-head", "Next idea — the publish landed. Propose what the loop should build next."));
+    const prompt = el("p", "muted", "Write the next idea as a graduation brief, import it, and walk the rail again: idea → scaffold → gate → publish → maintain.");
+    box.append(prompt);
+    const tools = el("div", "wb-plan-tools");
+    const idea = document.createElement("a");
+    const sel = document.getElementById("delivery-project");
+    const target = (sel && sel.value) || delivery.projectId || workbench.id || "";
+    idea.className = "button button-quiet";
+    idea.href = target ? `/workbench?project=${encodeURIComponent(target)}&step=idea` : "/workbench?project=&step=idea";
+    idea.textContent = "Open Next idea in the workbench";
+    tools.append(idea);
+    tools.append(maintainRefreshShortcut());
+    box.append(tools);
   }
 
   // ---- Lifecycle series rail, part 2: observability shortcuts + roving --
@@ -3808,6 +3910,7 @@
     document.getElementById("delivery-publish").disabled = false;
     renderDeliveryActionResult(body, status);
     if (!ok) deliveryRefused("Publish", body, status);
+    else renderDeliveryNextIdea(body);
     confirmEl.checked = false;
     await loadDelivery();
   }
@@ -4059,6 +4162,8 @@
       const refresh = () => { fleetPage = 1; renderProjects(window.__forgeProjects || projects); };
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);
+      const capFilter = document.getElementById("cap-filter");
+      if (capFilter) capFilter.addEventListener("change", applyCapFilter);
       initFleetFilters();
       initFilterStatePersistence();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }

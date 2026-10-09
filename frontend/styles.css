@@ -285,3 +285,13 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .wb-row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .wb-reconcile-shortcut{white-space:nowrap}
 .lifecycle-rail{max-width:100%}
+
+/* Flywheel plugin cap (flywheel-plugin-cap): idea entry, Next-idea loop,
+ * cap filter + rail badge. Additive only; earlier rules untouched. */
+.wb-idea-entry{margin-top:12px;padding:12px;border:1px dashed var(--line-strong);border-radius:8px}
+.wb-idea-entry .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#cap-badge{font-size:var(--text-md);color:var(--muted)}
+#cap-filter{min-height:44px}
+#delivery-next-idea{margin-top:12px}
+#delivery-next-idea .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.wb-maintain-shortcut{white-space:nowrap}

@@ -727,3 +727,35 @@ pub(crate) enum StudioPreviewAction {
     Start,
     Stop,
 }
+#[derive(Debug, Subcommand)]
+pub(crate) enum CapCommands {
+    /// List every capability group with live Ready plugin counts.
+    List {
+        /// Project directory whose `.forge/providers.yaml` is read (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+    },
+    /// Inspect one capability group: Ready plugins plus mapped flat commands.
+    Inspect {
+        /// Capability group (gate, quality, agent, contract, analytics, delivery, metadata).
+        capability: String,
+        /// Project directory whose `.forge/providers.yaml` is read (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+    },
+    /// Print the descriptor snippet for adding a plugin to a group.
+    Add {
+        /// Capability group to add a plugin to.
+        capability: String,
+        /// Plugin id to add.
+        id: String,
+    },
+    /// Print the underlying flat `forge …` command for a group action.
+    Run {
+        /// Capability group to run (gate, agent, contract, delivery, quality, analytics).
+        capability: String,
+        /// Passthrough action hint (e.g. `list`, `status`).
+        #[arg(default_value = "list")]
+        action: String,
+    },
+}

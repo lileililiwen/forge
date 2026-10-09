@@ -19,6 +19,11 @@
 //     string to the clipboard;
 //  6. at 390 CSS px the page has no horizontal overflow;
 //  7. sampled text/background pairs meet WCAG 2.2 AA.
+//  8. (flywheel-plugin-cap) rail step 0 carries the idea entry
+//     (graduation preview/import + studio spec link), the projects view
+//     carries the cap group filter and the rail carries the cap badge,
+//     and the demo URL shapes (`?project=&step=`) resolve without losing
+//     the project.
 //
 // Exit codes: 0 verified, 1 a check failed, 2 Playwright or a browser engine
 // is unavailable (`UNVERIFIED`). The Rust caller reports exit 2 as
@@ -267,6 +272,42 @@ try {
   const failures = (await contrastFailures(page)).slice(0, 8);
   if (failures.length > 0) fail(`contrast AA: ${failures.join(' | ')}`);
   note('workbench text meets contrast AA');
+
+  // 8. Flywheel ends + cap grouping + demo URL shapes (flywheel-plugin-cap).
+  const ideaEntry = page.locator('#wb-idea-entry');
+  await ideaEntry.waitFor({ timeout: 30000 });
+  const ideaText = (await ideaEntry.innerText()).trim();
+  if (!/graduation preview/i.test(ideaText) || !/studio spec/i.test(ideaText)) {
+    fail(`idea entry misses graduation/studio: ${ideaText.slice(0, 120)}`);
+  }
+  const ideaLinks = await ideaEntry.locator('a').evaluateAll((links) =>
+    links.map((a) => a.getAttribute('href')),
+  );
+  for (const href of ideaLinks) {
+    if (!href.includes(`project=${encodeURIComponent(project)}`) || !href.includes('&step=')) {
+      fail(`idea entry link misses the project+step pair: ${href}`);
+    }
+  }
+  note('rail step 0 carries the idea entry with project+step links');
+  const capBadge = (await page.locator('#cap-badge').innerText()).trim();
+  if (!/capability group:/i.test(capBadge)) fail(`cap badge misses the group text: ${capBadge}`);
+  note(`rail cap badge names the group (${capBadge.slice(0, 48)})`);
+  await page.goto(`${webBase}/projects`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.locator('#cap-filter').waitFor({ timeout: 30000 });
+  const capOptions = await page.locator('#cap-filter option').allInnerTexts();
+  for (const want of ['gate', 'agent', 'contract', 'delivery']) {
+    if (!capOptions.map((t) => t.trim()).includes(want)) fail(`cap filter misses group ${want}: [${capOptions.join(', ')}]`);
+  }
+  note('projects view carries the cap group filter');
+  await page.goto(`${webBase}/workbench?project=${encodeURIComponent(project)}&step=idea`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await expectBootedRail(page);
+  if (!page.url().includes(`project=${encodeURIComponent(project)}`) || !page.url().includes('step=idea')) {
+    fail(`demo URL lost the pair: ${page.url()}`);
+  }
+  note('demo URL shape ?project=&step=idea survives load');
   await context.close();
 
   // 8. Mobile 390px: no page-level horizontal overflow.

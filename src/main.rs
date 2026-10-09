@@ -12,8 +12,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use forge::registry::default_registry_path;
 
 use cli::agent::cmd_agent;
+use cli::cap::cmd_cap;
 use cli::commands::{
-    AgentCommands, ClassifyCommands, ContractCommands, DeliveryCommands, DocsCommands,
+    AgentCommands, CapCommands, ClassifyCommands, ContractCommands, DeliveryCommands, DocsCommands,
     GovernanceCommands, GraduationCommands, IntentCommands, PluginsCommands, PortalCommands,
     ProcedureCommands, PublishCommands, RemediateCommands, StudioCommands, UiPatternCommands,
     WorkspaceCommands,
@@ -473,6 +474,13 @@ enum Commands {
         #[command(subcommand)]
         command: StudioCommands,
     },
+    /// Group flat commands by capability (gate, agent, contract, delivery).
+    /// Old flat commands stay as working aliases; this facade only lists,
+    /// inspects, and previews the same surface.
+    Cap {
+        #[command(subcommand)]
+        command: CapCommands,
+    },
 }
 
 fn main() -> ExitCode {
@@ -676,6 +684,7 @@ fn main() -> ExitCode {
         Commands::Classify { command } => cmd_classify(&db_path, command, cli.format),
         Commands::Delivery { command } => cmd_delivery(&db_path, command, cli.format),
         Commands::Studio { command } => cmd_studio(&db_path, command, cli.format),
+        Commands::Cap { command } => cmd_cap(&db_path, command, cli.format),
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this

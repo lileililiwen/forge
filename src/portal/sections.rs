@@ -329,6 +329,8 @@ pub(super) fn controls_for(section: PortalSection) -> Vec<String> {
             "forge list".to_string(),
             "forge inspect <project>".to_string(),
             "forge doctor <project>".to_string(),
+            "forge cap list (capability groups with live Ready counts)".to_string(),
+            "forge cap inspect <cap> (Ready plugins plus mapped flat commands)".to_string(),
             "forge fleet inspect <ID> (read-only; unmanaged entries can only be inspected)"
                 .to_string(),
         ],
@@ -370,6 +372,19 @@ pub(super) fn controls_for(section: PortalSection) -> Vec<String> {
     }
 }
 
+pub(super) fn project_cap_group(profile: &str) -> String {
+    let lower = profile.to_lowercase();
+    if lower.contains("contract") || lower.contains("component") || lower.contains("standard") {
+        "contract".to_string()
+    } else if lower.contains("agent") || lower.contains("studio") || lower.contains("intent") {
+        "agent".to_string()
+    } else if lower.contains("gate") || lower.contains("check") || lower.contains("doctor") {
+        "gate".to_string()
+    } else {
+        "delivery".to_string()
+    }
+}
+
 pub(super) fn build_projects_section(records: &[ProjectRecord]) -> Vec<PortalEntry> {
     records
         .iter()
@@ -400,6 +415,7 @@ pub(super) fn build_projects_section(records: &[ProjectRecord]) -> Vec<PortalEnt
             if let Some(target) = r.deployment_target.as_ref() {
                 attributes.insert("deployment_target".to_string(), target.clone());
             }
+            attributes.insert("cap_group".to_string(), project_cap_group(&r.profile));
             PortalEntry {
                 id: r.id.clone(),
                 label: r.name.clone(),

@@ -1,5 +1,6 @@
 //! Browser oracle for the workbench lifecycle series rail
-//! (`lifecycle-series-rail`, part 2 live behavior).
+//! (`lifecycle-series-rail`, part 2 live behavior, plus
+//! `flywheel-plugin-cap` flywheel ends).
 //!
 //! This test starts throwaway API and web listeners with one registered
 //! fixture project, signs in through the shipped login page in real
@@ -9,7 +10,11 @@
 //! `?project=` across loads/clicks/reloads, the next-best-action card
 //! renders exactly one pick, arrow keys rove rail focus, Copy-as-CLI
 //! copies the exact shown `forge ...` string, 390px has no page-level
-//! horizontal overflow, and workbench text meets WCAG 2.2 AA.
+//! horizontal overflow, workbench text meets WCAG 2.2 AA, rail step 0
+//! carries the idea entry (graduation + studio), the projects view carries
+//! the cap group filter with the rail cap badge, `forge cap list` derives
+//! from `CAPABILITIES` plus live states, and `docs/flywheel-demo.md` covers
+//! the hookit 5-step demo URLs.
 //!
 //! If `node`, the pinned Playwright install or Chromium is unavailable, the
 //! Node harness exits `2`, this test prints `UNVERIFIED` and returns. That
@@ -168,6 +173,40 @@ fn lifecycle_series_rail_renders_and_copies_in_chromium() {
         .join("browser")
         .join("lifecycle-rail-check.mjs");
     assert!(script.is_file(), "browser harness missing");
+    // Flywheel static gates (no browser needed): `forge cap list` derives
+    // from CAPABILITIES plus live states, and the demo doc covers the
+    // hookit 5-step `?project=&step=` URLs.
+    let cap_out = Command::new(forge_bin())
+        .arg("--registry")
+        .arg(&db)
+        .arg("cap")
+        .arg("list")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("forge cap list");
+    assert!(cap_out.status.success(), "forge cap list runs");
+    let cap_json: serde_json::Value =
+        serde_json::from_slice(&cap_out.stdout).expect("cap list is JSON");
+    let groups = cap_json
+        .get("groups")
+        .and_then(|g| g.as_array())
+        .expect("cap list groups");
+    assert!(
+        groups
+            .iter()
+            .any(|g| g.get("capability").and_then(|c| c.as_str()) == Some("gate")),
+        "cap list derives from CAPABILITIES (gate present)"
+    );
+    let demo = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/flywheel-demo.md"),
+    )
+    .expect("demo doc ships");
+    assert!(demo.contains("hookit"), "demo uses hookit");
+    assert!(
+        demo.contains("?project=hookit&step=idea"),
+        "demo carries ?project=&step= URLs"
+    );
     let output = Command::new("node")
         .arg(script)
         .arg(&web_origin)

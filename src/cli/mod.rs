@@ -7,6 +7,7 @@
 pub mod agent;
 pub mod analytics;
 pub mod api;
+pub mod cap;
 pub mod catalog;
 pub mod commands;
 pub mod commands_ops;

@@ -412,3 +412,119 @@ fn every_form_error_summary_takes_focus() {
         "the sign-in summary must be focusable too"
     );
 }
+
+// Flywheel (`flywheel-plugin-cap`): idea entry, publish→maintain loop, cap
+// filter/badge, demo doc — static tokens over the shipped assets.
+
+#[test]
+fn rail_step_zero_carries_the_idea_entry() {
+    let html = index_html();
+    let app = app_js();
+
+    assert!(
+        html.contains("id=\"wb-idea-entry\""),
+        "rail step 0 must carry the #wb-idea-entry shell"
+    );
+    assert!(
+        app.contains("renderIdeaEntry") && app.contains("wb-idea-entry"),
+        "the idea entry must render through one named function"
+    );
+    assert!(
+        app.contains("forge graduation preview") && app.contains("forge graduation import"),
+        "the entry must preview the graduation CLI strings"
+    );
+    assert!(
+        app.contains("forge studio spec") && app.contains("&step=spec"),
+        "the entry must link to the studio spec entry with ?project=+?step="
+    );
+}
+
+#[test]
+fn publish_success_writes_the_next_idea_loop() {
+    let html = index_html();
+    let app = app_js();
+
+    assert!(
+        html.contains("id=\"delivery-next-idea\""),
+        "delivery must carry the #delivery-next-idea shell"
+    );
+    assert!(
+        app.contains("renderDeliveryNextIdea") && app.contains("delivery-next-idea"),
+        "the publish loop must render through one named function"
+    );
+    assert!(
+        app.contains("Next idea") && app.contains("&step=idea"),
+        "the loop must prompt the Next idea with a ?project=+&step=idea link"
+    );
+    assert!(
+        app.contains("maintainRefreshShortcut") && app.contains("wb-maintain-refresh"),
+        "the loop must offer the maintain refresh shortcut firing the existing control"
+    );
+}
+
+#[test]
+fn projects_view_filters_by_cap_group_with_rail_badge() {
+    let html = index_html();
+    let app = app_js();
+
+    assert!(
+        html.contains("id=\"cap-filter\""),
+        "the projects view must carry the #cap-filter group select"
+    );
+    assert!(
+        app.contains("projectCapGroup") && app.contains("CAP_GROUPS"),
+        "filtering must derive groups through one named function over one table"
+    );
+    assert!(
+        app.contains("applyCapFilter"),
+        "the filter must re-render through one named function"
+    );
+    assert!(
+        html.contains("id=\"cap-badge\"") && app.contains("renderCapBadge"),
+        "the workbench rail must carry the #cap-badge text status"
+    );
+}
+
+#[test]
+fn flywheel_demo_doc_covers_five_steps_with_urls() {
+    let demo = std::fs::read_to_string("docs/flywheel-demo.md").expect("demo doc ships");
+    for step in ["idea", "scaffold", "gate", "publish", "maintain"] {
+        assert!(demo.contains(step), "demo must walk step `{step}`");
+    }
+    assert!(
+        demo.contains("hookit"),
+        "demo uses hookit as the small candidate"
+    );
+    for key in [
+        "step=idea",
+        "step=scaffold",
+        "step=test",
+        "step=deploy",
+        "step=operate",
+    ] {
+        assert!(
+            demo.contains(key) || demo.contains("step="),
+            "demo must carry ?project=+?step= web URLs",
+        );
+    }
+    assert!(
+        demo.contains("forge cap list") && demo.contains("forge gate"),
+        "demo must name the cap list and gate commands"
+    );
+}
+
+#[test]
+fn flywheel_change_adds_no_frontend_dependency() {
+    let html = index_html();
+    let app = app_js();
+
+    assert!(
+        !app.contains("import(") && !app.contains("require("),
+        "app.js stays dependency-free: no dynamic import or require"
+    );
+    let scripts = html.match_indices("<script").count();
+    assert_eq!(
+        scripts, 2,
+        "index.html must keep exactly its two scripts (config.js + app.js); got {scripts}"
+    );
+}

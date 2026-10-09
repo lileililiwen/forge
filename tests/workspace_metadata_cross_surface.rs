@@ -154,7 +154,26 @@ fn declaration_is_absent_from_api_route_surface_names() {
     // The API mutation surface is unchanged by this contract: the create
     // route goes through the same Core generation and must not gain a
     // workspace-specific route or flag.
-    let src = fs::read_to_string("src/api/mod.rs").expect("api source");
+    // The API module is a directory since the size-split grind; scan the
+    // whole tree so the assertion covers wherever the Core path lives.
+    let mut src = String::new();
+    let mut stack = vec![std::path::PathBuf::from("src/api")];
+    while let Some(d) = stack.pop() {
+        let mut entries: Vec<_> = std::fs::read_dir(&d)
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                src.push_str(&fs::read_to_string(&p).unwrap());
+                src.push('\n');
+            }
+        }
+    }
     assert!(
         !src.contains("workspace-metadata"),
         "the API must not add a workspace opt-out surface"

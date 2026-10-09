@@ -1,0 +1,766 @@
+//! Auto-generated module
+//!
+//! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
+
+use crate::core::ForgeError;
+use crate::policy::redact_credentials;
+use crate::registry::Registry;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
+
+use super::contract::{
+    PUBLISH_CONTRACT_VERSION, STATUS_DONE, STATUS_DRY_RUN, STATUS_FAILED, STATUS_SKIPPED,
+};
+use super::model::{
+    Classification, CommandResult, CommandSpec, PublishAction, PublishReport, PublishRequest,
+    StageOutcome, StagePlan,
+};
+
+pub(super) fn validate_project_id(project_id: &str) -> Result<(), ForgeError> {
+    if project_id.is_empty() {
+        return Err(ForgeError::PublishInvalid {
+            reason: "project id must not be empty".to_string(),
+        });
+    }
+    if !project_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(ForgeError::PublishInvalid {
+            reason: format!(
+                "project id `{project_id}` must be kebab/snake-case (letters, digits, dash, underscore)"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// The boundary between Core and any concrete publish mechanism.
+/// Implementations own all mechanism-specific vocabulary: SSH
+/// hostnames, Jenkins exit codes, recovery hints, default paths.
+///
+/// Core calls [`PublishAdapter::plan`] to obtain the commands for a
+/// stage; Core calls [`PublishAdapter::classify`] to translate a
+/// raw [`CommandResult`] into a status + recovery hint set.
+/// Adapters do not touch subprocesses directly — they compose
+/// [`CommandSpec`] values and hand them to the transport.
+pub trait PublishAdapter {
+    /// Stable id used in `forge.yaml` (`publish.adapter: <id>`).
+    fn id(&self) -> &'static str;
+    /// Human label, used in dry-run banners and reports.
+    fn label(&self) -> &'static str;
+    /// Materialise adapter-owned inputs before a stage is planned.
+    ///
+    /// Called once per run, and only for actions that include
+    /// [`PublishAction::Prepare`], with the same transport the
+    /// orchestrator uses for execution. An adapter that computes
+    /// documents from target state (the remote-compose adapter reads
+    /// the target port registry, the Compose config and the ports
+    /// Docker already binds, then renders the port override, the
+    /// shared-database overlay and the router documents) observes the
+    /// target here so [`PublishAdapter::plan`] stays a pure renderer.
+    ///
+    /// The default is a no-op, so an adapter with no target-derived
+    /// inputs is unaffected. `dry_run` is passed through: a dry run
+    /// must not contact the target, and the adapter decides what it can
+    /// still preview without an observation.
+    fn materialize(
+        &self,
+        _request: &PublishRequest,
+        _transport: &dyn SshTransport,
+        _dry_run: bool,
+    ) -> Result<(), ForgeError> {
+        Ok(())
+    }
+    /// Build the commands for one stage.
+    fn plan(&self, request: &PublishRequest, stage: PublishAction)
+        -> Result<StagePlan, ForgeError>;
+    /// Translate a transport result into a status + note. The
+    /// adapter decides what counts as success and which exit
+    /// codes map to which recovery hints.
+    fn classify(&self, plan: &StagePlan, result: &CommandResult) -> Classification;
+    /// The public subdomain that a successful deploy lands at.
+    /// Used in `forge publish deploy --dry-run` and the report.
+    fn subdomain(&self, project_id: &str) -> Option<String>;
+}
+
+/// The boundary between Core and the SSH/rsync subprocesses. The
+/// default implementation spawns real subprocesses; tests swap in
+/// an in-memory recorder.
+///
+/// Implementations are expected to surface the captured exit code
+/// verbatim so adapters can apply mechanism-specific classification.
+/// The orchestrator's `dry_run` flag is the only gate the transport
+/// needs to honour.
+pub trait SshTransport {
+    /// Run one subprocess spec. Returns the captured result.
+    fn run(&self, cmd: CommandSpec) -> Result<CommandResult, ForgeError>;
+}
+
+pub(super) fn run_subprocess(
+    spec: &CommandSpec,
+    timeout: Duration,
+) -> Result<CommandResult, ForgeError> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut cmd = Command::new(&spec.program);
+    cmd.args(spec.args.iter());
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|err| ForgeError::PublishInvalid {
+        reason: format!("cannot spawn `{}`: {err}", spec.program),
+    })?;
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut out_bytes = Vec::new();
+                let mut err_bytes = Vec::new();
+                if let Some(s) = stdout.as_mut() {
+                    let _ = s.read_to_end(&mut out_bytes);
+                }
+                if let Some(s) = stderr.as_mut() {
+                    let _ = s.read_to_end(&mut err_bytes);
+                }
+                return Ok(CommandResult {
+                    status: status.code().unwrap_or(-1),
+                    stdout: String::from_utf8_lossy(&out_bytes).into_owned(),
+                    stderr: String::from_utf8_lossy(&err_bytes).into_owned(),
+                });
+            }
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Err(ForgeError::PublishInvalid {
+                        reason: format!(
+                            "subprocess `{}` timed out after {}s",
+                            spec.program,
+                            timeout.as_secs()
+                        ),
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(err) => {
+                return Err(ForgeError::PublishInvalid {
+                    reason: format!("subprocess wait failed: {err}"),
+                });
+            }
+        }
+    }
+}
+
+/// Run the publish workflow end-to-end. The action selects which
+/// stages to run; the registry receives one operation row per
+/// executed stage plus the aggregate. The adapter owns all
+/// mechanism-specific behaviour; this function is a pure renderer.
+pub fn run_publish(
+    request: &PublishRequest,
+    adapter: &dyn PublishAdapter,
+    transport: &dyn SshTransport,
+    registry: Option<&Registry>,
+) -> Result<PublishReport, ForgeError> {
+    request.validate()?;
+    if request.action.stages().contains(&PublishAction::Prepare) {
+        adapter.materialize(request, transport, request.dry_run)?;
+    }
+
+    let mut stages: Vec<StageOutcome> = Vec::new();
+    let mut healthy = true;
+    let mut subdomain: Option<String> = None;
+
+    for action in request.action.stages() {
+        let plan = adapter.plan(request, action.clone())?;
+        let outcome = execute_stage(adapter, &plan, request.dry_run, transport);
+
+        let stage_status = outcome.status.clone();
+        let is_ok = matches!(stage_status.as_str(), STATUS_DONE | STATUS_DRY_RUN);
+
+        if let Some(reg) = registry {
+            let _ = reg.record_operation(
+                "publish",
+                &request.project_id,
+                publish_journal_state(&stage_status),
+                &format!(
+                    "publish {} via {}: {} ({}, {}ms)",
+                    plan.stage,
+                    adapter.id(),
+                    outcome.note,
+                    stage_status,
+                    outcome.elapsed_ms
+                ),
+            );
+        }
+        if !is_ok {
+            healthy = false;
+        }
+        if matches!(action, PublishAction::Deploy) && is_ok {
+            subdomain = adapter.subdomain(&request.project_id);
+        }
+        stages.push(outcome);
+        if !healthy && !request.dry_run {
+            break;
+        }
+    }
+
+    let note = if request.dry_run {
+        format!(
+            "dry-run: {} stage(s) planned, no side effects",
+            stages.len()
+        )
+    } else if healthy {
+        "publish succeeded; project reachable at subdomain".to_string()
+    } else {
+        "publish did not complete; see stages for failure detail".to_string()
+    };
+
+    if let Some(reg) = registry {
+        let verdict = if request.dry_run {
+            "done"
+        } else if healthy {
+            "done"
+        } else {
+            "failed"
+        };
+        let _ = reg.record_operation(
+            "publish",
+            &request.project_id,
+            verdict,
+            &format!(
+                "publish {} summary via {}: healthy={} stages={}",
+                request.action.label(),
+                adapter.id(),
+                healthy,
+                stages.len()
+            ),
+        );
+    }
+
+    Ok(PublishReport {
+        contract: PUBLISH_CONTRACT_VERSION.to_string(),
+        adapter: adapter.id().to_string(),
+        project_id: request.project_id.clone(),
+        action: request.action.label().to_string(),
+        dry_run: request.dry_run,
+        subdomain,
+        stages,
+        note,
+        healthy,
+    })
+}
+
+/// Run one stage through the transport (or report the dry-run
+/// plan). Pure orchestration: no mechanism-specific vocabulary
+/// here. When the stage issues multiple commands, they run
+/// sequentially; any failure aborts the stage.
+fn execute_stage(
+    adapter: &dyn PublishAdapter,
+    plan: &StagePlan,
+    dry_run: bool,
+    transport: &dyn SshTransport,
+) -> StageOutcome {
+    let command_rendered = plan.render();
+    let command_lines: Vec<String> = plan.commands.iter().map(|c| c.render()).collect();
+    if dry_run {
+        return StageOutcome {
+            stage: plan.stage.clone(),
+            status: STATUS_DRY_RUN.to_string(),
+            note: format!("would run: {command_rendered}"),
+            command: command_lines,
+            evidence: vec!["dry-run: no subprocess spawned".to_string()],
+            recovery: vec![],
+            elapsed_ms: 0,
+        };
+    }
+
+    let started = std::time::Instant::now();
+    let mut last_result: Option<CommandResult> = None;
+    let mut last_error: Option<ForgeError> = None;
+    let total = plan.commands.len();
+    for (idx, cmd) in plan.commands.iter().enumerate() {
+        match transport.run(cmd.clone()) {
+            Ok(result) => {
+                if !result.success() {
+                    last_result = Some(result.clone());
+                    break;
+                }
+                last_result = Some(result);
+                if idx + 1 < total {
+                    // Continue only on success.
+                }
+            }
+            Err(err) => {
+                last_error = Some(err);
+                break;
+            }
+        }
+    }
+    let elapsed_ms = started.elapsed().as_millis();
+
+    if let Some(err) = last_error {
+        return StageOutcome {
+            stage: plan.stage.clone(),
+            status: STATUS_FAILED.to_string(),
+            note: err.to_string(),
+            command: command_lines,
+            evidence: vec![format!("transport error after {}ms", elapsed_ms)],
+            recovery: vec![format!("verify the transport can reach `{}`", plan.stage)],
+            elapsed_ms,
+        };
+    }
+
+    let result = last_result.expect("at least one command runs per stage");
+    let classification = adapter.classify(plan, &result);
+    let is_done = classification.status == STATUS_DONE;
+    let note = if is_done {
+        format!("{} completed in {}ms", plan.stage, elapsed_ms)
+    } else {
+        format!("{} (exit {})", classification.note, result.status)
+    };
+    // A failed stage carries the failing command's bounded,
+    // credential-redacted stderr tail so `forge publish` and
+    // `forge deploy status` show the cause without re-running.
+    let mut evidence = vec![format!("exit {} after {}ms", result.status, elapsed_ms)];
+    if !is_done {
+        let tail = bounded_stderr_tail(&result.stderr);
+        if !tail.is_empty() {
+            evidence.push(format!("detail: {tail}"));
+        }
+    }
+    StageOutcome {
+        stage: plan.stage.clone(),
+        status: classification.status,
+        note,
+        command: command_lines,
+        evidence,
+        recovery: classification.recovery,
+        elapsed_ms,
+    }
+}
+
+/// Last ~1500 characters of redacted stderr, trimmed of blank edge
+/// lines. Empty when the command said nothing on stderr.
+fn bounded_stderr_tail(stderr: &str) -> String {
+    const MAX_TAIL: usize = 1500;
+    let redacted = redact_credentials(stderr);
+    let trimmed = redacted.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let tail = trimmed.to_string();
+    let chars: Vec<char> = tail.chars().collect();
+    if chars.len() > MAX_TAIL {
+        format!(
+            "…{}",
+            chars[chars.len() - MAX_TAIL..].iter().collect::<String>()
+        )
+    } else {
+        tail
+    }
+}
+
+/// Render a [`PublishReport`] for human output. The transport
+/// renders the same data the JSON envelope carries so a partial run
+/// is observable on stdout.
+pub fn render_report_human(report: &PublishReport) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!("project: {}", report.project_id));
+    lines.push(format!("adapter: {}", report.adapter));
+    lines.push(format!("action: {}", report.action));
+    lines.push(format!(
+        "mode: {}",
+        if report.dry_run { "dry-run" } else { "apply" }
+    ));
+    if let Some(sub) = &report.subdomain {
+        lines.push(format!("subdomain: https://{sub}"));
+    }
+    if !report.stages.is_empty() {
+        lines.push("stages:".to_string());
+        for outcome in &report.stages {
+            lines.push(format!(
+                "  - {stage} {status} ({elapsed_ms}ms): {note}",
+                stage = outcome.stage,
+                status = outcome.status,
+                elapsed_ms = outcome.elapsed_ms,
+                note = outcome.note
+            ));
+            for line in &outcome.evidence {
+                lines.push(format!("      evidence: {line}"));
+            }
+            for line in &outcome.recovery {
+                lines.push(format!("      recovery: {line}"));
+            }
+            if !outcome.command.is_empty() {
+                lines.push(format!("      command: {}", outcome.command.join(" | ")));
+            }
+        }
+    }
+    lines.push(format!("summary: {}", report.note));
+    lines.join("\n")
+}
+
+/// Convenience for the CLI handler: build a [`PublishRequest`] from
+/// the user-facing fields.
+pub fn request_from(
+    project_id: impl Into<String>,
+    project_dir: impl Into<PathBuf>,
+    action: PublishAction,
+    dry_run: bool,
+) -> PublishRequest {
+    PublishRequest {
+        project_id: project_id.into(),
+        project_dir: project_dir.into(),
+        action,
+        dry_run,
+    }
+}
+
+/// Map a stage status to a stable registry journal label. Public so
+/// the CLI handler can use the same mapping when building custom
+/// operation rows; the test suite verifies the contract.
+pub fn publish_journal_state(status: &str) -> &'static str {
+    match status {
+        STATUS_DONE => "done",
+        STATUS_DRY_RUN => "skipped",
+        STATUS_FAILED => "failed",
+        STATUS_SKIPPED => "skipped",
+        _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use tempfile::TempDir;
+
+    use super::super::contract::STAGE_SYNC;
+    use super::super::model::RecordingTransport;
+
+    fn fixture_request(action: PublishAction, dry_run: bool) -> (PublishRequest, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let req = PublishRequest {
+            project_id: "demo".to_string(),
+            project_dir: tmp.path().to_path_buf(),
+            action,
+            dry_run,
+        };
+        (req, tmp)
+    }
+
+    /// Trivial adapter for testing the orchestrator. Records every
+    /// plan call and never fails — the orchestrator tests do not
+    /// care about Jenkins specifics.
+    struct StubAdapter {
+        id: &'static str,
+        label: &'static str,
+    }
+    impl PublishAdapter for StubAdapter {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn label(&self) -> &'static str {
+            self.label
+        }
+        fn plan(
+            &self,
+            request: &PublishRequest,
+            stage: PublishAction,
+        ) -> Result<StagePlan, ForgeError> {
+            let label = format!("stub-{:?}", stage);
+            let command = CommandSpec::new("echo", label.clone()).arg(label);
+            Ok(StagePlan {
+                stage: stage.label().to_string(),
+                commands: vec![command],
+                project_id: request.project_id.clone(),
+            })
+        }
+        fn classify(&self, plan: &StagePlan, result: &CommandResult) -> Classification {
+            if result.success() {
+                Classification::done(format!("{} ok", plan.stage))
+            } else {
+                Classification::failed(
+                    format!("{} failed", plan.stage),
+                    vec![format!("inspect exit {}", result.status)],
+                )
+            }
+        }
+        fn subdomain(&self, project_id: &str) -> Option<String> {
+            Some(format!("{project_id}.stub.test"))
+        }
+    }
+
+    #[test]
+    fn request_validate_rejects_missing_dir() {
+        let req = PublishRequest {
+            project_id: "demo".to_string(),
+            project_dir: PathBuf::from("/no/such/path/exists/anywhere"),
+            action: PublishAction::Sync,
+            dry_run: true,
+        };
+        let err = req.validate().unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+    }
+
+    #[test]
+    fn request_validate_rejects_bad_project_id() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, true);
+        let mut bad = req.clone();
+        bad.project_id = "demo with space".to_string();
+        let err = bad.validate().unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+    }
+
+    #[test]
+    fn action_parse_accepts_known_values() {
+        assert_eq!(PublishAction::parse("sync").unwrap(), PublishAction::Sync);
+        assert_eq!(PublishAction::parse("db").unwrap(), PublishAction::Db);
+        assert_eq!(
+            PublishAction::parse("prepare").unwrap(),
+            PublishAction::Prepare
+        );
+        assert_eq!(
+            PublishAction::parse("deploy").unwrap(),
+            PublishAction::Deploy
+        );
+        assert_eq!(PublishAction::parse("all").unwrap(), PublishAction::All);
+    }
+
+    #[test]
+    fn action_parse_rejects_unknown_value() {
+        let err = PublishAction::parse("promote").unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+    }
+
+    /// Adapter that records how often the orchestrator asked it to
+    /// materialise adapter-owned inputs, and can refuse.
+    struct MaterializingAdapter {
+        id: &'static str,
+        label: &'static str,
+        seen: Cell<usize>,
+        refuse: bool,
+    }
+    impl PublishAdapter for MaterializingAdapter {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn label(&self) -> &'static str {
+            self.label
+        }
+        fn materialize(
+            &self,
+            _request: &PublishRequest,
+            _transport: &dyn SshTransport,
+            _dry_run: bool,
+        ) -> Result<(), ForgeError> {
+            self.seen.set(self.seen.get() + 1);
+            if self.refuse {
+                return Err(ForgeError::PublishInvalid {
+                    reason: "target observation refused".to_string(),
+                });
+            }
+            Ok(())
+        }
+        fn plan(
+            &self,
+            request: &PublishRequest,
+            stage: PublishAction,
+        ) -> Result<StagePlan, ForgeError> {
+            let label = format!("stub-{:?}", stage);
+            Ok(StagePlan {
+                stage: stage.label().to_string(),
+                commands: vec![CommandSpec::new("echo", label.clone()).arg(label)],
+                project_id: request.project_id.clone(),
+            })
+        }
+        fn classify(&self, plan: &StagePlan, result: &CommandResult) -> Classification {
+            if result.success() {
+                Classification::done(format!("{} ok", plan.stage))
+            } else {
+                Classification::failed(format!("{} failed", plan.stage), vec![])
+            }
+        }
+        fn subdomain(&self, project_id: &str) -> Option<String> {
+            Some(format!("{project_id}.stub.test"))
+        }
+    }
+
+    #[test]
+    fn materialize_runs_once_for_actions_that_prepare() {
+        let (req, _tmp) = fixture_request(PublishAction::All, true);
+        let adapter = MaterializingAdapter {
+            id: "materializing",
+            label: "materializing",
+            seen: Cell::new(0),
+            refuse: false,
+        };
+        let transport = RecordingTransport::new();
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert_eq!(adapter.seen.get(), 1);
+        assert_eq!(report.stages.len(), 4);
+    }
+
+    #[test]
+    fn materialize_is_skipped_for_actions_without_prepare() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, true);
+        let adapter = MaterializingAdapter {
+            id: "materializing",
+            label: "materializing",
+            seen: Cell::new(0),
+            refuse: false,
+        };
+        let transport = RecordingTransport::new();
+        run_publish(&req, &adapter, &transport, None).unwrap();
+        assert_eq!(adapter.seen.get(), 0);
+    }
+
+    #[test]
+    fn materialize_failure_aborts_before_any_stage_runs() {
+        let (req, _tmp) = fixture_request(PublishAction::All, false);
+        let adapter = MaterializingAdapter {
+            id: "materializing",
+            label: "materializing",
+            seen: Cell::new(0),
+            refuse: true,
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(4);
+        let err = run_publish(&req, &adapter, &transport, None).unwrap_err();
+        assert_eq!(err.code(), "publish-invalid");
+        assert_eq!(transport.command_count(), 0);
+    }
+
+    #[test]
+    fn action_stages_returns_correct_slices() {
+        assert_eq!(PublishAction::Sync.stages(), &[PublishAction::Sync]);
+        assert_eq!(PublishAction::All.stages().len(), 4);
+    }
+
+    #[test]
+    fn command_spec_render_includes_program_and_args() {
+        let cmd = CommandSpec::new("ssh", "test")
+            .arg("mac")
+            .arg("bash")
+            .arg("/path/to/script.sh");
+        let rendered = cmd.render();
+        assert!(rendered.starts_with("ssh mac bash /path/to/script.sh"));
+    }
+
+    #[test]
+    fn journal_state_maps_known_statuses() {
+        assert_eq!(publish_journal_state(STATUS_DONE), "done");
+        assert_eq!(publish_journal_state(STATUS_DRY_RUN), "skipped");
+        assert_eq!(publish_journal_state(STATUS_FAILED), "failed");
+        assert_eq!(publish_journal_state("something-else"), "unknown");
+    }
+
+    #[test]
+    fn dry_run_does_not_invoke_real_transport() {
+        let (req, _tmp) = fixture_request(PublishAction::All, true);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let transport = RecordingTransport::new();
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(report.dry_run);
+        assert_eq!(report.stages.len(), 4);
+        assert!(report.stages.iter().all(|s| s.status == STATUS_DRY_RUN));
+        // The recording transport is not real, so execute_stage
+        // short-circuits regardless; confirm the recorder stays
+        // empty.
+        assert_eq!(transport.command_count(), 0);
+        assert!(report.healthy);
+    }
+
+    #[test]
+    fn apply_path_records_each_real_subprocess() {
+        let (req, _tmp) = fixture_request(PublishAction::All, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(4);
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(!report.dry_run);
+        assert_eq!(report.stages.len(), 4);
+        assert!(report.stages.iter().all(|s| s.status == STATUS_DONE));
+        assert!(report.healthy);
+        assert_eq!(report.subdomain(), Some("demo.stub.test"));
+        assert_eq!(report.adapter, "stub");
+    }
+
+    #[test]
+    fn apply_stops_at_first_failure() {
+        let (req, _tmp) = fixture_request(PublishAction::All, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.push(Err("boom".to_string()));
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert_eq!(report.stages.len(), 1);
+        assert!(!report.healthy);
+    }
+
+    #[test]
+    fn failed_stage_carries_redacted_bounded_stderr_detail() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.push(Ok(CommandResult {
+            status: 1,
+            stdout: String::new(),
+            stderr: "no such service: web\npassword=hunter2\n".to_string(),
+        }));
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(!report.healthy);
+        let evidence = report.stages[0].evidence.join("\n");
+        assert!(evidence.contains("exit 1"), "evidence was: {evidence}");
+        assert!(
+            evidence.contains("no such service: web"),
+            "evidence was: {evidence}"
+        );
+        assert!(!evidence.contains("hunter2"), "evidence was: {evidence}");
+    }
+
+    #[test]
+    fn render_report_human_includes_key_fields() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, true);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let transport = RecordingTransport::new();
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        let rendered = render_report_human(&report);
+        assert!(rendered.contains("project: demo"));
+        assert!(rendered.contains("adapter: stub"));
+        assert!(rendered.contains("action: sync"));
+        assert!(rendered.contains("mode: dry-run"));
+    }
+
+    #[test]
+    fn stage_outcome_serializes_to_json() {
+        let outcome = StageOutcome {
+            stage: STAGE_SYNC.to_string(),
+            status: STATUS_DONE.to_string(),
+            note: "ok".to_string(),
+            command: vec!["rsync".to_string()],
+            evidence: vec!["exit 0".to_string()],
+            recovery: vec![],
+            elapsed_ms: 12,
+        };
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(json["stage"], STAGE_SYNC);
+        assert_eq!(json["status"], STATUS_DONE);
+        assert_eq!(json["elapsed_ms"], 12);
+    }
+}

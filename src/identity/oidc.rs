@@ -36,10 +36,10 @@ use openidconnect::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{
-    redact_credentials, AuthCallback, AuthChallenge, BrowserAuthVerifier, ForgeError,
-    IdentityConfig, ProviderClaims,
-};
+use crate::core::ForgeError;
+use crate::policy::redact_credentials;
+
+use super::{AuthCallback, AuthChallenge, BrowserAuthVerifier, IdentityConfig, ProviderClaims};
 
 /// Provider network bound. Discovery, JWKS retrieval, and
 /// the PKCE code exchange share one bounded connection so a

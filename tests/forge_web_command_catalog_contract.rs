@@ -647,8 +647,31 @@ fn frontend_uses_the_catalog_for_per_project_buttons_not_a_reference_page() {
     );
 
     // The catalog stays in Rust; nothing moved into the assets.
-    let admin_rs = std::fs::read_to_string("src/api/admin.rs").unwrap();
-    let catalog_rs = std::fs::read_to_string("src/api/command_catalog.rs").unwrap();
+    // Both modules are directories since the size-split grind; read the
+    // whole tree so no submodule can smuggle markup past this assertion.
+    fn read_module_tree(dir: &str) -> String {
+        let mut out = String::new();
+        let mut stack = vec![std::path::PathBuf::from(dir)];
+        while let Some(d) = stack.pop() {
+            let mut entries: Vec<_> = std::fs::read_dir(&d)
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            entries.sort_by_key(|e| e.file_name());
+            for e in entries {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push_str(&std::fs::read_to_string(&p).unwrap());
+                    out.push('\n');
+                }
+            }
+        }
+        out
+    }
+    let admin_rs = read_module_tree("src/api/admin");
+    let catalog_rs = read_module_tree("src/api/command_catalog");
     for source in [&admin_rs, &catalog_rs] {
         assert!(
             !source.contains("<html") && !source.contains("<body") && !source.contains("html!"),

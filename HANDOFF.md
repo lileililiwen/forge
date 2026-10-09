@@ -2,6 +2,72 @@
 
 ## Current state
 
+### github-gh-fallback-register active, implemented, unarchived (2026-10-09)
+
+`github-gh-fallback-register` closes the two 2026-10-09 gaps on `main`
+without archiving (owner direction: exactly 2 commits, no push):
+
+- **Gap1 — gh-backed fallback for observe/propose.** New
+  `src/github/gh_fallback.rs` serves read-only observe via
+  `gh repo view <owner/repo> --json ...` and direct single-`topic=`
+  propose via `gh repo edit --add-topic` when no
+  `forge-github-metadata-adapter`/`FORGE_GITHUB_BIN` binary is
+  configured and `gh` is available. Adapter-first ordering;
+  `adapter_source=gh-cli-fallback` envelope; `FORGE_GITHUB_TOKEN`
+  bypassed only on the fallback path; PR mode and non-topic fields
+  still require the adapter. Tokens/credentials never logged
+  (fixed notes + `redact_credentials`; live demo below shows no
+  secret in output).
+- **Gap2 — `create --register-if-missing`.** New flag on
+  `GithubCommands::Create` (`src/cli/commands_ops.rs`,
+  `src/cli/github.rs`): validates `forge.yaml` via
+  `Manifest::load_from_dir`, registers the canonical path via
+  `Registry::register`, then runs the existing `gh repo create`
+  (+ optional `--push-source`); JSON/human gain
+  `register_if_missing`/`registered`. Default path unchanged.
+- **Portal + web views.** `repositories` portal controls name the
+  three github commands (+ `github_repository`/`github_observe`
+  attributes); Delivery gains one `GitHub metadata` card
+  (`frontend/index.html`/`app.js`/`styles.css` appended block):
+  topics `<ul>` with dev-highlight + text alternative, propose form
+  with mode radios + masked confirm-token field, create flow with
+  visibility radios + push-source/register-if-missing checkboxes.
+  Native controls, labels, error-summary focus, `role="status"`
+  results, keyboard operable, no new endpoint/framework.
+
+Live demo (this checkout, `gh` authenticated, no adapter binary):
+
+- `forge project github observe octocat/Hello-World --format json` →
+  `adapter_source=gh-cli-fallback (PATH:gh)`,
+  `state=current`, real description `My first repository on GitHub!`.
+- `... propose <repo> --mode direct --set topic=forge-dev` (no
+  `--confirm`) → `error[github-invalid]` (refused, no write).
+- `... propose <repo> --set topic=forge-dev` (default PR mode) →
+  `error[github-adapter-unavailable]` (PR unchanged, no write).
+- `forge project github create --help` names `--register-if-missing`;
+  empty-dir + flag → typed invalid refusing before any `gh` write.
+- Portal: `forge portal view repositories <id>` lists the three
+  github commands. Web: Delivery → GitHub metadata card renders
+  topics, CLI previews, focus-moved error summaries.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean (via `cargo fmt`) |
+| `cargo build` | 0 errors; 3 pre-existing warnings only (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) |
+| `cargo test --test github_gh_fallback_register_contract` | **8 passed / 0 failed** |
+| `cargo test --lib github` | **47 passed / 0 failed** |
+| `cargo test --bin forge` | **7 passed / 0 failed** |
+| `cargo test --test portal_contract` + `--test forge_web_navigation_contract` | **10 + 9 passed / 0 failed** |
+| `cargo test` (full workspace) | not bounded locally: exceeds 10min (native-toolchain + `project-runtime` 60s adapter cold-compile); targeted suites above green, no new failure |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **94 passed / 0 failed** |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate . --timeout-secs 500` | **blocked/unresolved, 0 attributable**: pass — build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (389/389 ≤1000, +1 `gh_fallback.rs`); unresolved pre-existing — declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| commits on `main` | implementation `216abe1` + this handoff; nothing pushed; `current_spec` stays `github-gh-fallback-register` (active, unarchived) |
+
 ### portal-feedback-session-recovery delivered and archived (2026-10-09)
 
 `portal-feedback-session-recovery` is implemented, verified and archived as
@@ -3771,3 +3837,5 @@ the same project with its committed `packages/` deleted — fails with
 `error NU1301`, naming the relative feed as the missing local source. So the
 committed bytes are what supply the packages: not the cache, not a sibling, not
 an environment variable.
+
+current_spec: github-gh-fallback-register

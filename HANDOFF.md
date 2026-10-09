@@ -2,6 +2,50 @@
 
 ## Current state
 
+### portal-feedback-session-recovery delivered and archived (2026-10-09)
+
+`portal-feedback-session-recovery` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-09-portal-feedback-session-recovery`,
+promoting four `portal-web-ui` requirements (+4, no `--skip-specs`). Closeout
+of the standing UI/UX audit's remaining measured gaps on the standalone
+`frontend/` assets:
+
+- **G1 — action results are live regions.** The seven `.wb-plan-result`
+  containers carry `role="status"`; one `setResultRole(box, isError)` helper
+  sets `role`/`aria-live` (`status`/`polite` vs `alert`/`assertive`) on every
+  write across workbench plan/apply, delivery action/lookup, workspace-bulk
+  preview/run, scoped-management preview/run and each catalog-action card, so
+  a reused box never keeps stale urgency.
+- **G2 — mid-session `401` recovery.** `request`/`requestStatus` jump to
+  `login.html?next=<current path+query>` on a `401` from a dashboard page; the
+  login page is excluded, so a wrong-password `401` still renders its inline
+  error and summary.
+- **G3 — 12px essential-text floor.** One appended slice-7 CSS block raises
+  error, hint, digest, CLI-hint, evidence-chip, findings, workflow-reason,
+  source-metadata and detail-row text to `--text-md` (12px); uppercase
+  micro-labels and badges stay compact.
+- **G4 — disclosure association.** Each `.wb-action-body` gets a unique id and
+  its `.wb-action-head` sets `aria-controls`.
+
+No API/registry/journal/CLI/catalog change; server `401` semantics, the static
+allowlist and the `next` allowlist are untouched.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; the 3 warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) are pre-existing (identical at HEAD `44c3254`) |
+| `cargo test --test portal_feedback_session_contract` | **5 passed / 0 failed** |
+| frontend contract regression (`--test forge_web_*`, `web_login_credentials_contract`, new test) | static + server contracts green (all `forge_web_*_contract`, `web_login_credentials_contract`, `portal_feedback_session_contract`); browser oracles unchanged |
+| browser oracles (`forge_web_project_delivery_browser`, `forge_web_workbench_deep_link_browser`, `forge_web_workspace_onboarding_browser`) | **3 pre-existing failures, reproduced identically against the stashed pre-change `frontend/`** — not attributable to this change: a Playwright actionability/visibility timeout on `#workbench-project`, a Back-URL assertion and a dashboard-order assertion |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **93 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive portal-feedback-session-recovery --yes` | archived as `2026-10-09-portal-feedback-session-recovery`, no `--skip-specs`; `openspec list` reports no active changes |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate . --timeout-secs 600` | **blocked/unresolved, 0 attributable**: pass — build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (388/388 ≤1000); unresolved pre-existing — declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget cold-compiling TLS deps `ring`/`rustls`, the same pre-existing pair recorded by `automated-size-split-batch`). Remediation: warm/point the adapter at the shared target cache or raise the workspace-governance rule-pack per-check budget, then re-run `forge gate .`. This frontend-only change adds no new failure. |
+
 ### automated-size-split-batch delivered and archived (2026-10-09)
 
 `automated-size-split-batch` is implemented, verified and archived as

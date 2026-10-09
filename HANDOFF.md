@@ -2,6 +2,70 @@
 
 ## Current state
 
+### automated-size-split-batch delivered and archived (2026-10-09)
+
+`automated-size-split-batch` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-09-automated-size-split-batch`,
+promoting the `automated-size-split-batch` spec (+2 requirements) without
+`--skip-specs`. Every `src/**/*.rs` is now under the 1000-line cap
+(46 oversized → 0; 5 largest now 997/996/975/970/959). Method: splitrs
+(`--max-lines 900 --naming-strategy domain-specific`, one file at a time,
+`--rollback`) + readability rename of generic buckets to domain names +
+manual sub-splits where a bucket exceeded 900. Bodies verbatim
+(item-count parity per file); public paths stable via re-exports; no
+caller edits; no API/CLI/JSON behavior change; no frontend change.
+
+Division of labor (operator direction): subagents did splits with
+lightweight checks only (fmt, constrained build, module lib-tests); the
+orchestrator ran the heavy full suite + Gate once, fixed 2 forced test
+path-scan updates + 2 split-attributable import warnings, and closed out.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build -j2` (sccache-warmed) | 0 errors; remaining warnings verified pre-existing via HEAD (validation ShareSurface, fleet_data dead-code, cli dead-code, FLEET_DEFAULT_JOBS) |
+| lib `--lib` | **1209 passed / 0 failed / 1 ignored** |
+| bin `--bin forge` | **7 / 7 passed** |
+| integration targets (full coverage, 130+) | all green except 7 pre-existing failures (below); fixed by this change: catalog_contract 9/9, workspace_metadata 4/4 |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | PASS (after TBD + pointer fix) |
+| `openspec validate --all --strict --no-interactive` | **93 passed / 0 failed** |
+| `git diff --check` | clean |
+| `openspec archive automated-size-split-batch --yes` | archived as `2026-10-09-automated-size-split-batch`, no `--skip-specs`; `openspec list` reports no active changes |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **source-file-size PASS (388/388 ≤1000)**; pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security; unresolved pre-existing: declared-verification + tests (`project-runtime` 60s adapter timeouts); 0 attributable |
+
+Process note: the gate size check consumes the git index, so its first
+post-split run errored on uncommitted deletions; implementation was
+committed as `f853d11` before the passing run (order deviation).
+
+Pre-existing failures unrelated to this change (recorded, not fixed):
+
+- `forge_web_project_delivery_browser` selectOption on invisible
+  `#workbench-project` (recorded earlier; harness must navigate to
+  `/workbench` first).
+- `forge_web_project_status_contract` + `forge_web_project_workbench_contract`
+  `innerHTML` assertions (introduced by archived slice 5 `0cee5ad`; this
+  change touches 0 frontend files). Remediation: replace the single
+  `innerHTML` use with safe DOM construction in a follow-up frontend change.
+- `forge_web_workbench_deep_link_browser` back/forward race (flaky both
+  trees: batch 2/6 vs pristine-stash 2/4, identical signature; timing-sensitive
+  history assertions). Remediation: harden harness waits in a follow-up change.
+- `forge_web_workspace_onboarding_browser` dashboard-order assertion
+  (recorded earlier; `#commands-title` gone since lifecycle-tracked view).
+- `portfolio_ui_contract` 20 failures (asserts `/ui/` routes deleted by
+  archived remove-api-ui; zero batch touches, zero routes at committed HEAD).
+  Remediation: delete or rewrite the stale file against the JSON API.
+- `project_query_surface_contract` 2 failures (403-vs-401: no-bearer catalog
+  requests hit the maintainer-platform cookie-path origin check; logic
+  byte-identical at committed HEAD). Remediation: send the configured origin
+  in the test (expect 401) or assert both branches.
+
+Implementation commit: `f853d11`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### portfolio-mod-size-split delivered and archived (2026-10-08)
 
 File 5 of the source-file-size grind per

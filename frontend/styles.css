@@ -236,3 +236,15 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .evidence-chip{font-size:var(--text-md)}
 .summary-card p{font-size:var(--text-md)}
 .app-footer{font-size:var(--text-md)}
+/* Slice 8 — GitHub metadata card (github-gh-fallback-register).
+ * Plain topics list with dev highlight (background + border, never color
+ * alone), native radio rows that wrap on narrow screens, keyboard focus
+ * via the shared --focus token. Additive only; earlier rules untouched. */
+.github-topics{list-style:none;margin:8px 0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.github-topics .topic{display:inline-block;min-height:44px;line-height:44px;padding:0 12px;border:1px solid var(--border);border-radius:999px}
+.github-topics .topic-dev{background:rgba(154,165,255,.14);border-color:var(--focus);font-weight:600}
+.radio-group{border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:8px 0}
+.radio-group legend{padding:0 6px}
+.radio-group .radio{display:flex;align-items:center;gap:8px;min-height:44px}
+.radio-group input[type="radio"]{width:20px;height:20px;flex:none}
+@media (max-width:560px){.github-topics .topic{line-height:40px;min-height:44px}}

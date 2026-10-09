@@ -158,6 +158,7 @@ fn cmd_project_github(
             confirm_public,
             push_source,
             confirm,
+            register_if_missing,
         } => cmd_github_cli_create(
             db_path,
             project,
@@ -166,6 +167,7 @@ fn cmd_project_github(
             *confirm_public,
             *push_source,
             *confirm,
+            *register_if_missing,
             format,
         ),
         GithubCommands::PullRequest {
@@ -185,10 +187,15 @@ fn cmd_github_observe(
     format: Format,
 ) -> Result<Output, ForgeError> {
     use forge::github::{
-        normalize_observation, GithubAdapter, GithubObservationRequest, GITHUB_CONTRACT_VERSION,
+        normalize_observation, GhCli, GithubAdapter, GithubObservationRequest,
+        GITHUB_CONTRACT_VERSION,
     };
     let adapter = GithubAdapter::from_env();
     if !adapter.binary_available() {
+        let cli = GhCli::from_env();
+        if cli.binary_available() {
+            return cmd_github_observe_via_gh(&cli, db_path, repositories, host, format);
+        }
         return Err(ForgeError::GithubAdapterUnavailable {
             reason: format!(
                 "no GitHub adapter binary is configured ({})",
@@ -252,10 +259,14 @@ fn cmd_github_propose(
     format: Format,
 ) -> Result<Output, ForgeError> {
     use forge::github::{
-        GithubAdapter, MutationMode, ProposeRequest, ProposedChange, GITHUB_CONTRACT_VERSION,
+        GhCli, GithubAdapter, MutationMode, ProposeRequest, ProposedChange, GITHUB_CONTRACT_VERSION,
     };
     let adapter = GithubAdapter::from_env();
     if !adapter.binary_available() {
+        let cli = GhCli::from_env();
+        if cli.binary_available() {
+            return cmd_github_propose_via_gh(&cli, repository, host, mode, confirm, sets, format);
+        }
         return Err(ForgeError::GithubAdapterUnavailable {
             reason: format!(
                 "no GitHub adapter binary is configured ({})",
@@ -319,6 +330,128 @@ fn cmd_github_propose(
         "host": host,
         "repository": repository,
         "adapter_source": adapter.source,
+        "outcome": outcome,
+    });
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_github_observe_via_gh(
+    cli: &forge::github::GhCli,
+    db_path: &Path,
+    repositories: &[String],
+    host: &str,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::github::{
+        normalize_observation, observe_one_via_gh, FALLBACK_SOURCE_LABEL, GITHUB_CONTRACT_VERSION,
+    };
+    let explicit = repositories
+        .iter()
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    let selection_repos = if explicit.is_empty() {
+        github_repositories_from_registry(db_path)?
+    } else {
+        explicit
+    };
+    if selection_repos.is_empty() {
+        return Err(ForgeError::GithubInvalid {
+            reason: "no repositories to observe; pass `owner/repo` arguments or register a \
+                     project whose git_remote points to github.com"
+                .to_string(),
+        });
+    }
+    let mut observations = Vec::new();
+    for repository in &selection_repos {
+        observations.push(observe_one_via_gh(cli, repository, host)?);
+    }
+    let now = chrono::Utc::now();
+    let max_age = forge::catalog::DEFAULT_MAX_AGE_SECONDS;
+    let records: Vec<forge::catalog::CatalogRecord> = observations
+        .iter()
+        .map(|observation| normalize_observation(observation, max_age, now))
+        .collect();
+    let human = render_github_observe_human(host, &observations, &records);
+    let json = serde_json::json!({
+        "contract": GITHUB_CONTRACT_VERSION,
+        "host": host,
+        "adapter_source": format!("{FALLBACK_SOURCE_LABEL} ({})", cli.source),
+        "observations": observations,
+        "records": records,
+    });
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_github_propose_via_gh(
+    cli: &forge::github::GhCli,
+    repository: &str,
+    host: &str,
+    mode: &str,
+    confirm: Option<&str>,
+    sets: &[String],
+    format: Format,
+) -> Result<Output, ForgeError> {
+    use forge::github::{
+        propose_topic_via_gh, single_topic_value, ProposedChange, FALLBACK_SOURCE_LABEL,
+        GITHUB_CONTRACT_VERSION,
+    };
+    let mode_trimmed = mode.trim();
+    if !matches!(mode_trimmed, "direct" | "")
+        && mode_trimmed != "pull-request"
+        && mode_trimmed != "pr"
+    {
+        return Err(ForgeError::GithubInvalid {
+            reason: format!(
+                "unknown --mode `{mode_trimmed}`; expected `pull-request` (default) or `direct`"
+            ),
+        });
+    }
+    if mode_trimmed != "direct" {
+        return Err(ForgeError::GithubAdapterUnavailable {
+            reason: "pull-request propose requires the GitHub adapter binary; no adapter is \
+                     configured and the gh fallback only serves direct single-topic updates"
+                .to_string(),
+        });
+    }
+    let token = confirm.unwrap_or("").trim().to_string();
+    if token.is_empty() {
+        return Err(ForgeError::GithubInvalid {
+            reason: "direct mode requires a non-empty --confirm token; refusing the mutation"
+                .to_string(),
+        });
+    }
+    let mut changes: Vec<ProposedChange> = Vec::new();
+    for raw in sets {
+        let (field, value) = raw
+            .split_once('=')
+            .ok_or_else(|| ForgeError::GithubInvalid {
+                reason: format!("proposed change `{raw}` is not in `field=value` form"),
+            })?;
+        changes.push(ProposedChange {
+            field: field.trim().to_string(),
+            new_value: value.trim().to_string(),
+        });
+    }
+    if changes.is_empty() {
+        return Err(ForgeError::GithubInvalid {
+            reason: "no proposed changes were supplied; refusing an empty mutation".to_string(),
+        });
+    }
+    let Some(topic) = single_topic_value(&changes) else {
+        return Err(ForgeError::GithubAdapterUnavailable {
+            reason: "gh fallback only serves a single `--set topic=<value>` direct update; every \
+                     other field or multi-field propose requires the GitHub adapter binary"
+                .to_string(),
+        });
+    };
+    let outcome = propose_topic_via_gh(cli, repository, &topic, &token)?;
+    let human = render_github_propose_human(&outcome);
+    let json = serde_json::json!({
+        "contract": GITHUB_CONTRACT_VERSION,
+        "host": host,
+        "repository": repository,
+        "adapter_source": format!("{FALLBACK_SOURCE_LABEL} ({})", cli.source),
         "outcome": outcome,
     });
     Ok(as_output(format, human, json))

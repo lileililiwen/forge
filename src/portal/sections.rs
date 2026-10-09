@@ -350,7 +350,12 @@ pub(super) fn controls_for(section: PortalSection) -> Vec<String> {
             "forge deploy list".to_string(),
             "forge deploy plan".to_string(),
         ],
-        PortalSection::Repositories => vec!["forge mirror".to_string()],
+        PortalSection::Repositories => vec![
+            "forge mirror".to_string(),
+            "forge project github observe <owner/repo> (gh fallback when the adapter is missing)".to_string(),
+            "forge project github propose <owner/repo> --set topic=<value> --mode direct --confirm <token>".to_string(),
+            "forge project github create <path> --repo <owner/name> [--push-source --confirm] [--register-if-missing]".to_string(),
+        ],
         PortalSection::Documentation => vec!["forge docs translate".to_string()],
         PortalSection::Analytics => vec![
             "forge analytics inspect".to_string(),
@@ -660,6 +665,15 @@ pub(super) fn build_repositories_section(records: &[ProjectRecord]) -> Vec<Porta
             let mut attributes = BTreeMap::new();
             if let Some(remote) = r.git_remote.as_ref() {
                 attributes.insert("primary".to_string(), remote.clone());
+                if let Some(repository) =
+                    crate::catalog::source::github_repository_from_remote(remote)
+                {
+                    attributes.insert("github_repository".to_string(), repository);
+                    attributes.insert(
+                        "github_observe".to_string(),
+                        "forge project github observe <owner/repo>".to_string(),
+                    );
+                }
             }
             if !r.mirror_remotes.is_empty() {
                 attributes.insert("mirrors".to_string(), r.mirror_remotes.join(","));

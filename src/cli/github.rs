@@ -135,13 +135,14 @@ fn clone_error(result: &forge::github::GhResult) -> ForgeError {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn cmd_github_cli_create(
-    _db_path: &Path,
+    db_path: &Path,
     project: &str,
     repo: &str,
     visibility: &str,
     confirm_public: bool,
     push_source: bool,
     confirm: bool,
+    register_if_missing: bool,
     format: Format,
 ) -> Result<Output, ForgeError> {
     use forge::github::{
@@ -189,6 +190,18 @@ pub(super) fn cmd_github_cli_create(
             ),
         });
     };
+    let canonical = source
+        .canonicalize()
+        .map_err(|_| ForgeError::GithubCliInvalid {
+            reason: format!(
+                "github cli create cannot resolve `{}` to a canonical path",
+                source.display()
+            ),
+        })?;
+    let mut registered = false;
+    if register_if_missing {
+        registered = ensure_project_registered(db_path, &canonical)?;
+    }
     let cli = GhCli::from_env();
     let name = repo.split_once('/').map(|(_, n)| n).unwrap_or(repo);
     let result = run_create(&cli, name, &source, visibility, push_source);
@@ -206,6 +219,8 @@ pub(super) fn cmd_github_cli_create(
         "stderr_tail": result.stderr_tail,
         "note": result.note,
         "cli_source": cli.source,
+        "register_if_missing": register_if_missing,
+        "registered": registered,
     });
     if outcome != GhOutcome::Done {
         return Err(create_error(&result));
@@ -216,14 +231,54 @@ pub(super) fn cmd_github_cli_create(
          outcome=done\n\
          repository={}\n\
          visibility={}\n\
-         push_source={}\n",
+         push_source={}\n\
+         registered={}\n",
         GITHUB_CLI_CONTRACT_VERSION,
         cli.source,
         repo,
         visibility.id(),
         push_source,
+        registered,
     );
     Ok(as_output(format, human, json))
+}
+
+/// Validate `forge.yaml` and register the canonical path when it is
+/// not yet in the registry. Returns `true` when a registration write
+/// happened, `false` when the project was already registered.
+fn ensure_project_registered(db_path: &Path, canonical: &Path) -> Result<bool, ForgeError> {
+    let canonical_text = canonical.display().to_string();
+    let already = (|| -> Result<bool, ForgeError> {
+        if !db_path.is_file() {
+            return Ok(false);
+        }
+        let registry = forge::registry::Registry::open_read_only(db_path)?;
+        match registry.inspect(&canonical_text) {
+            Ok(_) => Ok(true),
+            Err(ForgeError::UnknownProject { .. }) => Ok(false),
+            Err(err) => Err(err),
+        }
+    })()?;
+    if already {
+        return Ok(false);
+    }
+    let mut registry = forge::registry::Registry::open(db_path)?;
+    match registry.register(canonical, None) {
+        Ok(_) => Ok(true),
+        Err(ForgeError::IdCollision { id }) => Err(ForgeError::GithubCliConflict {
+            reason: format!(
+                "register-if-missing: project id `{id}` is already registered at another path; resolve the collision before creating the remote"
+            ),
+        }),
+        Err(ForgeError::PathCollision { path }) => Err(ForgeError::GithubCliConflict {
+            reason: format!(
+                "register-if-missing: path `{path}` is already registered under another id; resolve the collision before creating the remote"
+            ),
+        }),
+        Err(err) => Err(ForgeError::GithubCliInvalid {
+            reason: format!("register-if-missing: invalid manifest: {err}"),
+        }),
+    }
 }
 
 fn create_error(result: &forge::github::GhResult) -> ForgeError {

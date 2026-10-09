@@ -1083,6 +1083,7 @@
     const body = document.getElementById("wb-maintain-body");
     body.replaceChildren();
     body.append(renderMaintainObservation(data.github || {}));
+    renderGithubTopics((data.github || {}).topics);
     body.append(renderMaintainProposals(data.proposals || []));
     body.append(renderMaintainPlugins(data.plugins || []));
   }
@@ -3345,6 +3346,108 @@
     box.append(guidance);
   }
 
+  function isDevTopic(topic) {
+    return /^(dev-|forge-)/i.test(topic);
+  }
+
+  function renderGithubTopics(topics) {
+    const list = document.getElementById("github-topics");
+    const alt = document.getElementById("github-topics-alt");
+    if (!list || !alt) return;
+    list.replaceChildren();
+    const values = Array.isArray(topics) ? topics.filter((t) => typeof t === "string" && t.trim()) : [];
+    if (!values.length) {
+      const li = el("li", "muted", "No GitHub topics reported.");
+      list.append(li);
+      alt.textContent = "No GitHub topics reported.";
+      return;
+    }
+    for (const topic of values) {
+      const li = el("li", isDevTopic(topic) ? "topic topic-dev" : "topic", topic);
+      if (isDevTopic(topic)) li.setAttribute("aria-label", `${topic}, dev topic`);
+      list.append(li);
+    }
+    alt.textContent = values.length === 1
+      ? `1 GitHub topic: ${values[0]}.`
+      : `${values.length} GitHub topics: ${values.join(", ")}.`;
+  }
+
+  function githubResult(message, isError) {
+    const box = document.getElementById("github-action-result");
+    if (!box) return;
+    box.hidden = false;
+    box.textContent = message;
+    if (typeof setResultRole === "function") setResultRole(box, !!isError);
+  }
+
+  function validOwnerRepo(value) {
+    return /^[^/\s]+\/[^/\s]+$/.test((value || "").trim()) && !(value || "").includes(" ");
+  }
+
+  function initGithubMetadata() {
+    const proposeBtn = document.getElementById("github-propose-preview");
+    if (proposeBtn) proposeBtn.addEventListener("click", () => {
+      clearErrorSummary("github-error-summary");
+      ["github-propose-repo", "github-propose-value", "github-propose-confirm"].forEach((id) => clearFieldError(id, `${id}-error`));
+      const issues = [];
+      const repo = (document.getElementById("github-propose-repo").value || "").trim();
+      const field = document.getElementById("github-propose-field").value;
+      const value = (document.getElementById("github-propose-value").value || "").trim();
+      const mode = (document.querySelector('input[name="github-mode"]:checked') || {}).value || "pull-request";
+      const confirm = (document.getElementById("github-propose-confirm").value || "");
+      if (!validOwnerRepo(repo)) {
+        issues.push({ fieldId: "github-propose-repo", label: "Repository", message: "Enter owner/repo." });
+        setFieldError("github-propose-repo", "github-propose-repo-error", "Enter owner/repo.");
+      }
+      if (!value) {
+        issues.push({ fieldId: "github-propose-value", label: "New value", message: "Enter a value." });
+        setFieldError("github-propose-value", "github-propose-value-error", "Enter a value.");
+      }
+      if (mode === "direct" && !confirm.trim()) {
+        issues.push({ fieldId: "github-propose-confirm", label: "Confirm token", message: "Direct mode needs the exact --confirm token." });
+        setFieldError("github-propose-confirm", "github-propose-confirm-error", "Direct mode needs the exact --confirm token.");
+      }
+      if (issues.length) {
+        renderErrorSummary("github-error-summary", "GitHub propose needs attention.", issues);
+        githubResult("Propose preview refused; fix the highlighted fields.", true);
+        return;
+      }
+      let cli = `forge project github propose ${repo} --set ${field}=${value}`;
+      if (mode === "direct") cli += " --mode direct --confirm <token>";
+      githubResult(`Preview (run in a terminal, nothing changed): ${cli}`, false);
+    });
+    const createBtn = document.getElementById("github-create-preview");
+    if (createBtn) createBtn.addEventListener("click", () => {
+      clearErrorSummary("github-error-summary");
+      ["github-create-project", "github-create-repo"].forEach((id) => clearFieldError(id, `${id}-error`));
+      const issues = [];
+      const project = (document.getElementById("github-create-project").value || "").trim();
+      const repo = (document.getElementById("github-create-repo").value || "").trim();
+      const visibility = (document.querySelector('input[name="github-visibility"]:checked') || {}).value || "private";
+      if (!project) {
+        issues.push({ fieldId: "github-create-project", label: "Local project", message: "Enter a local directory." });
+        setFieldError("github-create-project", "github-create-project-error", "Enter a local directory.");
+      }
+      if (!validOwnerRepo(repo)) {
+        issues.push({ fieldId: "github-create-repo", label: "Remote repo", message: "Enter owner/name." });
+        setFieldError("github-create-repo", "github-create-repo-error", "Enter owner/name.");
+      }
+      if (!document.getElementById("github-create-confirm").checked) {
+        issues.push({ fieldId: "github-create-confirm", label: "Confirmation", message: "Tick the remote-write confirm." });
+      }
+      if (issues.length) {
+        renderErrorSummary("github-error-summary", "GitHub create needs attention.", issues);
+        githubResult("Create preview refused; fix the highlighted fields.", true);
+        return;
+      }
+      let cli = `forge project github create ${project} --repo ${repo} --visibility ${visibility} --confirm`;
+      if (visibility === "public") cli += " --confirm-public";
+      if (document.getElementById("github-create-push").checked) cli += " --push-source";
+      if (document.getElementById("github-create-register").checked) cli += " --register-if-missing";
+      githubResult(`Preview (run in a terminal, nothing changed): ${cli}`, false);
+    });
+  }
+
   function initDelivery(projects) {
     window.__forgeProjects = projects;
     document.getElementById("delivery-refresh").addEventListener("click", loadDelivery);
@@ -3354,6 +3457,7 @@
     document.getElementById("delivery-publish").addEventListener("click", deliveryPublish);
     document.getElementById("delivery-reconcile").addEventListener("click", deliveryReconcile);
     document.getElementById("delivery-lookup").addEventListener("click", deliveryLookup);
+    initGithubMetadata();
     loadDelivery();
   }
 

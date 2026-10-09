@@ -328,6 +328,34 @@
                 </div>
                 <div id="delivery-action-result" class="wb-plan-result" role="status" hidden></div>
               </section>
+              <section class="wb-card" aria-labelledby="github-metadata-title">
+                <h3 id="github-metadata-title">GitHub metadata</h3>
+                <p class="muted">Read-only topics from the maintain view, plus the exact CLI for propose and create. No browser write; every remote write runs in the terminal after review.</p>
+                <p class="wb-subtitle">Topics</p>
+                <ul id="github-topics" class="github-topics" aria-label="GitHub repository topics"></ul>
+                <p id="github-topics-alt" class="muted" role="status" aria-live="polite">GitHub topics load with the workbench maintain view.</p>
+                <div id="github-error-summary" class="error-summary" tabindex="-1" hidden></div>
+                <p class="wb-subtitle">Propose a metadata change</p>
+                <div class="wb-plan-tools">
+                  <label class="field" for="github-propose-repo"><span class="field-label">Repository <span class="required-mark" aria-hidden="true">*</span></span><input id="github-propose-repo" type="text" placeholder="e.g. owner/repo" autocomplete="off" aria-describedby="github-propose-repo-hint github-propose-repo-error"><span class="field-hint" id="github-propose-repo-hint">Owner and name in owner/repo form.</span><span class="field-error" id="github-propose-repo-error" hidden></span></label>
+                  <label class="field" for="github-propose-field"><span class="field-label">Field <span class="required-mark" aria-hidden="true">*</span></span><select id="github-propose-field" aria-describedby="github-propose-field-hint github-propose-field-error"><option value="topic">topic</option><option value="description">description</option><option value="homepage">homepage</option><option value="language">language</option></select><span class="field-hint" id="github-propose-field-hint">Direct gh fallback serves a single topic; other fields need the adapter.</span><span class="field-error" id="github-propose-field-error" hidden></span></label>
+                  <label class="field" for="github-propose-value"><span class="field-label">New value <span class="required-mark" aria-hidden="true">*</span></span><input id="github-propose-value" type="text" placeholder="e.g. forge-dev" autocomplete="off" aria-describedby="github-propose-value-hint github-propose-value-error"><span class="field-hint" id="github-propose-value-hint">Single value; credentials are refused.</span><span class="field-error" id="github-propose-value-error" hidden></span></label>
+                  <fieldset class="radio-group"><legend>Mode</legend><label class="radio"><input id="github-mode-pr" type="radio" name="github-mode" value="pull-request" checked> Pull request (adapter, default)</label><label class="radio"><input id="github-mode-direct" type="radio" name="github-mode" value="direct"> Direct (gh fallback, requires confirm)</label></fieldset>
+                  <label class="field" for="github-propose-confirm"><span class="field-label">Confirm token (direct only)</span><input id="github-propose-confirm" type="password" placeholder="exact --confirm token" autocomplete="off" aria-describedby="github-propose-confirm-hint github-propose-confirm-error"><span class="field-hint" id="github-propose-confirm-hint">Echoed by the adapter; never displayed or logged.</span><span class="field-error" id="github-propose-confirm-error" hidden></span></label>
+                  <button id="github-propose-preview" class="button button-quiet" type="button">Preview CLI</button>
+                </div>
+                <p class="wb-subtitle">Create a remote for a local project</p>
+                <div class="wb-plan-tools">
+                  <label class="field" for="github-create-project"><span class="field-label">Local project <span class="required-mark" aria-hidden="true">*</span></span><input id="github-create-project" type="text" placeholder="e.g. ./my-project" autocomplete="off" aria-describedby="github-create-project-hint github-create-project-error"><span class="field-hint" id="github-create-project-hint">Existing local directory with forge.yaml.</span><span class="field-error" id="github-create-project-error" hidden></span></label>
+                  <label class="field" for="github-create-repo"><span class="field-label">Remote repo <span class="required-mark" aria-hidden="true">*</span></span><input id="github-create-repo" type="text" placeholder="e.g. owner/name" autocomplete="off" aria-describedby="github-create-repo-hint github-create-repo-error"><span class="field-hint" id="github-create-repo-hint">Owner and name in owner/name form.</span><span class="field-error" id="github-create-repo-error" hidden></span></label>
+                  <fieldset class="radio-group"><legend>Visibility</legend><label class="radio"><input id="github-vis-private" type="radio" name="github-visibility" value="private" checked> Private (default)</label><label class="radio"><input id="github-vis-public" type="radio" name="github-visibility" value="public"> Public (requires explicit public confirm)</label></fieldset>
+                  <label class="wb-confirm"><input id="github-create-push" type="checkbox"> Push source on creation (--push-source).</label>
+                  <label class="wb-confirm"><input id="github-create-register" type="checkbox" checked> Register if missing (--register-if-missing).</label>
+                  <label class="wb-confirm"><input id="github-create-confirm" type="checkbox"> Confirm this creates a remote repository.</label>
+                  <button id="github-create-preview" class="button button-quiet" type="button">Preview CLI</button>
+                </div>
+                <div id="github-action-result" class="wb-plan-result" role="status" hidden></div>
+              </section>
             </div>
           </section>
           <section id="view-unknown" class="project-panel" aria-labelledby="unknown-title" hidden>

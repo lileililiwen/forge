@@ -609,6 +609,10 @@ pub(crate) enum GithubCommands {
         /// write.
         #[arg(long)]
         confirm: bool,
+        /// Validate `forge.yaml` and register the project when it is
+        /// not yet in the registry, then create the remote.
+        #[arg(long = "register-if-missing")]
+        register_if_missing: bool,
     },
     /// Open a draft pull request for a registered project through
     /// the installed `gh` CLI.

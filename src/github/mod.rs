@@ -45,6 +45,7 @@
 
 pub mod adapter;
 pub mod cli;
+pub mod gh_fallback;
 pub mod normalize;
 
 pub use adapter::{
@@ -58,5 +59,9 @@ pub use cli::{
     GhOutcome, GhResult, GhVisibility, DEFAULT_GITHUB_CLI_BIN, GITHUB_CLI_BIN_ENV,
     GITHUB_CLI_CONTRACT_VERSION, GITHUB_CLI_DEFAULT_HOST, GITHUB_CLI_TIMEOUT, MAX_BODY_BYTES,
     MAX_DESTINATION_BYTES, MAX_TITLE_BYTES,
+};
+pub use gh_fallback::{
+    observe_one_via_gh, propose_topic_via_gh, single_topic_value, FALLBACK_SOURCE_LABEL,
+    FALLBACK_VIEW_FIELDS,
 };
 pub use normalize::{normalize_observation, normalize_topics, tag_separator};

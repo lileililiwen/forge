@@ -271,7 +271,7 @@ pub fn run_pull_request(cli: &GhCli, title: &str, body: &str, draft: bool) -> Gh
     )
 }
 
-pub(super) fn classify_failure(stderr: &str) -> GhOutcome {
+pub(crate) fn classify_failure(stderr: &str) -> GhOutcome {
     let lower = stderr.to_ascii_lowercase();
     if lower.contains("not logged in") || lower.contains("not authenticated") {
         GhOutcome::AuthRequired

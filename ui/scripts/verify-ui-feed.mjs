@@ -7,9 +7,11 @@
 //                            which is exactly the dependency this removes;
 //   * an environment variable - a CI runner does not carry the developer's shell,
 //                            so it fails identically to a hard-coded path.
-// The digest is load-bearing rather than the version (D15): the packages stay at
-// 0.1.0 because this change is additive, so a version number cannot distinguish
-// today's bytes from drifted bytes. The digest can.
+// The digest is load-bearing rather than the version (D15): the version cannot
+// distinguish today's bytes from drifted bytes, the digest can. ui-shared-layer-
+// reachability therefore stayed at 0.1.0 and pinned digests; ui-design-guideline-
+// adoption later moved the kit to 0.2.0 precisely because it changed a baselined
+// token value on purpose — digests and version move together in a contract change.
 //
 // Usage:
 //   node ui/scripts/verify-ui-feed.mjs <consumer-repo> [<consumer-repo> ...]

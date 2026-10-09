@@ -1,9 +1,9 @@
 {
   "name": "@platform/react-auth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "peerDependencies": { "react": ">=18" },
-  "dependencies": { "@platform/react-ui": "0.1.0", "@platform/design-tokens": "0.1.0" },
+  "dependencies": { "@platform/react-ui": "0.2.0", "@platform/design-tokens": "0.2.0" },
   "files": ["src", "styles.css"],
   "scripts": { "test": "node tests/auth.test.mjs", "build": "node ../../scripts/verify-ui.mjs" }
 }

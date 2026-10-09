@@ -23,6 +23,8 @@ const ARTIFACTS = [
   'ui/tokens/emitted-baseline.json',
   'ui/packages/design-tokens/dist/tokens.css',
   'ui/packages/design-tokens/dist/tokens.ts',
+  'ui/packages/design-tokens/dist/tailwind/preset.js',
+  'ui/packages/design-tokens/dist/tailwind/theme.css',
   'ui/packages/react-ui/src/components.tsx',
   'ui/packages/react-ui/styles.css',
   'ui/packages/react-shell/src/shell.tsx',
@@ -84,9 +86,19 @@ const cases = [
     apply: (root) => edit(root, 'ui/tokens/tokens.json', (json) => json.replace('"primary": "{color.blue.300}"', '"primary": "{color.blue.999}"')),
   },
   {
-    name: 'ui-token-renamed (V6: a 0.1.0 name may not change value)',
+    name: 'ui-token-renamed (V6: a baselined name may not change value outside its contract record)',
     expected: /ui-token-renamed.*--space-4/s,
     apply: (root) => edit(root, 'ui/packages/design-tokens/dist/tokens.css', (css) => css.replace('--space-4: 1rem;', '--space-4: 1.1rem;')),
+  },
+  {
+    name: 'ui-tailwind-incomplete (a semantic color loses its preset mapping)',
+    expected: /ui-tailwind-incomplete.*tailwind\/preset\.js.*muted-foreground/s,
+    apply: (root) => edit(root, 'ui/packages/design-tokens/dist/tailwind/preset.js', (preset) => preset.replace('"muted-foreground": "var(--color-muted-foreground)", ', '')),
+  },
+  {
+    name: 'ui-tailwind-incomplete (a literal leaks into the theme block)',
+    expected: /ui-tailwind-incomplete.*tailwind\/theme\.css.*color literal/s,
+    apply: (root) => edit(root, 'ui/packages/design-tokens/dist/tailwind/theme.css', (theme) => theme.replace('  --color-surface: var(--color-surface);', '  --color-surface: #ffffff;')),
   },
   {
     name: 'ui-primitive-incomplete (a property is missing)',

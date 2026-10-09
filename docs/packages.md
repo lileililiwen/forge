@@ -1003,7 +1003,8 @@ retaining independent implementations.
 
 ## Distribution and conformance
 
-The three npm packages stay at `0.1.0` with digest pinning, and their packed bytes are
+The five npm packages move together at `0.2.0` (one kit version per feed) with digest
+pinning, and their packed bytes are
 committed in `ui/feed/*.tgz` beside a `ui/feed/feed.json` digest manifest. A repository
 outside this one consumes the layer by committing those tarballs into its own tree and
 declaring a `file:` dependency specifier plus a one-file `ui-conformance.json`; no sibling
@@ -1012,8 +1013,10 @@ is the single source of every token value, and the generated CSS additionally de
 canonical `.visually-hidden` primitive (nine properties, no `!important`) that 15
 repositories had each written themselves.
 
-- `node ui/scripts/generate-tokens.mjs` regenerates `dist/tokens.css` and `dist/tokens.ts`
-  from the token source by walking the DTCG tree.
+- `node ui/scripts/generate-tokens.mjs` regenerates `dist/tokens.css`, `dist/tokens.ts`
+  and the Tailwind outputs `dist/tailwind/preset.js` (v3-compatible preset) and
+  `dist/tailwind/theme.css` (v4 `@theme` block) from the token source by walking the DTCG
+  tree — all four views come from the same walk, so they cannot disagree.
 - `node ui/scripts/verify-ui.mjs` is the oracle and is **wired into
   `scripts/quality-gate.sh`**: it fails with a named diagnostic on a dropped token
   (`ui-token-dropped`), an undeclared literal such as a hard-coded dark-theme value

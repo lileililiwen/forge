@@ -1,7 +1,8 @@
 {
-  "$description": "V6 regression baseline: the exact custom-property name -> value set emitted by the pre-rewrite (0.1.0) generator, captured from ui/packages/design-tokens/dist/tokens.css before the DTCG tree walk landed. Data file, not a script constant (same reasoning as D16): no code path writes it, so it is reviewable as a diff. verify-ui.mjs asserts every name here is still emitted with exactly this value, which is the additive-compatibility invariant in design.md section 5. The rewrite is additive (D15: no 0.2.0), so the emitted set is a superset of this one; a *missing* or *changed* entry is a contract change, not a refactor.",
+  "$description": "V6 regression baseline: the exact custom-property name -> value set emitted by the pre-rewrite (0.1.0) generator, captured from ui/packages/design-tokens/dist/tokens.css before the DTCG tree walk landed. Data file, not a script constant (same reasoning as D16): no code path writes it, so it is reviewable as a diff. verify-ui.mjs asserts every name here is still emitted with exactly this value, which is the additive-compatibility invariant in design.md section 5. Re-baselined once, by openspec change ui-design-guideline-adoption (its design.md D-7): the brand-font adoption is the authorized contract change and moved exactly one entry, --font-sans, to the Outfit stack; the kit moved 0.1.0 -> 0.2.0 for it. Any further missing or changed entry is a contract change, not a refactor, and still fails ui-token-renamed.",
   "capturedFrom": "ui/packages/design-tokens/dist/tokens.css",
   "capturedAt": "2026-10-03",
+  "rebaselinedAt": "2026-10-09",
   "tokens": {
     "--color-slate-50": "#f8fafc",
     "--color-slate-100": "#f1f5f9",
@@ -25,7 +26,7 @@
     "--radius-md": "0.5rem",
     "--radius-lg": "0.75rem",
     "--radius-full": "9999px",
-    "--font-sans": "system-ui, sans-serif",
+    "--font-sans": "Outfit, system-ui, sans-serif",
     "--font-body": "1rem",
     "--font-small": "0.875rem",
     "--font-large": "1.125rem",

@@ -1,5 +1,5 @@
-// Generate ui/packages/design-tokens/dist/{tokens.css,tokens.ts} from
-// ui/tokens/tokens.json.
+// Generate ui/packages/design-tokens/dist/{tokens.css,tokens.ts} and the Tailwind
+// projections dist/tailwind/{preset.js,theme.css} from ui/tokens/tokens.json.
 //
 // The generator walks the DTCG tree and resolves its aliases. It enumerates no
 // token path and hardcodes no token value: the previous template literal read
@@ -157,4 +157,80 @@ await mkdir(output, { recursive: true });
 await writeFile(join(output, 'tokens.css'), css);
 await writeFile(join(output, 'tokens.ts'), ts);
 
-console.log(`generate-tokens: emitted ${tokens.length} tokens, ${themeBlocks.length} theme block(s) from ui/tokens/tokens.json.`);
+// ---- Tailwind projections (openspec change ui-design-guideline-adoption, D-5) ----
+// Pure projections of tokens.json: every entry is a var() reference to an emitted
+// custom property, neither file may contain a color literal, and no token path is
+// enumerated here — the color surface is "every semantic color, plus any color-group
+// token that aliases a semantic one" (the --color-focus-ring bridge), in declaration
+// order so a later bridge entry overrides the key it shares.
+
+/** `--color-muted-foreground` -> `muted-foreground`, `--focus-ring` -> `focus-ring`. */
+function utilityKeyOf(token, namespace = '--color-') {
+  return token.name.startsWith(namespace) ? token.name.slice(namespace.length) : token.name.slice(2);
+}
+
+/** Dedupe by utility key, later entries win: the `--color-focus-ring` bridge
+ *  overrides the key the legacy `--focus-ring` semantic would produce, so both
+ *  Tailwind artifacts cite the documented name and carry no duplicate member. */
+function project(tokensForKeys, namespace, render) {
+  const byKey = new Map();
+  for (const token of tokensForKeys) byKey.set(utilityKeyOf(token, namespace), render(token));
+  return byKey;
+}
+
+const colorProjections = [
+  ...semantics.values(),
+  ...tokens.filter((token) => token.group === 'color' && token.alias?.startsWith('semantic.')),
+];
+
+const fontFamilyTokens = tokens.filter((token) => token.type === 'fontFamily');
+const spaceTokens = tokens.filter((token) => token.group === 'space');
+const radiusTokens = tokens.filter((token) => token.group === 'radius');
+
+const colorEntries = project(colorProjections, '--color-', (token) => JSON.stringify(`var(${token.name})`));
+const fontEntries = project(fontFamilyTokens, '--font-', (token) => `[${JSON.stringify(`var(${token.name})`)}]`);
+const spacingEntries = project(spaceTokens, '--space-', (token) => JSON.stringify(`var(${token.name})`));
+const radiusEntries = project(radiusTokens, '--radius-', (token) => JSON.stringify(`var(${token.name})`));
+
+// The kit's custom properties hold hex, not color channels, so the
+// `rgb(var(--x) / <alpha-value>)` pattern is unavailable without re-cutting every
+// color token; the v3 preset therefore uses plain var() references and kit colors
+// do not take opacity modifiers. Documented in docs/ui-tokens.md.
+const preset = [
+  '/** Generated from ui/tokens/tokens.json. Do not edit. */',
+  '/** Tailwind v3 preset. Colors are var() references of the kit custom properties,',
+  ' *  so utilities follow the dark theme at runtime. This package is ESM',
+  ' *  ("type": "module"): import this preset from a tailwind.config.mjs. */',
+  `const preset = { colors: { ${[...colorEntries].map(([key, value]) => `${keyLiteral(key)}: ${value}`).join(', ')} }, fontFamily: { ${[...fontEntries].map(([key, value]) => `${keyLiteral(key)}: ${value}`).join(', ')} }, spacing: { ${[...spacingEntries].map(([key, value]) => `${keyLiteral(key)}: ${value}`).join(', ')} }, borderRadius: { ${[...radiusEntries].map(([key, value]) => `${keyLiteral(key)}: ${value}`).join(', ')} } };`,
+  '',
+  'export default preset;',
+  '',
+].join('\n');
+
+// `@theme inline` is load-bearing: without `inline`, Tailwind re-emits the @theme
+// variables into :root and competes with tokens.css (and its dark-theme override)
+// for the same names. With `inline`, utilities substitute the var() reference and
+// tokens.css stays the single source per mode. Import order: tokens.css, then this.
+const theme = [
+  '/* Generated from ui/tokens/tokens.json. Do not edit. */',
+  '/* Tailwind v4 theme bridge. Import after dist/tokens.css so every',
+  '   utility resolves through the kit custom properties and follows the',
+  '   dark theme and the reduced-motion fallback defined there. */',
+  '@theme inline {',
+  ...[...colorEntries].map(([key]) => `  --color-${key}: var(--color-${key});`),
+  ...[...fontEntries].map(([key]) => `  --font-${key}: var(--font-${key});`),
+  ...[...spacingEntries].map(([key]) => `  --spacing-${key}: var(--space-${key});`),
+  ...[...radiusEntries].map(([key]) => `  --radius-${key}: var(--radius-${key});`),
+  '}',
+  '',
+].join('\n');
+
+const tailwindOutput = join(output, 'tailwind');
+await mkdir(tailwindOutput, { recursive: true });
+await writeFile(join(tailwindOutput, 'preset.js'), preset);
+await writeFile(join(tailwindOutput, 'theme.css'), theme);
+
+console.log(
+  `generate-tokens: emitted ${tokens.length} tokens, ${themeBlocks.length} theme block(s), ` +
+    `${colorProjections.length} color/${fontFamilyTokens.length} font/${spaceTokens.length} spacing/${radiusTokens.length} radius Tailwind mappings from ui/tokens/tokens.json.`,
+);

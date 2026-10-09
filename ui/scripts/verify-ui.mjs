@@ -40,6 +40,8 @@ export const REQUIRED_ARTIFACTS = [
   'ui/tokens/tokens.json',
   'ui/packages/design-tokens/dist/tokens.css',
   'ui/packages/design-tokens/dist/tokens.ts',
+  'ui/packages/design-tokens/dist/tailwind/preset.js',
+  'ui/packages/design-tokens/dist/tailwind/theme.css',
   'ui/packages/react-ui/src/components.tsx',
   'ui/packages/react-shell/src/shell.tsx',
   'ui/packages/react-templates/package.json',
@@ -98,8 +100,8 @@ export function verify(root = repositoryRoot) {
 
   const css = read(root, 'ui/packages/design-tokens/dist/tokens.css');
 
-  // ---- assertions that predate the tree walk (V5), unchanged ----
-  for (const token of ['--color-background', '--color-foreground', '--color-primary', '--color-danger', '--space-4', '--focus-ring']) {
+  // ---- assertions that predate the tree walk (V5), plus the adopted focus-ring name ----
+  for (const token of ['--color-background', '--color-foreground', '--color-primary', '--color-danger', '--space-4', '--focus-ring', '--color-focus-ring']) {
     assert.match(css, new RegExp(`${token.replaceAll('-', '\\-')}\\s*:`), `missing token ${token}`);
   }
   assert.match(css, /\.theme-dark|\[data-theme="dark"\]/, 'missing dark theme');
@@ -177,6 +179,32 @@ export function verify(root = repositoryRoot) {
     }
     for (const name of actual.keys()) {
       if (!expectedByMode[mode].has(name)) fail('ui-theme-map-invalid', `${mode}.${name} is not a semantic color in tokens.json`);
+    }
+  }
+
+  // ---- new: the Tailwind outputs are literal-free projections of the same source ----
+  // (openspec change ui-design-guideline-adoption, design.md D-5). Every semantic
+  // color must carry its utility mapping in both files, the documented focus-ring
+  // name must be cited, and no color literal may appear: these files ship in the
+  // same tarball as tokens.css and are the second place a palette could hide.
+  const tailwindPreset = read(root, 'ui/packages/design-tokens/dist/tailwind/preset.js');
+  const tailwindTheme = read(root, 'ui/packages/design-tokens/dist/tailwind/theme.css');
+  const utilityKeyOf = (token) => (token.name.startsWith('--color-') ? token.name.slice('--color-'.length) : token.name.slice(2));
+  for (const token of semanticColors.values()) {
+    const key = utilityKeyOf(token).replace(/-/g, '\\-');
+    if (!new RegExp(`["']?${key}["']?\\s*:`).test(tailwindPreset)) {
+      fail('ui-tailwind-incomplete', `tailwind/preset.js maps no utility key "${utilityKeyOf(token)}" for semantic token ${token.name}`);
+    }
+    if (!tailwindTheme.includes(`--color-${utilityKeyOf(token)}:`)) {
+      fail('ui-tailwind-incomplete', `tailwind/theme.css declares no --color-${utilityKeyOf(token)} mapping for semantic token ${token.name}`);
+    }
+  }
+  for (const [label, text] of [['tailwind/preset.js', tailwindPreset], ['tailwind/theme.css', tailwindTheme]]) {
+    if (!text.includes('--color-focus-ring')) {
+      fail('ui-tailwind-incomplete', `${label} does not cite the documented focus-indicator token --color-focus-ring`);
+    }
+    if (/#(?:[0-9a-f]{3,8})\b|\brgba?\(/i.test(text)) {
+      fail('ui-tailwind-incomplete', `${label} contains a color literal; the Tailwind outputs must reference the kit custom properties, never a second palette`);
     }
   }
 
@@ -306,7 +334,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const report = verify();
   console.log(
     `UI verification passed: ${report.artifacts} required artifacts and accessibility markers present; ` +
-      `${report.declaredTokens} declared tokens emitted (${report.emittedTokens} in tokens.css, ${report.baselineTokens} baselined at 0.1.0); ` +
+      `${report.declaredTokens} declared tokens emitted (${report.emittedTokens} in tokens.css, ${report.baselineTokens} baselined entries); ` +
+      `Tailwind preset and theme block map every semantic color with no literal; ` +
       `canonical primitive ${report.primitive}.`,
   );
 }

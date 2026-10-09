@@ -1,9 +1,9 @@
 {
   "name": "@platform/react-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "peerDependencies": { "react": ">=18" },
-  "dependencies": { "@platform/design-tokens": "0.1.0" },
+  "dependencies": { "@platform/design-tokens": "0.2.0" },
   "files": ["src", "styles.css"],
   "scripts": { "test": "node tests/components.test.mjs", "build": "node ../../scripts/verify-ui.mjs" }
 }

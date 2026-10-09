@@ -28,10 +28,10 @@ Example consumer setup (use the exact tarball filenames and digests from the fee
 ```json
 {
   "dependencies": {
-    "@platform/design-tokens": "file:vendor/platform-ui/platform-design-tokens-0.1.0.tgz",
-    "@platform/react-ui": "file:vendor/platform-ui/platform-react-ui-0.1.0.tgz",
-    "@platform/react-shell": "file:vendor/platform-ui/platform-react-shell-0.1.0.tgz",
-    "@platform/react-templates": "file:vendor/platform-ui/platform-react-templates-0.1.0.tgz",
+    "@platform/design-tokens": "file:vendor/platform-ui/platform-design-tokens-0.2.0.tgz",
+    "@platform/react-ui": "file:vendor/platform-ui/platform-react-ui-0.2.0.tgz",
+    "@platform/react-shell": "file:vendor/platform-ui/platform-react-shell-0.2.0.tgz",
+    "@platform/react-templates": "file:vendor/platform-ui/platform-react-templates-0.2.0.tgz",
     "antd": "^6.0.0",
     "@types/react": "^18.0.0"
   }
@@ -96,10 +96,10 @@ Layout:
 | Path | What it is |
 | --- | --- |
 | `tokens/tokens.json` | **Every** design-token value, in DTCG form, light and dark. Single authoritative source. |
-| `tokens/emitted-baseline.json` | The name/value set the 0.1.0 generator emitted, captured before the tree walk. The additive-compatibility invariant. |
+| `tokens/emitted-baseline.json` | The name/value set the 0.1.0 generator emitted, captured before the tree walk; re-baselined once — exactly `--font-sans` — by `ui-design-guideline-adoption` (the kit moved to 0.2.0 for it). The additive-compatibility invariant. |
 | `scripts/lib/token-model.mjs` | The DTCG walk, naming rule and alias resolver, shared by the generator and the verifier so they cannot disagree. |
-| `scripts/generate-tokens.mjs` | Walks the tree and writes `packages/design-tokens/dist/tokens.css` and `tokens.ts`. |
-| `scripts/verify-ui.mjs` | The oracle: completeness, no orphan literal, alias resolution, canonical primitive, and every accessibility guarantee the layer already asserted. |
+| `scripts/generate-tokens.mjs` | Walks the tree and writes `packages/design-tokens/dist/tokens.css`, `tokens.ts`, and the Tailwind projections `dist/tailwind/preset.js` (v3) and `dist/tailwind/theme.css` (v4 `@theme inline`). |
+| `scripts/verify-ui.mjs` | The oracle: completeness, no orphan literal, alias resolution, canonical primitive, literal-free Tailwind outputs (`ui-tailwind-incomplete`), and every accessibility guarantee the layer already asserted. |
 | `scripts/selftest-verify-ui.mjs` | Proves each of those named diagnostics actually fires, on throwaway copies of the tree. |
 | `scripts/pack-ui.mjs` | Deterministic `npm pack` equivalent: `feed/*.tgz` plus `feed/feed.json`. |
 | `scripts/verify-ui-feed.mjs` | Feed ⇄ consumer-declaration agreement, including the three path refusals. |
@@ -131,12 +131,18 @@ false before this change are closed and are now checkable:
 `component.button.minHeight` → `--component-button-min-height`. One documented exception
 is preserved verbatim from 0.1.0: `semantic.color.focusRing` → `--focus-ring`, because
 `react-ui/styles.css` and `Platform.UI.Razor` consume that name and a rename is a contract
-change, not a refactor.
+change, not a refactor. `ui-design-guideline-adoption` added the color-group bridge
+`color.focusRing` → `--color-focus-ring`, declared as `{semantic.color.focusRing}`: it
+emits as `var(--focus-ring)`, follows the dark-theme override through it, and is the name
+the adopted accessibility rules cite for the always-visible focus indicator
+(see [`docs/ui-tokens.md`](../docs/ui-tokens.md)).
 
 `tokens/emitted-baseline.json` records all 38 names the 0.1.0 generator emitted with
 their values. `verify-ui.mjs` fails with `ui-token-renamed` if any of them is missing or
-changed. The rewrite is **additive**: it emits 49 names today, the 38 baselined ones
-plus 5 dark-capable shades, 4 component tokens, and the 2 semantic colors
+changed. The rewrite is **additive**: it emits 50 names today, the 38 baselined ones
+(`--font-sans` re-baselined to the Outfit stack by `ui-design-guideline-adoption`'s
+contract record) plus 5 dark-capable shades, 4 component tokens, the
+`--color-focus-ring` bridge, and the 2 semantic colors
 (`semantic.color.onPrimary`, `semantic.color.border`) that
 `platform-shared-auth-pages` added after measuring the auth pages and finding the
 button label at 1.80:1 on the dark primary fill and the field edge at 1.48:1 on the
@@ -167,10 +173,10 @@ not a style disagreement. See the frozen list below.
 
 ```
 ui/feed/
-  platform-design-tokens-0.1.0.tgz
-  platform-react-ui-0.1.0.tgz
-  platform-react-shell-0.1.0.tgz
-  platform-react-auth-0.1.0.tgz
+  platform-design-tokens-0.2.0.tgz
+  platform-react-ui-0.2.0.tgz
+  platform-react-shell-0.2.0.tgz
+  platform-react-auth-0.2.0.tgz
   feed.json          # kit version, per-package name/version/sha256/members
 ```
 
@@ -179,7 +185,7 @@ A consumer commits those bytes into its own tree and declares a `file:` specifie
 ```jsonc
 // package.json
 "dependencies": {
-  "@platform/design-tokens": "file:vendor/platform-ui/platform-design-tokens-0.1.0.tgz"
+  "@platform/design-tokens": "file:vendor/platform-ui/platform-design-tokens-0.2.0.tgz"
 }
 ```
 
@@ -188,10 +194,10 @@ A consumer commits those bytes into its own tree and declares a `file:` specifie
 {
   "schema": 1,
   "state": "consumes-feed",     // or "exempt" with reason + owner + reviewBy
-  "kitVersion": "0.1.0",
+  "kitVersion": "0.2.0",
   "feed": {
     "path": "vendor/platform-ui",
-    "packages": [{ "name": "@platform/design-tokens", "version": "0.1.0", "sha256": "<64 hex>" }]
+    "packages": [{ "name": "@platform/design-tokens", "version": "0.2.0", "sha256": "<64 hex>" }]
   }
 }
 ```
@@ -234,14 +240,17 @@ with uid/gid 0, empty uname/gname and mode 0644, and the archive is a single gzi
 at a fixed level. Two runs produce byte-identical tarballs; prove it with
 `node ui/scripts/pack-ui.mjs && sha256sum ui/feed/*.tgz` twice.
 
-## Version policy (D15)
+## Version policy (D15, moved by ui-design-guideline-adoption)
 
-The packages stay at **0.1.0**. The work is additive — a `.visually-hidden` primitive,
-dark-capable token shades, two semantic colors, and a fourth package — so no existing
-package's public surface changed and a `0.2.0` bump would signal a contract change that
-did not happen. Consumers pin the tarball **and** its digest, so bytes that changed without
-a version bump are caught by `ui-feed-digest-mismatch` rather than absorbed. The digest is
-the load-bearing check; the version is not.
+The kit is at **0.2.0**. `ui-shared-layer-reachability` stayed at 0.1.0 because its work
+was additive — D15: the digest, not the version, is the load-bearing check, and a bump
+would signal a contract change that did not happen. `ui-design-guideline-adoption` *is*
+such a signal: it re-baselined `--font-sans` to the adopted brand stack (a value change
+for byte-pinners), added `--color-focus-ring`, and shipped two new generated artifacts.
+Because `pack-ui.mjs` records exactly one version across the feed, all five packages,
+the tarball names and `feed.json` moved together. Consumers still pin the tarball **and**
+its digest, so bytes that change without a version bump are caught by
+`ui-feed-digest-mismatch` rather than absorbed.
 
 ## Conformance: absence, not presence
 
@@ -301,9 +310,11 @@ block it. The diagnosed example of that failure class in this workspace is
 - **Razor** consumers use the same committed feed: commit `platform-tokens.css` into the
   consumer's web assets. `Platform.UI.Razor` already exists at 0.1.0 and needs no new
   delivery vehicle.
-- **`Platform.UI.Razor`'s own `platform-tokens.css` is hand-authored**, not generated, and
-  it still carries its own copy of the five dark hexes. Consolidating it is not part of
-  this change; it is a .NET static asset, not a generated artifact.
+- **`Platform.UI.Razor`'s own `platform-tokens.css` is hand-authored**, not generated.
+  `ui-design-guideline-adoption` value-synced it (Outfit stack, the `--color-focus-ring`
+  alias; the palette itself was unchanged by the contrast audit), but consolidating it
+  into a generated artifact is still out of scope: it is a .NET static asset, not a
+  generated artifact, and its package version and manifest entry stay untouched.
 - **`scripts/check-public-api.sh` does not cover `Platform.UI.Razor`** (D14) and
   `eng/public-api-baseline.txt` was not regenerated. The gap is recorded, not closed: a
   regenerated baseline could silently absorb a breaking change in a package this change

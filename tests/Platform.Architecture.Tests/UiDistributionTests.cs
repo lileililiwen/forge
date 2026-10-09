@@ -20,14 +20,16 @@ public sealed class UiDistributionTests
     private const int RecordedLegacyDivergentCount = 15;
 
     /// <summary>
-    /// sha256 of the generated CSS after this change's two additive semantic
-    /// color tokens (<c>--color-on-primary</c>, <c>--color-border</c>) were added by
-    /// platform-shared-auth-pages. Any change to the emitted bytes is a token contract
-    /// change and must be reviewed here, not discovered by a consumer whose
-    /// <c>file:</c> digest no longer matches.
+    /// sha256 of the generated CSS after the ui-design-guideline-adoption contract
+    /// change: <c>--font-sans</c> moved to the adopted brand stack
+    /// (<c>Outfit, system-ui, sans-serif</c>) and the <c>--color-focus-ring</c> alias
+    /// was added; every other emitted value is unchanged (the contrast audit measured
+    /// all 38 text and non-text pairs compliant, so no primitive moved). Any change to
+    /// the emitted bytes is a token contract change and must be reviewed here, not
+    /// discovered by a consumer whose <c>file:</c> digest no longer matches.
     /// </summary>
     private const string GeneratedTokensCssSha256 =
-        "2216411d7e42ef5399c79c0b84e34460cff97251aa1fa47a09870f455be790f3";
+        "7ca6b7956b3f6b475254b4a5d0cf599724e4e1af5f0f88aba4fbccb9f38fc19b";
 
     private static readonly string RepositoryRoot = LocateRepositoryRoot();
 
@@ -173,31 +175,42 @@ public sealed class UiDistributionTests
     public void Committed_feed_tarballs_match_the_feed_manifest_digests()
     {
         var feed = JsonDocument.Parse(File.ReadAllText(Path("ui/feed/feed.json"))).RootElement;
-        Assert.Equal("0.1.0", feed.GetProperty("kitVersion").GetString());
+        Assert.Equal("0.2.0", feed.GetProperty("kitVersion").GetString());
 
         foreach (var package in feed.GetProperty("packages").EnumerateArray())
         {
             var name = package.GetProperty("name").GetString()!;
             var file = package.GetProperty("file").GetString()!;
-            Assert.Equal("0.1.0", package.GetProperty("version").GetString());
+            Assert.Equal("0.2.0", package.GetProperty("version").GetString());
             Assert.Equal(package.GetProperty("sha256").GetString(), Sha256(Path($"ui/feed/{file}")));
             Assert.Contains("package/package.json", package.GetProperty("members").EnumerateArray().Select(m => m.GetString()));
             Assert.StartsWith("@platform/", name, StringComparison.Ordinal);
         }
+
+        // ui-design-guideline-adoption ships the Tailwind outputs inside the same
+        // tarball: they are generated from tokens.json, so a feed that stopped
+        // carrying them means the pack script and the generator diverged.
+        var tokensFeed = feed.GetProperty("packages").EnumerateArray()
+            .Single(p => p.GetProperty("name").GetString() == "@platform/design-tokens");
+        var tokensMembers = tokensFeed.GetProperty("members").EnumerateArray().Select(m => m.GetString()!).ToList();
+        Assert.Contains("package/dist/tailwind/preset.js", tokensMembers);
+        Assert.Contains("package/dist/tailwind/theme.css", tokensMembers);
     }
 
     [Fact]
-    public void Ui_npm_packages_stay_at_0_1_0_with_digest_pinning()
+    public void Ui_npm_packages_ship_0_2_0_with_digest_pinning()
     {
-        // D15: the change is additive (a .visually-hidden primitive, dark-theme
-        // tokens, and the two semantic colors platform-shared-auth-pages measured its
-        // way to), so a 0.2.0 bump would signal a contract change that did not happen.
-        // The digest, not the version, is the load-bearing check.
+        // D15 made the digest the load-bearing check while the kit was additive at
+        // 0.1.0. ui-design-guideline-adoption changed a baselined token value on
+        // purpose (--font-sans to the Outfit stack) and added the Tailwind outputs,
+        // so the kit moved to 0.2.0 together: all five packages, the feed filenames,
+        // the digests and this guard. A 0.1./0.2.0 disagreement inside one feed is
+        // refused by pack-ui.mjs, which records exactly one kit version.
         foreach (var package in new[] { "design-tokens", "react-ui", "react-shell", "react-auth", "react-templates" })
         {
             var manifest = JsonDocument.Parse(
                 File.ReadAllText(Path($"ui/packages/{package}/package.json"))).RootElement;
-            Assert.Equal("0.1.0", manifest.GetProperty("version").GetString());
+            Assert.Equal("0.2.0", manifest.GetProperty("version").GetString());
         }
 
         Assert.Contains(

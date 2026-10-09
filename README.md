@@ -236,7 +236,8 @@ method, every option).
 | `Platform.UI.Razor` | Production | (none) | [§ Platform UI](docs/packages.md#platform-ui) | Token-backed Razor static web assets and conventions. |
 
 The npm token layer this package's assets follow lives under [`ui/`](ui/README.md):
-`@platform/design-tokens`, `@platform/react-ui` and `@platform/react-shell`, all at `0.1.0`.
+`@platform/design-tokens`, `@platform/react-ui` and `@platform/react-shell`, shipped from
+one kit at `0.2.0` alongside `@platform/react-auth` and `@platform/react-templates`.
 It is resolvable from another repository by committing the packed bytes in `ui/feed/*.tgz`
 into that repository's own tree and declaring a `file:` dependency specifier — no registry,
 no sibling checkout, no absolute path and no environment variable. `ui/tokens/tokens.json`

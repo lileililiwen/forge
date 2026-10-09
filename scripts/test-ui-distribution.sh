@@ -158,17 +158,17 @@ feed_case pass "" "$consumer"
 
 digest_consumer="$work/consumer-digest"
 cp -R "$consumer" "$digest_consumer"
-printf 'x' >> "$digest_consumer/vendor/platform-ui/platform-design-tokens-0.1.0.tgz"
+printf 'x' >> "$digest_consumer/vendor/platform-ui/platform-design-tokens-0.2.0.tgz"
 feed_case fail "ui-feed-digest-mismatch" "$digest_consumer"
 
 version_consumer="$work/consumer-version"
 cp -R "$consumer" "$version_consumer"
-node -e "const f='$version_consumer/ui-conformance.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.kitVersion='0.2.0';fs.writeFileSync(f,JSON.stringify(j,null,2))"
+node -e "const f='$version_consumer/ui-conformance.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.kitVersion='0.3.0';fs.writeFileSync(f,JSON.stringify(j,null,2))"
 feed_case fail "ui-feed-version-mismatch" "$version_consumer"
 
 missing_consumer="$work/consumer-missing"
 cp -R "$consumer" "$missing_consumer"
-mv "$missing_consumer/vendor/platform-ui/platform-react-shell-0.1.0.tgz" "$missing_consumer/"
+mv "$missing_consumer/vendor/platform-ui/platform-react-shell-0.2.0.tgz" "$missing_consumer/"
 feed_case fail "ui-feed-incomplete" "$missing_consumer"
 
 undeclared_consumer="$work/consumer-undeclared"
@@ -178,22 +178,22 @@ feed_case fail "ui-feed-undeclared" "$undeclared_consumer"
 
 stray_consumer="$work/consumer-stray"
 cp -R "$consumer" "$stray_consumer"
-cp "$FEED/platform-design-tokens-0.1.0.tgz" "$stray_consumer/vendor/platform-ui/platform-unknown-ui-9.9.9.tgz"
+cp "$FEED/platform-design-tokens-0.2.0.tgz" "$stray_consumer/vendor/platform-ui/platform-unknown-ui-9.9.9.tgz"
 feed_case fail "ui-feed-undeclared" "$stray_consumer"
 
 absolute_consumer="$work/consumer-absolute"
 cp -R "$consumer" "$absolute_consumer"
-node -e "const f='$absolute_consumer/package.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.dependencies['@platform/design-tokens']='file:/opt/platform/platform-design-tokens-0.1.0.tgz';fs.writeFileSync(f,JSON.stringify(j,null,2))"
+node -e "const f='$absolute_consumer/package.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.dependencies['@platform/design-tokens']='file:/opt/platform/platform-design-tokens-0.2.0.tgz';fs.writeFileSync(f,JSON.stringify(j,null,2))"
 feed_case fail "ui-feed-path-invalid" "$absolute_consumer"
 
 escaping_consumer="$work/consumer-escaping"
 cp -R "$consumer" "$escaping_consumer"
-node -e "const f='$escaping_consumer/package.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.dependencies['@platform/design-tokens']='file:../dotnet-platform-libs/ui/feed/platform-design-tokens-0.1.0.tgz';fs.writeFileSync(f,JSON.stringify(j,null,2))"
+node -e "const f='$escaping_consumer/package.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.dependencies['@platform/design-tokens']='file:../dotnet-platform-libs/ui/feed/platform-design-tokens-0.2.0.tgz';fs.writeFileSync(f,JSON.stringify(j,null,2))"
 feed_case fail "ui-feed-path-invalid" "$escaping_consumer"
 
 env_consumer="$work/consumer-env"
 cp -R "$consumer" "$env_consumer"
-node -e "const f='$env_consumer/package.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.dependencies['@platform/design-tokens']='file:\${PLATFORM_UI_FEED}/platform-design-tokens-0.1.0.tgz';fs.writeFileSync(f,JSON.stringify(j,null,2))"
+node -e "const f='$env_consumer/package.json';const fs=require('node:fs');const j=JSON.parse(fs.readFileSync(f,'utf8'));j.dependencies['@platform/design-tokens']='file:\${PLATFORM_UI_FEED}/platform-design-tokens-0.2.0.tgz';fs.writeFileSync(f,JSON.stringify(j,null,2))"
 feed_case fail "ui-feed-path-invalid" "$env_consumer"
 
 echo "portability (design.md V10):"

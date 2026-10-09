@@ -18,6 +18,7 @@
   --color-amber-300: #fcd34d;
   --color-amber-700: #b45309;
   --color-white: #ffffff;
+  --color-focus-ring: var(--focus-ring);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -31,7 +32,7 @@
   --radius-lg: 0.75rem;
   --radius-full: 9999px;
 
-  --font-sans: system-ui, sans-serif;
+  --font-sans: Outfit, system-ui, sans-serif;
   --font-body: 1rem;
   --font-small: 0.875rem;
   --font-large: 1.125rem;

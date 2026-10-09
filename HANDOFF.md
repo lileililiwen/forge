@@ -2,6 +2,106 @@
 
 ## Current state
 
+### web-lifecycle-execution delivered and archived (2026-10-09)
+
+`web-lifecycle-execution` closes the three proposal gaps on `main` as one
+change, implemented, verified and archived as
+`openspec/changes/archive/2026-10-09-web-lifecycle-execution`
+(promoting canonical `web-lifecycle-execution` +6, no `--skip-specs`):
+
+- **Idea execution (backend + web).** New session-gated admin routes
+  `POST /v1/admin/graduation/preview` (artifact JSON text → validated
+  brief + `plan_digest`, no write) and
+  `POST /v1/admin/graduation/import` (same artifact + `profile` +
+  optional `id` + `confirm:true` + `plan_digest` → stale-digest refused
+  409 with fresh preview, else same in-process
+  `parse_artifact`/`validate_graduation`/`build_proposal`/`adopt_graduation`
+  as the CLI, destination joined server-side under
+  `FORGE_ADMIN_PROJECTS_ROOT`, journal row `graduation.import`). Web
+  `#wb-idea-entry` is a real form (artifact textarea, profile select, id
+  override, Preview → confirm checkbox → Run, `role=status` result,
+  error-summary focus, journal evidence reload). No shell, no browser path.
+- **Maintain execution (backend + web).** New session-gated per-project
+  routes `POST /v1/admin/projects/{id}/intent/resolve` (typed intent
+  fields → plan + `plan_digest`, no receipt) and `.../intent/apply`
+  (`confirm:true` + `plan_digest` → recompute, stale refused 409 with
+  fresh plan, else `write_plan_receipt` + `apply_plan`, journal
+  `intent.apply`); `POST .../remediate/plan` (`finding` → plan +
+  `plan_digest`, no write, target resolved server-side) and
+  `.../remediate/apply` (digest-bound, journal `remediate.apply`). The
+  terminal `forge remediate plan --finding <id>` string stays where shown.
+  Delivery keeps approve/publish/stage; publish success additionally
+  records journal row `delivery.next-idea` via
+  `POST .../delivery/next-idea` and renders it in `#delivery-next-idea`
+  plus the workbench operations table.
+- **Studio refine wiring (web only).** Refine confirm reuses existing
+  `POST .../studio/refine` (admin-gated wrapper); the card shows the
+  returned `spec_revision`/`app_revision` bump in a `role=status` result
+  and reloads journal evidence. No new endpoint.
+- **Catalog.** `graduation.preview|import`, `intent.resolve|apply`,
+  `remediate.plan|apply`, `studio.spec|refine` → `web` with typed routes
+  and params; pinned `tests/browser` playwright 1.63.0 reused, no new dep.
+
+Click-oracle coverage (`tests/browser/lifecycle-rail-check.mjs` driven by
+`tests/lifecycle_rail_browser.rs`, exit 2 → UNVERIFIED): every lifecycle
+confirm clicks end to end in rail order on a throwaway registry — idea
+invalid→preview→confirm-required→confirm→run (import + journal row),
+scaffold `new` invalid→preview→confirm→run (creates + journal),
+studio spec save (r0 + `studio.spec.save` row), studio refine (r1→r2 bump
++ `studio.refine` row), upgrade plan (gate dry-run analog,
+`role=status`), delivery approve confirm-refused (summary focus),
+maintain refresh (re-renders), remediate plan bogus refused, remediate
+apply bogus refused, intent resolve preview, intent apply
+preview→confirm→run (`role=status` + `intent.apply` row) — with zero JS
+console errors, error-summary focus on every invalid submit,
+`role=status` updates, one journal row per success, and a screenshot per
+step under `target/lifecycle-rail-shots/`.
+
+Bugs the oracle found and fixed:
+
+- **Refine revision-bump / detached nodes (prior session).** The confirmed
+  response landed on rebuilt card nodes after `loadWorkbenchDetail` and
+  never rendered; success now re-targets the live card's
+  `.wb-plan-result` and surfaces the `spec_revision`/`app_revision` line.
+- **Textarea params (prior session).** `spec`/`artifact_json`/`request`
+  rendered as single-line inputs stripping newlines so pasted YAML/JSON
+  could never parse; they render as textareas now.
+- **In-flight rebuild guards (prior session).**
+  `renderProjectActions`/`renderManagementActions`/`renderMaintainActions`
+  rebuilt mid-preview wiping typed fields, held digests and results; they
+  keep live cards while any card is open or shows a result.
+- **Intent/remediate apply preview (this session).** The apply endpoints
+  required `confirm:true` with no preview mode, so the generic card's
+  Preview could never arm Run (button stayed disabled, oracle timed out);
+  missing-confirm now returns 200 preview + `plan_digest`, Run confirms
+  with the digest as before.
+- **Console-error guard (this session).** Expected typed refusals
+  (400/409) log Chromium "Failed to load resource" network lines; the
+  harness ignored exactly those and still fails on any real JS error.
+- **Source-file-size (this session).** New `src/api/lifecycle_exec.rs`
+  reached 1316 lines over the 1000 cap; split verbatim into
+  `src/api/lifecycle_exec/` (`mod` + 5 submodules, all ≤330 lines,
+  `pub` + `pub use` keeping every `lifecycle_exec::` path stable) plus an
+  unused-import removal in `rows_project.rs`.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test --test portal_ui_contract` | **21 passed / 0 failed** |
+| `cargo test --test lifecycle_rail_browser` | **1 passed** — `VERIFIED: lifecycle-rail-check ok` (rail shape + Next, step coexistence load+click+reload, bogus ignored, roving arrows/Home/End, copy-CLI exact, contrast AA, idea entry links, cap badge/filter, demo URLs, all lifecycle clicks above console-error-free, 390px no overflow) |
+| `cargo test --test web_lifecycle_execution_contract` | **9 passed / 0 failed** (preview/apply happy paths, missing-confirm refused, stale-digest refused with fresh preview, journal rows, catalog routes, frontend tokens) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **95 passed / 0 failed** active; **95 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 500` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (396/396 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-lifecycle-execution --yes` | archived as `2026-10-09-web-lifecycle-execution`, no `--skip-specs`; canonical `web-lifecycle-execution` +6; `openspec list` leaves only `github-gh-fallback-register` active |
+
+Commits on `main`: implementation+specs+UI+playwright+tests (commit
+1) + this handoff (commit 2); nothing pushed; `current_spec`
+advances back to `github-gh-fallback-register` (active, unarchived).
+
 ### flywheel-plugin-cap delivered and archived (2026-10-09)
 
 `flywheel-plugin-cap` closes the three absorbed gaps as one change,

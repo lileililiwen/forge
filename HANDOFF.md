@@ -2,6 +2,69 @@
 
 ## Current state
 
+### resync-ui-token-kit delivered and archived (2026-10-09)
+
+`resync-ui-token-kit` moved the vendored UI token kit mirror from kit
+revision `c740bd9` (0.1.0) to kit **0.2.0** at
+`6bf3946fcb1a9d2294b13d0af4347f6cf0d8e566` (the follow-up handoff commit
+changes no `ui/` bytes), archived as
+`openspec/changes/archive/2026-10-09-resync-ui-token-kit` (promoting
+canonical `scaffold-prewires-shared-layer` +1 requirement, no
+`--skip-specs`):
+
+- **Mirror bytes.** `kits/tokens/tokens.css`
+  `720d0bc7…382b191` → `7ca6b7956b3f6b475254b4a5d0cf599724e4e1af5f0f88aba4fbccb9f38fc19b`;
+  `kits/tokens/tokens.ts` `98dfd642…614f38` →
+  `7e0633d3a18ad6039f160838412ddb5d3f30260fa8ef594d8b266f9e5d646c29`;
+  `kits/scripts/verify-tokens.mjs` `29c7f0bf…37ed82` →
+  `1cba69d465cc8ed639a958f87dda03241333576694c2942dd50d6c9de4866f4b`
+  (re-derived from upstream `verify-ui.mjs`: provenance to `6bf3946…`,
+  `--color-focus-ring` asserted, new `tokenValues`/`semanticColorValues`
+  light+dark assertions). Byte-identity with the kit dist confirmed by
+  `diff` + `sha256sum`.
+- **Manifest.** `kits/manifest.json`: `revision` → `6bf3946…`, top-level
+  `"version": "0.2.0"` added, per-file sha256 renewed for the three UI
+  files, `synced_at` stamped; the 9 `feed/*.nupkg` entries untouched
+  (dotnet kit stays 0.1.0). The `version` key is **modeled** in
+  `KitManifest` (`#[serde(default)]`) because `forge kit pack`
+  re-serializes the manifest and would silently drop an unmodeled field.
+- **Compiled-in surfaces.** `src/kit/assets/verification.rs::token_assets()`
+  digests renewed; `src/kit/registry.rs` `PLATFORM_UI_KIT_VERSION` →
+  `"0.2.0"`; `src/contract/mod.rs` inventory row `"0.2.0"` and
+  `inventory_agreement` now checks the UI-kit row against the compiled-in
+  constant; `tests/kit_contract/{tokens_and_assets,upgrade}.rs` pins →
+  `platform-ui-web@0.2.0`. `src/contract/mod.rs` exceeded the 1000-line
+  cap after the edit; tests extracted verbatim to
+  `src/contract/contract_tests.rs` per the `agent_tests.rs` convention.
+- **Deferred (explicit non-goals).** The kit's new Tailwind artifacts
+  (`dist/tailwind/preset.js`, `theme.css`) and the npm tarball
+  `platform-design-tokens-0.2.0.tgz` (sha `e48284cb…` verified against
+  the kit digest) are **not vendored**: no `forge/kits`, descriptor or
+  scaffold consumer exists; `kits/feed` holds dotnet nupkgs only.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| vendored `verify-tokens.mjs` run co-located with the dist pair | **PASS** |
+| `cargo test --test kit_contract` | **59 passed / 0 failed / 1 ignored** |
+| `cargo test --lib` | **1213 passed** |
+| `cargo test --lib contract` | **26 passed** (incl. `inventory_agreement`) |
+| `forge contract list` | `kit PLATFORM_UI_KIT_VERSION 0.2.0` |
+| `forge kit verify` | verified 9 feed files at `kits/feed` |
+| `forge profile inspect react-web` | `kit: platform-ui-web@0.2.0` |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **96 passed / 0 failed** before archive; **95 passed / 0 failed** after |
+| `git diff --check` | clean (archiver's blank-line-at-EOF in the promoted spec repaired) |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 500` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (397/397 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive resync-ui-token-kit -y` | archived as `2026-10-09-resync-ui-token-kit`; canonical `scaffold-prewires-shared-layer` +1 requirement |
+
+Commits on `main`: mirror+manifest+verifier+surfaces+tests+archive+canonical
+spec (commit 1) + this handoff (commit 2); nothing pushed; this cycle's
+`current_spec` pointer is removed (the active `workbench-health-latency`
+change belongs to another session and was never touched or claimed here).
+
 ### web-lifecycle-execution delivered and archived (2026-10-09)
 
 `web-lifecycle-execution` closes the three proposal gaps on `main` as one

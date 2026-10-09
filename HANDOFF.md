@@ -2,6 +2,49 @@
 
 current_spec: none
 
+## Completed: ui-design-guideline-adoption (archived 2026-10-09)
+
+Adopted the approved brand guideline (`/home/paul/code/DESIGN.md`, WCAG 2.2 AA) into the
+UI token kit as one authorized contract change: `font.sans` → `Outfit, system-ui,
+sans-serif` (the only re-baselined entry in `ui/tokens/emitted-baseline.json`; loading
+Outfit is the consumer's job, the kit ships no font file); a new bridge token
+`color.focusRing` emits `--color-focus-ring: var(--focus-ring)` so the documented
+focus-indicator name exists without renaming the baselined `--focus-ring`; and the
+generator now also emits `dist/tailwind/preset.js` (v3 ESM preset) and
+`dist/tailwind/theme.css` (`@theme inline`) from the same tree walk. The guideline's
+14px base and 2–10px spacing were rejected and recorded as deviations (design.md D-2);
+oklch was not adopted. The full contrast audit (D-3, repeated in `docs/ui-tokens.md`)
+measured every text pair ≥ 4.5:1 and both non-text pairs ≥ 3:1 in light and dark —
+zero primitive hexes changed. The kit moved 0.1.0 → 0.2.0, which `pack-ui.mjs`'s
+single-kit-version invariant applies to all five npm packages; feed tarballs,
+`feed.json`, the distribution fixtures, the Razor `platform-tokens.css` value-sync,
+and the `UiDistributionTests` pins (tokens.css sha
+`7ca6b7956b3f6b475254b4a5d0cf599724e4e1af5f0f88aba4fbccb9f38fc19b`) moved with it.
+`verify-ui.mjs` gained `ui-tailwind-incomplete` (missing semantic mapping or leaked
+literal in either Tailwind output) with two matching self-test cases.
+
+**Verification:** `node ui/scripts/verify-ui.mjs` passed (50 tokens emitted, 38
+baselined entries, Tailwind outputs literal-free); self-test 1 positive + 18 negative
+cases; `pack-ui.mjs` re-run byte-identical; `verify-ui-feed --self` 5 tarballs at
+0.2.0; `scripts/test-ui-distribution.sh` 19/19 including the offline npm portability
+proof; react-ui/react-auth package tests passed; `dotnet test` architecture suite
+383/383 and full-solution Release `scripts/quality-gate.sh` exit 0 both before and
+after archive; `openspec validate --strict` valid pre-archive, post-archive
+`validate --specs --strict` 58/58 with `openspec list` empty; `generate-package-manifest.sh --check`
+"Manifest matches source."; `check-public-api.sh` clean; `git diff --check` clean.
+
+Archive: `openspec/changes/archive/2026-10-09-ui-design-guideline-adoption/`.
+Specs: `openspec/specs/platform-ui-token-distribution/spec.md` (+5 requirements),
+`openspec/specs/platform-ui-design-system/spec.md` (component-state requirement
+extended to the seven-state set).
+Implementation commit: `6bf3946` (`Implement ui-design-guideline-adoption`).
+
+**Next:** `openspec list` is empty; consumer migration to the Tailwind outputs and the
+Outfit font happens in the consumer repositories; the `forge`/`kits` mirror of this
+feed is another repository and was not resynced here; Razor CSS consolidation into the
+generated artifact remains out of scope (D-8). `driftwatch.toml` remains untracked and
+untouched.
+
 ## Completed: platform-testing-postgres-fixture (archived 2026-10-08)
 
 New test-only package `Platform.Persistence.Postgres.Testing` (0.1.0):

@@ -1,7 +1,17 @@
 # platform-test-web-factory Specification
 
 ## Purpose
-TBD - created by archiving change shared-test-web-factory. Update Purpose after archive.
+
+Provide `PlatformTestWebApplicationFactory<TEntryPoint>`, a shared web test factory that boots
+the consumer's real application over `TestServer` from a named entry point, so a repository no
+longer duplicates bootstrap, DI graph and middleware pipeline in dozens of locally written
+`WebApplicationFactory<T>` subclasses — many of which exist only to express a configuration
+permutation. The beneficiary is a consumer writing integration tests against its own host,
+including call sites that already use `WithWebHostBuilder` and must keep working unchanged. The
+boundary is a test-only, dependency-light surface: exactly one host per factory instance with no
+silent fallback and no application of its own, with environment selection, service replacement,
+clock injection, teardown actions and an isolated temporary directory expressed without
+subclassing, and no provider fixture or ORM dependency entering the package.
 ## Requirements
 ### Requirement: The shared web test factory SHALL boot the consumer's real application
 

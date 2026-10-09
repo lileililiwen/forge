@@ -1,7 +1,15 @@
 # platform-testing-postgres Specification
 
 ## Purpose
-TBD - created by archiving change platform-testing-postgres-fixture. Update Purpose after archive.
+
+Run PostgreSQL-backed integration tests against one Testcontainers container shared per test
+assembly, migrating once into a template database and handing each test a freshly cloned
+database, so a consumer stops paying a container boot plus a full EF migration replay per test
+class and stops re-inventing the same fixture locally. The beneficiary is a consumer's
+integration suite on a developer machine or CI runner that has Docker available. The boundary
+is fixture lifecycle only: without Docker the gated tests report unavailable infrastructure and
+skip rather than pass, provider fixtures stay out of the base testing package, and no product
+schema, migration or data-access dependency is imported here.
 ## Requirements
 ### Requirement: One PostgreSQL container SHALL be shared per test assembly
 

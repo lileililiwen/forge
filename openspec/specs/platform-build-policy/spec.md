@@ -1,7 +1,16 @@
 # platform-build-policy Specification
 
 ## Purpose
-TBD - created by archiving change platform-build-policy-package. Update Purpose after archive.
+
+Give .NET consumers a versioned, reviewable MSBuild baseline by shipping the shared build
+policy as a packed `Platform.Build` props package a project opts into, instead of relying on
+an unversioned workspace `Directory.Build.props` that is discovered only by the upward
+directory walk and records no owner, review or history. The beneficiary is a repository or a
+generated scaffold that must restore the same policy on any machine, in Docker and in CI,
+where today dozens of repositories inherit the ambient file silently and others ship a
+shadowing copy to refuse it. The package asserts policy only — it carries no project
+identity and no version floor on a dependency some consumers do not need — policy ownership
+stays single, and conformance proves the policy is applied rather than merely restored.
 ## Requirements
 ### Requirement: Shared MSBuild policy SHALL ship as a packed props package
 

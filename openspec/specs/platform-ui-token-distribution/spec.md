@@ -1,7 +1,19 @@
 # platform-ui-token-distribution Specification
 
 ## Purpose
-TBD - created by archiving change ui-shared-layer-reachability. Update Purpose after archive.
+
+Make the `ui/` design-token layer a single-sourced, reachable artifact rather than an
+unconsumed one: the DTCG source emits every declared token and no undeclared value into
+`dist/tokens.css`, `dist/tokens.ts` and the Tailwind preset and `@theme` outputs, ships them in
+the feed tarball, and is consumed from bytes committed in the consumer's own tree, alongside a
+canonical `visually-hidden` rule and a documented, always-visible focus indicator a consumer can
+cite. The beneficiary is a consumer repository — Razor, React or Tailwind — that today
+re-declares a shared primitive, hand-writes a second palette or invents its own responsive
+values. The boundary is emission and verification, not packaging: this capability adds no .NET
+package and alters neither the package manifest nor the public API baseline, adopts the approved
+brand typography while recording every rejected guideline value as an intentional deviation,
+keeps the shipped accessibility guarantees with each WCAG 2.2 AA measurement recorded, and claims
+no Flutter consumer.
 ## Requirements
 ### Requirement: The UI token layer SHALL be resolvable by a consumer outside this repository from bytes committed in the consumer's own tree
 

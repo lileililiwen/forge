@@ -1,7 +1,16 @@
 # platform-react-app-templates Specification
 
 ## Purpose
-TBD - created by archiving change platform-react-app-templates. Update Purpose after archive.
+
+Ship product-level React page patterns — distinct public, user and admin layouts, charts with
+non-visual and non-hover alternatives, accessible names and states on interactive content, and
+reflow across mobile and desktop viewports — under one platform design contract, so an AI agent
+generating product UI starts from a curated platform artifact rather than inventing its own
+layout, palette and accessibility story per project. The beneficiary is that agent and the
+consumer team adopting the output. The boundary is template, theme and guidance content
+consumable as a versioned platform artifact plus the UI quality checks that reject contract
+regressions; the templates reuse the existing platform primitives and tokens and provide no
+competing implementation of them and no second palette.
 ## Requirements
 ### Requirement: React templates SHALL use one platform design contract
 

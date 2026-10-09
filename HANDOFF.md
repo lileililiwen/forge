@@ -2,6 +2,81 @@
 
 ## Current state
 
+### lifecycle-series-rail delivered and archived (2026-10-09)
+
+`lifecycle-series-rail` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-09-lifecycle-series-rail`,
+promoting the `portal-web-ui` delta (+6 requirements, no
+`--skip-specs`): part 1's series rail (8 derived steps, single
+`aria-current`, `?project=`+`?step=` links), single next-best-action
+card and Copy-as-CLI on every confirm action, plus part 2's
+observability shortcuts, mobile/a11y hardening and live browser
+oracle. `frontend/` only; no API/CLI/portal/catalog change; no new
+frontend dependency (pinned `tests/browser` playwright 1.63.0 reused).
+
+Part 2 (this session, sequentially after the part-1 dirty tree):
+
+- **Observability.** Failed doctor/status rows carry a
+  `Plan remediate` button previewing the exact
+  `forge remediate plan --finding <id>` string (terminal-bound:
+  remediate.plan has no web row, `--target` takes a directory the
+  browser never sends, so it is omitted and the copy note says to
+  run from the project directory); stale/failed/conflict fleet rows
+  append a `Refresh & reconcile` deep link to
+  `/management?project=`; a recorded-but-unfinished Hermora verb
+  renders an inline `Retry Hermora` control opening the existing
+  `delivery.hermora-retry` card plus its exact CLI.
+- **Coexistence fix (oracle-found).** Workspace discovery re-ran the
+  management registered-id redirect on every view, `replaceState`-ing
+  workbench deep links to `?project=` alone ~2.5s after load. The
+  redirect now fires only on the management view and targets the
+  step-preserving `workbenchUrl`.
+- **Mobile/a11y.** 232px sidebar collapses to a topbar row under
+  860px; `thead th` sticky inside scroll regions; rail `ol` roving
+  focus (one Tab stop, arrows/Home/End, per-row
+  `<Label>: <done|current step|upcoming>` text alternative);
+  `.panel-heading` wraps (fixed a measured 425px page overflow at
+  390px); error-summary focus on all six forms pinned by contract.
+- **Oracle.** `tests/browser/lifecycle-rail-check.mjs` driven by
+  `tests/lifecycle_rail_browser.rs` (exit 2 → UNVERIFIED). Two
+  harness defects fixed en route: a `fg.b * fg.b` contrast-composite
+  typo (forged ratios) and the panel-tools overflow above.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test --test portal_ui_contract` | **13 passed / 0 failed** (7 part-1 + 6 part-2) |
+| `cargo test --test lifecycle_rail_browser` | **1 passed** — `VERIFIED: lifecycle-rail-check ok` (8 notes: 8 steps/one current/one Tab stop/one Next; step coexistence load+reload; click preserves project + bogus ignored; roving arrows/Home/End; clipboard-equals-shown `forge feature add …`; contrast AA; 390px no overflow) |
+| `cargo test --test forge_web_command_catalog_contract` | **9 passed / 0 failed** (no existing token broken) |
+| `cargo test --test portal_browser_a11y` | **no target (pre-existing)**: deleted by archived `remove-api-ui`; the part-2 oracle is `lifecycle_rail_browser` above |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | PASS after pointer advance (below) |
+| `openspec validate --all --strict --no-interactive` | **94 passed / 0 failed** after archive |
+| `git diff --check` + `node --check` (app.js, rail harness) + `cargo fmt --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 500` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (389/389 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive lifecycle-series-rail --yes` | archived as `2026-10-09-lifecycle-series-rail`, no `--skip-specs`; canonical `portal-web-ui` +6 (3 part-1 promoted by the archiver + 3 part-2 appended after repairing a dropped delta H1); `openspec list` leaves only `github-gh-fallback-register` active |
+
+Archive repair note: the part-2 delta edit replaced the delta
+file's `# portal-web-ui (delta)` H1, so the archiver promoted only
+the 3 part-1 requirements under the surviving `## ADDED` header.
+The 3 part-2 requirements were appended to the canonical spec
+directly (identical wording) and the archived delta's header
+restored; validate is green.
+
+Demo URLs (throwaway listeners in the Rust test; shapes, not live):
+
+- `/workbench?project=<id>` — rail + single Next boot.
+- `/workbench?project=<id>&step=test` — step hint coexists, survives
+  reload, scrolls to the mapped card without moving `aria-current`.
+- Rail step links `/workbench?project=<id>&step=<key>` preserve the
+  project; `&step=bogus` is ignored.
+
+Commits on `main`: implementation+specs+tests+UI+playwright (commit
+1 below) + this handoff (commit 2); nothing pushed; `current_spec`
+advances back to `github-gh-fallback-register` (active, unarchived).
+
 ### github-gh-fallback-register active, implemented, unarchived (2026-10-09)
 
 `github-gh-fallback-register` closes the two 2026-10-09 gaps on `main`

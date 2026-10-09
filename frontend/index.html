@@ -116,6 +116,17 @@
                   <dt>Last commit</dt><dd id="wb-lifecycle-commit">—</dd>
                   <dt>Last observed</dt><dd id="wb-lifecycle-updated">—</dd>
                 </dl>
+                <h4 class="wb-rail-head">Lifecycle series</h4>
+                <ol id="lifecycle-rail" class="lifecycle-rail" aria-label="Project lifecycle series"></ol>
+              </section>
+              <section class="wb-card wb-next" aria-labelledby="wb-next-title">
+                <div class="panel-heading">
+                  <div>
+                    <h3 id="wb-next-title">Next best action</h3>
+                    <p class="muted">The single next move computed from maturity, target and current evidence.</p>
+                  </div>
+                </div>
+                <div id="wb-next-body" role="status" aria-live="polite"><p class="muted">Open a managed project to compute its next action.</p></div>
               </section>
               <section class="wb-card wb-plan" aria-labelledby="wb-authoring-title">
                 <div class="panel-heading"><div><h3 id="wb-authoring-title">Manage this project</h3><p class="muted">The actions below are the typed lifecycle commands that apply to this project right now: adopt, feature, spec, upgrade, plan release, publish, deploy, retire. Each control is rendered from the same execution contract the CLI uses; preview returns a digest and changes nothing; confirming runs the same in-process operation. Only structured fields are accepted — never a shell command or a path you type.</p></div></div>

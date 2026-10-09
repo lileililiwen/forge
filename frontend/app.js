@@ -150,7 +150,11 @@
     // `applyWorkbenchProjectParam`): a managed id selects and loads that
     // project. The helper is a no-op until the fleet has populated the
     // project selector, and never touches anything for a bare `/workbench`.
+    // A `?step=` series hint (see `applyWorkbenchStepParam`) rides along:
+    // it preserves the project, scrolls to the mapped card, and never moves
+    // `aria-current`.
     if (view === "workbench") applyWorkbenchProjectParam();
+    if (view === "workbench") applyWorkbenchStepParam();
     // Returning to the projects view restores the operator's typed
     // search/filter context (see `restoreFilterState`) and re-applies it.
     // The boot render (`lastRouteView` still null) skips this: the
@@ -628,6 +632,7 @@
       stateLabel.append(dot, document.createTextNode(projectStatusLine(project))); state.append(stateLabel); row.append(state);
 
       const action = document.createElement("td");
+      action.className = "wb-row-actions";
       if (project.management === "managed" || project.is_self) {
         const open = el("button", "button button-quiet", "Open");
         open.type = "button";
@@ -643,9 +648,12 @@
         link.textContent = "Manage";
         link.setAttribute("aria-label", `Manage ${project.name}: onboard it from the workspace panel`);
         action.append(link);
-      } else {
-        action.append(textCell("—"));
       }
+      // Stale/unavailable shortcut (lifecycle-series-rail, part 2): a row
+      // the fleet already flags as stale, failed or conflicting links
+      // straight to the workspace reconcile flow instead of leaving the
+      // operator on a dead Open/Manage state.
+      if (fleetNeedsReconcile(project)) action.append(reconcileShortcut(project));
       row.append(action);
 
       body.append(row);
@@ -723,8 +731,9 @@
     // Carry the project identity: the workbench view reads `?project=` on
     // load and boots that managed project. A bare `/workbench` navigation
     // cannot say which project the operator picked, is lost on reload, and
-    // is invisible to back/forward. The route render applies the load.
-    navigateTo(`/workbench?project=${encodeURIComponent(identity)}`);
+    // is invisible to back/forward. The route render applies the load. A
+    // valid `?step=` series hint rides along (see `workbenchUrl`).
+    navigateTo(workbenchUrl(identity));
   }
 
   // ---- Fleet filter row (catalog predicates) -----------------------------
@@ -908,7 +917,15 @@
     if (blocking.length) {
       const ul = document.createElement("ul"); ul.className = "wb-findings";
       for (const finding of blocking) {
-        const li = document.createElement("li"); li.textContent = `${finding.id || "finding"} — ${finding.summary || finding.reason || "blocking"}`;
+        // Observability shortcut (lifecycle-series-rail, part 2): each
+        // failed row carries its read-only `forge remediate plan` preview,
+        // so the operator never hand-builds the finding id in a terminal.
+        const li = document.createElement("li");
+        li.className = "wb-finding-row";
+        li.append(
+          el("span", null, `${finding.id || "finding"} — ${finding.summary || finding.reason || "blocking"}`),
+          remediatePlanButton(finding.id || null),
+        );
         ul.append(li);
       }
       box.append(ul);
@@ -939,7 +956,11 @@
         const li = document.createElement("li");
         const name = STATUS_CHECK_LABELS[check.id] || check.id || "check";
         const label = `${name} — ${HEALTH_LABELS[check.state] || check.state || "unavailable"}`;
-        li.textContent = check.reason ? `${label}: ${check.reason}` : `${label}: ${check.summary || "no blocking evidence"}`;
+        // Same observability shortcut as the doctor rows: a failed
+        // gate/check row previews its own `forge remediate plan` string.
+        li.className = "wb-finding-row";
+        li.append(el("span", null, check.reason ? `${label}: ${check.reason}` : `${label}: ${check.summary || "no blocking evidence"}`));
+        if (check.state && check.state !== "healthy") li.append(remediatePlanButton(check.id || null));
         ul.append(li);
       }
       box.append(ul);
@@ -954,6 +975,10 @@
     try {
       status = await request(`/v1/admin/projects/${encodeURIComponent(id)}/status`, { headers: { Accept: "application/json" } });
     } catch (err) {
+      if (workbench.id === id) {
+        workbenchEvidence.status = null;
+        refreshLifecycleSeries();
+      }
       if (box) {
         const note = document.createElement("p"); note.className = "muted";
         note.textContent = (err && err.message) ? err.message : "Project status is unavailable right now.";
@@ -961,7 +986,10 @@
       }
       return;
     }
+    if (workbench.id !== id) return;
+    workbenchEvidence.status = status;
     renderProjectStatus(status);
+    refreshLifecycleSeries();
   }
 
   const DELIVERY_ACTION_LABELS = {
@@ -1007,6 +1035,27 @@
       : `Hermora: ${hermora.state === "done" ? "done" : (hermora.state || "needs attention")}`);
     verbs.append(hermoraItem);
     box.append(verbs);
+    // Hermora retry inline (lifecycle-series-rail, part 2): a recorded but
+    // unfinished Hermora verb gains the retry control plus its exact CLI
+    // right here, instead of making the operator hunt the release group.
+    // The button opens the existing `delivery.hermora-retry` action card
+    // (typed fields, preview → confirm discipline); the string is the same
+    // `catalogInvocation` base the Next card uses.
+    if (hermora.op_id !== undefined && hermora.op_id !== null && hermora.state !== "done") {
+      const hermoraCli = `${catalogInvocation("delivery.hermora-retry")}${workbench.id ? ` ${shellQuote(workbench.id)}` : ""}`;
+      const retryWrap = el("div", "wb-plan-tools wb-hermora-retry");
+      const retry = el("button", "button button-quiet");
+      retry.type = "button";
+      retry.textContent = "Retry Hermora";
+      retry.setAttribute("aria-label", `Retry Hermora onboarding: ${hermoraCli}`);
+      retry.addEventListener("click", () => {
+        const card = document.querySelector(`#wb-actions .wb-action-card[data-command="delivery.hermora-retry"]`);
+        if (card) { openActionCard("delivery.hermora-retry"); return; }
+        showWorkbenchNotice(`Hermora retry is not available for this project right now. Terminal: ${hermoraCli}`);
+      });
+      retryWrap.append(retry, el("code", "wb-hermora-cli", hermoraCli));
+      box.append(retryWrap);
+    }
     if (next && next.action) {
       const action = el("p", "muted", `Next: ${DELIVERY_ACTION_LABELS[next.action] || next.action}. ${(next.guidance || "Use the matching control below.")}`);
       box.append(action);
@@ -1023,16 +1072,25 @@
   async function loadProjectDelivery(id) {
     const box = document.getElementById("wb-delivery");
     if (box) box.replaceChildren(skeletonLine("Loading delivery status…"));
+    if (workbench.id === id) {
+      workbenchEvidence.deliveryReport = null;
+      workbenchEvidence.deliveryNext = null;
+    }
     workbench.delivery = null;
     try {
       const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/delivery/status`, { headers: { Accept: "application/json" } });
+      if (workbench.id !== id) return;
       workbench.delivery = data.next || null;
+      workbenchEvidence.deliveryReport = data.delivery_status || null;
+      workbenchEvidence.deliveryNext = data.next || null;
       renderProjectDelivery(data.delivery_status, data.next);
       // Re-render action controls so staged confirmations arrive pre-filled.
       // This runs only on project open and after a completed action, when no
       // preview is in progress.
       renderProjectActions();
+      refreshLifecycleSeries();
     } catch (err) {
+      if (workbench.id === id) refreshLifecycleSeries();
       if (box) box.replaceChildren(el("p", "muted", (err && err.message) ? err.message : "Delivery status is unavailable right now."));
     }
   }
@@ -1292,8 +1350,415 @@
     return MATURITY_LABELS[level] || "unknown maturity level";
   }
 
+  // ---- Lifecycle series rail + next-best-action (lifecycle-series-rail) --
+  //
+  // The rail and the Next card are pure derivations of the four payloads the
+  // workbench already fetches (manifest + health + operations from the
+  // detail, status checks, delivery phase/verbs/next). No new endpoint: each
+  // loader below records its payload into `workbenchEvidence` and re-renders
+  // both views, so late-arriving projections refine the rail instead of
+  // racing it. A missing projection degrades its steps to `todo` — a step is
+  // never `done` without evidence.
+  const LIFECYCLE_RAIL_STEPS = [
+    { key: "idea",     label: "Idea",     target: "wb-lifecycle-title" },
+    { key: "scaffold", label: "Scaffold", target: "wb-lifecycle-title" },
+    { key: "spec",     label: "Spec",     target: "wb-authoring-title" },
+    { key: "code",     label: "Code",     target: "wb-authoring-title" },
+    { key: "test",     label: "Test",     target: "wb-health-title" },
+    { key: "release",  label: "Release",  target: "wb-authoring-title" },
+    { key: "deploy",   label: "Deploy",   target: "wb-delivery-title" },
+    { key: "operate",  label: "Operate",  target: "wb-status-title" },
+  ];
+  const MATURITY_ORDER = ["L0", "L1", "L2", "L3", "L4"];
+  const DELIVERY_NEXT_TO_CATALOG = {
+    "delivery-preflight": "delivery.preflight",
+    "delivery-stage": "delivery.stage",
+    "delivery-promote": "delivery.promote",
+    "delivery-hermora-retry": "delivery.hermora-retry",
+  };
+
+  const workbenchEvidence = {
+    manifest: null, health: null, status: null,
+    deliveryReport: null, deliveryNext: null, operations: [],
+  };
+
+  function resetWorkbenchEvidence() {
+    workbenchEvidence.manifest = null;
+    workbenchEvidence.health = null;
+    workbenchEvidence.status = null;
+    workbenchEvidence.deliveryReport = null;
+    workbenchEvidence.deliveryNext = null;
+    workbenchEvidence.operations = [];
+  }
+
+  function catalogInvocation(id) {
+    const row = catalogCommands.find((command) => command.id === id);
+    if (row && row.cli_invocation) return row.cli_invocation;
+    return `forge ${String(id || "").replace(/\./g, " ")}`.trim();
+  }
+
+  // Per-step evidence mapping. Every predicate reads a projection the
+  // workbench holds in memory; journal kinds are matched by substring so an
+  // unknown kind vocabulary degrades to `todo` instead of a false `done`.
+  function railStepStates(evidence) {
+    const manifest = evidence.manifest || {};
+    const maturity = manifest.maturity || null;
+    const idx = maturity ? MATURITY_ORDER.indexOf(maturity) : -1;
+    const kinds = (evidence.operations || []).map((op) => String((op && op.kind) || "").toLowerCase());
+    const hasKind = (re) => kinds.some((kind) => re.test(kind));
+    const hasFeatures = Object.keys(manifest.features || {}).length > 0;
+    const healthState = (evidence.health && evidence.health.state) || null;
+    const checks = (evidence.status && evidence.status.checks) || [];
+    const checksHealthy = checks.length > 0 && checks.every((check) => check.state === "healthy");
+    const report = evidence.deliveryReport || {};
+    const verbs = [report.preflight, report.stage, report.promote];
+    const verbDone = verbs.some((verb) => verb && verb.state === "done");
+    const phase = String(report.phase || "");
+    const pastDraft = phase !== "" && phase !== "unknown" && phase !== "draft";
+    const deployedPhase = /^(production|healthy|degraded|hermora-)/.test(phase);
+    return {
+      idea: idx >= 0,
+      scaffold: idx >= 1,
+      spec: idx >= 2 || hasKind(/spec/),
+      code: hasFeatures || hasKind(/feature/) || idx >= 3,
+      test: healthState === "healthy" || checksHealthy,
+      release: verbDone || pastDraft || idx >= 3,
+      deploy: deployedPhase || idx >= 4,
+      operate: phase === "healthy" && idx >= 4,
+    };
+  }
+
+  function railCurrentStep(states) {
+    const firstOpen = LIFECYCLE_RAIL_STEPS.map((step) => step.key).find((key) => !states[key]);
+    return firstOpen || "operate";
+  }
+
+  function renderLifecycleRail() {
+    const rail = document.getElementById("lifecycle-rail");
+    if (!rail || !workbench.id) return;
+    const states = railStepStates(workbenchEvidence);
+    const current = railCurrentStep(states);
+    const linked = workbenchStepParam();
+    rail.replaceChildren();
+    for (const step of LIFECYCLE_RAIL_STEPS) {
+      const item = document.createElement("li");
+      const done = !!states[step.key];
+      const stateWord = done ? "Done" : (step.key === current ? "Now" : "Later");
+      item.className = `rail-step ${done ? "rail-done" : (step.key === current ? "rail-current" : "rail-todo")}`;
+      if (step.key === linked) item.dataset.linked = "true";
+      // Text alternative for the gate chip (part 2): the row names its step
+      // and state in words, so color is never the only signal; the visible
+      // state word is hidden from AT because the label already carries it.
+      item.setAttribute("aria-label", `${step.label}: ${done ? "done" : (step.key === current ? "current step" : "upcoming")}`);
+      const link = document.createElement("a");
+      link.href = `/workbench?project=${encodeURIComponent(workbench.id)}&step=${step.key}`;
+      link.textContent = step.label;
+      link.dataset.railKey = step.key;
+      // Roving tabindex (part 2): exactly one rail stop in the Tab order
+      // (the current step); arrows move within the rail, see initRailRoving.
+      link.tabIndex = step.key === current ? 0 : -1;
+      if (step.key === current) link.setAttribute("aria-current", "step");
+      const state = document.createElement("span");
+      state.className = "rail-state";
+      state.setAttribute("aria-hidden", "true");
+      state.textContent = stateWord;
+      item.append(link, state);
+      rail.append(item);
+    }
+    initRailRoving();
+  }
+
+  // The `?step=` view hint: a valid step scrolls to its mapped card. It never
+  // moves `aria-current` — that tracks derived state, not the URL — and an
+  // unknown value is ignored.
+  function workbenchStepParam() {
+    const raw = (new URLSearchParams(window.location.search).get("step") || "").trim().toLowerCase();
+    return LIFECYCLE_RAIL_STEPS.some((step) => step.key === raw) ? raw : null;
+  }
+
+  function workbenchUrl(id) {
+    const step = workbenchStepParam();
+    return `/workbench?project=${encodeURIComponent(id)}${step ? `&step=${step}` : ""}`;
+  }
+
+  function applyWorkbenchStepParam() {
+    const step = workbenchStepParam();
+    renderLifecycleRail();
+    if (!step) return;
+    const def = LIFECYCLE_RAIL_STEPS.find((entry) => entry.key === step);
+    const anchor = def && def.target ? document.getElementById(def.target) : null;
+    const card = anchor ? anchor.closest("section") : null;
+    if (card) scrollIntoViewRespectingMotion(card, { block: "start" });
+  }
+
+  // The single Next, ranked. Each branch names the series step, a human
+  // title, the evidence-backed reason, the exact CLI when a catalog command
+  // is known, and the catalog id whose card to open when one exists.
+  function computeNextBestAction(evidence) {
+    const manifest = evidence.manifest || {};
+    const id = workbench.id || "";
+    const maturity = manifest.maturity || null;
+    const target = manifest.target_maturity || null;
+    const idx = maturity ? MATURITY_ORDER.indexOf(maturity) : -1;
+    const tidx = target ? MATURITY_ORDER.indexOf(target) : -1;
+    const findings = (evidence.health && evidence.health.findings) || [];
+    const blocking = findings.filter((f) => ["fail", "unavailable", "FAIL", "UNAVAILABLE"].includes(f.status));
+    const healthState = (evidence.health && evidence.health.state) || null;
+    const healthBad = healthState === "issues" || healthState === "unavailable" || blocking.length > 0;
+    const next = evidence.deliveryNext || {};
+    if (!maturity || idx < 0) {
+      return {
+        step: "idea", title: "Declare project maturity",
+        reason: "This project has no declared maturity yet, so the series cannot place it. Record one before planning anything else.",
+        cli: null, openCommand: null,
+      };
+    }
+    if (healthBad) {
+      return {
+        step: "test", title: "Run the doctor and clear the blocking findings",
+        reason: `Doctor reports ${blocking.length ? `${blocking.length} blocking finding${blocking.length === 1 ? "" : "s"}` : "a blocking state"} — nothing downstream is trustworthy until these are resolved.`,
+        cli: "forge doctor", openCommand: null,
+      };
+    }
+    if (!target || tidx < 0) {
+      return {
+        step: "scaffold", title: "Pick a target maturity",
+        reason: `The project sits at ${maturity} with no target, so no upgrade can be planned. Declare the target first.`,
+        cli: null, openCommand: null,
+      };
+    }
+    if (next && next.blocked) {
+      const action = DELIVERY_NEXT_TO_CATALOG[next.action] || null;
+      return {
+        step: "deploy", title: "Unblock the staged delivery step",
+        reason: `Delivery reports this step blocked until the failed staged evidence is resolved. ${(next.guidance || "Use the matching control below.")}`,
+        cli: action ? `${catalogInvocation(action)} ${id}` : null, openCommand: action,
+      };
+    }
+    if (next && next.action && DELIVERY_NEXT_TO_CATALOG[next.action]) {
+      const commandId = DELIVERY_NEXT_TO_CATALOG[next.action];
+      return {
+        step: "deploy", title: DELIVERY_ACTION_LABELS[next.action] || next.action,
+        reason: next.guidance || "The delivery projection names this as the next staged move.",
+        cli: `${catalogInvocation(commandId)} ${id}`, openCommand: commandId,
+      };
+    }
+    if (tidx > idx) {
+      return {
+        step: "release", title: `Plan the upgrade from ${maturity} toward ${target}`,
+        reason: `The maturity gap is open (${maturity} → ${target}). Produce a read-only plan first, then confirm it.`,
+        cli: `forge upgrade ${id}`, openCommand: null,
+      };
+    }
+    return {
+      step: "operate", title: "Sustain: watch delivery, retire when done",
+      reason: `The project is at its target (${maturity}) with no blocking evidence. Keep it healthy; retire it when the work ends.`,
+      cli: null, openCommand: null,
+    };
+  }
+
+  function openActionCard(commandId) {
+    const card = document.querySelector(`#wb-actions .wb-action-card[data-command="${commandId}"], #wb-maintain-actions .wb-action-card[data-command="${commandId}"]`);
+    if (!card) { showWorkbenchNotice("The matching action is not available for this project right now."); return; }
+    const body = card.querySelector(".wb-action-body");
+    if (body && body.hidden) card.querySelector(".wb-action-head").click();
+    scrollIntoViewRespectingMotion(card, { block: "center" });
+  }
+
+  function renderNextBestAction() {
+    const body = document.getElementById("wb-next-body");
+    if (!body || !workbench.id) return;
+    const next = computeNextBestAction(workbenchEvidence);
+    body.replaceChildren();
+    const stepDef = LIFECYCLE_RAIL_STEPS.find((entry) => entry.key === next.step);
+    const head = el("p", "wb-next-head", `${next.title}`);
+    body.append(head);
+    body.append(el("p", "muted", `${stepDef ? `Series step: ${stepDef.label}. ` : ""}${next.reason}`));
+    if (next.cli) {
+      const line = el("p", "wb-next-cli");
+      line.append(el("code", null, next.cli));
+      body.append(line);
+    }
+    if (next.openCommand) {
+      const tools = el("div", "wb-plan-tools");
+      const open = el("button", "button button-quiet");
+      open.type = "button";
+      open.textContent = "Open matching action";
+      open.addEventListener("click", () => openActionCard(next.openCommand));
+      tools.append(open);
+      body.append(tools);
+    }
+  }
+
+  function refreshLifecycleSeries() {
+    renderLifecycleRail();
+    renderNextBestAction();
+  }
+
+  // ---- Lifecycle series rail, part 2: observability shortcuts + roving --
+  //
+  // All three shortcuts reuse existing surfaces (no new endpoint, no new
+  // fetch): the remediate preview is the exact `forge remediate plan`
+  // string for a terminal (remediate.plan has no web execution row), the
+  // fleet shortcut deep-links the existing management reconcile flow, and
+  // the Hermora retry opens the existing `delivery.hermora-retry` card.
+
+  // Exact read-only remediation preview for one failed doctor/status
+  // check. `forge remediate plan --target` takes a project *directory*
+  // (default `.`), which the browser never sends (path-free boundary),
+  // so the string carries only `--finding` and the copy note names the
+  // directory contract in words: run it from the project directory.
+  function remediatePlanCli(findingId) {
+    return findingId ? `forge remediate plan --finding ${shellQuote(findingId)}` : "forge remediate plan";
+  }
+
+  function remediatePlanButton(findingId) {
+    const btn = el("button", "button button-quiet wb-remediate-plan");
+    btn.type = "button";
+    btn.textContent = "Plan remediate";
+    const cli = remediatePlanCli(findingId);
+    btn.setAttribute("aria-label", `Preview remediation plan: ${cli}`);
+    btn.addEventListener("click", async () => {
+      const host = btn.closest(".wb-card") || btn.parentElement;
+      let preview = host.querySelector(":scope > .wb-remediate-preview");
+      if (!preview) {
+        preview = el("div", "wb-plan-result wb-remediate-preview");
+        host.append(preview);
+      }
+      preview.replaceChildren();
+      setResultRole(preview, false);
+      preview.append(el("p", "wb-plan-head", "Remediation preview — run this in the project directory. Nothing has been written."));
+      const line = el("p", "wb-action-cli-copy");
+      line.append(el("code", null, cli));
+      preview.append(line);
+      let copied = false;
+      try {
+        if (window.navigator && window.navigator.clipboard && window.navigator.clipboard.writeText) {
+          await window.navigator.clipboard.writeText(cli);
+          copied = true;
+        }
+      } catch (_) {
+        copied = false;
+      }
+      if (copied) {
+        preview.append(el("p", "muted", "Copied to the clipboard."));
+      } else {
+        preview.append(el("p", "muted", "Copy unavailable — select the command above."));
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } catch (_) { /* shown string is still copyable by hand */ }
+      }
+    });
+    return btn;
+  }
+
+  // A fleet row needs the reconcile shortcut when the fleet already flags
+  // it: stale freshness, a failed publish, an unavailable state, or a name
+  // conflict. Healthy/current rows keep exactly their Open/Manage control.
+  function fleetNeedsReconcile(project) {
+    if (!project) return false;
+    if (project.conflict) return true;
+    if (project.freshness === "stale") return true;
+    if (project.state === "unavailable") return true;
+    const publish = project.publish || {};
+    return publish.health === false || publish.status === "failed";
+  }
+
+  function reconcileShortcut(project) {
+    const link = document.createElement("a");
+    link.className = "button button-quiet wb-reconcile-shortcut";
+    link.href = `/management?project=${encodeURIComponent(project.identity)}`;
+    link.textContent = "Refresh & reconcile";
+    link.setAttribute("aria-label", `Refresh and reconcile ${project.name || project.identity} from the workspace panel`);
+    return link;
+  }
+
+  let railRovingReady = false;
+
+  // Roving focus for the series rail: one Tab stop (the current step);
+  // ArrowLeft/ArrowRight move one step, Home/End jump, with focus and
+  // tabindex following together. The rail re-renders on every projection
+  // resolve, so the handler delegates from the <ol> and survives refresh;
+  // the tabindex sync in renderLifecycleRail restores the single stop.
+  function initRailRoving() {
+    const rail = document.getElementById("lifecycle-rail");
+    if (!rail || railRovingReady) return;
+    railRovingReady = true;
+    rail.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const links = Array.from(rail.querySelectorAll("a[data-rail-key]"));
+      if (!links.length) return;
+      let index = links.indexOf(document.activeElement);
+      if (index === -1) return;
+      event.preventDefault();
+      if (event.key === "ArrowRight") index = (index + 1) % links.length;
+      else if (event.key === "ArrowLeft") index = (index - 1 + links.length) % links.length;
+      else if (event.key === "Home") index = 0;
+      else index = links.length - 1;
+      for (const link of links) link.tabIndex = -1;
+      links[index].tabIndex = 0;
+      links[index].focus();
+    });
+  }
+
+  // Exact CLI for a confirm card, reusing the GitHub preview pattern:
+  // validate the typed payload, show the full string, then copy. Built from
+  // the catalog `cli_invocation` (exact per the catalog contract) plus the
+  // project positional for scoped rows plus one flag per declared execution
+  // parameter. Boundary: per-command positional grammar (e.g. `feature add
+  // <FEATURE>`) is not reproduced — the string carries the card's typed
+  // payload against the documented invocation.
+  function shellQuote(value) {
+    const text = String(value);
+    if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(text)) return text;
+    return `'${text.replace(/'/g, `'\\''`)}'`;
+  }
+
+  function isSecretParam(name) {
+    const lower = String(name || "").toLowerCase();
+    return lower === "confirm" || lower === "plan_digest" || lower.includes("token") || lower.includes("secret") || lower.includes("password");
+  }
+
+  function secretPlaceholder(name) {
+    return String(name || "").toLowerCase() === "secret_ref" ? "<redacted>" : "<token>";
+  }
+
+  function buildCliString(command, projectId, payload) {
+    const base = (command && command.cli_invocation)
+      ? command.cli_invocation
+      : `forge ${String((command && command.id) || "").replace(/\./g, " ")}`.trim();
+    const parts = [base];
+    if (command && command.execution && command.execution.route && command.execution.route.includes("{id}") && projectId) {
+      parts.push(shellQuote(projectId));
+    }
+    for (const param of (command && command.execution && command.execution.parameters) || []) {
+      const value = payload ? payload[param.name] : undefined;
+      if (value === undefined || value === null || value === "" || (Array.isArray(value) && !value.length)) continue;
+      const flag = `--${param.name.replace(/_/g, "-")}`;
+      if (param.kind === "boolean") {
+        if (value) parts.push(flag);
+        continue;
+      }
+      if (isSecretParam(param.name)) {
+        parts.push(flag, secretPlaceholder(param.name));
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const entry of value) parts.push(flag, shellQuote(entry));
+        continue;
+      }
+      parts.push(flag, shellQuote(value));
+    }
+    return parts.join(" ");
+  }
+
   function renderOperations(operations) {
     const body = document.getElementById("wb-operations");
+    workbenchEvidence.operations = operations || [];
     body.replaceChildren();
     if (!operations.length) {
       const row = document.createElement("tr");
@@ -1341,6 +1806,7 @@
     clearWorkbenchNotice();
     resetPlanState();
     resetProjectActions();
+    resetWorkbenchEvidence();
     let data;
     try {
       data = await request(`/v1/admin/projects/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } });
@@ -1353,9 +1819,13 @@
     workbench.id = id;
     document.getElementById("workbench-empty").hidden = true;
     document.getElementById("workbench-body").hidden = false;
+    workbenchEvidence.manifest = data.manifest || null;
+    workbenchEvidence.health = data.health || null;
+    workbenchEvidence.operations = data.operations || [];
     renderManifest(data.manifest || {});
     renderHealth(data.health || { state: "unavailable" });
     renderLifecycle(data.manifest || {});
+    refreshLifecycleSeries();
     loadProjectStatus(id);
     loadProjectDelivery(id);
     renderOperations(data.operations || []);
@@ -2016,7 +2486,14 @@
       // that it cannot be onboarded. The workbench never bounces back for
       // a managed id, so this cannot loop. `replaceState` (not a push) so
       // Back returns past this redirect instead of re-triggering it.
-      window.history.replaceState(null, "", `/workbench?project=${encodeURIComponent(id)}`);
+      // Workspace discovery re-runs this matcher on every view, so a
+      // workbench deep link carrying `?project=` would redirect to
+      // itself: stay put unless the operator is actually on the
+      // management view. A `?step=` series hint rides along either way
+      // (see `workbenchUrl`): dropping it would break the rail link the
+      // operator followed.
+      if (viewForPath(window.location.pathname) !== "management") return;
+      window.history.replaceState(null, "", workbenchUrl(id));
       renderRoute();
       return;
     }
@@ -2411,9 +2888,16 @@
     const runWrap = el("div", "wb-plan-tools");
     const previewBtn = el("button", "button button-quiet"); previewBtn.type = "button";
     previewBtn.textContent = `Preview ${command.label}`;
+    // Copy-as-CLI: the exact `forge ...` string for the card's current typed
+    // payload, reusing the GitHub preview pattern (validate, show the full
+    // string, copy with a select-the-text fallback). Secrets render as
+    // placeholders and are never copied literally.
+    const copyBtn = el("button", "button button-quiet wb-copy-cli"); copyBtn.type = "button";
+    copyBtn.textContent = "Copy as CLI";
+    copyBtn.setAttribute("aria-label", `Copy ${humanActionTitle(command)} as a forge command`);
     const runBtn = el("button", "button"); runBtn.type = "button"; runBtn.disabled = true;
     runBtn.textContent = "Run confirmed action";
-    runWrap.append(previewBtn, runBtn);
+    runWrap.append(previewBtn, copyBtn, runBtn);
 
     // Resolve the row's declared route to a concrete path for the open project;
     // the browser only ever substitutes the validated id, never a path it typed.
@@ -2530,6 +3014,42 @@
       showError(applied, status);
     });
 
+    copyBtn.addEventListener("click", async () => {
+      if (scoped && !projectId) { showWorkbenchNotice("Open a managed project first."); return; }
+      clearWorkbenchNotice();
+      clearCardErrors();
+      const payload = gatherPayload();
+      if (!payload) return;
+      const cli = buildCliString(command, scoped ? projectId : null, payload);
+      result.replaceChildren(); result.hidden = false;
+      setResultRole(result, false);
+      result.append(el("p", "wb-plan-head", "CLI — run this in a terminal. Nothing has been written."));
+      const line = el("p", "wb-action-cli-copy");
+      line.append(el("code", null, cli));
+      result.append(line);
+      let copied = false;
+      try {
+        if (window.navigator && window.navigator.clipboard && window.navigator.clipboard.writeText) {
+          await window.navigator.clipboard.writeText(cli);
+          copied = true;
+        }
+      } catch (_) {
+        copied = false;
+      }
+      if (copied) {
+        result.append(el("p", "muted", "Copied to the clipboard."));
+      } else {
+        result.append(el("p", "muted", "Copy unavailable — select the command above."));
+        try {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } catch (_) { /* shown string is still copyable by hand */ }
+      }
+    });
+
     body.append(confirmWrap, runWrap, result);
 
     // Opening one action closes the others. An operator working through a
@@ -2624,11 +3144,12 @@
       const id = select.value;
       if (!id) { showWorkbenchNotice("Select a managed project first."); return; }
       // Route through the URL so the open project stays deep-linkable;
-      // the route render applies the load exactly once.
-      navigateTo(`/workbench?project=${encodeURIComponent(id)}`);
+      // the route render applies the load exactly once. A valid `?step=`
+      // hint is preserved (see `workbenchUrl`).
+      navigateTo(workbenchUrl(id));
     });
     select.addEventListener("change", () => {
-      if (select.value) navigateTo(`/workbench?project=${encodeURIComponent(select.value)}`);
+      if (select.value) navigateTo(workbenchUrl(select.value));
       else { document.getElementById("workbench-body").hidden = true; document.getElementById("workbench-empty").hidden = false; clearWorkbenchNotice(); }
     });
     document.getElementById("wb-plan").addEventListener("click", planUpgrade);

@@ -248,3 +248,40 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .radio-group .radio{display:flex;align-items:center;gap:8px;min-height:44px}
 .radio-group input[type="radio"]{width:20px;height:20px;flex:none}
 @media (max-width:560px){.github-topics .topic{line-height:40px;min-height:44px}}
+/* Lifecycle series rail (lifecycle-series-rail, part 1).
+ * Ordered 8-step series with a text state per step (Done/Now/Later: color
+ * never the only signal), single aria-current marker, horizontal scroll on
+ * narrow screens. Next card and copy-CLI line reuse existing card/type
+ * tokens. Additive only; earlier rules untouched. */
+.wb-rail-head{margin:12px 0 8px;font-size:var(--text-md)}
+.lifecycle-rail{list-style:none;margin:0 0 4px;padding:0;display:flex;gap:8px;overflow-x:auto}
+.rail-step{flex:1 0 auto;display:flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;white-space:nowrap}
+.rail-step a{color:inherit;text-decoration:none;font-weight:600}
+.rail-step a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.rail-state{font-size:var(--text-md);color:var(--muted)}
+.rail-current{border-color:var(--focus);border-width:2px}
+.rail-done .rail-state{font-weight:600}
+.rail-step[data-linked="true"]{background:rgba(154,165,255,.10)}
+.wb-next{margin-top:12px}
+.wb-next-head{font-weight:700;margin:0 0 4px}
+.wb-next-cli code,.wb-action-cli-copy code{overflow-wrap:anywhere}
+.wb-copy-cli{flex:none}
+/* Lifecycle series rail (lifecycle-series-rail, part 2: observability +
+ * mobile/a11y hardening). Additive only; part 1 and earlier rules untouched.
+ * - 860px: the 232px sidebar collapses to a topbar row (superset of the
+ *   existing 850px tablet step, which stays as-is).
+ * - Sticky table headers keep column context while inner regions scroll.
+ * - Finding rows wrap the label + shortcut button; preview strings wrap. */
+@media(max-width:860px){.app-shell{grid-template-columns:1fr}.sidebar{min-height:auto;flex-direction:row;align-items:center;gap:20px;padding:12px 18px;border-right:0;border-bottom:1px solid var(--line)}.sidebar .brand{margin:0}.side-label,.sidebar-bottom{display:none}.sidebar nav{margin-left:auto;display:flex;align-items:center;gap:4px;overflow-x:auto;min-width:0;scrollbar-width:thin}.sidebar nav .nav-link{flex:none;white-space:nowrap}}
+.table-scroll thead th{position:sticky;top:0;background:var(--panel);z-index:var(--z-sticky)}
+/* Panel headers never force page-level horizontal scroll: the tool cluster
+ * (project selector + Open, Discover, Refresh, …) wraps under the title on
+ * narrow screens instead of overflowing the viewport. */
+.panel-heading{flex-wrap:wrap}
+.wb-finding-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wb-remediate-plan{flex:none}
+.wb-remediate-preview{margin-top:8px}
+.wb-remediate-preview code,.wb-hermora-cli{overflow-wrap:anywhere;font-size:var(--text-md)}
+.wb-row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.wb-reconcile-shortcut{white-space:nowrap}
+.lifecycle-rail{max-width:100%}

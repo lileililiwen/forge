@@ -133,11 +133,18 @@ pub(super) struct ManifestFile {
 }
 /// The vendored-asset manifest. Same discipline as
 /// `contracts/manifest.json`: schema version, owning source, the source
-/// revision and one digest per file.
+/// revision, the released source version the mirrored bytes were generated
+/// at, and one digest per file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct KitManifest {
     pub(super) schema_version: u64,
     pub(super) source: String,
+    /// Semantic version of the source at `revision` (e.g. the `platform-ui-web`
+    /// kit release). Modeled rather than free-form metadata: `forge kit pack`
+    /// re-serializes this whole struct, so an unmodeled field would be
+    /// silently dropped at the next repack.
+    #[serde(default)]
+    pub(super) version: String,
     pub(super) revision: String,
     #[serde(default)]
     pub(super) synced_at: String,

@@ -148,7 +148,7 @@ fn an_edited_owned_token_file_refuses_the_upgrade() {
     assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
 
     // An unmodified project plans no change and reports every file unchanged.
-    let plan = kit::diff_kit_snapshot(&dest, Some("platform-ui-web@0.1.0"))
+    let plan = kit::diff_kit_snapshot(&dest, Some("platform-ui-web@0.2.0"))
         .expect("diff is readable")
         .expect("the kit upgrade path exists");
     assert!(plan.conflicts.is_empty(), "{plan:?}");
@@ -167,7 +167,7 @@ fn an_edited_owned_token_file_refuses_the_upgrade() {
         fs::read_to_string(&owned).unwrap()
     );
     fs::write(&owned, &edited).unwrap();
-    let plan = kit::diff_kit_snapshot(&dest, Some("platform-ui-web@0.1.0"))
+    let plan = kit::diff_kit_snapshot(&dest, Some("platform-ui-web@0.2.0"))
         .expect("diff is readable")
         .expect("the kit upgrade path exists");
     assert_eq!(
@@ -188,7 +188,7 @@ fn an_edited_owned_token_file_refuses_the_upgrade() {
     // leaves the edited file exactly as the operator wrote it.
     let err = kit::upgrade_kit_snapshot(
         &dest,
-        "platform-ui-web@0.1.0",
+        "platform-ui-web@0.2.0",
         true,
         false,
         "2026-01-01T00:00:00Z",

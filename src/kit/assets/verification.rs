@@ -19,19 +19,19 @@ pub fn token_assets() -> Vec<crate::kit::registry::AssetRef> {
     vec![
         crate::kit::registry::AssetRef {
             path: "tokens/tokens.css".to_string(),
-            sha256: "720d0bc7afa7a8e3d1936e6109fd1ec42b2c5dc2268bb863dc68df6c8382b191".to_string(),
+            sha256: "7ca6b7956b3f6b475254b4a5d0cf599724e4e1af5f0f88aba4fbccb9f38fc19b".to_string(),
             target: format!("{PLATFORM_TOKENS_DIR}/tokens.css"),
             binary: false,
         },
         crate::kit::registry::AssetRef {
             path: "tokens/tokens.ts".to_string(),
-            sha256: "98dfd642d02a194485cc58b4948a4110319d706cf6bd7b35be4ed4472a614f38".to_string(),
+            sha256: "7e0633d3a18ad6039f160838412ddb5d3f30260fa8ef594d8b266f9e5d646c29".to_string(),
             target: format!("{PLATFORM_TOKENS_DIR}/tokens.ts"),
             binary: false,
         },
         crate::kit::registry::AssetRef {
             path: "scripts/verify-tokens.mjs".to_string(),
-            sha256: "29c7f0bfb531141d8747ab4c58aacf7f90e776a1d0af1a33a2e397f9fd37ed82".to_string(),
+            sha256: "1cba69d465cc8ed639a958f87dda03241333576694c2942dd50d6c9de4866f4b".to_string(),
             target: format!("{PLATFORM_TOKENS_DIR}/verify-tokens.mjs"),
             binary: false,
         },

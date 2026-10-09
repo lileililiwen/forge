@@ -1,21 +1,90 @@
 /* Generated from ui/tokens/tokens.json. Do not edit. */
 :root {
+
   --color-slate-50: #f8fafc;
   --color-slate-100: #f1f5f9;
   --color-slate-300: #cbd5e1;
   --color-slate-500: #64748b;
   --color-slate-700: #334155;
   --color-slate-900: #0f172a;
+  --color-blue-200: #bfdbfe;
+  --color-blue-300: #93c5fd;
   --color-blue-600: #1d4ed8;
   --color-blue-700: #1e40af;
+  --color-red-300: #fca5a5;
   --color-red-700: #b91c1c;
+  --color-green-300: #86efac;
   --color-green-700: #15803d;
+  --color-amber-300: #fcd34d;
   --color-amber-700: #b45309;
   --color-white: #ffffff;
-  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-6: 1.5rem; --space-8: 2rem;
-  --radius-sm: 0.25rem; --radius-md: 0.5rem; --radius-lg: 0.75rem; --radius-full: 9999px;
-  --font-sans: system-ui, sans-serif; --font-body: 1rem; --font-small: 0.875rem; --font-large: 1.125rem; --font-title: 1.5rem;
-  --color-background: var(--color-slate-50); --color-surface: var(--color-white); --color-foreground: var(--color-slate-900); --color-muted: var(--color-slate-100); --color-muted-foreground: var(--color-slate-700); --color-primary: var(--color-blue-600); --color-primary-hover: var(--color-blue-700); --color-danger: var(--color-red-700); --color-success: var(--color-green-700); --color-warning: var(--color-amber-700); --focus-ring: var(--color-blue-600);
+  --color-focus-ring: var(--focus-ring);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
+
+  --font-sans: Outfit, system-ui, sans-serif;
+  --font-body: 1rem;
+  --font-small: 0.875rem;
+  --font-large: 1.125rem;
+  --font-title: 1.5rem;
+
+  --component-button-min-height: 2.5rem;
+  --component-button-radius: var(--radius-md);
+  --component-control-min-height: 2.5rem;
+  --component-control-radius: var(--radius-md);
+
+  --color-background: var(--color-slate-50);
+  --color-surface: var(--color-white);
+  --color-foreground: var(--color-slate-900);
+  --color-muted: var(--color-slate-100);
+  --color-muted-foreground: var(--color-slate-700);
+  --color-primary: var(--color-blue-600);
+  --color-primary-hover: var(--color-blue-700);
+  --color-on-primary: var(--color-white);
+  --color-border: var(--color-slate-500);
+  --color-danger: var(--color-red-700);
+  --color-success: var(--color-green-700);
+  --color-warning: var(--color-amber-700);
+  --focus-ring: var(--color-blue-600);
 }
-[data-theme="dark"], .theme-dark { --color-background: var(--color-slate-900); --color-surface: var(--color-slate-700); --color-foreground: var(--color-slate-50); --color-muted: var(--color-slate-700); --color-muted-foreground: var(--color-slate-100); --color-primary: #93c5fd; --color-primary-hover: #bfdbfe; --color-danger: #fca5a5; --color-success: #86efac; --color-warning: #fcd34d; --focus-ring: #bfdbfe; }
+
+[data-theme="dark"], .theme-dark {
+  --color-background: var(--color-slate-900);
+  --color-surface: var(--color-slate-700);
+  --color-foreground: var(--color-slate-50);
+  --color-muted: var(--color-slate-700);
+  --color-muted-foreground: var(--color-slate-100);
+  --color-primary: var(--color-blue-300);
+  --color-primary-hover: var(--color-blue-200);
+  --color-on-primary: var(--color-slate-900);
+  --color-border: var(--color-slate-300);
+  --color-danger: var(--color-red-300);
+  --color-success: var(--color-green-300);
+  --color-warning: var(--color-amber-300);
+  --focus-ring: var(--color-blue-200);
+}
+
+/* Canonical shared primitive. Emitted here so it cannot drift from the kit;
+   no !important, so a consumer cascade can still override it. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }

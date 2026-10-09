@@ -450,7 +450,7 @@ fn platform_versions() -> BTreeMap<String, String> {
 pub const PLATFORM_PACKAGE_VERSION: &str = "0.1.0";
 
 /// The version the vendored token assets were generated at.
-pub const PLATFORM_UI_KIT_VERSION: &str = "0.1.0";
+pub const PLATFORM_UI_KIT_VERSION: &str = "0.2.0";
 
 /// Target framework the .NET kit requires. A `net8.0` project cannot reference
 /// a `net10.0` package, and the workspace baseline is `net10.0`; the owner

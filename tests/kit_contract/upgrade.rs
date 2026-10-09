@@ -37,7 +37,7 @@ fn a_registered_kit_version_does_not_touch_an_existing_project() {
     // The project still reports the version it pinned.
     let out = run_json(&db, &["inspect", "ui-app"]);
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(value["kit_version"], "0.1.0");
+    assert_eq!(value["kit_version"], "0.2.0");
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn an_explicit_upgrade_applies_on_confirmation() {
     // Without confirmation nothing is written.
     let err = kit::upgrade_kit_snapshot(
         &dest,
-        "platform-ui-web@0.1.0",
+        "platform-ui-web@0.2.0",
         false,
         false,
         "2026-01-01T00:00:00Z",
@@ -64,7 +64,7 @@ fn an_explicit_upgrade_applies_on_confirmation() {
     // pinned version is recorded.
     let report = kit::upgrade_kit_snapshot(
         &dest,
-        "platform-ui-web@0.1.0",
+        "platform-ui-web@0.2.0",
         true,
         false,
         "2026-01-01T00:00:00Z",
@@ -76,7 +76,7 @@ fn an_explicit_upgrade_applies_on_confirmation() {
         .contains(&".platform/receipt.json".to_string()));
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(dest.join(".platform/receipt.json")).unwrap()).unwrap();
-    assert_eq!(receipt["version"], "0.1.0");
+    assert_eq!(receipt["version"], "0.2.0");
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn an_upgrade_records_the_version_the_project_pins() {
     let original = fs::read_to_string(&manifest_path).unwrap();
     assert_eq!(
         parse_yaml(&manifest_path)["kit"]["version"].as_str(),
-        Some("0.1.0"),
+        Some("0.2.0"),
         "the scaffold pins the version it was generated with"
     );
 
@@ -132,13 +132,13 @@ fn an_upgrade_records_the_version_the_project_pins() {
     // is the defect the upgrade has to reconcile rather than leave behind:
     // `forge kit verify <path>` deliberately reads what the project *says* it
     // pins, so a stale line here is a project that fails its own drift gate.
-    let stale = original.replacen("  version: \"0.1.0\"", "  version: \"0.0.9\"", 1);
+    let stale = original.replacen("  version: \"0.2.0\"", "  version: \"0.0.9\"", 1);
     assert_ne!(stale, original, "the kit block declares a version line");
     fs::write(&manifest_path, &stale).unwrap();
 
     let report = kit::upgrade_kit_snapshot(
         &dest,
-        "platform-ui-web@0.1.0",
+        "platform-ui-web@0.2.0",
         true,
         false,
         "2026-01-01T00:00:00Z",
@@ -154,12 +154,12 @@ fn an_upgrade_records_the_version_the_project_pins() {
     // The declared pin, the receipt and the owned files agree again.
     assert_eq!(
         parse_yaml(&manifest_path)["kit"]["version"].as_str(),
-        Some("0.1.0"),
+        Some("0.2.0"),
         "the manifest pins the version the upgrade moved to"
     );
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(dest.join(".platform/receipt.json")).unwrap()).unwrap();
-    assert_eq!(receipt["version"], "0.1.0");
+    assert_eq!(receipt["version"], "0.2.0");
 
     // And the edit is exactly the one line it claims to be. A YAML round-trip
     // would have reordered and reformatted the whole manifest, breaking the
@@ -180,7 +180,7 @@ fn the_explicit_upgrade_is_operator_reachable_and_reviews_before_it_writes() {
     let out = scaffold(&db, &dest, "react-web");
     assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
     let before = file_bytes(&dest);
-    let to = "platform-ui-web@0.1.0";
+    let to = "platform-ui-web@0.2.0";
     let args = ["kit", "upgrade", &dest.display().to_string(), "--to", to];
 
     // Review is the default, and it is read-only: a reviewable per-file diff

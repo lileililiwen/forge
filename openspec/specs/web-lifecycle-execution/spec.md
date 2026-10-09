@@ -1,7 +1,12 @@
 # web-lifecycle-execution Specification
 
 ## Purpose
-TBD - created by archiving change web-lifecycle-execution. Update Purpose after archive.
+Run the idea-to-maintain project lifecycle from the web workbench through the
+same typed in-process Core operations as the CLI: graduation preview/import,
+per-project intent resolve/apply, remediate plan/apply, the delivery next-idea
+transition and studio refine all execute over session-gated admin routes with
+digest-bound confirmation, stale-plan refusal and journal evidence — never a
+shell and never a browser-supplied path.
 ## Requirements
 ### Requirement: Graduation preview/import runs in the workbench
 

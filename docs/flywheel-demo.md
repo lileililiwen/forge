@@ -17,8 +17,12 @@ Web: `/workbench?project=hookit&step=idea`
 ## 1. Idea — graduation brief in
 
 Validate the brief without writing, then import it on explicit confirm.
-The workbench rail step 0 (`#wb-idea-entry`) previews these strings and
-links to the studio spec entry.
+The workbench rail step 0 (`#wb-idea-entry`) executes this in the browser:
+paste the artifact JSON, pick the profile, optionally override the id,
+Preview (digest, no write) → tick confirm → Run runs the same in-process
+`graduation preview`/`import` op as the CLI and records journal kind
+`graduation.import`. The studio spec entry below saves/refines with the
+revision bump shown and `studio.refine` journaled.
 
 ```sh
 forge graduation preview ./hookit-brief.json
@@ -55,8 +59,9 @@ forge publish --project hookit --dry-run
 forge delivery status hookit
 ```
 
-Delivery view: `/delivery` → `Publish approved preview` → success renders
-`#delivery-next-idea` (Next-idea prompt + maintain shortcut).
+Delivery view: `/delivery` → `Publish approved preview` → success records
+journal kind `delivery.next-idea` and renders `#delivery-next-idea`
+(Next-idea prompt + maintain shortcut).
 
 Web: `/workbench?project=hookit&step=deploy`
 
@@ -69,4 +74,6 @@ forge plugins list --project ./hookit
 
 Workbench maintain: open `/workbench?project=hookit&step=operate`, press
 `Refresh` (`#wb-maintain-refresh`) or the delivery `#delivery-next-idea`
-shortcut, then start the next loop at `/workbench?project=hookit&step=idea`.
+shortcut, then run `intent resolve → apply` and `remediate plan → apply`
+from their catalog cards (plan digest → confirm, stale plans refused, each
+success journaled), then start the next loop at `/workbench?project=hookit&step=idea`.

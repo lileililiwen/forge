@@ -131,7 +131,19 @@
                 <h4 class="wb-rail-head">Lifecycle series</h4>
                 <p class="muted"><span id="cap-badge" role="status">Capability group: delivery</span></p>
                 <ol id="lifecycle-rail" class="lifecycle-rail" aria-label="Project lifecycle series"></ol>
-                <div id="wb-idea-entry" class="wb-idea-entry"><p class="muted">Idea entry loads with the workbench.</p></div>
+                <div id="wb-idea-entry" class="wb-idea-entry">
+                  <p class="muted">Idea entry loads with the workbench.</p>
+                  <div id="idea-error-summary" class="error-summary" tabindex="-1" hidden></div>
+                  <div class="wb-plan-tools">
+                    <label class="field" for="idea-artifact"><span class="field-label">Graduation artifact JSON</span><textarea id="idea-artifact" rows="4" placeholder='Paste the platform.idea-graduation artifact JSON here' aria-describedby="idea-artifact-hint idea-artifact-error"></textarea><span class="field-hint" id="idea-artifact-hint">Validated with forge graduation preview; nothing is written until you confirm.</span><span class="field-error" id="idea-artifact-error" hidden></span></label>
+                    <label class="field" for="idea-profile"><span class="field-label">Profile</span><select id="idea-profile" aria-describedby="idea-profile-hint idea-profile-error"><option value="rust-web">rust-web</option><option value="nextjs-web">nextjs-web</option><option value="react-web">react-web</option><option value="aspnet-web">aspnet-web</option><option value="flutter-app">flutter-app</option><option value="python-service">python-service</option></select><span class="field-hint" id="idea-profile-hint">Profile for forge graduation import.</span><span class="field-error" id="idea-profile-error" hidden></span></label>
+                    <label class="field" for="idea-id"><span class="field-label">Id override (optional)</span><input id="idea-id" type="text" placeholder="lowercase-with-dashes" autocomplete="off" aria-describedby="idea-id-hint idea-id-error"><span class="field-hint" id="idea-id-hint">Kebab-case project id; blank derives it from the brief title.</span><span class="field-error" id="idea-id-error" hidden></span></label>
+                    <button id="idea-preview" class="button button-quiet" type="button">Preview graduation import</button>
+                  </div>
+                  <label id="idea-confirm-wrap" class="wb-confirm" hidden><input id="idea-confirm" type="checkbox"> I confirm importing exactly this reviewed brief.</label>
+                  <div class="wb-plan-tools"><button id="idea-run" class="button" type="button" disabled>Run confirmed import</button></div>
+                  <div id="idea-result" class="wb-plan-result" role="status" hidden></div>
+                </div>
               </section>
               <section class="wb-card wb-next" aria-labelledby="wb-next-title">
                 <div class="panel-heading">

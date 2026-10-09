@@ -139,11 +139,14 @@ pub(super) mod tests {
         WEB_ROUTE_ADMIN_DELIVERY_PROMOTE, WEB_ROUTE_ADMIN_DELIVERY_STAGE,
         WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_DEPLOY, WEB_ROUTE_ADMIN_DEPLOY_PLAN,
         WEB_ROUTE_ADMIN_FEATURE, WEB_ROUTE_ADMIN_FEATURE_REMOVE, WEB_ROUTE_ADMIN_FEATURE_UPGRADE,
+        WEB_ROUTE_ADMIN_GRADUATION_IMPORT, WEB_ROUTE_ADMIN_GRADUATION_PREVIEW,
+        WEB_ROUTE_ADMIN_INTENT_APPLY, WEB_ROUTE_ADMIN_INTENT_RESOLVE,
         WEB_ROUTE_ADMIN_PROJECT_IMPORT, WEB_ROUTE_ADMIN_PROJECT_NEW,
         WEB_ROUTE_ADMIN_PROJECT_REGISTER, WEB_ROUTE_ADMIN_PUBLISH, WEB_ROUTE_ADMIN_PUBLISH_PLAN,
-        WEB_ROUTE_ADMIN_RELEASE, WEB_ROUTE_ADMIN_RELEASE_PLAN, WEB_ROUTE_ADMIN_SPEC,
-        WEB_ROUTE_ADMIN_SPEC_APPLY, WEB_ROUTE_CLASSIFY_APPLY, WEB_ROUTE_CLASSIFY_APPROVE,
-        WEB_ROUTE_CLASSIFY_REJECT, WEB_ROUTE_DELIVERY_ALLOWLIST,
+        WEB_ROUTE_ADMIN_RELEASE, WEB_ROUTE_ADMIN_RELEASE_PLAN, WEB_ROUTE_ADMIN_REMEDIATE_APPLY,
+        WEB_ROUTE_ADMIN_REMEDIATE_PLAN, WEB_ROUTE_ADMIN_SPEC, WEB_ROUTE_ADMIN_SPEC_APPLY,
+        WEB_ROUTE_ADMIN_STUDIO_REFINE, WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE, WEB_ROUTE_CLASSIFY_APPLY,
+        WEB_ROUTE_CLASSIFY_APPROVE, WEB_ROUTE_CLASSIFY_REJECT, WEB_ROUTE_DELIVERY_ALLOWLIST,
         WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE, WEB_ROUTE_DELIVERY_APPROVE,
         WEB_ROUTE_DELIVERY_OVERVIEW, WEB_ROUTE_DELIVERY_PREVIEW, WEB_ROUTE_DELIVERY_PUBLISH,
         WEB_ROUTE_DELIVERY_RECONCILE, WEB_ROUTE_FLEET_STATUS, WEB_ROUTE_PROJECTS,
@@ -192,15 +195,21 @@ pub(super) mod tests {
                 ("inspect", WEB_ROUTE_PROJECT_DETAIL),
                 ("register", WEB_ROUTE_ADMIN_PROJECT_REGISTER),
                 ("import", WEB_ROUTE_ADMIN_PROJECT_IMPORT),
+                ("graduation.preview", WEB_ROUTE_ADMIN_GRADUATION_PREVIEW),
+                ("graduation.import", WEB_ROUTE_ADMIN_GRADUATION_IMPORT),
                 ("new", WEB_ROUTE_ADMIN_PROJECT_NEW),
                 ("feature.add", WEB_ROUTE_ADMIN_FEATURE),
                 ("feature.remove", WEB_ROUTE_ADMIN_FEATURE_REMOVE),
                 ("feature.upgrade", WEB_ROUTE_ADMIN_FEATURE_UPGRADE),
                 ("upgrade", WEB_ROUTE_PROJECT_PLAN),
+                ("intent.resolve", WEB_ROUTE_ADMIN_INTENT_RESOLVE),
+                ("intent.apply", WEB_ROUTE_ADMIN_INTENT_APPLY),
                 ("doctor", WEB_ROUTE_PROJECT_DETAIL),
                 ("check", WEB_ROUTE_PROJECT_STATUS),
                 ("spec.generate", WEB_ROUTE_ADMIN_SPEC),
                 ("spec.apply", WEB_ROUTE_ADMIN_SPEC_APPLY),
+                ("remediate.plan", WEB_ROUTE_ADMIN_REMEDIATE_PLAN),
+                ("remediate.apply", WEB_ROUTE_ADMIN_REMEDIATE_APPLY),
                 ("classify.apply", WEB_ROUTE_CLASSIFY_APPLY),
                 ("classify.approve", WEB_ROUTE_CLASSIFY_APPROVE),
                 ("classify.reject", WEB_ROUTE_CLASSIFY_REJECT),
@@ -232,6 +241,8 @@ pub(super) mod tests {
                     "delivery.hermora-retry",
                     WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY
                 ),
+                ("studio.spec", WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE),
+                ("studio.refine", WEB_ROUTE_ADMIN_STUDIO_REFINE),
             ]
         );
     }
@@ -288,12 +299,18 @@ pub(super) mod tests {
             vec![
                 "register",
                 "import",
+                "graduation.preview",
+                "graduation.import",
                 "new",
                 "feature.add",
                 "feature.remove",
                 "feature.upgrade",
+                "intent.resolve",
+                "intent.apply",
                 "spec.generate",
                 "spec.apply",
+                "remediate.plan",
+                "remediate.apply",
                 "classify.apply",
                 "classify.approve",
                 "classify.reject",
@@ -304,6 +321,8 @@ pub(super) mod tests {
                 "delivery.stage",
                 "delivery.promote",
                 "delivery.hermora-retry",
+                "studio.spec",
+                "studio.refine",
             ]
         );
         // Each executable row's typed parameter list must match the mandatory
@@ -330,6 +349,42 @@ pub(super) mod tests {
                 ],
             ),
             (
+                "graduation.preview",
+                vec![
+                    ("artifact_json", "string", true),
+                    ("profile", "string", true),
+                    ("id", "string", false),
+                ],
+            ),
+            (
+                "graduation.import",
+                vec![
+                    ("artifact_json", "string", true),
+                    ("profile", "string", true),
+                    ("id", "string", false),
+                ],
+            ),
+            (
+                "intent.resolve",
+                vec![
+                    ("action", "string", true),
+                    ("profile", "string", false),
+                    ("required", "string_array", false),
+                    ("forbidden", "string_array", false),
+                    ("constraints", "string_array", false),
+                ],
+            ),
+            (
+                "intent.apply",
+                vec![
+                    ("action", "string", true),
+                    ("profile", "string", false),
+                    ("required", "string_array", false),
+                    ("forbidden", "string_array", false),
+                    ("constraints", "string_array", false),
+                ],
+            ),
+            (
                 "feature.add",
                 vec![("feature", "string", true), ("version", "string", false)],
             ),
@@ -351,6 +406,14 @@ pub(super) mod tests {
                     ("findings", "string_array", true),
                     ("reason", "string", false),
                 ],
+            ),
+            (
+                "remediate.plan",
+                vec![("finding", "string", true), ("pack", "string", false)],
+            ),
+            (
+                "remediate.apply",
+                vec![("finding", "string", true), ("pack", "string", false)],
             ),
             // The classify apply resolves the approved set server-side
             // from the project's recorded proposals, so it has no
@@ -379,6 +442,21 @@ pub(super) mod tests {
                 vec![
                     ("deployment_url", "string", true),
                     ("secret_ref", "string", true),
+                ],
+            ),
+            (
+                "studio.spec",
+                vec![
+                    ("spec", "string", true),
+                    ("expected_revision", "string", false),
+                ],
+            ),
+            (
+                "studio.refine",
+                vec![
+                    ("request", "string", true),
+                    ("expected_revision", "string", true),
+                    ("selected_files", "string_array", false),
                 ],
             ),
         ]);

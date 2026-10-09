@@ -528,3 +528,74 @@ fn flywheel_change_adds_no_frontend_dependency() {
         "index.html must keep exactly its two scripts (config.js + app.js); got {scripts}"
     );
 }
+
+// Web lifecycle execution (`web-lifecycle-execution`): the idea entry is a
+// real preview→confirm→run form, refine surfaces the revision bump, and the
+// publish loop journals the transition — all through the catalog's runnable
+// rows with no new frontend dependency.
+
+#[test]
+fn idea_entry_executes_graduation_preview_and_import() {
+    let html = index_html();
+    let app = app_js();
+
+    for id in [
+        "idea-artifact",
+        "idea-profile",
+        "idea-id",
+        "idea-preview",
+        "idea-confirm",
+        "idea-run",
+        "idea-result",
+        "idea-error-summary",
+    ] {
+        assert!(
+            html.contains(&format!("id=\"{id}\"")),
+            "idea entry must carry the #{id} control",
+        );
+    }
+    assert!(
+        app.contains("renderIdeaEntry") && app.contains("ideaExec"),
+        "idea execution must run through one named renderer with held digest state",
+    );
+    for token in [
+        "/v1/admin/graduation/preview",
+        "/v1/admin/graduation/import",
+    ] {
+        assert!(app.contains(token), "idea form must wire `{token}`");
+    }
+    for token in ["Preview graduation import", "Run confirmed import"] {
+        assert!(
+            app.contains(token) || html.contains(token),
+            "idea form must wire `{token}`",
+        );
+    }
+}
+
+#[test]
+fn refine_confirm_shows_the_revision_bump_with_journal_evidence() {
+    let app = app_js();
+
+    assert!(
+        app.contains("spec_revision") && app.contains("app_revision"),
+        "success rendering must surface the studio revision pair",
+    );
+    assert!(
+        app.contains("Revision — spec"),
+        "the revision bump must read in operator words",
+    );
+}
+
+#[test]
+fn publish_success_journals_the_next_idea_loop() {
+    let app = app_js();
+
+    assert!(
+        app.contains("delivery.next-idea") && app.contains("Loop transition journaled"),
+        "publish success must record the next-idea journal row and name it",
+    );
+    assert!(
+        app.contains("renderDeliveryNextIdea") && app.contains("delivery-next-idea"),
+        "the loop must still render through its named function and shell",
+    );
+}

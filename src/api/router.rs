@@ -71,7 +71,14 @@ pub(in crate::api) fn err_status(err: &ForgeError) -> u16 {
         | "release-invalid"
         | "catalog-invalid"
         | "delivery-invalid"
-        | "studio-invalid-spec" => 400,
+        | "studio-invalid-spec"
+        | "graduation-invalid"
+        | "intent-invalid"
+        | "intent-ambiguous"
+        | "plan-conflict"
+        | "plan-apply-failed"
+        | "remediation-invalid" => 400,
+        "graduation-conflict" | "remediation-conflict" | "plan-stale" => 409,
         // Delivery provider / adapter availability is a transient
         // 503: the registry keeps the existing rows intact and the
         // operator can retry without re-running the stage.
@@ -211,6 +218,43 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        ("POST", ["v1", "admin", "graduation", "preview"]) => Some(Route::AdminGraduationPreview),
+        ("POST", ["v1", "admin", "graduation", "import"]) => Some(Route::AdminGraduationImport),
+        ("POST", ["v1", "admin", "projects", id, "intent", "resolve"]) => {
+            Some(Route::AdminProjectIntentResolve {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "intent", "apply"]) => {
+            Some(Route::AdminProjectIntentApply {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "remediate", "plan"]) => {
+            Some(Route::AdminProjectRemediatePlan {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "remediate", "apply"]) => {
+            Some(Route::AdminProjectRemediateApply {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "delivery", "next-idea"]) => {
+            Some(Route::AdminProjectDeliveryNextIdea {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "studio", "spec-save"]) => {
+            Some(Route::AdminProjectStudioSpecSave {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "projects", id, "studio", "refine-admin"]) => {
+            Some(Route::AdminProjectStudioRefine {
+                id: (*id).to_string(),
+            })
+        }
         // Project status is a five-segment read. Its literal `status`
         // segment never collides with the `plan`/`apply`/`feature`/`spec`/
         // `deploy` arms above, so no existing route is shadowed.
@@ -298,6 +342,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         // before the generic three-segment admin wildcard below.
         ("OPTIONS", ["v1", "admin", "delivery", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "workspace", ..]) => Some(Route::AdminOptions),
+        ("OPTIONS", ["v1", "admin", "graduation", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
         ("GET", ["healthz"]) => Some(Route::Healthz),
         ("GET", ["v1", "projects"]) => Some(Route::ListProjects),
@@ -512,6 +557,15 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminDeliveryApprove
         | Route::AdminDeliveryPublish
         | Route::AdminDeliveryReconcile
+        | Route::AdminGraduationPreview
+        | Route::AdminGraduationImport
+        | Route::AdminProjectIntentResolve { .. }
+        | Route::AdminProjectIntentApply { .. }
+        | Route::AdminProjectRemediatePlan { .. }
+        | Route::AdminProjectRemediateApply { .. }
+        | Route::AdminProjectDeliveryNextIdea { .. }
+            | Route::AdminProjectStudioSpecSave { .. }
+            | Route::AdminProjectStudioRefine { .. }
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -674,6 +728,15 @@ pub fn handle(
             | Route::AdminDeliveryApprove
             | Route::AdminDeliveryPublish
             | Route::AdminDeliveryReconcile
+            | Route::AdminGraduationPreview
+            | Route::AdminGraduationImport
+            | Route::AdminProjectIntentResolve { .. }
+            | Route::AdminProjectIntentApply { .. }
+            | Route::AdminProjectRemediatePlan { .. }
+            | Route::AdminProjectRemediateApply { .. }
+            | Route::AdminProjectDeliveryNextIdea { .. }
+            | Route::AdminProjectStudioSpecSave { .. }
+            | Route::AdminProjectStudioRefine { .. }
     ) {
         return super::admin::handle(config, db_path, request, &route);
     }
@@ -801,7 +864,16 @@ pub fn handle(
         | Route::AdminDeliveryAllowlistRemove { .. }
         | Route::AdminDeliveryApprove
         | Route::AdminDeliveryPublish
-        | Route::AdminDeliveryReconcile => not_found(),
+        | Route::AdminDeliveryReconcile
+        | Route::AdminGraduationPreview
+        | Route::AdminGraduationImport
+        | Route::AdminProjectIntentResolve { .. }
+        | Route::AdminProjectIntentApply { .. }
+        | Route::AdminProjectRemediatePlan { .. }
+        | Route::AdminProjectRemediateApply { .. }
+        | Route::AdminProjectDeliveryNextIdea { .. }
+        | Route::AdminProjectStudioSpecSave { .. }
+        | Route::AdminProjectStudioRefine { .. } => not_found(),
     }
 }
 

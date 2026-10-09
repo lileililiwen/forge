@@ -169,6 +169,12 @@ fn management_descriptor(
 /// root is canonicalized once so every destination is compared against the same
 /// resolved prefix.
 pub(super) fn projects_root() -> Result<PathBuf, ApiResponse> {
+    projects_root_public()
+}
+
+/// `pub(in crate::api)` alias so the lifecycle-execution handlers share the
+/// same confinement without duplicating the env/canonicalize logic.
+pub(in crate::api) fn projects_root_public() -> Result<PathBuf, ApiResponse> {
     let value = std::env::var(ADMIN_PROJECTS_ROOT_ENV).unwrap_or_default();
     if value.trim().is_empty() {
         return Err(error(

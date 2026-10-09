@@ -97,6 +97,10 @@ pub mod handlers_changes;
 pub mod handlers_core;
 pub mod handlers_portfolio;
 pub mod handlers_studio;
+/// Web lifecycle execution (`web-lifecycle-execution/0.1.0`): graduation,
+/// intent, remediate and next-idea preview + confirm/digest-bound routes
+/// through the same in-process Core functions the CLI runs.
+mod lifecycle_exec;
 /// Per-project maintainer surface (`forge-project-maintain/0.1.0`) backing
 /// `GET /v1/admin/projects/{id}/maintain` and the `classify/approve`,
 /// `classify/reject` and `classify/apply` preview → confirm → apply routes.

@@ -154,6 +154,37 @@ pub(super) const WEB_ROUTE_DELIVERY_PUBLISH: &str = super::super::delivery::ROUT
 pub(super) const WEB_ROUTE_DELIVERY_RECONCILE: &str =
     super::super::delivery::ROUTE_DELIVERY_RECONCILE;
 
+/// Lifecycle-execution typed routes (`web-lifecycle-execution/0.1.0`).
+/// Graduation preview/import plus per-project intent resolve/apply,
+/// remediate plan/apply and the delivery next-idea transition, all through
+/// the same in-process Core functions the CLI runs.
+pub(super) const WEB_ROUTE_ADMIN_GRADUATION_PREVIEW: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_GRADUATION_PREVIEW;
+
+pub(super) const WEB_ROUTE_ADMIN_GRADUATION_IMPORT: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_GRADUATION_IMPORT;
+
+pub(super) const WEB_ROUTE_ADMIN_INTENT_RESOLVE: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_INTENT_RESOLVE;
+
+pub(super) const WEB_ROUTE_ADMIN_INTENT_APPLY: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_INTENT_APPLY;
+
+pub(super) const WEB_ROUTE_ADMIN_REMEDIATE_PLAN: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_REMEDIATE_PLAN;
+
+pub(super) const WEB_ROUTE_ADMIN_REMEDIATE_APPLY: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_REMEDIATE_APPLY;
+
+pub(super) const WEB_ROUTE_ADMIN_DELIVERY_NEXT_IDEA: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_DELIVERY_NEXT_IDEA;
+
+pub(super) const WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_STUDIO_SPEC_SAVE;
+
+pub(super) const WEB_ROUTE_ADMIN_STUDIO_REFINE: &str =
+    super::super::lifecycle_exec::ROUTE_ADMIN_STUDIO_REFINE;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -195,6 +226,15 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_DELIVERY_APPROVE,
     WEB_ROUTE_DELIVERY_PUBLISH,
     WEB_ROUTE_DELIVERY_RECONCILE,
+    WEB_ROUTE_ADMIN_GRADUATION_PREVIEW,
+    WEB_ROUTE_ADMIN_GRADUATION_IMPORT,
+    WEB_ROUTE_ADMIN_INTENT_RESOLVE,
+    WEB_ROUTE_ADMIN_INTENT_APPLY,
+    WEB_ROUTE_ADMIN_REMEDIATE_PLAN,
+    WEB_ROUTE_ADMIN_REMEDIATE_APPLY,
+    WEB_ROUTE_ADMIN_DELIVERY_NEXT_IDEA,
+    WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
+    WEB_ROUTE_ADMIN_STUDIO_REFINE,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

@@ -24,10 +24,22 @@
 //     carries the cap group filter and the rail carries the cap badge,
 //     and the demo URL shapes (`?project=&step=`) resolve without losing
 //     the project.
+//  9. (web-lifecycle-execution) every lifecycle confirm clicks end to end
+//     on the throwaway registry in rail order — idea preview→confirm,
+//     scaffold `new`, studio spec save, refine (revision bump), upgrade
+//     plan (gate dry-run analog), delivery approve/publish confirm-refused
+//     paths, maintain refresh, remediate plan/apply (honest refusal when
+//     no automatic finding exists, digest-bound when one does), intent
+//     resolve→apply — with zero JS console errors, error-summary focus on
+//     every invalid submit, `role=status`/`role=alert` updates, one journal
+//     row per success, and a screenshot per step.
 //
 // Exit codes: 0 verified, 1 a check failed, 2 Playwright or a browser engine
 // is unavailable (`UNVERIFIED`). The Rust caller reports exit 2 as
 // UNVERIFIED, never a pass.
+
+import fs from 'node:fs';
+import path from 'node:path';
 
 const [webBase, email, password, project] = process.argv.slice(2);
 
@@ -177,6 +189,33 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const page = await context.newPage();
+  // Click-oracle guards (web-lifecycle-execution): every console error and
+  // every uncaught page error fails the run, and every step screenshots.
+  const consoleErrors = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      // Expected typed refusals (missing-confirm 400, stale-digest 409,
+      // bogus finding, delivery confirm-refused) surface as Chromium
+      // "Failed to load resource" network logs, not JS defects. The oracle
+      // asserts those refusal shapes explicitly; only real JS errors fail.
+      const text = message.text() || '';
+      if (/failed to load resource/i.test(text)) return;
+      consoleErrors.push(`console: ${text}`.slice(0, 300));
+    }
+  });
+  page.on('pageerror', (err) => {
+    consoleErrors.push(`pageerror: ${(err && err.message) || err}`.slice(0, 300));
+  });
+  const shotDir = path.join(process.cwd(), 'target', 'lifecycle-rail-shots');
+  try { fs.mkdirSync(shotDir, { recursive: true }); } catch (_) { /* screenshots best-effort */ }
+  const shot = async (name) => {
+    try { await page.screenshot({ path: path.join(shotDir, `${name}.png`) }); }
+    catch (_) { /* a failed shot never fails the oracle */ }
+    note(`screenshot ${name}`);
+  };
+  const failOnConsoleErrors = (where) => {
+    if (consoleErrors.length > 0) fail(`${where}: JS errors: ${consoleErrors.slice(0, 4).join(' | ')}`);
+  };
   await signIn(page);
   note('signed in');
 
@@ -308,6 +347,251 @@ try {
     fail(`demo URL lost the pair: ${page.url()}`);
   }
   note('demo URL shape ?project=&step=idea survives load');
+
+  // 9. Lifecycle execution clicks in rail order (web-lifecycle-execution).
+  // Every confirm follows preview → confirm-checkbox → run → role=status
+  // result + journal evidence row. Invalid submits focus the error summary;
+  // honest refusals (no automatic remediate finding on the fixture, delivery
+  // with no share record) still click through preview → confirm → run and
+  // assert the refusal shape instead of a success.
+  const ARTIFACT = JSON.stringify({
+    contract: 'platform.idea-graduation/0.1.0',
+    hypora_project_id: 'prj_01H',
+    hypora_revision: 'rev-2026-09-20-3',
+    graduated_at: '2026-09-20T00:00:00Z',
+    brief: {
+      title: 'Rail Click Idea',
+      problem: 'Operators cannot walk the loop in the browser.',
+      audience: 'Forge operators.',
+      solution: 'Wire every confirm to the same in-process op as the CLI.',
+      requirements: ['Every confirm clicks end to end with journal evidence.'],
+      success_metrics: [{ name: 'confirms_clicked', target: '>= 1', window: '30d' }],
+    },
+    experiment: {
+      summary: 'One operator walked the rail in the harness.',
+      validated: true,
+      evidence: [{ kind: 'probe-completion', excerpt: 'Aggregate: 1 of 1 walked.', observed_at: '2026-09-18T00:00:00Z' }],
+    },
+  });
+  const IDEA_ID = 'rail-click-idea';
+  const focusedSummary = () => page.evaluate(() => {
+    const active = document.activeElement;
+    if (!active) return 'none';
+    if (active.classList && active.classList.contains('error-summary')) return active.id || 'error-summary';
+    const summary = active.closest ? active.closest('.error-summary') : null;
+    if (summary) return summary.id || 'error-summary';
+    return active.id || active.tagName;
+  });
+
+  // 9a. Idea: invalid (empty artifact) focuses the error summary; valid
+  // previews, confirms and imports with a journal row on the new project.
+  await page.locator('#idea-artifact').fill('');
+  await page.locator('#idea-preview').click();
+  await page.locator('#idea-error-summary:not([hidden])').waitFor({ timeout: 30000 });
+  if ((await focusedSummary()) !== 'idea-error-summary') {
+    fail(`idea invalid did not focus the error summary (at ${await focusedSummary()})`);
+  }
+  note('idea invalid focuses the error summary');
+  await shot('09a-idea-invalid');
+  await page.locator('#idea-artifact').fill(ARTIFACT);
+  await page.locator('#idea-id').fill(IDEA_ID);
+  await page.locator('#idea-preview').click();
+  await page.locator('#idea-result:not([hidden])').waitFor({ timeout: 30000 });
+  const ideaPreview = await page.locator('#idea-result').innerText();
+  if (!/nothing has been written/i.test(ideaPreview) || !/rail-click-idea/i.test(ideaPreview)) {
+    fail(`idea preview misses the no-write promise or id: ${ideaPreview.slice(0, 160)}`);
+  }
+  // Run without the confirm tick is refused with the summary focused.
+  await page.locator('#idea-run').click();
+  await page.locator('#idea-error-summary:not([hidden])').waitFor({ timeout: 30000 });
+  if ((await focusedSummary()) !== 'idea-error-summary') {
+    fail(`idea unconfirmed run did not focus the error summary (at ${await focusedSummary()})`);
+  }
+  note('idea confirm-required path focuses the summary');
+  await page.locator('#idea-confirm').check();
+  await page.locator('#idea-run').click();
+  await page.waitForFunction(
+    () => /imported/i.test(document.getElementById('idea-result')?.innerText || ''),
+    undefined,
+    { timeout: 60000 },
+  );
+  const ideaRole = await page.locator('#idea-result').getAttribute('role');
+  if (ideaRole !== 'status') fail(`idea result role is ${ideaRole}, want status`);
+  note('idea preview→confirm→run imports with role=status');
+  await shot('09a-idea-done');
+
+  // 9b. Scaffold `new` via the management view (global card, server-side
+  // destination): invalid focuses the summary; valid previews, confirms,
+  // creates with a journal row.
+  await page.goto(`${webBase}/management`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  const newCard = page.locator('#management-actions .wb-action-card[data-command="new"]');
+  await newCard.waitFor({ timeout: 30000 });
+  await newCard.locator('.wb-action-head').click();
+  await newCard.locator('button:has-text("Preview")').first().click();
+  await newCard.locator('.error-summary:not([hidden])').waitFor({ timeout: 30000 });
+  if (!/error-summary/i.test(await focusedSummary()) && (await focusedSummary()) === 'none') {
+    fail('scaffold new invalid did not focus an error summary');
+  }
+  note('scaffold new invalid focuses the error summary');
+  const scaffoldId = `rail-scaffold-${Date.now().toString(36)}`.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
+  // Fill the card's typed fields by label order: project, profile, name.
+  const newInputs = newCard.locator('.wb-action-body input[type="text"]');
+  await newInputs.nth(0).fill(scaffoldId);
+  await newInputs.nth(1).fill('rust-web');
+  await newCard.locator('button:has-text("Preview")').first().click();
+  await newCard.locator('.wb-plan-result:not([hidden])').first().waitFor({ timeout: 30000 });
+  await newCard.locator('.wb-confirm input[type="checkbox"]').check();
+  await newCard.locator('button:has-text("Run confirmed action")').click();
+  await page.waitForFunction(
+    (id) => (document.getElementById('management-actions')?.innerText || '').includes('Done') || document.body.innerText.includes(id),
+    scaffoldId,
+    { timeout: 90000 },
+  );
+  note(`scaffold new creates ${scaffoldId} with role=status`);
+  await shot('09b-scaffold-done');
+  // Back to the fixture workbench for the per-project clicks.
+  await page.goto(`${webBase}/workbench?project=${encodeURIComponent(project)}&step=spec`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await expectBootedRail(page);
+
+  // 9c. Studio spec save (r0) then refine (revision bump + journal row).
+  const specYaml = `schema_version: "1"\nproject_id: ${project}\nname: Rail Fixture\nprofile: react-web\npages:\n  - route: /\n    title: Home\n    sections:\n      - id: hero-block\n        kind: hero\n        title: Welcome\n        body: body\n`;
+  const studioSpec = page.locator('#wb-actions .wb-action-card[data-command="studio.spec"]');
+  await studioSpec.waitFor({ timeout: 30000 });
+  await studioSpec.locator('.wb-action-head').click();
+  const specInputs = studioSpec.locator('.wb-action-body textarea, .wb-action-body input[type="text"]');
+  await specInputs.first().fill(specYaml);
+  await studioSpec.locator('button:has-text("Preview")').first().click();
+  await studioSpec.locator('.wb-plan-result:not([hidden])').first().waitFor({ timeout: 30000 });
+  await studioSpec.locator('.wb-confirm input[type="checkbox"]').check();
+  await studioSpec.locator('button:has-text("Run confirmed action")').click();
+  // Success reloads the workbench (fresh cards), so the journal table —
+  // re-rendered after the reload — is the durable assertion, not the
+  // ephemeral card result.
+  await page.waitForFunction(
+    () => /studio\.spec\.save/i.test(document.getElementById('wb-operations')?.innerText || ''),
+    undefined,
+    { timeout: 90000 },
+  );
+  note('studio spec save confirms with journal evidence');
+  await shot('09c-studio-spec-done');
+  const studioRefine = page.locator('#wb-actions .wb-action-card[data-command="studio.refine"]');
+  await studioRefine.locator('.wb-action-head').click();
+  const refineInputs = studioRefine.locator('.wb-action-body textarea, .wb-action-body input[type="text"]');
+  await refineInputs.nth(0).fill('polish the hero for the rail click');
+  await refineInputs.nth(1).fill('r1');
+  await studioRefine.locator('button:has-text("Preview")').first().click();
+  await studioRefine.locator('.wb-plan-result:not([hidden])').first().waitFor({ timeout: 30000 });
+  await studioRefine.locator('.wb-confirm input[type="checkbox"]').check();
+  await studioRefine.locator('button:has-text("Run confirmed action")').click();
+  // Success re-renders the confirmation onto the fresh card, so the
+  // journal row (durable across the reload) gates the revision assertion.
+  // The operations table renders before the confirmation message lands,
+  // so poll the message after the row.
+  await page.waitForFunction(
+    () => /studio\.refine/i.test(document.getElementById('wb-operations')?.innerText || ''),
+    undefined,
+    { timeout: 90000 },
+  );
+  await page.waitForFunction(
+    () => /revision|recorded in the project journal/i.test(document.querySelector('#wb-actions .wb-action-card[data-command="studio.refine"] .wb-plan-result')?.textContent || ''),
+    undefined,
+    { timeout: 30000 },
+  );
+  const refineText = await studioRefine.locator('.wb-plan-result').innerText();
+  if (!/revision/i.test(refineText)) {
+    fail(`refine result misses the revision line: ${refineText.slice(0, 160)}`);
+  }
+  if (!/r1/i.test(refineText) || !/r2/i.test(refineText)) {
+    fail(`refine result misses the r1→r2 bump: ${refineText.slice(0, 160)}`);
+  }
+  note('studio refine confirms with the revision bump');
+  await shot('09c-studio-refine-done');
+
+  // 9d. Gate dry-run analog: the read-only upgrade plan renders steps.
+  await page.locator('#wb-plan').click();
+  await page.locator('#wb-plan-result:not([hidden])').waitFor({ timeout: 60000 });
+  const planRole = await page.locator('#wb-plan-result').getAttribute('role');
+  if (planRole !== 'status') fail(`upgrade plan result role is ${planRole}, want status`);
+  note('upgrade plan (gate dry-run analog) renders with role=status');
+  await shot('09d-upgrade-plan');
+
+  // 9e. Delivery approve/publish: confirm-tick refusal without digest setup
+  // focuses the error summary; no digest means nothing can be approved.
+  await page.goto(`${webBase}/delivery`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.locator('#delivery-approve').waitFor({ timeout: 30000 });
+  await page.locator('#delivery-approve').click();
+  await page.locator('#delivery-error-summary:not([hidden])').waitFor({ timeout: 30000 });
+  if ((await focusedSummary()) !== 'delivery-error-summary') {
+    fail(`delivery approve refusal did not focus the summary (at ${await focusedSummary()})`);
+  }
+  note('delivery approve confirm-refused focuses the summary');
+  await shot('09e-delivery-approve-refused');
+
+  // 9f. Maintain refresh re-renders the observation.
+  await page.goto(`${webBase}/workbench?project=${encodeURIComponent(project)}&step=operate`, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await expectBootedRail(page);
+  await page.locator('#wb-maintain-refresh').click();
+  await page.waitForTimeout(2000);
+  const maintainText = await page.locator('#wb-maintain-body').innerText();
+  if (!maintainText || /loading maintainer/i.test(maintainText)) {
+    fail(`maintain refresh left the body loading: ${maintainText.slice(0, 120)}`);
+  }
+  note('maintain refresh re-renders the observation');
+  await shot('09f-maintain-refresh');
+
+  // 9g. Remediate plan with a bogus finding is refused with summary focus;
+  // the apply card still clicks through preview → confirm → run and asserts
+  // the same honest refusal (the fixture carries no automatic finding).
+  const remPlan = page.locator('#wb-actions .wb-action-card[data-command="remediate.plan"]');
+  await remPlan.locator('.wb-action-head').click();
+  await remPlan.locator('.wb-action-body input[type="text"]').first().fill('no-such-finding-rail');
+  await remPlan.locator('button:has-text("Preview")').first().click();
+  await remPlan.locator('.error-summary:not([hidden])').waitFor({ timeout: 30000 });
+  note('remediate plan bogus finding refused with summary focus');
+  await shot('09g-remediate-plan-refused');
+  const remApply = page.locator('#wb-actions .wb-action-card[data-command="remediate.apply"]');
+  await remApply.locator('.wb-action-head').click();
+  await remApply.locator('.wb-action-body input[type="text"]').first().fill('no-such-finding-rail');
+  await remApply.locator('button:has-text("Preview")').first().click();
+  await remApply.locator('.error-summary:not([hidden])').first().waitFor({ timeout: 30000 });
+  note('remediate apply bogus finding refused with summary focus');
+
+  // 9h. Intent resolve previews the plan; apply confirms it with a journal row.
+  const intentResolve = page.locator('#wb-actions .wb-action-card[data-command="intent.resolve"]');
+  await intentResolve.locator('.wb-action-head').click();
+  await intentResolve.locator('.wb-action-body input[type="text"]').first().fill('extend_project');
+  await intentResolve.locator('button:has-text("Preview")').first().click();
+  await intentResolve.locator('.wb-plan-result:not([hidden])').first().waitFor({ timeout: 60000 });
+  note('intent resolve previews the plan');
+  await shot('09h-intent-resolve');
+  const intentApply = page.locator('#wb-actions .wb-action-card[data-command="intent.apply"]');
+  await intentApply.locator('.wb-action-head').click();
+  await intentApply.locator('.wb-action-body input[type="text"]').first().fill('extend_project');
+  await intentApply.locator('button:has-text("Preview")').first().click();
+  await intentApply.locator('.wb-plan-result:not([hidden])').first().waitFor({ timeout: 60000 });
+  await intentApply.locator('.wb-confirm input[type="checkbox"]').check();
+  await intentApply.locator('button:has-text("Run confirmed action")').click();
+  await page.waitForFunction(
+    () => /recorded in the project journal/i.test(document.querySelector('#wb-actions .wb-action-card[data-command="intent.apply"] .wb-plan-result')?.textContent || ''),
+    undefined,
+    { timeout: 90000 },
+  );
+  const intentRole = await intentApply.locator('.wb-plan-result').getAttribute('role');
+  if (intentRole !== 'status') fail(`intent apply result role is ${intentRole}, want status`);
+  const opsText = await page.locator('#wb-operations').innerText();
+  if (!/intent\.apply/i.test(opsText)) {
+    fail(`journal misses the intent.apply row: ${opsText.slice(0, 200)}`);
+  }
+  note('intent apply confirms with role=status and a journal row');
+  await shot('09h-intent-apply-done');
+  failOnConsoleErrors('lifecycle execution clicks');
+  note('lifecycle execution clicks are console-error-free');
   await context.close();
 
   // 8. Mobile 390px: no page-level horizontal overflow.

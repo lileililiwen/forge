@@ -270,6 +270,15 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "POST /v1/admin/delivery/approve",
                         "POST /v1/admin/delivery/publish",
                         "POST /v1/admin/delivery/reconcile",
+                        "POST /v1/admin/graduation/preview",
+                        "POST /v1/admin/graduation/import",
+                        "POST /v1/admin/projects/{id}/intent/resolve",
+                        "POST /v1/admin/projects/{id}/intent/apply",
+                        "POST /v1/admin/projects/{id}/remediate/plan",
+                        "POST /v1/admin/projects/{id}/remediate/apply",
+                        "POST /v1/admin/projects/{id}/delivery/next-idea",
+                        "POST /v1/admin/projects/{id}/studio/spec-save",
+                        "POST /v1/admin/projects/{id}/studio/refine-admin",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"

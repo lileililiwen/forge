@@ -1,6 +1,7 @@
 //! Browser oracle for the workbench lifecycle series rail
 //! (`lifecycle-series-rail`, part 2 live behavior, plus
-//! `flywheel-plugin-cap` flywheel ends).
+//! `flywheel-plugin-cap` flywheel ends and `web-lifecycle-execution`
+//! click-every-confirm coverage).
 //!
 //! This test starts throwaway API and web listeners with one registered
 //! fixture project, signs in through the shipped login page in real
@@ -13,8 +14,15 @@
 //! horizontal overflow, workbench text meets WCAG 2.2 AA, rail step 0
 //! carries the idea entry (graduation + studio), the projects view carries
 //! the cap group filter with the rail cap badge, `forge cap list` derives
-//! from `CAPABILITIES` plus live states, and `docs/flywheel-demo.md` covers
-//! the hookit 5-step demo URLs.
+//! from `CAPABILITIES` plus live states, `docs/flywheel-demo.md` covers
+//! the hookit 5-step demo URLs, and every lifecycle confirm clicks end to
+//! end in rail order (idea preview→confirm, scaffold `new`, studio spec
+//! save + refine revision bump, upgrade plan, delivery approve/publish
+//! confirm-refused paths, maintain refresh, remediate plan/apply honest
+//! refusals, intent resolve→apply) with zero JS console errors,
+//! error-summary focus on every invalid submit, `role=status` updates,
+//! journal evidence rows, and a screenshot per step under
+//! `target/lifecycle-rail-shots/`.
 //!
 //! If `node`, the pinned Playwright install or Chromium is unavailable, the
 //! Node harness exits `2`, this test prints `UNVERIFIED` and returns. That

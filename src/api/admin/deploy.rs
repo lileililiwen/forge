@@ -251,6 +251,33 @@ pub(in crate::api) fn handle(
         Route::AdminWorkspaceOnboard => {
             super::super::workspace::workspace_onboard_write(config, db_path, request)
         }
+        Route::AdminGraduationPreview => {
+            super::super::lifecycle_exec::graduation_preview(config, db_path, request)
+        }
+        Route::AdminGraduationImport => {
+            super::super::lifecycle_exec::graduation_import(config, db_path, request)
+        }
+        Route::AdminProjectIntentResolve { id } => {
+            super::super::lifecycle_exec::intent_resolve(config, db_path, request, id)
+        }
+        Route::AdminProjectIntentApply { id } => {
+            super::super::lifecycle_exec::intent_apply(config, db_path, request, id)
+        }
+        Route::AdminProjectRemediatePlan { id } => {
+            super::super::lifecycle_exec::remediate_plan(config, db_path, request, id)
+        }
+        Route::AdminProjectRemediateApply { id } => {
+            super::super::lifecycle_exec::remediate_apply(config, db_path, request, id)
+        }
+        Route::AdminProjectDeliveryNextIdea { id } => {
+            super::super::lifecycle_exec::delivery_next_idea(config, db_path, request, id)
+        }
+        Route::AdminProjectStudioSpecSave { id } => {
+            super::super::lifecycle_exec::studio_spec_save(config, db_path, request, id)
+        }
+        Route::AdminProjectStudioRefine { id } => {
+            super::super::lifecycle_exec::studio_refine(config, db_path, request, id)
+        }
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)

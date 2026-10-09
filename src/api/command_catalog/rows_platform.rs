@@ -10,7 +10,8 @@ use super::routes::{
 use super::routes::{
     WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY, WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
     WEB_ROUTE_ADMIN_DELIVERY_PROMOTE, WEB_ROUTE_ADMIN_DELIVERY_STAGE,
-    WEB_ROUTE_ADMIN_DELIVERY_STATUS,
+    WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_STUDIO_REFINE,
+    WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
 };
 
 impl CatalogBuilder {
@@ -123,14 +124,16 @@ impl CatalogBuilder {
             Delivery,
             Project,
         );
-        self.leaf(
+        self.web_exec(
             Some("studio"),
             "spec",
             "Validate an AppSpec from a YAML file and print the closed `forge-app-spec/0.1.0` envelope; persists only with `--confirm yes`.",
             Delivery,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
+            "POST",
+            &[("spec", "string", true), ("expected_revision", "string", false)],
             caps_local,
         );
         self.leaf(
@@ -143,14 +146,20 @@ impl CatalogBuilder {
             NotYetWeb,
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("studio"),
             "refine",
             "Submit a refinement request; validates, journals a `studio.refine` row and bumps `app_revision`.",
             Delivery,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_STUDIO_REFINE,
+            "POST",
+            &[
+                ("request", "string", true),
+                ("expected_revision", "string", true),
+                ("selected_files", "string_array", false),
+            ],
             caps_registry_write,
         );
         self.group(

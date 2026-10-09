@@ -1310,6 +1310,10 @@
   // empty state instead of dead buttons.
   function renderMaintainActions() {
     const box = document.getElementById("wb-maintain-actions");
+    // Same in-flight guard as the project actions: a rebuild while the
+    // operator previews or confirms would wipe the held digest and strand
+    // the confirmed response on detached nodes.
+    if (box.querySelector(".wb-action-card.is-open, .wb-plan-result:not([hidden])")) return;
     box.replaceChildren();
     if (!workbench.id) return;
     const wanted = ["classify.approve", "classify.reject", "classify.apply"];
@@ -1634,32 +1638,157 @@
   }
 
   // ---- Flywheel ends (flywheel-plugin-cap): idea entry + publish loop ---
-  // Step 0 (Idea) entry: graduation preview/import CLI preview plus a studio
-  // spec entry link. Publish→maintain loop: a successful delivery publish
-  // renders the Next-idea prompt with a `&step=idea` deep link and a maintain
-  // refresh shortcut firing the existing `#wb-maintain-refresh` control.
+  // Step 0 (Idea) entry: graduation preview/import execution (typed artifact
+  // textarea + profile select + id override, preview digest → confirm runs the
+  // same in-process op as the CLI) plus a studio spec entry link.
+  // Publish→maintain loop: a successful delivery publish records the
+  // `delivery.next-idea` journal row and renders the Next-idea prompt with a
+  // `&step=idea` deep link and a maintain refresh shortcut firing the existing
+  // `#wb-maintain-refresh` control.
+  const ideaExec = { digest: null, payload: null };
   function renderIdeaEntry() {
     const box = document.getElementById("wb-idea-entry");
     if (!box || !workbench.id) return;
     const id = workbench.id;
-    box.replaceChildren();
-    const head = el("p", "wb-plan-head", "Idea entry — start the next loop from here.");
-    box.append(head);
-    const grad = el("p", "wb-action-cli-copy");
-    grad.append(el("code", null, `forge graduation preview <artifact>  ·  forge graduation import <artifact> --path . --profile rust-web --confirm`));
-    box.append(grad);
-    const tools = el("div", "wb-plan-tools");
-    const studio = document.createElement("a");
-    studio.className = "button button-quiet";
-    studio.href = `/workbench?project=${encodeURIComponent(id)}&step=spec`;
-    studio.textContent = "Open studio spec entry (forge studio spec)";
-    tools.append(studio);
-    const gradLink = document.createElement("a");
-    gradLink.className = "button button-quiet";
-    gradLink.href = `/workbench?project=${encodeURIComponent(id)}&step=idea`;
-    gradLink.textContent = "Stay on Idea (forge graduation preview)";
-    tools.append(gradLink);
-    box.append(tools);
+    // The static shell (textarea + profile + id + preview/run + result) ships
+    // in index.html; here we keep the CLI preview strings, the studio/spec
+    // links and the one-time wiring. Re-render preserves typed input.
+    let head = box.querySelector(".wb-plan-head");
+    if (!head) {
+      head = el("p", "wb-plan-head", "Idea entry — start the next loop from here.");
+      box.prepend(head);
+    }
+    let grad = box.querySelector(".wb-action-cli-copy");
+    if (!grad) {
+      grad = el("p", "wb-action-cli-copy");
+      grad.append(el("code", null, `forge graduation preview <artifact>  ·  forge graduation import <artifact> --path . --profile rust-web --confirm`));
+      head.after(grad);
+    }
+    let tools = box.querySelector(".wb-idea-links");
+    if (!tools) {
+      tools = el("div", "wb-plan-tools wb-idea-links");
+      const studio = document.createElement("a");
+      studio.className = "button button-quiet";
+      studio.href = `/workbench?project=${encodeURIComponent(id)}&step=spec`;
+      studio.textContent = "Open studio spec entry (forge studio spec)";
+      tools.append(studio);
+      const gradLink = document.createElement("a");
+      gradLink.className = "button button-quiet";
+      gradLink.href = `/workbench?project=${encodeURIComponent(id)}&step=idea`;
+      gradLink.textContent = "Stay on Idea (forge graduation preview)";
+      tools.append(gradLink);
+      grad.after(tools);
+    } else {
+      for (const link of tools.querySelectorAll("a")) {
+        const step = link.textContent.includes("studio") ? "spec" : "idea";
+        link.href = `/workbench?project=${encodeURIComponent(id)}&step=${step}`;
+      }
+    }
+    if (box.dataset.ideaWired) return;
+    box.dataset.ideaWired = "true";
+    document.getElementById("idea-preview").addEventListener("click", ideaPreview);
+    document.getElementById("idea-run").addEventListener("click", ideaRun);
+  }
+
+  function ideaSetFieldError(fieldId, errorId, message) {
+    setFieldError(fieldId, errorId, message);
+  }
+
+  async function ideaPreview() {
+    clearErrorSummary("idea-error-summary");
+    for (const [f, e] of [["idea-artifact", "idea-artifact-error"], ["idea-profile", "idea-profile-error"], ["idea-id", "idea-id-error"]]) clearFieldError(f, e);
+    const result = document.getElementById("idea-result");
+    result.hidden = true; result.replaceChildren();
+    document.getElementById("idea-confirm-wrap").hidden = true;
+    document.getElementById("idea-confirm").checked = false;
+    document.getElementById("idea-run").disabled = true;
+    ideaExec.digest = null; ideaExec.payload = null;
+    const artifact = document.getElementById("idea-artifact").value.trim();
+    const profile = document.getElementById("idea-profile").value.trim();
+    const idOverride = document.getElementById("idea-id").value.trim();
+    const failures = [];
+    if (!artifact) failures.push({ fieldId: "idea-artifact", label: "Artifact", message: "Paste the graduation artifact JSON." });
+    if (!profile) failures.push({ fieldId: "idea-profile", label: "Profile", message: "Choose a profile for the import." });
+    if (idOverride && !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(idOverride)) failures.push({ fieldId: "idea-id", label: "Id override", message: "Use lowercase letters, numbers and dashes." });
+    if (failures.length) {
+      for (const f of failures) {
+        const errorId = `${f.fieldId}-error`;
+        ideaSetFieldError(f.fieldId, errorId, f.message);
+      }
+      renderErrorSummary("idea-error-summary", "There is a problem previewing the graduation import", failures);
+      return;
+    }
+    const payload = { artifact_json: artifact, profile };
+    if (idOverride) payload.id = idOverride;
+    ideaExec.payload = payload;
+    const { ok, body } = await requestStatus("/v1/admin/graduation/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!ok) {
+      const message = (body && body.error && body.error.message) || "The graduation preview was refused. Nothing was written.";
+      setResultRole(result, true);
+      result.replaceChildren(el("p", "wb-plan-head", message));
+      result.hidden = false;
+      renderErrorSummary("idea-error-summary", "The graduation preview was refused", [{ label: "Graduation preview", message }]);
+      return;
+    }
+    ideaExec.digest = body.plan_digest;
+    setResultRole(result, false);
+    result.replaceChildren();
+    const preview = body.preview || {};
+    result.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to import exactly this brief."));
+    const list = el("ul", "wb-plan-steps");
+    list.append(el("li", null, `Title: ${preview.title || "—"}`));
+    list.append(el("li", null, `Proposed id: ${preview.proposed_id || "—"} · profile: ${preview.profile || profile}`));
+    list.append(el("li", null, `Requirements: ${preview.requirements ?? "—"} · evidence items: ${preview.evidence_count ?? "—"}`));
+    result.append(list);
+    result.hidden = false;
+    document.getElementById("idea-confirm-wrap").hidden = false;
+    document.getElementById("idea-run").disabled = false;
+  }
+
+  async function ideaRun() {
+    clearErrorSummary("idea-error-summary");
+    const result = document.getElementById("idea-result");
+    if (!ideaExec.payload || !ideaExec.digest) {
+      const message = "Preview the graduation import before running.";
+      renderErrorSummary("idea-error-summary", "There is a problem running the import", [{ fieldId: "idea-preview", label: "Preview", message }]);
+      return;
+    }
+    if (!document.getElementById("idea-confirm").checked) {
+      const message = "Tick the confirmation box — this creates the project and its receipt.";
+      renderErrorSummary("idea-error-summary", "There is a problem running the import", [{ fieldId: "idea-confirm", label: "Confirmation", message }]);
+      return;
+    }
+    document.getElementById("idea-run").disabled = true;
+    const { ok, body } = await requestStatus("/v1/admin/graduation/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...ideaExec.payload, confirm: true, plan_digest: ideaExec.digest }),
+    });
+    if (!ok && !(body && body.accepted)) {
+      const message = (body && body.error && body.error.message) || "The graduation import was refused. Nothing was written.";
+      setResultRole(result, true);
+      result.replaceChildren(el("p", "wb-plan-head", message));
+      result.hidden = false;
+      if (body && body.plan_digest) {
+        ideaExec.digest = body.plan_digest;
+        result.append(el("p", "muted", "The preview changed: review the refreshed preview above and confirm again."));
+        document.getElementById("idea-confirm-wrap").hidden = false;
+        document.getElementById("idea-run").disabled = false;
+      }
+      renderErrorSummary("idea-error-summary", "The graduation import was refused", [{ label: "Graduation import", message }]);
+      return;
+    }
+    setResultRole(result, false);
+    result.replaceChildren(el("p", "wb-plan-head", `Done — imported ${body.project_id || "the project"}. Recorded in the registry journal.`));
+    result.hidden = false;
+    ideaExec.digest = null; ideaExec.payload = null;
+    document.getElementById("idea-confirm").checked = false;
+    document.getElementById("idea-confirm-wrap").hidden = true;
+    if (workbench.id) loadWorkbenchDetail(workbench.id);
   }
 
   function maintainRefreshShortcut() {
@@ -1674,7 +1803,7 @@
     return btn;
   }
 
-  function renderDeliveryNextIdea(result) {
+  async function renderDeliveryNextIdea(result) {
     const box = document.getElementById("delivery-next-idea");
     if (!box) return;
     box.replaceChildren();
@@ -1683,12 +1812,28 @@
     box.hidden = false;
     setResultRole(box, false);
     box.append(el("p", "wb-plan-head", "Next idea — the publish landed. Propose what the loop should build next."));
+    // The publish landed: journal the loop transition so the operations
+    // table carries the evidence. Fire-and-forget against the open project;
+    // a journal failure never hides the Next-idea prompt itself.
+    const sel = document.getElementById("delivery-project");
+    const target = (sel && sel.value) || delivery.projectId || workbench.id || "";
+    if (target) {
+      try {
+        const { ok: jok, body: jbody } = await requestStatus(`/v1/admin/projects/${encodeURIComponent(target)}/delivery/next-idea`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ confirm: true, note: "publish landed; next loop proposed from delivery" }),
+        });
+        if (jok) {
+          box.append(el("p", "muted", `Loop transition journaled${jbody.operation_id ? ` as operation ${jbody.operation_id}` : ""}.`));
+          if (workbench.id === target) loadWorkbenchDetail(target);
+        }
+      } catch (_) { /* prompt below still renders */ }
+    }
     const prompt = el("p", "muted", "Write the next idea as a graduation brief, import it, and walk the rail again: idea → scaffold → gate → publish → maintain.");
     box.append(prompt);
     const tools = el("div", "wb-plan-tools");
     const idea = document.createElement("a");
-    const sel = document.getElementById("delivery-project");
-    const target = (sel && sel.value) || delivery.projectId || workbench.id || "";
     idea.className = "button button-quiet";
     idea.href = target ? `/workbench?project=${encodeURIComponent(target)}&step=idea` : "/workbench?project=&step=idea";
     idea.textContent = "Open Next idea in the workbench";
@@ -1699,9 +1844,10 @@
 
   // ---- Lifecycle series rail, part 2: observability shortcuts + roving --
   //
-  // All three shortcuts reuse existing surfaces (no new endpoint, no new
-  // fetch): the remediate preview is the exact `forge remediate plan`
-  // string for a terminal (remediate.plan has no web execution row), the
+  // All three shortcuts reuse existing surfaces: the remediate preview keeps
+  // the exact `forge remediate plan` string for a terminal (and the
+  // `remediate.plan`/`remediate.apply` catalog cards execute the same plan
+  // in-process when the operator prefers the browser), the
   // fleet shortcut deep-links the existing management reconcile flow, and
   // the Hermora retry opens the existing `delivery.hermora-retry` card.
 
@@ -2206,6 +2352,13 @@
   function renderProjectActions() {
     const box = document.getElementById("wb-actions");
     if (!box) return;
+    // Late projections (delivery status, catalog) re-render the action list.
+    // A rebuild while the operator types, previews or confirms would wipe
+    // the typed fields, the held digest and the in-flight result — and a
+    // confirmed response landing on the detached nodes would never render
+    // (oracle-found). When any card is open, holds input, or shows a result,
+    // keep the live cards; the next explicit project open rebuilds.
+    if (box.querySelector(".wb-action-card.is-open, .wb-plan-result:not([hidden])")) return;
     box.replaceChildren();
     if (!workbench.id) return;
     // Only rows addressed by the open project render here. The id-less
@@ -2249,6 +2402,8 @@
   function renderManagementActions() {
     const box = document.getElementById("management-actions");
     if (!box) return;
+    // Same in-flight guard as the workbench cards.
+    if (box.querySelector(".wb-action-card.is-open, .wb-plan-result:not([hidden])")) return;
     box.replaceChildren();
     const rows = catalogCommands.filter(
       (command) => command.execution && !command.execution.route.includes("{id}"),
@@ -2941,6 +3096,20 @@
         field.id = fieldId;
         const visible = el("span", "wb-field-label", `${paramLabel(param)}${param.required ? " *" : ""}`);
         label.append(visible);
+      } else if (param.name === "spec" || param.name === "artifact_json" || param.name === "request") {
+        // Multiline document params (oracle-found): a single-line text input
+        // strips newlines, so pasted AppSpec YAML / artifact JSON / refine
+        // prose could never parse. These render as textareas; gathering,
+        // validation and error wiring treat them as plain strings.
+        field = el("textarea"); field.rows = 4; field.autocomplete = "off";
+        field.id = fieldId;
+        field.placeholder = paramHint(param);
+        const visible = el("span", "wb-field-label", `${paramLabel(param)}${param.required ? " *" : ""}`);
+        label.append(visible);
+        const known = prefill[param.name];
+        if ((typeof known === "string" && known) || typeof known === "number") {
+          field.value = String(known);
+        }
       } else {
         field = el("input"); field.type = "text"; field.autocomplete = "off";
         field.id = fieldId;
@@ -3063,10 +3232,31 @@
       // be blindly re-armed, then refresh the workbench to show the new state.
       state.digest = null; state.payload = null; state.idempotencyKey = null;
       confirmWrap.hidden = true; confirmBox.checked = false; runBtn.disabled = true;
+      // Studio saves/refines journal the revision bump: surface the returned
+      // pair so the operator sees rN → rN+1, not just a generic done.
+      const revisionLine = (() => {
+        const spec = body && (body.spec_revision ?? (body.preview && body.preview.spec_revision));
+        const app = body && (body.app_revision ?? (body.preview && body.preview.app_revision));
+        const text = (v) => (v === null || v === undefined || v === "" ? null : String(v));
+        const s = text(spec);
+        const a = text(app);
+        if (s || a) return `Revision — spec ${s || "—"} · app ${a || "—"}.`;
+        return null;
+      })();
       const show = () => {
-        result.replaceChildren(); result.hidden = false;
-        setResultRole(result, false);
-        result.append(el("p", "wb-plan-head", message));
+        // The refresh above rebuilt the cards: the closure's `result` is
+        // detached, so re-target the live card's result (oracle-found —
+        // confirming into a detached node left no visible confirmation).
+        // The selector is scoped to both workbench lists; a missing card
+        // (catalog shifted under the run) falls back to the held node.
+        const fresh = document.querySelector(
+          `#wb-actions .wb-action-card[data-command="${command.id}"] .wb-plan-result, #wb-maintain-actions .wb-action-card[data-command="${command.id}"] .wb-plan-result`,
+        );
+        const target = fresh || result;
+        target.replaceChildren(); target.hidden = false;
+        setResultRole(target, false);
+        target.append(el("p", "wb-plan-head", message));
+        if (revisionLine) target.append(el("p", "muted", revisionLine));
       };
       if (scope.onSuccess) { scope.onSuccess(); show(); return; }
       if (workbench.id) {

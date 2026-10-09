@@ -466,6 +466,38 @@ pub enum Route {
     AdminProjectDeliveryHermoraRetry {
         id: String,
     },
+    /// `POST /v1/admin/graduation/preview` — validate artifact text, no write.
+    AdminGraduationPreview,
+    /// `POST /v1/admin/graduation/import` — digest-bound adopt, journaled.
+    AdminGraduationImport,
+    /// `POST /v1/admin/projects/{id}/intent/resolve` — plan preview, no receipt.
+    AdminProjectIntentResolve {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/intent/apply` — digest-bound apply, journaled.
+    AdminProjectIntentApply {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/remediate/plan` — plan preview, no write.
+    AdminProjectRemediatePlan {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/remediate/apply` — digest-bound apply, journaled.
+    AdminProjectRemediateApply {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/delivery/next-idea` — journal the loop transition.
+    AdminProjectDeliveryNextIdea {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/studio/spec-save` — admin-gated Studio spec save.
+    AdminProjectStudioSpecSave {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/studio/refine-admin` — admin-gated Studio refine.
+    AdminProjectStudioRefine {
+        id: String,
+    },
     /// `POST /v1/admin/projects/new` — `forge new` exposed as a session-gated,
     /// preview + confirm/digest-bound admin route. The browser supplies only a
     /// validated project name plus typed fields; the destination is resolved

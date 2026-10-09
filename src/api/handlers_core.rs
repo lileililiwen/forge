@@ -152,6 +152,15 @@ pub(super) fn authorize(
         | Route::AdminDeliveryApprove
         | Route::AdminDeliveryPublish
         | Route::AdminDeliveryReconcile
+        | Route::AdminGraduationPreview
+        | Route::AdminGraduationImport
+        | Route::AdminProjectIntentResolve { .. }
+        | Route::AdminProjectIntentApply { .. }
+        | Route::AdminProjectRemediatePlan { .. }
+        | Route::AdminProjectRemediateApply { .. }
+        | Route::AdminProjectDeliveryNextIdea { .. }
+        | Route::AdminProjectStudioSpecSave { .. }
+        | Route::AdminProjectStudioRefine { .. }
         | Route::AdminOptions => Ok(String::new()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session

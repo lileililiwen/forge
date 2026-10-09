@@ -6,8 +6,10 @@ use super::model::{Availability, Category, Risk, Scope};
 use super::routes::{REASON_FILE_STDIN, REASON_GIT, REASON_LOCAL_FS, REASON_NATIVE};
 use super::routes::{
     WEB_ROUTE_ADMIN_FEATURE, WEB_ROUTE_ADMIN_FEATURE_REMOVE, WEB_ROUTE_ADMIN_FEATURE_UPGRADE,
-    WEB_ROUTE_ADMIN_PROJECT_IMPORT, WEB_ROUTE_ADMIN_PROJECT_NEW, WEB_ROUTE_ADMIN_PROJECT_REGISTER,
-    WEB_ROUTE_PROJECT_DETAIL, WEB_ROUTE_PROJECT_PLAN, WEB_ROUTE_PROJECT_STATUS,
+    WEB_ROUTE_ADMIN_GRADUATION_IMPORT, WEB_ROUTE_ADMIN_GRADUATION_PREVIEW,
+    WEB_ROUTE_ADMIN_INTENT_APPLY, WEB_ROUTE_ADMIN_INTENT_RESOLVE, WEB_ROUTE_ADMIN_PROJECT_IMPORT,
+    WEB_ROUTE_ADMIN_PROJECT_NEW, WEB_ROUTE_ADMIN_PROJECT_REGISTER, WEB_ROUTE_PROJECT_DETAIL,
+    WEB_ROUTE_PROJECT_PLAN, WEB_ROUTE_PROJECT_STATUS,
 };
 
 impl CatalogBuilder {
@@ -92,24 +94,36 @@ impl CatalogBuilder {
             Registry,
             Workspace,
         );
-        self.leaf(
+        self.web_exec(
             Some("graduation"),
             "preview",
             "Validate a graduation artifact and show the mapped brief without choosing a destination (read-only).",
             Registry,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_GRADUATION_PREVIEW,
+            "POST",
+            &[
+                ("artifact_json", "string", true),
+                ("profile", "string", true),
+                ("id", "string", false),
+            ],
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("graduation"),
             "import",
             "Validate a graduation artifact and, with `--confirm`, create the project.",
             Registry,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_GRADUATION_IMPORT,
+            "POST",
+            &[
+                ("artifact_json", "string", true),
+                ("profile", "string", true),
+                ("id", "string", false),
+            ],
             caps_local,
         );
         self.web_exec(
@@ -407,24 +421,40 @@ impl CatalogBuilder {
             NotYetWeb,
             none,
         );
-        self.leaf(
+        self.web_exec(
             Some("intent"),
             "resolve",
             "Resolve a validated intent into a reviewable deterministic assembly plan and persist its receipt.",
             Creation,
-            Profile,
+            Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_INTENT_RESOLVE,
+            "POST",
+            &[
+                ("action", "string", true),
+                ("profile", "string", false),
+                ("required", "string_array", false),
+                ("forbidden", "string_array", false),
+                ("constraints", "string_array", false),
+            ],
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("intent"),
             "apply",
             "Re-validate and apply a previously persisted plan (requires `--confirm`).",
             Creation,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_INTENT_APPLY,
+            "POST",
+            &[
+                ("action", "string", true),
+                ("profile", "string", false),
+                ("required", "string_array", false),
+                ("forbidden", "string_array", false),
+                ("constraints", "string_array", false),
+            ],
             caps_local,
         );
         self.leaf(

@@ -5,8 +5,9 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::REASON_FILE_STDIN;
 use super::routes::{
-    WEB_ROUTE_ADMIN_SPEC, WEB_ROUTE_ADMIN_SPEC_APPLY, WEB_ROUTE_CLASSIFY_APPLY,
-    WEB_ROUTE_CLASSIFY_APPROVE, WEB_ROUTE_CLASSIFY_REJECT,
+    WEB_ROUTE_ADMIN_REMEDIATE_APPLY, WEB_ROUTE_ADMIN_REMEDIATE_PLAN, WEB_ROUTE_ADMIN_SPEC,
+    WEB_ROUTE_ADMIN_SPEC_APPLY, WEB_ROUTE_CLASSIFY_APPLY, WEB_ROUTE_CLASSIFY_APPROVE,
+    WEB_ROUTE_CLASSIFY_REJECT,
 };
 
 impl CatalogBuilder {
@@ -99,14 +100,16 @@ impl CatalogBuilder {
             NotYetWeb,
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("remediate"),
             "plan",
             "Produce a versioned read-only remediation plan.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_REMEDIATE_PLAN,
+            "POST",
+            &[("finding", "string", true), ("pack", "string", false)],
             caps_local,
         );
         self.leaf(
@@ -119,14 +122,16 @@ impl CatalogBuilder {
             NotYetWeb,
             caps_local,
         );
-        self.leaf(
+        self.web_exec(
             Some("remediate"),
             "apply",
             "Apply a plan after explicit confirmation.",
             Quality,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_REMEDIATE_APPLY,
+            "POST",
+            &[("finding", "string", true), ("pack", "string", false)],
             caps_local,
         );
         self.group(

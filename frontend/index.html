@@ -131,8 +131,8 @@
                   <button id="wb-apply" class="button" type="button" disabled>Apply confirmed plan</button>
                 </div>
                 <label id="wb-confirm-wrap" class="wb-confirm" hidden><input id="wb-confirm" type="checkbox"> I confirm this will write to the project files.</label>
-                <div id="wb-plan-result" class="wb-plan-result" hidden></div>
-                <div id="wb-apply-result" class="wb-plan-result" hidden></div>
+                <div id="wb-plan-result" class="wb-plan-result" role="status" hidden></div>
+                <div id="wb-apply-result" class="wb-plan-result" role="status" hidden></div>
               </section>
               <section class="wb-card wb-plan" aria-labelledby="wb-maintain-title">
                 <div class="panel-heading"><div><h3 id="wb-maintain-title">Maintain</h3><p class="muted">What the remote last said about this project, what Forge derived from it, and one action that publishes the approved set through the configured plugins. Nothing here writes until you preview and confirm it.</p></div><div class="panel-tools"><button id="wb-maintain-refresh" class="button button-quiet" type="button">Refresh</button></div></div>
@@ -187,12 +187,12 @@
                 <label class="filter-box"><span class="sr-only">Profile override for this project</span><input id="mgmt-project-profile" type="text" placeholder="profile override" autocomplete="off"></label>
                 <button id="mgmt-project-preview" class="button button-quiet" type="button" disabled>Preview selection</button>
               </div>
-              <div id="mgmt-project-preview-result" class="wb-plan-result" hidden></div>
+              <div id="mgmt-project-preview-result" class="wb-plan-result" role="status" hidden></div>
               <label id="mgmt-project-confirm-wrap" class="wb-confirm" hidden><input id="mgmt-project-confirm" type="checkbox"> I confirm onboarding exactly this reviewed project.</label>
               <div class="wb-plan-tools">
                 <button id="mgmt-project-run" class="button" type="button" disabled>Run confirmed onboarding</button>
               </div>
-              <div id="mgmt-project-apply-result" class="wb-plan-result" hidden></div>
+              <div id="mgmt-project-apply-result" class="wb-plan-result" role="status" hidden></div>
             </section>
             <section class="wb-card wb-plan" aria-labelledby="ws-title" id="ws-bulk">
               <div class="panel-heading"><div><h3 id="ws-title">Bulk Workspace onboarding</h3><p class="muted">Discover every sibling directory under the server-configured project root, then import or register a selection in one reviewed batch. Discovery re-reads the workspace live, so newly added siblings appear on Refresh with no other change. Nothing is written until you review the preview and confirm exactly that selection.</p></div>
@@ -211,13 +211,13 @@
                 <button id="ws-select-all" class="button button-quiet" type="button" disabled>Select all onboardable</button>
                 <button id="ws-preview" class="button button-quiet" type="button" disabled>Preview selection</button>
               </div>
-              <div id="ws-preview-result" class="wb-plan-result" hidden></div>
+              <div id="ws-preview-result" class="wb-plan-result" role="status" hidden></div>
               <label id="ws-confirm-wrap" class="wb-confirm" hidden><input id="ws-confirm" type="checkbox"> I confirm onboarding exactly this reviewed selection.</label>
               <div class="wb-plan-tools">
                 <button id="ws-run" class="button" type="button" disabled>Run confirmed onboarding</button>
                 <button id="ws-reload" class="button button-quiet" type="button" hidden>Reload project list</button>
               </div>
-              <div id="ws-apply-result" class="wb-plan-result" hidden></div>
+              <div id="ws-apply-result" class="wb-plan-result" role="status" hidden></div>
             </section>
             <h3 class="wb-subhead">Single-project actions</h3>
             <p class="muted">Use these when the directory does not exist yet, or when you are onboarding one project at a time. The browser supplies only a validated single-segment project name and typed fields; the server joins the name to the configured projects root.</p>
@@ -326,7 +326,7 @@
                   <label class="field" for="delivery-lookup-key"><span class="field-label">Operation key <span class="required-mark" aria-hidden="true">*</span></span><input id="delivery-lookup-key" type="text" placeholder="e.g. publish-2026-10-08" autocomplete="off" aria-describedby="delivery-lookup-key-hint delivery-lookup-key-error"><span class="field-hint" id="delivery-lookup-key-hint">The operation key recorded at publish time.</span><span class="field-error" id="delivery-lookup-key-error" hidden></span></label>
                   <button id="delivery-lookup" class="button button-quiet" type="button">Read status</button>
                 </div>
-                <div id="delivery-action-result" class="wb-plan-result" hidden></div>
+                <div id="delivery-action-result" class="wb-plan-result" role="status" hidden></div>
               </section>
             </div>
           </section>

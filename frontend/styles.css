@@ -216,3 +216,23 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .skeleton-row td{padding-top:14px;padding-bottom:14px}
 @keyframes fleet-shimmer{to{background-position:-200% 0}}
 @media(prefers-reduced-motion:reduce){.skeleton{animation:none}}
+/* ---- slice 7: essential text floor ----
+ * Content an operator must read (errors, hints, evidence, digests, action
+ * CLI hints, findings, workflow reasons, source metadata, detail rows and
+ * metric labels) is raised to the 12px body floor via --text-md. Uppercase
+ * micro-labels (th, .eyebrow, .field-label, .side-label, .wb-subtitle) and
+ * badges keep their compact sizes. Base size, contrast pairs, --text-* tokens
+ * and 44px minima from slices 1–6 are untouched. */
+.source-reason,.source-malformed,.source-seen,.source-meta{font-size:var(--text-md)}
+.source-head strong{font-size:var(--text-md)}
+.wb-digest{font-size:var(--text-md)}
+.wb-action-cli{font-size:var(--text-md)}
+.detail-row{font-size:var(--text-md)}
+.wb-findings{font-size:var(--text-md)}
+.workflow-reason{font-size:var(--text-md)}
+.field-hint,.field-error{font-size:var(--text-md)}
+.fleet-filter-error{font-size:var(--text-md)}
+.updated-label{font-size:var(--text-md)}
+.evidence-chip{font-size:var(--text-md)}
+.summary-card p{font-size:var(--text-md)}
+.app-footer{font-size:var(--text-md)}

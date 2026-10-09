@@ -3,9 +3,23 @@
   const apiBase = (window.FORGE_API_BASE || "http://127.0.0.1:8765").replace(/\/$/, "");
   const endpoint = (path) => `${apiBase}${path}`;
   const page = document.body.dataset.page;
+  // A protected request answering 401 means the Forge-wide browser session
+  // ended (expired or revoked). The dashboard cannot recover in place, so it
+  // returns to sign-in carrying the current deep link instead of showing a
+  // dead generic failure. The login page is excluded: a rejected credential
+  // there must keep rendering its inline error, not redirect.
+  function sessionExpiredRedirect() {
+    if (page === "login") return false;
+    const here = window.location.pathname + window.location.search;
+    window.location.replace(`login.html?next=${encodeURIComponent(here)}`);
+    return true;
+  }
   const request = async (path, options = {}) => {
     const response = await fetch(endpoint(path), { credentials: "include", ...options });
     const body = response.status === 204 ? {} : await response.json().catch(() => ({}));
+    if (response.status === 401 && sessionExpiredRedirect()) {
+      throw Object.assign(new Error("Your Forge session ended. Sign in to continue."), { status: 401, sessionExpired: true });
+    }
     if (!response.ok) throw Object.assign(new Error(body.error?.message || "Forge could not complete the request."), { status: response.status });
     return body;
   };
@@ -15,9 +29,20 @@
   const requestStatus = async (path, options = {}) => {
     const response = await fetch(endpoint(path), { credentials: "include", ...options });
     const body = response.status === 204 ? {} : await response.json().catch(() => ({}));
+    if (response.status === 401) sessionExpiredRedirect();
     return { status: response.status, ok: response.ok, body };
   };
   const session = () => request("/v1/admin/session", { headers: { Accept: "application/json" } });
+
+  // Action results are live regions so a screen reader hears success or a
+  // refusal instead of only seeing it. Success reads politely (role=status);
+  // a refusal interrupts (role=alert). Both are set on every write so a
+  // reused result box never keeps the previous announcement's urgency.
+  function setResultRole(node, isError) {
+    if (!node) return;
+    node.setAttribute("role", isError ? "alert" : "status");
+    node.setAttribute("aria-live", isError ? "assertive" : "polite");
+  }
 
   // Slice 2: programmatic smooth scroll honors reduced motion. The CSS
   // `prefers-reduced-motion` guard cannot override an explicit JS
@@ -1341,6 +1366,7 @@
 
   function renderPlan(result) {
     const box = document.getElementById("wb-plan-result");
+    setResultRole(box, false);
     box.replaceChildren();
     box.hidden = false;
     const head = document.createElement("p"); head.className = "wb-plan-head";
@@ -1371,6 +1397,7 @@
 
   function renderApplyError(result, status) {
     const box = document.getElementById("wb-apply-result");
+    setResultRole(box, true);
     box.replaceChildren();
     box.hidden = false;
     const head = document.createElement("p"); head.className = "wb-plan-head";
@@ -1391,6 +1418,7 @@
 
   function renderApplySuccess(result) {
     const box = document.getElementById("wb-apply-result");
+    setResultRole(box, false);
     box.replaceChildren();
     box.hidden = false;
     const head = document.createElement("p"); head.className = "wb-plan-head";
@@ -1816,6 +1844,7 @@
     if (idOverride.trim()) item.id = idOverride.trim();
     if (profileOverride.trim()) item.profile = profileOverride.trim();
     const box = document.getElementById("mgmt-project-preview-result");
+    setResultRole(box, false);
     box.replaceChildren(); box.hidden = false;
     box.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to onboard exactly this project."));
     const list = el("ul", "wb-plan-steps");
@@ -1823,6 +1852,7 @@
     const { ok, body } = await wsPostChunk([item]);
     if (!ok) {
       const message = (body && body.error && body.error.message) || "The preview was refused. Nothing was written.";
+      setResultRole(box, true);
       box.append(el("p", "wb-plan-head", message));
       renderErrorSummary("mgmt-error-summary", "The preview was refused", [{ label: "Project", message }]);
       mgmtScoped.digest = null; mgmtScoped.payload = null;
@@ -1861,6 +1891,7 @@
     }
     document.getElementById("mgmt-project-run").disabled = true;
     const box = document.getElementById("mgmt-project-apply-result");
+    setResultRole(box, false);
     box.replaceChildren(); box.hidden = false;
     const { ok, body } = await requestStatus("/v1/admin/workspace/onboard", {
       method: "POST",
@@ -1870,6 +1901,7 @@
     const list = el("ul", "wb-plan-steps");
     if (!ok && !(body && body.results)) {
       const message = (body && body.error && body.error.message) || "The run was refused. Nothing was written.";
+      setResultRole(box, true);
       box.append(el("p", "wb-plan-head", message));
       renderErrorSummary("mgmt-error-summary", "The onboarding run was refused", [{ label: "Project", message }]);
       if (body && body.preview && body.plan_digest) {
@@ -2120,6 +2152,7 @@
     const chunks = [];
     for (let i = 0; i < items.length; i += WS_CHUNK) chunks.push(items.slice(i, i + WS_CHUNK));
     const box = document.getElementById("ws-preview-result");
+    setResultRole(box, false);
     box.replaceChildren(); box.hidden = false;
     box.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to onboard exactly this selection."));
     const list = el("ul", "wb-plan-steps");
@@ -2129,6 +2162,7 @@
       const { ok, body } = await wsPostChunk(chunk);
       if (!ok) {
         const message = (body && body.error && body.error.message) || `Batch ${index + 1} was refused. Nothing was written.`;
+        setResultRole(box, true);
         box.append(el("p", "wb-plan-head", message));
         renderErrorSummary("ws-error-summary", "The preview was refused", [{ label: `Batch ${index + 1}`, message }]);
         ws.digests = null; ws.payload = null;
@@ -2204,6 +2238,7 @@
     }
     document.getElementById("ws-run").disabled = true;
     const box = document.getElementById("ws-apply-result");
+    setResultRole(box, false);
     box.replaceChildren(); box.hidden = false;
     let succeeded = 0;
     let failed = 0;
@@ -2234,6 +2269,7 @@
       failed += body.failed ?? 0;
     }
     box.prepend(el("p", "wb-plan-head", `Onboarded ${succeeded} of ${succeeded + failed} selected directories${failed ? ` — ${failed} failed, see above` : ""}.`));
+    setResultRole(box, failed > 0);
     ws.digests = null; ws.payload = null;
     document.getElementById("ws-confirm").checked = false;
     document.getElementById("ws-confirm-wrap").hidden = true;
@@ -2255,6 +2291,8 @@
     document.getElementById("mgmt-project-preview").addEventListener("click", mgmtScopedPreview);
     document.getElementById("mgmt-project-run").addEventListener("click", mgmtScopedRun);
   }
+
+  let actionBodySeq = 0;
 
   function buildActionControl(command, scope = {}) {
     const execution = command.execution;
@@ -2291,7 +2329,11 @@
     card.append(head);
 
     const body = el("div", "wb-action-body");
+    body.id = `wb-action-body-${actionBodySeq++}`;
     body.hidden = true;
+    // Tie the disclosure button to the panel it expands so assistive
+    // technology can move between them, alongside aria-expanded.
+    head.setAttribute("aria-controls", body.id);
     card.append(body);
     body.append(el("p", "muted wb-action-summary", command.summary));
 
@@ -2360,6 +2402,7 @@
 
     const state = { digest: null, payload: null, idempotencyKey: null };
     const result = el("div", "wb-plan-result"); result.hidden = true;
+    setResultRole(result, false);
     const confirmWrap = el("label", "wb-confirm");
     const confirmBox = el("input"); confirmBox.type = "checkbox";
     confirmWrap.append(confirmBox, document.createTextNode(" I confirm this will write to the project."));
@@ -2406,6 +2449,7 @@
 
     const showPreview = (body) => {
       result.replaceChildren(); result.hidden = false;
+      setResultRole(result, false);
       result.append(el("p", "wb-plan-head", "Preview — nothing has been written yet. Confirm to run this exact action."));
       result.append(el("p", "wb-plan-steps", summarizeDescriptor(body.preview)));
       // The digest stays in memory for the confirmed run; operators review
@@ -2416,6 +2460,7 @@
     };
     const showError = (body, status) => {
       result.replaceChildren(); result.hidden = false;
+      setResultRole(result, true);
       const message = (body && body.error && body.error.message) || "The action was refused. Nothing was written.";
       result.append(el("p", "wb-plan-head", message));
       renderErrorSummary(summaryBox, "The action was refused", [{ label: humanActionTitle(command), message }]);
@@ -2433,6 +2478,7 @@
       confirmWrap.hidden = true; confirmBox.checked = false; runBtn.disabled = true;
       const show = () => {
         result.replaceChildren(); result.hidden = false;
+        setResultRole(result, false);
         result.append(el("p", "wb-plan-head", message));
       };
       if (scope.onSuccess) { scope.onSuccess(); show(); return; }
@@ -2962,6 +3008,7 @@
     const box = document.getElementById("delivery-action-result");
     box.textContent = "";
     box.hidden = false;
+    setResultRole(box, Boolean(result.error));
     const head = document.createElement("p");
     head.className = "wb-plan-head";
     const note = result.note || (result.error && result.error.message)
@@ -3287,6 +3334,7 @@
     const box = document.getElementById("delivery-action-result");
     box.textContent = "";
     box.hidden = false;
+    setResultRole(box, false);
     const head = document.createElement("p");
     head.className = "wb-plan-head";
     head.textContent = `Operation ${key}: ${deliveryLabel((result.publication || {}).status)}.`;

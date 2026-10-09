@@ -2,6 +2,73 @@
 
 ## Current state
 
+### flywheel-plugin-cap delivered and archived (2026-10-09)
+
+`flywheel-plugin-cap` closes the three absorbed gaps as one change,
+implemented, verified and archived as
+`openspec/changes/archive/2026-10-09-flywheel-plugin-cap`
+(promoting `portal-web-ui` +4 and `forge-publish-plugin-orchestration`
++4, no `--skip-specs`):
+
+- **Flywheel ends in web.** Workbench rail step 0 gains `#wb-idea-entry`
+  (graduation preview/import CLI + studio spec entry link,
+  `?project=`+`?step=` preserving); delivery publish success renders
+  `#delivery-next-idea` (Next-idea prompt + `/workbench?project=<id>&step=idea`
+  link + maintain refresh shortcut firing `#wb-maintain-refresh`);
+  canonical `docs/flywheel-demo.md` walks `hookit` through
+  idea→scaffold→gate→publish→maintain with exact CLI + web URLs.
+- **Plugin reinforcement.** `src/plugins/mod.rs` `CAPABILITIES` 6→11
+  (+`gate,quality,agent,contract,analytics`), `PluginKind`
+  +`Gate,Quality,Agent,Contract` (serde lowercase; `Metadata|Delivery`
+  unchanged, unknown stays `Invalid`); builtin table
+  (`driftwatchdog=gate`, `cargo-*=quality`,
+  `sisyphusfy|ariadex|mnemora=agent`,
+  `platform-contracts=contract`, `labrys|openpanel|jenkins-local=delivery`,
+  `argoscope|devloom=metadata+analytics`) consulting
+  `kits/manifest.json` `plugins` array first, `providers.yaml` descriptor
+  overriding; `gate/quality/agent/contract_plugins()` beside
+  `metadata_plugins()`.
+- **Cap grouping CLI.** `forge cap list|inspect <cap>|add|run`
+  (`src/cli/cap.rs`, `CapCommands`, `Commands::Cap`): `list` from
+  `CAPABILITIES` + live `plugins list` states; `inspect` names Ready
+  plugins + mapped flat commands (gate: gate/check/doctor/readiness;
+  agent: agent/studio/intent; contract: contract/component/standard;
+  delivery: delivery/deploy/publish); `add`/`run` print exact snippets.
+  All old flat commands stay as working aliases. Portal projects controls
+  gain `forge cap list|inspect` + `cap_group` attribute; web projects view
+  gains `#cap-filter` + rail `#cap-badge`. Pinned `tests/browser`
+  playwright 1.63.0 reused, no new frontend dep; harness + Rust test
+  extended for rail step0, cap list, demo URLs.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test --test portal_ui_contract` | **18 passed / 0 failed** (13 prior + 5 flywheel: idea entry, next-idea loop, cap filter/badge, demo doc, no-dep) |
+| `cargo test --test lifecycle_rail_browser` | **1 passed** — `VERIFIED: lifecycle-rail-check ok` (11 notes: 8 prior + idea entry project+step links, cap badge group, cap filter groups) |
+| `cargo test --lib plugins::` | **7 passed / 0 failed** (unknown kind/capability still Invalid) |
+| `forge cap list --format json` | groups derive from `CAPABILITIES` (gate present); `delivery ready=1` live from repo providers |
+| `forge plugins list --format json` | honest live states with builtin `jenkins`/`openpanel` delivery rows |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **95 passed / 0 failed** active; **94 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 500` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (390/390 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive flywheel-plugin-cap --yes` | archived as `2026-10-09-flywheel-plugin-cap`, no `--skip-specs`; canonical `portal-web-ui` +4, `forge-publish-plugin-orchestration` +4; `openspec list` leaves only `github-gh-fallback-register` active |
+
+Demo URLs (hookit candidate, shapes verified by harness):
+
+- `/workbench?project=hookit&step=idea` — idea entry (graduation + studio).
+- `/workbench?project=hookit&step=spec` — studio spec entry link target.
+- `/workbench?project=hookit&step=scaffold` — scaffold.
+- `/workbench?project=hookit&step=test` — gate.
+- `/workbench?project=hookit&step=deploy` — publish.
+- `/workbench?project=hookit&step=operate` — maintain refresh.
+
+Commits on `main`: implementation+specs+UI+playwright `c71805c` (commit
+1) + this handoff (commit 2); nothing pushed; `current_spec`
+advances back to `github-gh-fallback-register` (active, unarchived).
+
 ### lifecycle-series-rail delivered and archived (2026-10-09)
 
 `lifecycle-series-rail` is implemented, verified and archived as

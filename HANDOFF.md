@@ -244,10 +244,15 @@ Commits on `main`: implementation+specs+tests+UI+playwright (commit
 1 below) + this handoff (commit 2); nothing pushed; `current_spec`
 advances back to `github-gh-fallback-register` (active, unarchived).
 
-### github-gh-fallback-register active, implemented, unarchived (2026-10-09)
+### github-gh-fallback-register delivered and archived (2026-10-09)
 
-`github-gh-fallback-register` closes the two 2026-10-09 gaps on `main`
-without archiving (owner direction: exactly 2 commits, no push):
+`github-gh-fallback-register` closes the two 2026-10-09 gaps on `main`.
+A prior session implemented and committed it (`216abe1`) and set the
+HANDOFF pointer (`ec512c4`) but never ran `openspec archive`, leaving it
+active; this closeout archives it, promoting `github-cli-project-workflows`
++1, `github-project-metadata-adapter` +2 and `portal-web-ui` +1, and repairs
+the `web-lifecycle-execution` canonical spec's archiver `TBD` Purpose that the
+gate flagged as `SPEC_PURPOSE_PLACEHOLDER`:
 
 - **Gap1 — gh-backed fallback for observe/propose.** New
   `src/github/gh_fallback.rs` serves read-only observe via
@@ -308,7 +313,11 @@ Evidence:
 | `git diff --check` | clean |
 | `forge gate --dry-run` | plan rendered; 9 required checks |
 | `forge gate . --timeout-secs 500` | **blocked/unresolved, 0 attributable**: pass — build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (389/389 ≤1000, +1 `gh_fallback.rs`); unresolved pre-existing — declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
-| commits on `main` | implementation `216abe1` + this handoff; nothing pushed; `current_spec` stays `github-gh-fallback-register` (active, unarchived) |
+| `openspec validate --all --strict --no-interactive` (closeout) | **95 passed / 0 failed**; after archive, `openspec list` reports no active changes |
+| `git diff --check` (closeout) | clean |
+| `forge gate . --timeout-secs 600` (closeout) | **blocked/unresolved, 0 attributable**: pass — build, governance-quality (after the `web-lifecycle-execution` Purpose repair), placeholder-threshold, product-code-boundary, repository, security, source-file-size (396/396 ≤1000); unresolved pre-existing — declared-verification + tests (`project-runtime` 60s cold-compile timeouts) |
+| `openspec archive github-gh-fallback-register --yes` | archived as `2026-10-09-github-gh-fallback-register`, no `--skip-specs`; `github-cli-project-workflows` +1, `github-project-metadata-adapter` +2, `portal-web-ui` +1 |
+| commits on `main` | implementation `216abe1`; closeout archive + docs this handoff; nothing pushed; no `current_spec` remains |
 
 ### portal-feedback-session-recovery delivered and archived (2026-10-09)
 
@@ -2790,7 +2799,7 @@ were consolidated into `runtime-hardening-and-contract-closure` and archived on
 `openspec/changes/archive/2026-10-05-runtime-hardening-and-contract-closure`,
 promoting 11 requirements and modifying 1 across five canonical specs. At that
 archive checkpoint, `openspec list` reported none active and the repository held
-71 archived changes and 63 canonical specs; the portal packages below were
+118 archived changes and 94 canonical specs; the portal packages below were
 authored afterward.
 
 ### forge-web-delivery-controls delivered and archived (2026-10-06)
@@ -4079,5 +4088,3 @@ the same project with its committed `packages/` deleted — fails with
 `error NU1301`, naming the relative feed as the missing local source. So the
 committed bytes are what supply the packages: not the cache, not a sibling, not
 an environment variable.
-
-current_spec: github-gh-fallback-register

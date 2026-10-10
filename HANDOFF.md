@@ -2,6 +2,65 @@
 
 ## Current state
 
+### web-portfolio-completion delivered and archived (2026-10-10)
+
+`web-portfolio-completion` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-web-portfolio-completion`,
+promoting canonical `web-portfolio-completion` +5 requirements (no
+`--skip-specs`; archiver-stamped TBD Purpose replaced with a
+source-backed sentence): the Portfolio view now wires every
+Forge-owned metadata verb with preview→confirm→apply semantics. Reads
+reuse `GET /v1/admin/portfolio`, `/evidence` and `/{id}` (show);
+`GET /v1/admin/portfolio/{id}/{kind}` grows `evidence`-only to
+`evidence|tags|relations|reviews|goals` from existing typed registry
+reads (goals filtered to membership) — no provider probed on any
+read. All seven write entries require `confirm: true`, else `409
+portfolio-confirm-required` with the current-state preview and
+`effect: "none"`: existing `tags|relations|reviews|goals` actions
+plus new `POST …/tags/remove`, `POST …/relations/remove`
+(idempotent `removed` flag) and `POST …/evidence/import`
+(append-only `SnapshotWrite` via Core validation; `POST …/evidence`
+stays the `403 portfolio-source-owned` edit refusal). No digest
+binding (no manifest exists to hash — confirm binds to the reviewed
+key plus echoed preview, recorded in design §4) and no journal rows
+(the portfolio store has no audit table; `forge-owned-write` envelope
+retained). Fourteen `portfolio.*` catalog leaves convert
+`NotYetWeb` → `web_at` (count stays 234 — conversion, not addition);
+write half split verbatim into `src/api/portfolio_writes.rs` via
+`#[path]` so both files stay under the source-file-size cap (a
+`portfolio/` directory split was rejected: the gate scan enumerates
+HEAD-tracked paths and reads a deleted-then-uncommitted path as
+missing). Frontend keeps the existing card/styles/a11y
+(`role=status` previews, error-summary focus, per-action confirm
+checkboxes, read-only evidence); two selection-preservation fixes
+found by the live oracle (fleet refresh kept the project select,
+list refresh keeps the tag-remove pick). No new dependency, no
+`innerHTML`, no inline script.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 3 pre-existing warnings + 1 pre-existing unused-import warning (`portfolio/share/validation.rs`, untouched) |
+| `cargo test --test forge_web_portfolio_controls_contract` | **16 passed / 0 failed** (11 existing incl. confirm-updated writes + 5 new: confirm refusal, tag/relation remove round-trips, membership-filtered lists, append-only import) |
+| `cargo test --lib` | **1213 passed / 0 failed** (incl. catalog `234` count + web-route pins) |
+| `cargo test --test forge_web_command_catalog_contract` | **7 passed + 2 pre-existing failures** (graduation/remediate web-id gap, byte-identical on pristine tree via `git stash -u` rerun; portfolio pins updated and green) |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin, same test as prior entries) |
+| `cargo test --test portfolio_ui_contract` | **0/20 pre-existing failure** (legacy form-post surface, byte-identical on pristine tree via `git stash -u` rerun) |
+| `cargo test --test portal_ui_contract` / `forge_web_navigation_contract` / `web_command_reference_browser_contract` / `forge_web_maintainer_surface_contract` | **21 / 9 / 6 / 5 passed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **96 passed / 0 failed** pre- and post-archive |
+| `git diff --check` | clean (cached + worktree) |
+| live oracle (throwaway API+web, scratch `FORGE_REGISTRY`, real Chromium via bundled Playwright driving system Chrome, script in `/tmp` — never committed) | **VERIFIED**: login → `/portfolio` → show, tag add (unticked client refusal verified) → remove, relation add → remove, review, goal save → link, evidence import; curl cross-check of all 13 routes incl. 409 path; **zero attributable JS errors** (only pre-existing favicon 404 + rootless workspace-candidates 409, both documented in prior entries) |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (398/398 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-portfolio-completion --yes` | archived as `2026-10-10-web-portfolio-completion`, no `--skip-specs`; canonical `web-portfolio-completion` +5; post-archive validate **96 passed / 0 failed**, names PASS |
+
+Commits on `main`: implementation+specs+frontend+tests (`9ab0dad`)
++ this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.
+
 ### workbench-health-latency delivered and archived (2026-10-10)
 
 `workbench-health-latency` is implemented, verified and archived as

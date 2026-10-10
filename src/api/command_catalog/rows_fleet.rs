@@ -5,6 +5,8 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::REASON_LOCAL_TOOLCHAIN;
 use super::routes::{
+    WEB_ROUTE_ADMIN_CATALOG, WEB_ROUTE_ADMIN_CATALOG_GAPS, WEB_ROUTE_ADMIN_CATALOG_INSPECT,
+    WEB_ROUTE_ADMIN_CATALOG_LANGUAGES, WEB_ROUTE_ADMIN_CATALOG_TAGS, WEB_ROUTE_ADMIN_FLEET_INSPECT,
     WEB_ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT, WEB_ROUTE_ADMIN_PORTFOLIO_GOALS,
     WEB_ROUTE_ADMIN_PORTFOLIO_PROJECT, WEB_ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE,
     WEB_ROUTE_ADMIN_PORTFOLIO_READ_GOALS, WEB_ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS,
@@ -53,14 +55,14 @@ impl CatalogBuilder {
             WEB_ROUTE_FLEET_STATUS,
             caps_web,
         );
-        self.leaf(
+        self.web_at(
             Some("fleet"),
             "inspect",
             "Inspect one declared fleet entry by id (read-only; unmanaged entries can never be operated on through the mirror).",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_FLEET_INSPECT,
             caps_registry,
         );
         self.provider_required(
@@ -79,54 +81,54 @@ impl CatalogBuilder {
             Registry,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("project"),
             "list",
             "List the normalized project catalog with provenance.",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CATALOG,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("project"),
             "inspect",
             "Inspect every catalog record for one project id (all sources).",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CATALOG_INSPECT,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("project"),
             "tags",
             "List distinct tags across the filtered catalog with counts.",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CATALOG_TAGS,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("project"),
             "languages",
             "List distinct languages across the filtered catalog with counts.",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CATALOG_LANGUAGES,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("project"),
             "gaps",
             "Report evidence-backed project metadata gaps (`forge-project-evidence/0.1.0`).",
             Registry,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CATALOG_GAPS,
             caps_registry,
         );
         self.group(

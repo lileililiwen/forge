@@ -292,6 +292,12 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "POST /v1/admin/portfolio/{id}/reviews",
                         "POST /v1/admin/portfolio/{id}/goals",
                         "POST /v1/admin/portfolio/{id}/evidence/import",
+                        "GET /v1/admin/projects/catalog",
+                        "GET /v1/admin/projects/catalog/tags",
+                        "GET /v1/admin/projects/catalog/languages",
+                        "GET /v1/admin/projects/catalog/gaps",
+                        "GET /v1/admin/projects/{id}/catalog",
+                        "GET /v1/admin/fleet/{entry}",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -365,7 +371,13 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // `forge-web-project-actions`) turn the handler-backed authoring commands
     // (`feature add`/`spec generate`) and the lifecycle write commands
     // (`feature remove`/`feature upgrade`/`spec apply`) into typed, session-gated,
-    // confirm/digest-bound browser routes. All now join the fleet read rows as
+    // confirm/digest-bound browser routes; the lifecycle-execution package
+    // (`web-lifecycle-execution`) turns graduation preview/import, intent
+    // resolve/apply, remediate plan/apply and studio spec-save/refine into
+    // typed browser routes; and the catalog-browser package
+    // (`web-project-catalog-browser`) turns the fleet inspect and the
+    // normalized-catalog reads (list, inspect, tags, languages, gaps) into
+    // typed read-only admin GETs. All now join the fleet read rows as
     // `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
@@ -403,6 +415,20 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "delivery.hermora-retry",
             "fleet.list",
             "fleet.status",
+            "fleet.inspect",
+            "project.list",
+            "project.inspect",
+            "project.tags",
+            "project.languages",
+            "project.gaps",
+            "graduation.preview",
+            "graduation.import",
+            "intent.resolve",
+            "intent.apply",
+            "remediate.plan",
+            "remediate.apply",
+            "studio.spec",
+            "studio.refine",
             "inventory.show",
             "portfolio.tag.add",
             "portfolio.tag.remove",

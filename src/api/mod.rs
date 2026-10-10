@@ -71,6 +71,10 @@
 mod admin;
 #[cfg(test)]
 pub mod api_tests;
+/// Read-only project-catalog browser (`web-project-catalog-browser`):
+/// six session-gated admin GETs over the existing Core catalog, gaps
+/// and fleet services. No write, no provider, no shell.
+mod catalog_browser;
 /// Typed CLI command-catalog metadata (`forge-command-catalog/0.1.0`)
 /// backing `GET /v1/admin/commands`. Metadata only: the catalog never
 /// executes anything and the API exposes no shell/eval route. Named

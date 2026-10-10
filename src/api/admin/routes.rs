@@ -113,3 +113,20 @@ pub(super) const PUBLISH_PROVIDER_ENV: &str = "FORGE_PUBLISH_PROVIDER";
 /// The server environment variable that overrides the provider configuration
 /// path. When unset the project's `.forge/providers.yaml` is used.
 pub(super) const PUBLISH_PROVIDER_CONFIG_ENV: &str = "FORGE_PUBLISH_PROVIDER_CONFIG";
+
+/// Read-only project-catalog browser (`web-project-catalog-browser`).
+/// All six routes are session-gated GETs reusing the existing Core
+/// catalog/gaps/fleet services — no write, no provider, no shell.
+/// Exported so the command catalog names the exact paths the router
+/// registers, keeping the two in lockstep.
+pub const ROUTE_ADMIN_CATALOG: &str = "GET /v1/admin/projects/catalog";
+
+pub const ROUTE_ADMIN_CATALOG_TAGS: &str = "GET /v1/admin/projects/catalog/tags";
+
+pub const ROUTE_ADMIN_CATALOG_LANGUAGES: &str = "GET /v1/admin/projects/catalog/languages";
+
+pub const ROUTE_ADMIN_CATALOG_GAPS: &str = "GET /v1/admin/projects/catalog/gaps";
+
+pub const ROUTE_ADMIN_CATALOG_INSPECT: &str = "GET /v1/admin/projects/{id}/catalog";
+
+pub const ROUTE_ADMIN_FLEET_INSPECT: &str = "GET /v1/admin/fleet/{entry}";

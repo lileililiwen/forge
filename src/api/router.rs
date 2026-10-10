@@ -115,6 +115,22 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             Some(Route::AdminWorkspaceCandidates)
         }
         ("POST", ["v1", "admin", "workspace", "onboard"]) => Some(Route::AdminWorkspaceOnboard),
+        // Catalog browser (`web-project-catalog-browser`): literal
+        // `catalog` arms precede the generic `{id}` arm below so the
+        // literal never reads as a project id. All six are read-only
+        // GETs over the existing Core catalog/gaps/fleet services.
+        ("GET", ["v1", "admin", "projects", "catalog"]) => Some(Route::AdminCatalog),
+        ("GET", ["v1", "admin", "projects", "catalog", "tags"]) => Some(Route::AdminCatalogTags),
+        ("GET", ["v1", "admin", "projects", "catalog", "languages"]) => {
+            Some(Route::AdminCatalogLanguages)
+        }
+        ("GET", ["v1", "admin", "projects", "catalog", "gaps"]) => Some(Route::AdminCatalogGaps),
+        ("GET", ["v1", "admin", "projects", id, "catalog"]) => Some(Route::AdminCatalogInspect {
+            id: (*id).to_string(),
+        }),
+        ("GET", ["v1", "admin", "fleet", entry]) => Some(Route::AdminFleetInspect {
+            entry: (*entry).to_string(),
+        }),
         // Workbench routes are addressed by a validated project id resolved
         // server-side; the browser never sends a filesystem path. These arms
         // precede the generic admin OPTIONS handling so a `{id}` segment is
@@ -376,6 +392,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         // (`allowlist/{id}/remove`), so one slice-tail arm covers them
         // before the generic three-segment admin wildcard below.
         ("OPTIONS", ["v1", "admin", "delivery", ..]) => Some(Route::AdminOptions),
+        ("OPTIONS", ["v1", "admin", "fleet", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "workspace", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "graduation", ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", _]) => Some(Route::AdminOptions),
@@ -605,6 +622,12 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectDeliveryNextIdea { .. }
             | Route::AdminProjectStudioSpecSave { .. }
             | Route::AdminProjectStudioRefine { .. }
+        | Route::AdminCatalog
+        | Route::AdminCatalogTags
+        | Route::AdminCatalogLanguages
+        | Route::AdminCatalogGaps
+        | Route::AdminCatalogInspect { .. }
+        | Route::AdminFleetInspect { .. }
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -780,6 +803,12 @@ pub fn handle(
             | Route::AdminProjectDeliveryNextIdea { .. }
             | Route::AdminProjectStudioSpecSave { .. }
             | Route::AdminProjectStudioRefine { .. }
+            | Route::AdminCatalog
+            | Route::AdminCatalogTags
+            | Route::AdminCatalogLanguages
+            | Route::AdminCatalogGaps
+            | Route::AdminCatalogInspect { .. }
+            | Route::AdminFleetInspect { .. }
     ) {
         return super::admin::handle(config, db_path, request, &route);
     }
@@ -920,7 +949,13 @@ pub fn handle(
         | Route::AdminProjectRemediateApply { .. }
         | Route::AdminProjectDeliveryNextIdea { .. }
         | Route::AdminProjectStudioSpecSave { .. }
-        | Route::AdminProjectStudioRefine { .. } => not_found(),
+        | Route::AdminProjectStudioRefine { .. }
+        | Route::AdminCatalog
+        | Route::AdminCatalogTags
+        | Route::AdminCatalogLanguages
+        | Route::AdminCatalogGaps
+        | Route::AdminCatalogInspect { .. }
+        | Route::AdminFleetInspect { .. } => not_found(),
     }
 }
 

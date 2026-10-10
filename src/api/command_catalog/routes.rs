@@ -237,6 +237,27 @@ pub(super) const WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE: &str =
 pub(super) const WEB_ROUTE_ADMIN_STUDIO_REFINE: &str =
     super::super::lifecycle_exec::ROUTE_ADMIN_STUDIO_REFINE;
 
+/// Catalog-browser typed routes (`web-project-catalog-browser/0.1.0`).
+/// These reference the admin module's own route constants so the
+/// catalog and the live endpoints can never name different paths: the
+/// paginated list, per-project all-source inspect, tag/language
+/// distributions, evidence-backed gaps and one fleet entry — all
+/// read-only, session-gated, provider-free.
+pub(super) const WEB_ROUTE_ADMIN_CATALOG: &str = super::super::admin::ROUTE_ADMIN_CATALOG;
+
+pub(super) const WEB_ROUTE_ADMIN_CATALOG_TAGS: &str = super::super::admin::ROUTE_ADMIN_CATALOG_TAGS;
+
+pub(super) const WEB_ROUTE_ADMIN_CATALOG_LANGUAGES: &str =
+    super::super::admin::ROUTE_ADMIN_CATALOG_LANGUAGES;
+
+pub(super) const WEB_ROUTE_ADMIN_CATALOG_GAPS: &str = super::super::admin::ROUTE_ADMIN_CATALOG_GAPS;
+
+pub(super) const WEB_ROUTE_ADMIN_CATALOG_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_CATALOG_INSPECT;
+
+pub(super) const WEB_ROUTE_ADMIN_FLEET_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_FLEET_INSPECT;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -301,6 +322,12 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_DELIVERY_NEXT_IDEA,
     WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
     WEB_ROUTE_ADMIN_STUDIO_REFINE,
+    WEB_ROUTE_ADMIN_CATALOG,
+    WEB_ROUTE_ADMIN_CATALOG_TAGS,
+    WEB_ROUTE_ADMIN_CATALOG_LANGUAGES,
+    WEB_ROUTE_ADMIN_CATALOG_GAPS,
+    WEB_ROUTE_ADMIN_CATALOG_INSPECT,
+    WEB_ROUTE_ADMIN_FLEET_INSPECT,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

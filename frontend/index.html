@@ -108,6 +108,41 @@
             <p id="cmdref-copy-status" class="muted cmdref-count" role="status" aria-live="polite" hidden></p>
             <div id="cmdref-list" class="cmdref-list"></div>
           </section>
+          <section class="project-panel" aria-labelledby="catalog-title" id="catalog-browser">
+            <div class="panel-heading"><div><h2 id="catalog-title">Project catalog</h2><p class="muted">The normalized read-only catalog: every source's record with its provenance, tag and language distributions, evidence-backed gaps, and one fleet entry. Read-only; nothing here runs or writes.</p></div><div class="panel-tools"><button id="catalog-refresh" class="button button-quiet" type="button">Refresh catalog</button></div></div>
+            <div id="catalog-error-summary" class="error-summary" tabindex="-1" hidden></div>
+            <p id="catalog-count" class="muted cmdref-count" role="status" aria-live="polite">Loading the project catalog…</p>
+            <p class="wb-subtitle">Per-project inspect (all sources)</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="catalog-project"><span class="field-label">Project</span><select id="catalog-project" aria-describedby="catalog-project-hint"><option value="">Choose a project…</option></select><span class="field-hint" id="catalog-project-hint">Every catalog record for this id, one per source.</span></label>
+              <button id="catalog-inspect" class="button button-quiet" type="button">Inspect project records</button>
+            </div>
+            <dl id="catalog-inspect-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Tags and languages</p>
+            <div class="wb-plan-tools">
+              <button id="catalog-tags-refresh" class="button button-quiet" type="button">Load tag counts</button>
+              <button id="catalog-languages-refresh" class="button button-quiet" type="button">Load language counts</button>
+            </div>
+            <p id="catalog-tags-count" class="muted cmdref-count" role="status" aria-live="polite"></p>
+            <div class="table-scroll compact" tabindex="0" role="region" aria-label="Tag counts"><table><thead><tr><th scope="col">Tag</th><th scope="col">Records</th></tr></thead><tbody id="catalog-tags"></tbody></table></div>
+            <p id="catalog-languages-count" class="muted cmdref-count" role="status" aria-live="polite"></p>
+            <div class="table-scroll compact" tabindex="0" role="region" aria-label="Language counts"><table><thead><tr><th scope="col">Language</th><th scope="col">Records</th></tr></thead><tbody id="catalog-languages"></tbody></table></div>
+            <p class="wb-subtitle">Evidence-backed gaps</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="catalog-gaps-project"><span class="field-label">Project (optional)</span><input id="catalog-gaps-project" type="text" placeholder="blank means every project" autocomplete="off"></label>
+              <label class="field" for="catalog-gaps-category"><span class="field-label">Category</span><select id="catalog-gaps-category"><option value="">All categories</option><option value="description">description</option><option value="tags">tags</option><option value="ci">ci</option><option value="compose">compose</option><option value="manifest">manifest</option><option value="docs">docs</option><option value="repository">repository</option></select></label>
+              <label class="field" for="catalog-gaps-status"><span class="field-label">Verdict</span><select id="catalog-gaps-status"><option value="">All verdicts</option><option value="pass">pass</option><option value="warn">warn</option><option value="fail">fail</option><option value="unavailable">unavailable</option><option value="not_applicable">not_applicable</option></select></label>
+              <button id="catalog-gaps-refresh" class="button button-quiet" type="button">Load gaps</button>
+            </div>
+            <p id="catalog-gaps-count" class="muted cmdref-count" role="status" aria-live="polite"></p>
+            <div id="catalog-gaps" class="cmdref-list"></div>
+            <p class="wb-subtitle">Fleet entry inspect</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="catalog-fleet-entry"><span class="field-label">Fleet entry id</span><input id="catalog-fleet-entry" type="text" placeholder="e.g. billing-api" autocomplete="off"></label>
+              <button id="catalog-fleet-inspect" class="button button-quiet" type="button">Inspect fleet entry</button>
+            </div>
+            <dl id="catalog-fleet-result" class="detail-list" role="status"></dl>
+          </section>
           </div>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title" hidden>
             <div class="panel-heading">

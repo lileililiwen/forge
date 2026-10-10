@@ -1012,6 +1012,236 @@
     renderCommandReference();
   }
 
+  // ---- Project catalog browser (web-project-catalog-browser) -----------
+  //
+  // Read-only browser over the normalized project catalog
+  // (`forge-project-catalog/0.1.0`), the evidence-backed gaps
+  // (`forge-project-evidence/0.1.0`) and one fleet registry entry.
+  // Per-project inspect renders every source's record with its
+  // provenance; tags/languages render distinct values with counts;
+  // gaps render verdicts with evidence; fleet inspect renders one
+  // registry entry. No write, no provider, no shell: six GETs only,
+  // every string through `textContent`/`el()`, results as
+  // `role="status"` live regions.
+  function catalogRecordLine(record) {
+    const wrap = el("div", "catalog-record");
+    const head = el("p", "catalog-record-head");
+    const id = el("code", null, `${record.project_id || "?"} · ${record.source || "unknown"}`);
+    head.append(id);
+    head.append(el("span", "muted", ` ${record.source_kind || ""} ${record.freshness || ""} ${record.evidence || ""}`.trim() ? ` ${record.source_kind || ""} · ${record.freshness || ""} · ${record.evidence || ""}` : ""));
+    wrap.append(head);
+    const dl = document.createElement("dl");
+    dl.className = "detail-list compact";
+    const rows = [
+      ["Source revision", record.source_revision || "—"],
+      ["Observed at", record.observed_at || "—"],
+      ["Profile", record.profile || "—"],
+      ["Lifecycle", record.lifecycle || "—"],
+      ["Repository", record.repository || "—"],
+      ["Languages", (record.languages || []).join(", ") || "—"],
+      ["Tags", (record.tags || []).join(", ") || "—"],
+      ["CI", record.ci || "—"],
+      ["Compose", record.compose || "—"],
+    ];
+    for (const [term, value] of rows) {
+      const dt = document.createElement("dt"); dt.textContent = term;
+      const dd = document.createElement("dd"); dd.textContent = value;
+      dl.append(dt, dd);
+    }
+    wrap.append(dl);
+    return wrap;
+  }
+
+  function catalogCountRow(value, count) {
+    const row = document.createElement("tr");
+    const name = document.createElement("td"); name.textContent = value;
+    const total = document.createElement("td"); total.textContent = String(count);
+    row.append(name, total);
+    return row;
+  }
+
+  function catalogGapRow(finding) {
+    const article = el("article", "cmdref-row catalog-gap");
+    const head = el("div", "cmdref-head");
+    head.append(el("code", null, finding.id || "gap"));
+    const badge = document.createElement("span");
+    badge.className = `badge ${(finding.status === "fail" || finding.status === "unavailable") ? "badge-conflict" : "badge-self"}`;
+    badge.textContent = finding.status || "unknown";
+    head.append(badge);
+    head.append(el("span", "muted", ` ${finding.category || ""} · ${finding.remediation_class || finding.remediationClass || ""}`));
+    article.append(head);
+    article.append(el("p", "cmdref-summary", `${finding.project_id || ""} · ${finding.subject || ""} — ${finding.detail || ""}`));
+    article.append(el("p", "cmdref-reason", `Evidence (${finding.source || "unknown"}${finding.source_revision ? ` ${finding.source_revision}` : ""}${finding.observed_at ? ` · ${finding.observed_at}` : ""}): ${(finding.evidence || []).join("; ") || "—"}`));
+    return article;
+  }
+
+  async function catalogInspectProject() {
+    const select = document.getElementById("catalog-project");
+    const box = document.getElementById("catalog-inspect-result");
+    const summary = document.getElementById("catalog-error-summary");
+    if (!select || !box) return;
+    const id = select.value;
+    if (!id) {
+      if (summary) { summary.hidden = false; summary.textContent = "Choose a project to inspect its catalog records."; summary.focus(); }
+      return;
+    }
+    if (summary) { summary.hidden = true; summary.textContent = ""; }
+    box.replaceChildren(el("p", "muted", "Loading catalog records…"));
+    setResultRole(box, false);
+    try {
+      const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/catalog`, { headers: { Accept: "application/json" } });
+      const records = (data.catalog && data.catalog.records) || [];
+      box.replaceChildren();
+      if (!records.length) { box.append(el("p", "muted", "No catalog records for this project.")); return; }
+      const fragment = document.createDocumentFragment();
+      for (const record of records) fragment.append(catalogRecordLine(record));
+      box.append(fragment);
+      setResultRole(box, false);
+    } catch (err) {
+      box.replaceChildren(el("p", "muted", `Catalog inspect is unavailable right now — ${(err && err.message) || "request failed"}`));
+      setResultRole(box, true);
+    }
+  }
+
+  async function catalogLoadTags() {
+    const body = document.getElementById("catalog-tags");
+    const count = document.getElementById("catalog-tags-count");
+    if (!body) return;
+    body.replaceChildren();
+    if (count) { count.textContent = "Loading tag counts…"; setResultRole(count, false); }
+    try {
+      const data = await request("/v1/admin/projects/catalog/tags?limit=1000", { headers: { Accept: "application/json" } });
+      const tags = (data.catalog && data.catalog.tags) || [];
+      const fragment = document.createDocumentFragment();
+      for (const entry of tags) fragment.append(catalogCountRow(entry.value, entry.count));
+      body.append(fragment);
+      if (count) { count.textContent = tags.length ? `Showing ${tags.length} distinct tags` : "No tags in the filtered catalog."; setResultRole(count, false); }
+    } catch (err) {
+      if (count) { count.textContent = `Tag counts are unavailable right now — ${(err && err.message) || "request failed"}`; setResultRole(count, true); }
+    }
+  }
+
+  async function catalogLoadLanguages() {
+    const body = document.getElementById("catalog-languages");
+    const count = document.getElementById("catalog-languages-count");
+    if (!body) return;
+    body.replaceChildren();
+    if (count) { count.textContent = "Loading language counts…"; setResultRole(count, false); }
+    try {
+      const data = await request("/v1/admin/projects/catalog/languages?limit=1000", { headers: { Accept: "application/json" } });
+      const languages = (data.catalog && data.catalog.languages) || [];
+      const fragment = document.createDocumentFragment();
+      for (const entry of languages) fragment.append(catalogCountRow(entry.value, entry.count));
+      body.append(fragment);
+      if (count) { count.textContent = languages.length ? `Showing ${languages.length} distinct languages` : "No languages in the filtered catalog."; setResultRole(count, false); }
+    } catch (err) {
+      if (count) { count.textContent = `Language counts are unavailable right now — ${(err && err.message) || "request failed"}`; setResultRole(count, true); }
+    }
+  }
+
+  async function catalogLoadGaps() {
+    const list = document.getElementById("catalog-gaps");
+    const count = document.getElementById("catalog-gaps-count");
+    if (!list) return;
+    list.replaceChildren();
+    if (count) { count.textContent = "Loading evidence-backed gaps…"; setResultRole(count, false); }
+    const params = new URLSearchParams();
+    const project = document.getElementById("catalog-gaps-project");
+    const category = document.getElementById("catalog-gaps-category");
+    const status = document.getElementById("catalog-gaps-status");
+    if (project && project.value.trim()) params.append("project", project.value.trim());
+    if (category && category.value) params.append("category", category.value);
+    if (status && status.value) params.append("status", status.value);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    try {
+      const data = await request(`/v1/admin/projects/catalog/gaps${suffix}`, { headers: { Accept: "application/json" } });
+      const gaps = (data.gaps && data.gaps.findings) || [];
+      const summary = (data.gaps && data.gaps.summary) || {};
+      const total = summary.total ?? gaps.length;
+      if (count) { count.textContent = gaps.length ? `Showing ${gaps.length} of ${total} gaps` : "No gaps — clean."; setResultRole(count, false); }
+      if (!gaps.length) { list.append(el("p", "muted", "No gaps — clean. Every applicable control passes.")); return; }
+      const fragment = document.createDocumentFragment();
+      for (const finding of gaps.slice(0, 200)) fragment.append(catalogGapRow(finding));
+      list.append(fragment);
+      if (gaps.length > 200) list.append(el("p", "muted", `Showing the first 200 of ${gaps.length} findings; narrow by project, category or verdict.`));
+    } catch (err) {
+      if (count) { count.textContent = `Gaps are unavailable right now — ${(err && err.message) || "request failed"}`; setResultRole(count, true); }
+    }
+  }
+
+  async function catalogInspectFleet() {
+    const input = document.getElementById("catalog-fleet-entry");
+    const box = document.getElementById("catalog-fleet-result");
+    if (!input || !box) return;
+    const entry = input.value.trim();
+    if (!entry) { box.replaceChildren(el("p", "muted", "Type a fleet entry id to inspect it.")); setResultRole(box, true); input.focus(); return; }
+    box.replaceChildren(el("p", "muted", "Loading fleet entry…"));
+    setResultRole(box, false);
+    try {
+      const data = await request(`/v1/admin/fleet/${encodeURIComponent(entry)}`, { headers: { Accept: "application/json" } });
+      box.replaceChildren();
+      const dl = document.createElement("dl");
+      dl.className = "detail-list compact";
+      const rows = [
+        ["Entry", (data.entry && (data.entry.id || data.entry.project_id)) || entry],
+        ["Source", data.source || "—"],
+        ["Freshness", data.freshness || (data.source && data.source.freshness) || "—"],
+        ["Observed at", data.observed_at || "—"],
+        ["Detail", JSON.stringify(data.entry || {})],
+      ];
+      for (const [term, value] of rows) {
+        const dt = document.createElement("dt"); dt.textContent = term;
+        const dd = document.createElement("dd"); dd.textContent = String(value);
+        dl.append(dt, dd);
+      }
+      box.append(dl);
+      setResultRole(box, false);
+    } catch (err) {
+      box.replaceChildren(el("p", "muted", `Fleet inspect is unavailable right now — ${(err && err.message) || "request failed"}`));
+      setResultRole(box, true);
+    }
+  }
+
+  async function catalogRefreshAll() {
+    const count = document.getElementById("catalog-count");
+    const select = document.getElementById("catalog-project");
+    if (select && window.__forgeProjects) {
+      const current = select.value;
+      select.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Choose a project…";
+      select.append(placeholder);
+      for (const project of window.__forgeProjects) {
+        const option = document.createElement("option");
+        option.value = project.identity;
+        option.textContent = project.name || project.identity;
+        select.append(option);
+      }
+      if (current) select.value = current;
+    }
+    if (count) { count.textContent = "Catalog browser ready — inspect a project, load counts, or load gaps."; setResultRole(count, false); }
+    await catalogLoadTags();
+    await catalogLoadLanguages();
+    await catalogLoadGaps();
+  }
+
+  function initCatalogBrowser() {
+    const inspect = document.getElementById("catalog-inspect");
+    const tags = document.getElementById("catalog-tags-refresh");
+    const languages = document.getElementById("catalog-languages-refresh");
+    const gaps = document.getElementById("catalog-gaps-refresh");
+    const fleet = document.getElementById("catalog-fleet-inspect");
+    const refresh = document.getElementById("catalog-refresh");
+    if (inspect) inspect.addEventListener("click", catalogInspectProject);
+    if (tags) tags.addEventListener("click", catalogLoadTags);
+    if (languages) languages.addEventListener("click", catalogLoadLanguages);
+    if (gaps) gaps.addEventListener("click", catalogLoadGaps);
+    if (fleet) fleet.addEventListener("click", catalogInspectFleet);
+    if (refresh) refresh.addEventListener("click", catalogRefreshAll);
+    catalogRefreshAll();
+  }
+
   // ---- Project workbench (single managed project) ------------------------
   //
   // Boundary: the browser only ever sends a validated project `id` chosen
@@ -5018,6 +5248,7 @@
       initFleetFilters();
       initFilterStatePersistence();
       initCommandReference();
+      initCatalogBrowser();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }
     document.getElementById("sign-out").addEventListener("click", async (event) => {
       const button = event.currentTarget; button.disabled = true;

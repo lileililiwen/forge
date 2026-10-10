@@ -332,6 +332,33 @@ pub(in crate::api) fn handle(
         Route::AdminProjectStudioRefine { id } => {
             super::super::lifecycle_exec::studio_refine(config, db_path, request, id)
         }
+        Route::AdminCatalog => guarded(db_path, request, |req| {
+            super::super::catalog_browser::list(db_path, req.query.as_deref(), chrono::Utc::now())
+        }),
+        Route::AdminCatalogTags => guarded(db_path, request, |req| {
+            super::super::catalog_browser::tags(db_path, req.query.as_deref(), chrono::Utc::now())
+        }),
+        Route::AdminCatalogLanguages => guarded(db_path, request, |req| {
+            super::super::catalog_browser::languages(
+                db_path,
+                req.query.as_deref(),
+                chrono::Utc::now(),
+            )
+        }),
+        Route::AdminCatalogGaps => guarded(db_path, request, |req| {
+            super::super::catalog_browser::gaps(db_path, req.query.as_deref(), chrono::Utc::now())
+        }),
+        Route::AdminCatalogInspect { id } => guarded(db_path, request, |req| {
+            super::super::catalog_browser::inspect(
+                db_path,
+                req.query.as_deref(),
+                id,
+                chrono::Utc::now(),
+            )
+        }),
+        Route::AdminFleetInspect { entry } => guarded(db_path, request, |req| {
+            super::super::catalog_browser::fleet_inspect(db_path, req.query.as_deref(), entry)
+        }),
         _ => error(404, "route-not-found", "no admin route matches the request"),
     };
     cors(config, request, result)

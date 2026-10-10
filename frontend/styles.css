@@ -316,3 +316,18 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .cmdref-cli code{padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.06);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-md);color:#c9d0e2;overflow-wrap:anywhere}
 .cmdref-open{display:inline-block;margin-top:8px;font-size:var(--text-md)}
 .cmdref-copy{margin-top:8px}
+/* Project catalog browser (web-project-catalog-browser): read-only
+ * normalized-catalog section on the projects view. Reuses the panel,
+ * badge, table and 12px-floor tokens of the command reference;
+ * native controls with 44px targets, wrapped provenance strings.
+ * Additive only; earlier rules untouched. */
+#catalog-browser .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#catalog-browser .field{min-width:min(240px,80vw)}
+#catalog-browser select,#catalog-browser input[type="text"]{min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raise);color:var(--ink);font-size:var(--text-md)}
+#catalog-browser button{min-height:44px}
+.catalog-record{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--raise)}
+.catalog-record-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:var(--text-md)}
+.catalog-record-head code{padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.06);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-md);color:#c9d0e2;overflow-wrap:anywhere}
+.catalog-gap{overflow-wrap:anywhere}
+#catalog-inspect-result,#catalog-fleet-result{display:grid;gap:12px}
+#catalog-tags-count,#catalog-languages-count,#catalog-gaps-count{font-size:var(--text-md)}

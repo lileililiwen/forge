@@ -294,6 +294,30 @@ pub enum Route {
     AdminSessionDelete,
     AdminProjects,
     AdminCommands,
+    /// `GET /v1/admin/projects/catalog` — read-only paginated catalog
+    /// list (`web-project-catalog-browser`): same Core service and bytes
+    /// as `GET /v1/projects/catalog`. Session-gated.
+    AdminCatalog,
+    /// `GET /v1/admin/projects/catalog/tags` — distinct tags with counts
+    /// over the filtered catalog. Session-gated.
+    AdminCatalogTags,
+    /// `GET /v1/admin/projects/catalog/languages` — distinct languages
+    /// with counts over the filtered catalog. Session-gated.
+    AdminCatalogLanguages,
+    /// `GET /v1/admin/projects/catalog/gaps` — evidence-backed gap
+    /// findings (`forge-project-evidence/0.1.0`) with category/status/
+    /// remediation-class filters. Session-gated.
+    AdminCatalogGaps,
+    /// `GET /v1/admin/projects/{id}/catalog` — all catalog records for
+    /// one project across every selected source. Session-gated.
+    AdminCatalogInspect {
+        id: String,
+    },
+    /// `GET /v1/admin/fleet/{entry}` — one fleet registry entry,
+    /// read-only (`fleet-registry-observation`). Session-gated.
+    AdminFleetInspect {
+        entry: String,
+    },
     /// `GET /v1/admin/status` — read-only fleet readiness summary
     /// (`forge-project-status/0.1.0`): every registered project counted by
     /// overall state, plus a bounded per-project sample. Session-gated.

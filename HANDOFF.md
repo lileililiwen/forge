@@ -1,23 +1,27 @@
-current_spec: workbench-health-latency
-
 # Forge handoff
 
 ## Current state
 
-### workbench-health-latency in progress, implementation complete (2026-10-10)
+### workbench-health-latency delivered and archived (2026-10-10)
 
-`workbench-health-latency` resumes from the uncommitted backend tree (fast
-`build_health` + `refresh_health` + router/model/dispatch/catalog
-threading) and completes the remaining spec tasks: the `frontend/` health
-card (`deferred` labels/badge, `policy-deferred` row with **Run full
-health check** + progress state via `refreshHealth`, never a remediate
-shortcut), the sentinel-oracle `tests/workbench_health_latency_contract.rs`
-(5 tests) and the workbench contract `deferred` pin. One deliberate
-deviation from `design.md` §1: the refresh route carries no catalog row —
-direct-called route, same precedent as the maintain GET — so
-`IMPLEMENTED_WEB_ROUTES` gains the route while the catalog count stays
-234. Not archived yet: manual dashboard check and `openspec archive`
-remain open in `tasks.md`; `current_spec` stays on this change.
+`workbench-health-latency` is implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-workbench-health-latency`,
+promoting canonical `workbench-health-latency` +3 requirements (no
+`--skip-specs`): the detail GET keeps route/shape/version/journal
+behavior with a fast local `health` projection (`run_doctor` with no
+policy outcome + appended `policy-deferred` finding; locally-clean
+reports new state `deferred`, never `healthy`); new confirm-free,
+journal-free `POST /v1/admin/projects/{id}/health/refresh` runs the
+exact live DriftWatch + doctor pass the GET ran before; the workbench
+health card renders `deferred` (`HEALTH_LABELS`/`HEALTH_BADGE`) with a
+**Run full health check** control (progress state via `refreshHealth`,
+re-renders the card) on the `policy-deferred` row and never a remediate
+shortcut; sentinel-oracle
+`tests/workbench_health_latency_contract.rs` (5 tests) + workbench
+contract `deferred` pin. One deliberate deviation from `design.md` §1:
+the refresh route carries no catalog row — direct-called route, same
+precedent as the maintain GET — so `IMPLEMENTED_WEB_ROUTES` gains the
+route while the catalog count stays 234.
 
 Evidence:
 
@@ -36,9 +40,25 @@ Evidence:
 | `git diff --check` | clean |
 | `forge gate --dry-run` | plan rendered; 9 required checks |
 | `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (397/397 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| Closeout rerun (this session): `cargo fmt --check`, `cargo build`, `workbench_health_latency_contract`, `forge_web_project_workbench_contract`, `portal_ui_contract`, validate, `git diff --check` | fmt clean; build 0 errors + same 3 pre-existing warnings; latency **5 passed**; workbench **10 passed + 1 pre-existing** (`frontend_workbench_is_standalone_json_only_and_shell_free` `innerHTML` pin, confirmed same test/line as the pristine-tree record); portal_ui **21 passed**; validate **95 passed / 0 failed**; diff clean |
+| Closeout `forge gate --dry-run` + `forge gate --timeout-secs 600` | plan rendered (9 required checks); **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (397/397); unresolved pre-existing: declared-verification + tests (`project-runtime` 60s adapter timeout, identical signature) |
+| `openspec archive workbench-health-latency --yes` | archived as `2026-10-10-workbench-health-latency`, no `--skip-specs`; canonical `workbench-health-latency` +3; post-archive validate **95 passed / 0 failed**, names PASS, governance PASS after replacing the archiver-stamped TBD Purpose with a source-backed sentence |
 
-Commits on `main`: implementation+specs+frontend+tests (`2693de5`,
-commit 1) + this handoff (commit 2); nothing pushed.
+Commits on `main`: implementation+specs+frontend+tests (`2693de5`)
++ progress handoff (`8584ec6`) + closeout archive+canonical-spec
+(`466ee4c`) + this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.
+
+Manual dashboard verification (this closeout, live throwaway listeners
+with a scratch `FORGE_REGISTRY`, sentinel checker, real Chromium via a
+one-off playwright script since removed — never committed):
+
+| Check | Result |
+|---|---|
+| `POST /v1/admin/session` (curl) | **200** `authenticated:true`, session cookie minted |
+| `GET /v1/admin/projects/wb-manual` (curl, timed) | **200 in ~7ms** (was ~6.5s direct / ~27s browser); `health.state: deferred`, `policy-deferred` appended last, sentinel untouched, no journal row |
+| `POST .../health/refresh` (curl, timed) | **200 in ~56ms**; sentinel touched (checker invoked), no deferred finding; state `issues` — honest: the empty sentinel report parses to a `driftwatch-policy unavailable` row, the same content the pre-change live GET returned for this fixture |
+| Chromium: login → `/workbench?project=wb-manual` | **VERIFIED** — signed in through the shipped login page; project open **606ms**; card reads **Deferred** with **Run full health check** and no remediate shortcut; click shows **Running full check…** then re-renders the full card (**Has issues**); **zero JS console errors** |
 
 ### resync-ui-token-kit delivered and archived (2026-10-09)
 

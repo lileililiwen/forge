@@ -295,3 +295,24 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 #delivery-next-idea{margin-top:12px}
 #delivery-next-idea .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .wb-maintain-shortcut{white-space:nowrap}
+/* Command reference browser (web-command-reference-browser): read-only
+ * catalog inventory on the projects view. Native controls with 44px
+ * targets, 12px essential-text floor, text badges (never color-only),
+ * wrapped CLI strings. Additive only; earlier rules untouched. */
+.cmdref-controls{display:flex;flex-wrap:wrap;gap:12px;padding:16px 22px 0}
+.cmdref-field{display:flex;flex-direction:column;gap:6px;font-size:var(--text-md);color:var(--muted)}
+.cmdref-label{font-weight:600}
+.cmdref-field input[type="search"]{min-height:44px;min-width:min(320px,70vw);padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raise);color:var(--ink);font-size:var(--text-md)}
+.cmdref-field select{min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raise);color:var(--ink);font-size:var(--text-md)}
+.cmdref-count{padding:12px 22px 0;font-size:var(--text-md)}
+.cmdref-list{display:grid;gap:12px;padding:12px 22px 22px}
+.cmdref-row{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--raise)}
+.cmdref-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.cmdref-id{font-size:var(--text-md)}
+.cmdref-category{font-size:var(--text-md);color:var(--faint)}
+.cmdref-summary{margin:8px 0 0;font-size:var(--text-md);color:#d5dae6;line-height:1.6}
+.cmdref-reason{margin:8px 0 0;font-size:var(--text-md);color:var(--muted);line-height:1.6}
+.cmdref-cli{margin:8px 0 0;font-size:var(--text-md)}
+.cmdref-cli code{padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.06);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-md);color:#c9d0e2;overflow-wrap:anywhere}
+.cmdref-open{display:inline-block;margin-top:8px;font-size:var(--text-md)}
+.cmdref-copy{margin-top:8px}

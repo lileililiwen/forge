@@ -98,6 +98,16 @@
               <button id="fleet-next" class="button button-quiet" type="button" aria-label="Next fleet page">Next</button>
             </nav>
           </section>
+          <section class="project-panel" aria-labelledby="cmdref-title" id="command-reference">
+            <div class="panel-heading"><div><h2 id="cmdref-title">Command reference</h2><p class="muted">Every Forge command in one searchable list: what the browser can open, and — for the rest — why not, plus the exact terminal command. Read-only; nothing here runs or writes.</p></div></div>
+            <div class="cmdref-controls">
+              <label class="cmdref-field" for="cmdref-search"><span class="cmdref-label">Search commands</span><input id="cmdref-search" type="search" placeholder="e.g. deploy, capability, forge publish" autocomplete="off"></label>
+              <label class="cmdref-field" for="cmdref-availability"><span class="cmdref-label">Availability</span><select id="cmdref-availability"><option value="">All states</option><option value="web">Web</option><option value="cli_only">CLI only</option><option value="provider_required">Provider required</option><option value="project_capability_required">Project capability required</option><option value="disabled">Disabled</option><option value="not_yet_web">Not in web yet</option></select></label>
+            </div>
+            <p id="cmdref-count" class="muted cmdref-count" role="status" aria-live="polite">Loading the command catalog…</p>
+            <p id="cmdref-copy-status" class="muted cmdref-count" role="status" aria-live="polite" hidden></p>
+            <div id="cmdref-list" class="cmdref-list"></div>
+          </section>
           </div>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title" hidden>
             <div class="panel-heading">

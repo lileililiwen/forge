@@ -865,12 +865,151 @@
         catalogCommands = data.commands || [];
         if (workbench.id) renderProjectActions();
         renderManagementActions();
+        renderCommandReference();
       })
       .catch(() => {
         catalogCommands = [];
         if (workbench.id) renderProjectActions();
         renderManagementActions();
+        renderCommandReference();
       });
+  }
+
+  // ---- Command reference browser (web-command-reference-browser) --------
+  //
+  // Read-only inventory of every `GET /v1/admin/commands` catalog row,
+  // rendered from the same `catalogCommands` array `loadCommands` already
+  // fetches — no new endpoint, no new fetch. Non-web rows show their
+  // availability badge, plain-language reason and exact CLI string with a
+  // clipboard Copy button, never an executable control; web rows link to
+  // the existing view that already serves them. No shell, no path or
+  // command submission: the only browser-side effect is a clipboard write.
+  const CMDREF_VIEW_LABELS = {
+    "/projects": "projects",
+    "/workbench": "workbench",
+    "/management": "management",
+    "/portfolio": "portfolio",
+    "/delivery": "delivery",
+  };
+
+  // Map a web row's typed admin route to the existing dashboard view that
+  // already serves it. Order matters: delivery routes also live under
+  // `/v1/admin`, so they match before the project fallthrough. Unknown or
+  // missing routes degrade to the fleet view, never to a dead link.
+  function referenceViewForRoute(route) {
+    const path = String(route || "");
+    if (path.includes("delivery")) return "/delivery";
+    if (path.includes("portfolio")) return "/portfolio";
+    if (path.includes("workspace")) return "/management";
+    if (
+      path === "POST /v1/admin/projects/new" ||
+      path === "POST /v1/admin/projects/import" ||
+      path === "POST /v1/admin/projects/register"
+    ) return "/management";
+    if (path === "GET /v1/admin/projects" || path.includes("/v1/admin/status")) return "/projects";
+    if (path === "") return "/projects";
+    return "/workbench";
+  }
+
+  function cmdrefMatches(row, query, availability) {
+    if (availability && row.availability !== availability) return false;
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    const haystack = [row.id, row.label, row.summary, row.cli_invocation, row.reason, row.category, row.route]
+      .filter(Boolean).join("\n").toLowerCase();
+    return haystack.includes(q);
+  }
+
+  function cmdrefCopyButton(row) {
+    const btn = el("button", "button button-quiet cmdref-copy");
+    btn.type = "button";
+    const cli = String(row.cli_invocation || "");
+    btn.textContent = "Copy";
+    btn.setAttribute("aria-label", cli ? `Copy ${cli} to the clipboard` : "Copy command to the clipboard");
+    btn.addEventListener("click", async () => {
+      const status = document.getElementById("cmdref-copy-status");
+      let copied = false;
+      try {
+        if (window.navigator && window.navigator.clipboard && window.navigator.clipboard.writeText) {
+          await window.navigator.clipboard.writeText(cli);
+          copied = true;
+        }
+      } catch (_) { copied = false; }
+      if (status) {
+        status.hidden = false;
+        setResultRole(status, !copied);
+        status.textContent = copied ? `Copied ${cli} to the clipboard.` : "Copy unavailable — select the command above.";
+      }
+    });
+    return btn;
+  }
+
+  function cmdrefRow(row) {
+    const card = el("article", "cmdref-row");
+    const head = el("div", "cmdref-head");
+    head.append(el("code", "cmdref-id", row.id || row.cli_invocation || "command"));
+    head.append(makeBadge(AVAILABILITY_LABELS[row.availability] || row.availability || "Unknown", AVAILABILITY_BADGE[row.availability] || "readonly"));
+    const category = CATEGORY_LABELS[row.category] || row.category;
+    if (category) head.append(el("span", "cmdref-category", category));
+    card.append(head);
+    if (row.summary) card.append(el("p", "cmdref-summary", row.summary));
+    if (row.availability === "web") {
+      // Web rows are runnable on their own views; the reference only links
+      // there (real path, router-intercepted, hard-load safe) and shows the
+      // terminal equivalent beside it.
+      const view = referenceViewForRoute(row.route);
+      const link = document.createElement("a");
+      link.className = "cmdref-open";
+      link.href = view;
+      link.textContent = `Open in ${CMDREF_VIEW_LABELS[view] || "projects"}`;
+      card.append(link);
+    } else if (row.reason) {
+      card.append(el("p", "cmdref-reason", row.reason));
+    } else {
+      card.append(el("p", "cmdref-reason", "No reason was provided for this state — run the terminal command below."));
+    }
+    if (row.cli_invocation) {
+      const line = el("p", "cmdref-cli");
+      line.append(el("code", null, row.cli_invocation));
+      card.append(line);
+    }
+    if (row.availability !== "web" && row.cli_invocation) card.append(cmdrefCopyButton(row));
+    return card;
+  }
+
+  function renderCommandReference() {
+    const list = document.getElementById("cmdref-list");
+    const count = document.getElementById("cmdref-count");
+    if (!list || !count) return;
+    const search = document.getElementById("cmdref-search");
+    const filter = document.getElementById("cmdref-availability");
+    const query = search ? search.value : "";
+    const availability = filter ? filter.value : "";
+    const total = catalogCommands.length;
+    list.replaceChildren();
+    setResultRole(count, false);
+    if (!total) {
+      count.textContent = "Command reference unavailable — the command catalog could not be loaded.";
+      list.append(el("p", "muted", "Start the Forge API and reload to browse every command, its availability and its terminal equivalent."));
+      return;
+    }
+    const rows = catalogCommands.filter((row) => cmdrefMatches(row, query, availability));
+    count.textContent = `Showing ${rows.length} of ${total} commands`;
+    if (!rows.length) {
+      list.append(el("p", "muted", "No matching commands — clear the search or choose another availability."));
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const row of rows) fragment.append(cmdrefRow(row));
+    list.append(fragment);
+  }
+
+  function initCommandReference() {
+    const search = document.getElementById("cmdref-search");
+    const filter = document.getElementById("cmdref-availability");
+    if (search) search.addEventListener("input", renderCommandReference);
+    if (filter) filter.addEventListener("change", renderCommandReference);
+    renderCommandReference();
   }
 
   // ---- Project workbench (single managed project) ------------------------
@@ -4409,6 +4548,7 @@
       if (capFilter) capFilter.addEventListener("change", applyCapFilter);
       initFleetFilters();
       initFilterStatePersistence();
+      initCommandReference();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }
     document.getElementById("sign-out").addEventListener("click", async (event) => {
       const button = event.currentTarget; button.disabled = true;

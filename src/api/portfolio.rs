@@ -34,15 +34,40 @@ use crate::core::{validate_project_id, ForgeError};
 use crate::doctor::gaps;
 use crate::registry::Registry;
 
+#[path = "portfolio_writes.rs"]
+mod writes;
+pub use writes::{import_evidence, remove_relation, remove_tag, write_item};
+
 /// Versioned portfolio-controls contract. Additive only.
 pub const CONTRACT_VERSION: &str = "forge-web-portfolio-controls/0.1.0";
 
+/// Typed JSON routes this module implements — the honest `web`
+/// destinations command-catalog rows in the portfolio family point at.
+pub const ROUTE_ADMIN_PORTFOLIO_PROJECT: &str = "GET /v1/admin/portfolio/{id}";
+pub const ROUTE_ADMIN_PORTFOLIO_READ_TAGS: &str = "GET /v1/admin/portfolio/{id}/tags";
+pub const ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS: &str = "GET /v1/admin/portfolio/{id}/relations";
+pub const ROUTE_ADMIN_PORTFOLIO_READ_REVIEWS: &str = "GET /v1/admin/portfolio/{id}/reviews";
+pub const ROUTE_ADMIN_PORTFOLIO_READ_GOALS: &str = "GET /v1/admin/portfolio/{id}/goals";
+pub const ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE: &str = "GET /v1/admin/portfolio/{id}/evidence";
+pub const ROUTE_ADMIN_PORTFOLIO_TAGS: &str = "POST /v1/admin/portfolio/{id}/tags";
+pub const ROUTE_ADMIN_PORTFOLIO_RELATIONS: &str = "POST /v1/admin/portfolio/{id}/relations";
+pub const ROUTE_ADMIN_PORTFOLIO_REVIEWS: &str = "POST /v1/admin/portfolio/{id}/reviews";
+pub const ROUTE_ADMIN_PORTFOLIO_GOALS: &str = "POST /v1/admin/portfolio/{id}/goals";
+pub const ROUTE_ADMIN_PORTFOLIO_TAG_REMOVE: &str = "POST /v1/admin/portfolio/{id}/tags/remove";
+pub const ROUTE_ADMIN_PORTFOLIO_RELATION_REMOVE: &str =
+    "POST /v1/admin/portfolio/{id}/relations/remove";
+pub const ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT: &str =
+    "POST /v1/admin/portfolio/{id}/evidence/import";
+
 /// The fixed set of write actions a browser may post to
 /// `/v1/admin/portfolio/{id}/{action}`. Any other segment is refused — the
-/// action is a validated key, never a path or shell token.
+/// action is a validated key, never a path or shell token. Every action
+/// requires `confirm: true` (preview → confirm → apply); a missing or
+/// false confirm is a `409 portfolio-confirm-required` with the
+/// current-state preview and `effect: "none"`.
 const WRITE_ACTIONS: &[&str] = &["tags", "relations", "reviews", "goals", "evidence"];
 /// The fixed set of read sub-resources on `/v1/admin/portfolio/{id}/{kind}`.
-const READ_KINDS: &[&str] = &["evidence"];
+const READ_KINDS: &[&str] = &["evidence", "tags", "relations", "reviews", "goals"];
 
 /// Env var naming the aggregate activation cohort threshold for the interest
 /// evidence section; falls back to [`DEFAULT_INTEREST_THRESHOLD`].
@@ -138,8 +163,11 @@ pub fn detail(db_path: &Path, id: &str) -> ApiResponse {
 }
 
 /// `GET /v1/admin/portfolio/{id}/{kind}` — a read-only sub-resource view.
-/// Today only `evidence` (the source-owned snapshots, with provenance and
-/// freshness) is served; every other kind is a `404`.
+/// `evidence` shows the source-owned snapshots (provenance, freshness,
+/// `editable: false`); `tags`, `relations`, `reviews` and `goals` show
+/// the Forge-owned rows for the project (goals filtered to membership).
+/// Every other kind is a `404`. Nothing here probes a provider or
+/// writes a row.
 pub fn read_item(db_path: &Path, id: &str, kind: &str) -> ApiResponse {
     if !READ_KINDS.contains(&kind) {
         return refuse(
@@ -155,6 +183,54 @@ pub fn read_item(db_path: &Path, id: &str, kind: &str) -> ApiResponse {
     if let Err(response) = require_id(&registry, id) {
         return response;
     }
+    match kind {
+        "tags" => match registry.portfolio_tags_for(id) {
+            Ok(tags) => scrub(json!({
+                "contract": CONTRACT_VERSION,
+                "project_id": id,
+                "tags": tags,
+            })),
+            Err(err) => typed_refusal(&err),
+        },
+        "relations" => match registry.portfolio_relations_for(id) {
+            Ok(relations) => scrub(json!({
+                "contract": CONTRACT_VERSION,
+                "project_id": id,
+                "relations": relations,
+            })),
+            Err(err) => typed_refusal(&err),
+        },
+        "reviews" => match registry.portfolio_reviews_for(id, 50) {
+            Ok(reviews) => scrub(json!({
+                "contract": CONTRACT_VERSION,
+                "project_id": id,
+                "reviews": reviews,
+            })),
+            Err(err) => typed_refusal(&err),
+        },
+        "goals" => match registry.portfolio_goals() {
+            Ok(goals) => {
+                let mine: Vec<Value> = goals
+                    .into_iter()
+                    .filter(|goal| goal.projects.iter().any(|p| p == id))
+                    .map(|goal| serde_json::to_value(&goal).unwrap_or(Value::Null))
+                    .collect();
+                scrub(json!({
+                    "contract": CONTRACT_VERSION,
+                    "project_id": id,
+                    "goals": mine,
+                }))
+            }
+            Err(err) => typed_refusal(&err),
+        },
+        _ => read_evidence(&registry, id),
+    }
+}
+
+/// The source-owned evidence list: the newest snapshot per source with
+/// provenance, freshness and `editable: false`. Shared by `read_item`
+/// and the confirm-refusal previews.
+fn read_evidence(registry: &Registry, id: &str) -> ApiResponse {
     let now = Utc::now();
     match registry.portfolio_current_snapshots(id) {
         Ok(snapshots) => {
@@ -182,146 +258,6 @@ pub fn read_item(db_path: &Path, id: &str, kind: &str) -> ApiResponse {
                 "evidence": items,
             }))
         }
-        Err(err) => typed_refusal(&err),
-    }
-}
-
-// --- write: Forge-owned metadata -----------------------------------------
-
-/// `POST /v1/admin/portfolio/{id}/{action}` — a Forge-owned metadata
-/// mutation (`tags`, `relations`, `reviews`, `goals`). Each maps to one
-/// typed Core write; nothing is executed, and no source-owned snapshot is
-/// touched. The `evidence` action is the honest refusal path: imported
-/// observations are append-only and cannot be edited from the browser, so
-/// the snapshot is preserved unchanged.
-pub fn write_item(db_path: &Path, id: &str, action: &str, body: &Value) -> ApiResponse {
-    if !WRITE_ACTIONS.contains(&action) {
-        return refuse(
-            404,
-            "portfolio-route-not-found",
-            "no portfolio action matches this path",
-        );
-    }
-    if action == "evidence" {
-        // Source-owned evidence is never editable through the browser: refuse
-        // before opening a write, so the snapshot provably stays unchanged.
-        return refuse(
-            403,
-            "portfolio-source-owned",
-            "imported evidence is source-owned and append-only; the browser cannot edit it and the stored snapshot was left unchanged.",
-        );
-    }
-
-    let registry = match open(db_path) {
-        Ok(registry) => registry,
-        Err(response) => return response,
-    };
-    if let Err(response) = require_id(&registry, id) {
-        return response;
-    }
-
-    let outcome = match action {
-        "tags" => {
-            let name = match required_str(body, "name") {
-                Ok(value) => value.to_string(),
-                Err(response) => return response,
-            };
-            let color = optional_str(body, "color").map(|value| value.to_string());
-            registry
-                .portfolio_add_tag(id, &name, color.as_deref())
-                .map(|tag| json!({ "tag": tag }))
-        }
-        "relations" => {
-            let to = match required_str(body, "to") {
-                Ok(value) => value.to_string(),
-                Err(response) => return response,
-            };
-            let raw_type = match required_str(body, "type") {
-                Ok(value) => value.to_string(),
-                Err(response) => return response,
-            };
-            let relation_type = match crate::portfolio::RelationType::parse(&raw_type) {
-                Ok(value) => value,
-                Err(reason) => return refuse(400, "portfolio-invalid", &reason),
-            };
-            let note = optional_str(body, "note").map(|value| value.to_string());
-            registry
-                .portfolio_add_relation(id, &to, relation_type, note.as_deref())
-                .map(|relation| json!({ "relation": relation }))
-        }
-        "reviews" => {
-            let raw_confidence = match required_str(body, "confidence") {
-                Ok(value) => value.to_string(),
-                Err(response) => return response,
-            };
-            let confidence = match crate::portfolio::Confidence::parse(&raw_confidence) {
-                Ok(value) => value,
-                Err(reason) => return refuse(400, "portfolio-invalid", &reason),
-            };
-            let lifecycle = match optional_str(body, "lifecycle") {
-                Some(raw) => match crate::portfolio::Lifecycle::parse(raw) {
-                    Ok(value) => Some(value),
-                    Err(reason) => return refuse(400, "portfolio-invalid", &reason),
-                },
-                None => None,
-            };
-            let note = optional_str(body, "note").map(|value| value.to_string());
-            let next_action = optional_str(body, "next_action").map(|value| value.to_string());
-            let blocker = optional_str(body, "blocker").map(|value| value.to_string());
-            let write = crate::registry::PortfolioWrite {
-                lifecycle,
-                confidence: Some(confidence),
-                next_action,
-                blocker,
-            };
-            registry
-                .portfolio_write(id, &write)
-                .and_then(|profile| {
-                    registry
-                        .portfolio_record_review(id, confidence, note.as_deref())
-                        .map(|review| (profile, review))
-                })
-                .map(|(profile, review)| json!({ "profile": profile, "review": review }))
-        }
-        "goals" => {
-            let title = match required_str(body, "title") {
-                Ok(value) => value.to_string(),
-                Err(response) => return response,
-            };
-            let raw_status = match required_str(body, "status") {
-                Ok(value) => value.to_string(),
-                Err(response) => return response,
-            };
-            // Validate the status before touching the registry so a bad
-            // status changes nothing (linking a goal would otherwise create
-            // it with a forced status first).
-            if let Err(reason) = crate::portfolio::validate_goal_status(&raw_status) {
-                return refuse(400, "portfolio-invalid", &reason);
-            }
-            let description = optional_str(body, "description").map(|value| value.to_string());
-            registry
-                .portfolio_link_goal(&title, id)
-                .and_then(|linked| {
-                    // Re-stamp the operator's requested status/description
-                    // onto the goal, then read it back with its membership.
-                    registry.portfolio_add_goal(&title, &raw_status, description.as_deref())?;
-                    registry.portfolio_goal(linked.goal_id)
-                })
-                .map(|goal| json!({ "goal": goal }))
-        }
-        other => unreachable!("action {other} is not in WRITE_ACTIONS"),
-    };
-
-    match outcome {
-        Ok(data) => scrub(json!({
-            "contract": CONTRACT_VERSION,
-            "project_id": id,
-            "action": action,
-            "effect": "forge-owned-write",
-            "actor": "global-admin",
-            "recorded_at": Utc::now().to_rfc3339(),
-            "result": data,
-        })),
         Err(err) => typed_refusal(&err),
     }
 }

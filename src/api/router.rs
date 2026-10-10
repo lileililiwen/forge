@@ -308,6 +308,26 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             id: (*id).to_string(),
             action: (*action).to_string(),
         }),
+        // Portfolio removals and evidence import: six-segment arms with
+        // literal trailing segments (`tags/remove`, `relations/remove`,
+        // `evidence/import`). The five-segment `{action}` arm above is a
+        // fixed-length slice pattern and never matches these longer
+        // paths, so no existing route is shadowed.
+        ("POST", ["v1", "admin", "portfolio", id, "tags", "remove"]) => {
+            Some(Route::AdminPortfolioTagRemove {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "portfolio", id, "relations", "remove"]) => {
+            Some(Route::AdminPortfolioRelationRemove {
+                id: (*id).to_string(),
+            })
+        }
+        ("POST", ["v1", "admin", "portfolio", id, "evidence", "import"]) => {
+            Some(Route::AdminPortfolioEvidenceImport {
+                id: (*id).to_string(),
+            })
+        }
         // Delivery controls: `preview`, `approve`, `publish` and
         // `reconcile` are reserved literal segments under
         // `/v1/admin/delivery`; `allowlist/{id}` and `operation/{key}`
@@ -346,6 +366,12 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         ("OPTIONS", ["v1", "admin", "projects", _, _, _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _, _]) => Some(Route::AdminOptions),
+        // The portfolio removal/import routes (`tags/remove`,
+        // `relations/remove`, `evidence/import`) are six-segment paths, so
+        // their CORS preflight needs a matching six-segment OPTIONS arm;
+        // the four- and five-segment arms above never match a six-segment
+        // request.
+        ("OPTIONS", ["v1", "admin", "portfolio", _, _, _]) => Some(Route::AdminOptions),
         // Delivery preflights run at three to six segments
         // (`allowlist/{id}/remove`), so one slice-tail arm covers them
         // before the generic three-segment admin wildcard below.
@@ -559,6 +585,9 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminPortfolioProject { .. }
         | Route::AdminPortfolioRead { .. }
         | Route::AdminPortfolioWrite { .. }
+        | Route::AdminPortfolioTagRemove { .. }
+        | Route::AdminPortfolioRelationRemove { .. }
+        | Route::AdminPortfolioEvidenceImport { .. }
         | Route::AdminDelivery
         | Route::AdminDeliveryPreview
         | Route::AdminDeliveryOperation { .. }
@@ -731,6 +760,9 @@ pub fn handle(
             | Route::AdminPortfolioProject { .. }
             | Route::AdminPortfolioRead { .. }
             | Route::AdminPortfolioWrite { .. }
+            | Route::AdminPortfolioTagRemove { .. }
+            | Route::AdminPortfolioRelationRemove { .. }
+            | Route::AdminPortfolioEvidenceImport { .. }
             | Route::AdminDelivery
             | Route::AdminDeliveryPreview
             | Route::AdminDeliveryOperation { .. }
@@ -869,6 +901,9 @@ pub fn handle(
         | Route::AdminPortfolioProject { .. }
         | Route::AdminPortfolioRead { .. }
         | Route::AdminPortfolioWrite { .. }
+        | Route::AdminPortfolioTagRemove { .. }
+        | Route::AdminPortfolioRelationRemove { .. }
+        | Route::AdminPortfolioEvidenceImport { .. }
         | Route::AdminDelivery
         | Route::AdminDeliveryPreview
         | Route::AdminDeliveryOperation { .. }

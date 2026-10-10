@@ -145,6 +145,9 @@ pub(super) fn authorize(
         | Route::AdminPortfolioProject { .. }
         | Route::AdminPortfolioRead { .. }
         | Route::AdminPortfolioWrite { .. }
+        | Route::AdminPortfolioTagRemove { .. }
+        | Route::AdminPortfolioRelationRemove { .. }
+        | Route::AdminPortfolioEvidenceImport { .. }
         | Route::AdminDelivery
         | Route::AdminDeliveryPreview
         | Route::AdminDeliveryOperation { .. }

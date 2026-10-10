@@ -5,9 +5,16 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::REASON_LOCAL_TOOLCHAIN;
 use super::routes::{
-    WEB_ROUTE_DELIVERY_ALLOWLIST, WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE, WEB_ROUTE_DELIVERY_APPROVE,
-    WEB_ROUTE_DELIVERY_OVERVIEW, WEB_ROUTE_DELIVERY_PREVIEW, WEB_ROUTE_DELIVERY_PUBLISH,
-    WEB_ROUTE_DELIVERY_RECONCILE, WEB_ROUTE_FLEET_STATUS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT, WEB_ROUTE_ADMIN_PORTFOLIO_GOALS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_PROJECT, WEB_ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_GOALS, WEB_ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_REVIEWS, WEB_ROUTE_ADMIN_PORTFOLIO_READ_TAGS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_RELATIONS, WEB_ROUTE_ADMIN_PORTFOLIO_RELATION_REMOVE,
+    WEB_ROUTE_ADMIN_PORTFOLIO_REVIEWS, WEB_ROUTE_ADMIN_PORTFOLIO_TAGS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_TAG_REMOVE, WEB_ROUTE_DELIVERY_ALLOWLIST,
+    WEB_ROUTE_DELIVERY_ALLOWLIST_REMOVE, WEB_ROUTE_DELIVERY_APPROVE, WEB_ROUTE_DELIVERY_OVERVIEW,
+    WEB_ROUTE_DELIVERY_PREVIEW, WEB_ROUTE_DELIVERY_PUBLISH, WEB_ROUTE_DELIVERY_RECONCILE,
+    WEB_ROUTE_FLEET_STATUS,
 };
 
 impl CatalogBuilder {
@@ -214,34 +221,34 @@ impl CatalogBuilder {
             Portfolio,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.tag"),
             "add",
             "Attach a tag to a project, creating the tag on first use.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_TAGS,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.tag"),
             "remove",
             "Detach a tag from a project; the tag itself is kept.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_TAG_REMOVE,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.tag"),
             "list",
             "List every tag, or the tags on one project.",
             Portfolio,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_READ_TAGS,
             caps_registry,
         );
         self.group(
@@ -251,34 +258,34 @@ impl CatalogBuilder {
             Portfolio,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.relation"),
             "add",
             "Link two projects; the same link twice stays one row.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_RELATIONS,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.relation"),
             "remove",
             "Remove one declared relation.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_RELATION_REMOVE,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.relation"),
             "list",
             "List relations touching one project, or every relation.",
             Portfolio,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS,
             caps_registry,
         );
         self.group(
@@ -288,24 +295,24 @@ impl CatalogBuilder {
             Portfolio,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.review"),
             "set",
             "Record a review decision and optionally the lifecycle, next action and blocker for one project.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_REVIEWS,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.review"),
             "list",
             "List the review history for one project.",
             Portfolio,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_READ_REVIEWS,
             caps_registry,
         );
         self.group(
@@ -315,34 +322,34 @@ impl CatalogBuilder {
             Portfolio,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.goal"),
             "add",
             "Create a goal; re-running with the same title updates it.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_GOALS,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.goal"),
             "link",
             "Attach a project to a goal, creating the goal when new.",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_GOALS,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.goal"),
             "list",
             "List every goal with its projects.",
             Portfolio,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_READ_GOALS,
             caps_registry,
         );
         self.group(
@@ -352,34 +359,34 @@ impl CatalogBuilder {
             Portfolio,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.evidence"),
             "import",
             "Append one source-owned observation as a snapshot (redacted before storage, never rewritten).",
             Portfolio,
             Workspace,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT,
             caps_registry_write,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio.evidence"),
             "list",
             "List every snapshot for one project, newest first.",
             Portfolio,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("portfolio"),
             "show",
             "Show one project's whole portfolio projection.",
             Portfolio,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PORTFOLIO_PROJECT,
             caps_registry,
         );
         self.group(

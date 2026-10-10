@@ -279,6 +279,19 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "POST /v1/admin/projects/{id}/delivery/next-idea",
                         "POST /v1/admin/projects/{id}/studio/spec-save",
                         "POST /v1/admin/projects/{id}/studio/refine-admin",
+                        "GET /v1/admin/portfolio/{id}",
+                        "GET /v1/admin/portfolio/{id}/tags",
+                        "GET /v1/admin/portfolio/{id}/relations",
+                        "GET /v1/admin/portfolio/{id}/reviews",
+                        "GET /v1/admin/portfolio/{id}/goals",
+                        "GET /v1/admin/portfolio/{id}/evidence",
+                        "POST /v1/admin/portfolio/{id}/tags",
+                        "POST /v1/admin/portfolio/{id}/tags/remove",
+                        "POST /v1/admin/portfolio/{id}/relations",
+                        "POST /v1/admin/portfolio/{id}/relations/remove",
+                        "POST /v1/admin/portfolio/{id}/reviews",
+                        "POST /v1/admin/portfolio/{id}/goals",
+                        "POST /v1/admin/portfolio/{id}/evidence/import",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -343,7 +356,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // upgrade into typed single-project workflows; the delivery package
     // (`forge-web-delivery-controls`) turns the portfolio share pipeline
     // (allowlist, preview, approve, publish, reconcile, status) into typed
-    // confirm- and digest-bound routes; and the command-execution and
+    // confirm- and digest-bound routes; the portfolio completion package
+    // (`web-portfolio-completion`) turns the Forge-owned metadata verbs
+    // (tag add/remove/list, relation add/remove/list, review set/list,
+    // goal add/link/list, evidence import/list, show) into typed
+    // confirm-gated routes with read-only sub-resource lists; and the command-execution and
     // project-actions packages (`forge-web-command-execution`,
     // `forge-web-project-actions`) turn the handler-backed authoring commands
     // (`feature add`/`spec generate`) and the lifecycle write commands
@@ -387,6 +404,20 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "fleet.list",
             "fleet.status",
             "inventory.show",
+            "portfolio.tag.add",
+            "portfolio.tag.remove",
+            "portfolio.tag.list",
+            "portfolio.relation.add",
+            "portfolio.relation.remove",
+            "portfolio.relation.list",
+            "portfolio.review.set",
+            "portfolio.review.list",
+            "portfolio.goal.add",
+            "portfolio.goal.link",
+            "portfolio.goal.list",
+            "portfolio.evidence.import",
+            "portfolio.evidence.list",
+            "portfolio.show",
             "portfolio.share.set",
             "portfolio.share.remove",
             "portfolio.share.show",

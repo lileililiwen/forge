@@ -160,6 +160,52 @@ pub(super) const WEB_ROUTE_DELIVERY_PUBLISH: &str = super::super::delivery::ROUT
 pub(super) const WEB_ROUTE_DELIVERY_RECONCILE: &str =
     super::super::delivery::ROUTE_DELIVERY_RECONCILE;
 
+/// Portfolio-control typed routes (`forge-web-portfolio-controls/0.1.0`).
+/// These reference the portfolio module's own route constants so the
+/// catalog and the live endpoints can never name different paths: the
+/// single-project show view, the per-project tag/relation/review/goal/
+/// evidence reads, the confirm-gated Forge-owned metadata writes, the
+/// confirm-gated tag/relation removals and the append-only evidence
+/// import.
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_PROJECT: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_PROJECT;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_READ_TAGS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_READ_TAGS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_READ_REVIEWS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_READ_REVIEWS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_READ_GOALS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_READ_GOALS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_TAGS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_TAGS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_RELATIONS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_RELATIONS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_REVIEWS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_REVIEWS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_GOALS: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_GOALS;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_TAG_REMOVE: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_TAG_REMOVE;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_RELATION_REMOVE: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_RELATION_REMOVE;
+
+pub(super) const WEB_ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT: &str =
+    super::super::portfolio::ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT;
+
 /// Lifecycle-execution typed routes (`web-lifecycle-execution/0.1.0`).
 /// Graduation preview/import plus per-project intent resolve/apply,
 /// remediate plan/apply and the delivery next-idea transition, all through
@@ -233,6 +279,19 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_DELIVERY_APPROVE,
     WEB_ROUTE_DELIVERY_PUBLISH,
     WEB_ROUTE_DELIVERY_RECONCILE,
+    WEB_ROUTE_ADMIN_PORTFOLIO_PROJECT,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_TAGS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_RELATIONS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_REVIEWS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_GOALS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_READ_EVIDENCE,
+    WEB_ROUTE_ADMIN_PORTFOLIO_TAGS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_RELATIONS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_REVIEWS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_GOALS,
+    WEB_ROUTE_ADMIN_PORTFOLIO_TAG_REMOVE,
+    WEB_ROUTE_ADMIN_PORTFOLIO_RELATION_REMOVE,
+    WEB_ROUTE_ADMIN_PORTFOLIO_EVIDENCE_IMPORT,
     WEB_ROUTE_ADMIN_GRADUATION_PREVIEW,
     WEB_ROUTE_ADMIN_GRADUATION_IMPORT,
     WEB_ROUTE_ADMIN_INTENT_RESOLVE,

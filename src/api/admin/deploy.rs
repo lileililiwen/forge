@@ -168,6 +168,57 @@ pub(in crate::api) fn handle(
                 super::super::portfolio::write_item(db_path, id, action, &body)
             })
         }
+        Route::AdminPortfolioTagRemove { id } => {
+            if !is_json(request) {
+                return cors(
+                    config,
+                    request,
+                    error(
+                        415,
+                        "admin-content-type-required",
+                        "portfolio writes require application/json",
+                    ),
+                );
+            }
+            guarded(db_path, request, |req| {
+                let body = req.json_body();
+                super::super::portfolio::remove_tag(db_path, id, &body)
+            })
+        }
+        Route::AdminPortfolioRelationRemove { id } => {
+            if !is_json(request) {
+                return cors(
+                    config,
+                    request,
+                    error(
+                        415,
+                        "admin-content-type-required",
+                        "portfolio writes require application/json",
+                    ),
+                );
+            }
+            guarded(db_path, request, |req| {
+                let body = req.json_body();
+                super::super::portfolio::remove_relation(db_path, id, &body)
+            })
+        }
+        Route::AdminPortfolioEvidenceImport { id } => {
+            if !is_json(request) {
+                return cors(
+                    config,
+                    request,
+                    error(
+                        415,
+                        "admin-content-type-required",
+                        "portfolio writes require application/json",
+                    ),
+                );
+            }
+            guarded(db_path, request, |req| {
+                let body = req.json_body();
+                super::super::portfolio::import_evidence(db_path, id, &body)
+            })
+        }
         Route::AdminDelivery => guarded(db_path, request, |_| {
             super::super::delivery::overview(db_path)
         }),

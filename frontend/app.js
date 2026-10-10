@@ -3786,7 +3786,7 @@
     });
   }
 
-  function populatePortfolioProjects(projects) {
+  function populatePortfolioProjects(projects, keepId) {
     const select = document.getElementById("portfolio-project");
     select.textContent = "";
     const placeholder = document.createElement("option");
@@ -3799,15 +3799,21 @@
       option.textContent = project.project_id;
       select.append(option);
     });
+    // A refresh must not drop the operator's selection: reselect the
+    // previously chosen project when it is still listed.
+    if (keepId && projects.some((project) => project.project_id === keepId)) {
+      select.value = keepId;
+    }
   }
 
   async function loadPortfolio() {
     clearPortfolioError();
+    const keep = document.getElementById("portfolio-project").value;
     try {
       const data = await request("/v1/admin/portfolio", { headers: { Accept: "application/json" } });
       const projects = data.projects || [];
       renderPortfolioProjects(projects);
-      populatePortfolioProjects(projects);
+      populatePortfolioProjects(projects, keep);
     } catch (err) {
       showPortfolioError(err.message || "Portfolio metadata unavailable.");
     }
@@ -3816,6 +3822,140 @@
       renderPortfolioEvidence(evidence.sections);
     } catch (_) {
       renderPortfolioEvidence(null);
+    }
+    const current = document.getElementById("portfolio-project").value;
+    if (current) {
+      try {
+        await portfolioRefreshLists(current);
+      } catch (_) {
+        // Per-list failures already render inline; a refresh never
+        // breaks the fleet table above.
+      }
+    }
+  }
+
+  function portfolioRequireProject() {
+    const id = document.getElementById("portfolio-project").value;
+    clearFieldError("portfolio-project", "portfolio-project-error");
+    if (!id) {
+      const message = "Select a managed project first.";
+      showPortfolioError(message);
+      setFieldError("portfolio-project", "portfolio-project-error", message);
+      return null;
+    }
+    return id;
+  }
+
+  function portfolioRequireConfirm(checkboxId, actionLabel) {
+    const ticked = document.getElementById(checkboxId).checked;
+    if (!ticked) {
+      const message = `Tick the confirmation to ${actionLabel}; nothing was changed.`;
+      showPortfolioError(message);
+      renderErrorSummary("portfolio-error-summary", "Confirmation required", [
+        { fieldId: checkboxId, label: "Confirmation", message },
+      ]);
+      return false;
+    }
+    return true;
+  }
+
+  function portfolioListItem(text) {
+    const li = document.createElement("li");
+    li.className = "github-topic";
+    li.textContent = text;
+    return li;
+  }
+
+  function renderPortfolioList(listId, items, emptyText) {
+    const list = document.getElementById(listId);
+    list.textContent = "";
+    if (!items.length) {
+      list.append(portfolioListItem(emptyText));
+      return;
+    }
+    items.forEach((item) => list.append(portfolioListItem(item)));
+  }
+
+  async function portfolioShow() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    try {
+      const data = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } });
+      const portfolio = data.portfolio || {};
+      const profile = portfolio.profile || {};
+      const result = document.getElementById("portfolio-show-result");
+      result.textContent = "";
+      result.append(
+        detailRow("Project", profile.project_id || id),
+        detailRow("Lifecycle", (profile.lifecycle && profile.lifecycle.label) || profile.lifecycle || "—"),
+        detailRow("Confidence", (profile.confidence && profile.confidence.label) || profile.confidence || "—"),
+        detailRow("Next action", profile.next_action),
+        detailRow("Blocker", profile.blocker),
+        detailRow("Reviewed at", profile.reviewed_at),
+        detailRow("Tags", (portfolio.tags || []).map((t) => t.name).join(", ")),
+        detailRow("Goals", (portfolio.goals || []).map((g) => `${g.title} [${g.status}]`).join(", ")),
+        detailRow("Relations", (portfolio.relations || []).map((r) => `${r.direction} ${r.other_project} (${r.relation_type && r.relation_type.label ? r.relation_type.label : r.relation_type})`).join(", ")),
+        detailRow("Evidence", (portfolio.evidence || []).map((e) => `${e.source_system}@${e.source_revision} ${(e.effective_status && e.effective_status.label) || e.effective_status || e.status}`).join(", ")),
+        detailRow("Reviews", String((portfolio.reviews || []).length)),
+      );
+      showPortfolioNotice(`Project record for ${id} loaded; nothing was changed.`);
+    } catch (err) {
+      showPortfolioError((err && err.message) || "The project record could not be loaded; nothing was changed.");
+    }
+  }
+
+  async function portfolioRefreshLists(id) {
+    try {
+      const tags = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/tags`, { headers: { Accept: "application/json" } });
+      const names = (tags.tags || []).map((t) => t.color ? `${t.name} (${t.color})` : t.name);
+      renderPortfolioList("portfolio-tag-list", names, "No tags on this project yet.");
+      const remove = document.getElementById("portfolio-tag-remove-name");
+      const keepTag = remove.value;
+      remove.textContent = "";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Choose a tag…";
+      remove.append(placeholder);
+      (tags.tags || []).forEach((t) => {
+        const option = document.createElement("option");
+        option.value = t.name;
+        option.textContent = t.name;
+        remove.append(option);
+      });
+      // A background refresh must not drop a tag the operator already
+      // picked for removal.
+      if (keepTag && (tags.tags || []).some((t) => t.name === keepTag)) {
+        remove.value = keepTag;
+      }
+    } catch (_) {
+      renderPortfolioList("portfolio-tag-list", [], "Tag list unavailable; reload to retry.");
+    }
+    try {
+      const relations = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/relations`, { headers: { Accept: "application/json" } });
+      renderPortfolioList("portfolio-relation-list", (relations.relations || []).map((r) => `${r.direction} ${r.other_project} (${(r.relation_type && r.relation_type.label) || r.relation_type})${r.note ? ` — ${r.note}` : ""}`), "No relations on this project yet.");
+    } catch (_) {
+      renderPortfolioList("portfolio-relation-list", [], "Relation list unavailable; reload to retry.");
+    }
+    try {
+      const reviews = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/reviews`, { headers: { Accept: "application/json" } });
+      renderPortfolioList("portfolio-review-list", (reviews.reviews || []).map((r) => `${r.reviewed_at} · ${(r.confidence && r.confidence.label) || r.confidence}${r.note ? ` — ${r.note}` : ""}`), "No reviews recorded yet.");
+    } catch (_) {
+      renderPortfolioList("portfolio-review-list", [], "Review history unavailable; reload to retry.");
+    }
+    try {
+      const goals = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/goals`, { headers: { Accept: "application/json" } });
+      renderPortfolioList("portfolio-goal-list", (goals.goals || []).map((g) => `${g.title} [${g.status}]`), "No goals linked yet.");
+    } catch (_) {
+      renderPortfolioList("portfolio-goal-list", [], "Goal list unavailable; reload to retry.");
+    }
+    try {
+      const evidence = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/evidence`, { headers: { Accept: "application/json" } });
+      renderPortfolioList("portfolio-evidence-list", (evidence.evidence || []).map((e) => `${e.source_system}@${e.source_revision} · ${e.status} (read-only)`), "No imported evidence yet.");
+    } catch (_) {
+      renderPortfolioList("portfolio-evidence-list", [], "Evidence list unavailable; reload to retry.");
     }
   }
 
@@ -3845,21 +3985,158 @@
       ]);
       return;
     }
+    if (!portfolioRequireConfirm("portfolio-add-tag-confirm", "add this tag")) return;
     try {
       await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/tags`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, confirm: true }),
       });
       document.getElementById("portfolio-tag").value = "";
+      document.getElementById("portfolio-add-tag-confirm").checked = false;
       showPortfolioNotice(`Tag “${name}” recorded for ${id}.`);
       await loadPortfolio();
+      await portfolioRefreshLists(id);
     } catch (err) {
       const message = (err && err.message) || "The tag could not be recorded; nothing was changed.";
       showPortfolioError(message);
       setFieldError("portfolio-tag", "portfolio-tag-error", message);
       renderErrorSummary("portfolio-error-summary", "There is a problem adding the tag", [
         { fieldId: "portfolio-tag", label: "Tag name", message },
+      ]);
+    }
+  }
+
+  async function portfolioRemoveTag() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-tag-remove-name", "portfolio-tag-remove-name-error");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    const name = document.getElementById("portfolio-tag-remove-name").value;
+    if (!name) {
+      const message = "Choose a tag to remove.";
+      showPortfolioError(message);
+      setFieldError("portfolio-tag-remove-name", "portfolio-tag-remove-name-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem removing the tag", [
+        { fieldId: "portfolio-tag-remove-name", label: "Tag to remove", message },
+      ]);
+      return;
+    }
+    if (!portfolioRequireConfirm("portfolio-remove-tag-confirm", "remove this tag")) return;
+    try {
+      const data = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/tags/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ name, confirm: true }),
+      });
+      document.getElementById("portfolio-remove-tag-confirm").checked = false;
+      showPortfolioNotice(data && data.result && data.result.removed === false ? `Tag “${name}” was already absent on ${id}; nothing was changed.` : `Tag “${name}” removed from ${id}.`);
+      await loadPortfolio();
+      await portfolioRefreshLists(id);
+    } catch (err) {
+      const message = (err && err.message) || "The tag could not be removed; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-tag-remove-name", "portfolio-tag-remove-name-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem removing the tag", [
+        { fieldId: "portfolio-tag-remove-name", label: "Tag to remove", message },
+      ]);
+    }
+  }
+
+  async function portfolioAddRelation() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-relation-to", "portfolio-relation-to-error");
+    clearFieldError("portfolio-relation-type", "portfolio-relation-type-error");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    const to = document.getElementById("portfolio-relation-to").value.trim();
+    const type = document.getElementById("portfolio-relation-type").value;
+    if (!to) {
+      const message = "Enter the other project id.";
+      showPortfolioError(message);
+      setFieldError("portfolio-relation-to", "portfolio-relation-to-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem adding the relation", [
+        { fieldId: "portfolio-relation-to", label: "Other project", message },
+      ]);
+      return;
+    }
+    if (!type) {
+      const message = "Choose a relation type.";
+      showPortfolioError(message);
+      setFieldError("portfolio-relation-type", "portfolio-relation-type-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem adding the relation", [
+        { fieldId: "portfolio-relation-type", label: "Relation type", message },
+      ]);
+      return;
+    }
+    if (!portfolioRequireConfirm("portfolio-add-relation-confirm", "add this relation")) return;
+    try {
+      await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/relations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ to, type, note: document.getElementById("portfolio-relation-note").value.trim() || undefined, confirm: true }),
+      });
+      document.getElementById("portfolio-add-relation-confirm").checked = false;
+      showPortfolioNotice(`Relation ${type} to ${to} recorded for ${id}.`);
+      await portfolioRefreshLists(id);
+    } catch (err) {
+      const message = (err && err.message) || "The relation could not be recorded; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-relation-to", "portfolio-relation-to-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem adding the relation", [
+        { fieldId: "portfolio-relation-to", label: "Other project", message },
+      ]);
+    }
+  }
+
+  async function portfolioRemoveRelation() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-relation-remove-to", "portfolio-relation-remove-to-error");
+    clearFieldError("portfolio-relation-remove-type", "portfolio-relation-remove-type-error");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    const to = document.getElementById("portfolio-relation-remove-to").value.trim();
+    const type = document.getElementById("portfolio-relation-remove-type").value;
+    if (!to) {
+      const message = "Enter the other project id of the link.";
+      showPortfolioError(message);
+      setFieldError("portfolio-relation-remove-to", "portfolio-relation-remove-to-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem removing the relation", [
+        { fieldId: "portfolio-relation-remove-to", label: "Link to withdraw", message },
+      ]);
+      return;
+    }
+    if (!type) {
+      const message = "Choose the relation type of the link.";
+      showPortfolioError(message);
+      setFieldError("portfolio-relation-remove-type", "portfolio-relation-remove-type-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem removing the relation", [
+        { fieldId: "portfolio-relation-remove-type", label: "Relation type", message },
+      ]);
+      return;
+    }
+    if (!portfolioRequireConfirm("portfolio-remove-relation-confirm", "withdraw this relation")) return;
+    try {
+      const data = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/relations/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ to, type, confirm: true }),
+      });
+      document.getElementById("portfolio-remove-relation-confirm").checked = false;
+      showPortfolioNotice(data && data.result && data.result.removed === false ? `No such relation on ${id}; nothing was changed.` : `Relation ${type} to ${to} withdrawn from ${id}.`);
+      await portfolioRefreshLists(id);
+    } catch (err) {
+      const message = (err && err.message) || "The relation could not be withdrawn; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-relation-remove-to", "portfolio-relation-remove-to-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem removing the relation", [
+        { fieldId: "portfolio-relation-remove-to", label: "Link to withdraw", message },
       ]);
     }
   }
@@ -3890,14 +4167,17 @@
       ]);
       return;
     }
+    if (!portfolioRequireConfirm("portfolio-record-review-confirm", "record this review")) return;
     try {
       await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/reviews`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ confidence }),
+        body: JSON.stringify({ confidence, confirm: true }),
       });
+      document.getElementById("portfolio-record-review-confirm").checked = false;
       showPortfolioNotice(`Review recorded for ${id}.`);
       await loadPortfolio();
+      await portfolioRefreshLists(id);
     } catch (err) {
       const message = (err && err.message) || "The review could not be recorded; nothing was changed.";
       showPortfolioError(message);
@@ -3908,6 +4188,180 @@
     }
   }
 
+  async function portfolioAddGoal() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-goal-title", "portfolio-goal-title-error");
+    clearFieldError("portfolio-goal-status", "portfolio-goal-status-error");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    const title = document.getElementById("portfolio-goal-title").value.trim();
+    const status = document.getElementById("portfolio-goal-status").value;
+    if (!title) {
+      const message = "Enter a goal title.";
+      showPortfolioError(message);
+      setFieldError("portfolio-goal-title", "portfolio-goal-title-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem saving the goal", [
+        { fieldId: "portfolio-goal-title", label: "Goal title", message },
+      ]);
+      return;
+    }
+    if (!status) {
+      const message = "Choose a goal status.";
+      showPortfolioError(message);
+      setFieldError("portfolio-goal-status", "portfolio-goal-status-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem saving the goal", [
+        { fieldId: "portfolio-goal-status", label: "Status", message },
+      ]);
+      return;
+    }
+    if (!portfolioRequireConfirm("portfolio-add-goal-confirm", "save this goal")) return;
+    try {
+      await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/goals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ title, status, confirm: true }),
+      });
+      document.getElementById("portfolio-add-goal-confirm").checked = false;
+      showPortfolioNotice(`Goal “${title}” saved and linked to ${id}.`);
+      await portfolioRefreshLists(id);
+    } catch (err) {
+      const message = (err && err.message) || "The goal could not be saved; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-goal-title", "portfolio-goal-title-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem saving the goal", [
+        { fieldId: "portfolio-goal-title", label: "Goal title", message },
+      ]);
+    }
+  }
+
+  async function portfolioLinkGoal() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-goal-link-title", "portfolio-goal-link-title-error");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    const title = document.getElementById("portfolio-goal-link-title").value.trim();
+    if (!title) {
+      const message = "Enter a goal title to link.";
+      showPortfolioError(message);
+      setFieldError("portfolio-goal-link-title", "portfolio-goal-link-title-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem linking the goal", [
+        { fieldId: "portfolio-goal-link-title", label: "Goal to link", message },
+      ]);
+      return;
+    }
+    if (!portfolioRequireConfirm("portfolio-link-goal-confirm", "link this goal")) return;
+    try {
+      await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/goals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ title, status: "planned", confirm: true }),
+      });
+      document.getElementById("portfolio-link-goal-confirm").checked = false;
+      showPortfolioNotice(`Goal “${title}” linked to ${id}.`);
+      await portfolioRefreshLists(id);
+    } catch (err) {
+      const message = (err && err.message) || "The goal could not be linked; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-goal-link-title", "portfolio-goal-link-title-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem linking the goal", [
+        { fieldId: "portfolio-goal-link-title", label: "Goal to link", message },
+      ]);
+    }
+  }
+
+  async function portfolioImportEvidence() {
+    clearPortfolioNotice();
+    clearPortfolioError();
+    clearErrorSummary("portfolio-error-summary");
+    clearFieldError("portfolio-evidence-source", "portfolio-evidence-source-error");
+    clearFieldError("portfolio-evidence-revision", "portfolio-evidence-revision-error");
+    clearFieldError("portfolio-evidence-status", "portfolio-evidence-status-error");
+    clearFieldError("portfolio-evidence-payload", "portfolio-evidence-payload-error");
+    const id = portfolioRequireProject();
+    if (!id) return;
+    const source = document.getElementById("portfolio-evidence-source").value.trim();
+    const revision = document.getElementById("portfolio-evidence-revision").value.trim();
+    const status = document.getElementById("portfolio-evidence-status").value;
+    const payloadRaw = document.getElementById("portfolio-evidence-payload").value.trim();
+    if (!source) {
+      const message = "Enter the source system.";
+      showPortfolioError(message);
+      setFieldError("portfolio-evidence-source", "portfolio-evidence-source-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem importing the snapshot", [
+        { fieldId: "portfolio-evidence-source", label: "Source system", message },
+      ]);
+      return;
+    }
+    if (!revision) {
+      const message = "Enter the source revision.";
+      showPortfolioError(message);
+      setFieldError("portfolio-evidence-revision", "portfolio-evidence-revision-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem importing the snapshot", [
+        { fieldId: "portfolio-evidence-revision", label: "Source revision", message },
+      ]);
+      return;
+    }
+    if (!status) {
+      const message = "Choose the reported status.";
+      showPortfolioError(message);
+      setFieldError("portfolio-evidence-status", "portfolio-evidence-status-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem importing the snapshot", [
+        { fieldId: "portfolio-evidence-status", label: "Status", message },
+      ]);
+      return;
+    }
+    if (payloadRaw) {
+      try {
+        const parsed = JSON.parse(payloadRaw);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+      } catch (_) {
+        const message = "Evidence must be a JSON object or left blank.";
+        showPortfolioError(message);
+        setFieldError("portfolio-evidence-payload", "portfolio-evidence-payload-error", message);
+        renderErrorSummary("portfolio-error-summary", "There is a problem importing the snapshot", [
+          { fieldId: "portfolio-evidence-payload", label: "Evidence JSON", message },
+        ]);
+        return;
+      }
+    }
+    if (!portfolioRequireConfirm("portfolio-import-evidence-confirm", "import this snapshot")) return;
+    try {
+      await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/evidence/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ source_system: source, source_revision: revision, status, evidence: payloadRaw || "{}", confirm: true }),
+      });
+      document.getElementById("portfolio-import-evidence-confirm").checked = false;
+      showPortfolioNotice(`Snapshot ${source}@${revision} imported for ${id}; it stays read-only.`);
+      await portfolioRefreshLists(id);
+    } catch (err) {
+      const message = (err && err.message) || "The snapshot could not be imported; nothing was changed.";
+      showPortfolioError(message);
+      setFieldError("portfolio-evidence-source", "portfolio-evidence-source-error", message);
+      renderErrorSummary("portfolio-error-summary", "There is a problem importing the snapshot", [
+        { fieldId: "portfolio-evidence-source", label: "Source system", message },
+      ]);
+    }
+  }
+
+  const PORTFOLIO_RELATION_TYPES = ["depends-on", "duplicate-of", "shares-domain-with", "replaces", "consumes", "optional-provider"];
+  const PORTFOLIO_GOAL_STATUSES = ["planned", "active", "done", "dropped"];
+  const PORTFOLIO_EVIDENCE_STATUSES = ["observed", "stale", "unavailable", "invalid", "not-run"];
+
+  function fillSelect(selectId, values) {
+    const select = document.getElementById(selectId);
+    values.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      select.append(option);
+    });
+  }
+
   function initPortfolio() {
     const confidence = document.getElementById("portfolio-confidence");
     PORTFOLIO_CONFIDENCE.forEach((value) => {
@@ -3916,8 +4370,23 @@
       option.textContent = value;
       confidence.append(option);
     });
+    fillSelect("portfolio-relation-type", PORTFOLIO_RELATION_TYPES);
+    fillSelect("portfolio-relation-remove-type", PORTFOLIO_RELATION_TYPES);
+    fillSelect("portfolio-goal-status", PORTFOLIO_GOAL_STATUSES);
+    fillSelect("portfolio-evidence-status", PORTFOLIO_EVIDENCE_STATUSES);
+    document.getElementById("portfolio-project").addEventListener("change", (event) => {
+      const id = event.target.value;
+      if (id) portfolioRefreshLists(id);
+    });
+    document.getElementById("portfolio-show").addEventListener("click", portfolioShow);
     document.getElementById("portfolio-add-tag").addEventListener("click", portfolioAddTag);
+    document.getElementById("portfolio-remove-tag").addEventListener("click", portfolioRemoveTag);
+    document.getElementById("portfolio-add-relation").addEventListener("click", portfolioAddRelation);
+    document.getElementById("portfolio-remove-relation").addEventListener("click", portfolioRemoveRelation);
     document.getElementById("portfolio-record-review").addEventListener("click", portfolioRecordReview);
+    document.getElementById("portfolio-add-goal").addEventListener("click", portfolioAddGoal);
+    document.getElementById("portfolio-link-goal").addEventListener("click", portfolioLinkGoal);
+    document.getElementById("portfolio-import-evidence").addEventListener("click", portfolioImportEvidence);
     document.getElementById("portfolio-refresh").addEventListener("click", loadPortfolio);
     loadPortfolio();
   }

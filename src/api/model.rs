@@ -548,6 +548,21 @@ pub enum Route {
         id: String,
         action: String,
     },
+    /// `POST /v1/admin/portfolio/{id}/tags/remove` — confirm-gated,
+    /// idempotent detachment of one Forge-owned tag.
+    AdminPortfolioTagRemove {
+        id: String,
+    },
+    /// `POST /v1/admin/portfolio/{id}/relations/remove` — confirm-gated,
+    /// idempotent withdrawal of one declared relation.
+    AdminPortfolioRelationRemove {
+        id: String,
+    },
+    /// `POST /v1/admin/portfolio/{id}/evidence/import` — confirm-gated,
+    /// append-only import of one source-owned observation. Never edits.
+    AdminPortfolioEvidenceImport {
+        id: String,
+    },
     /// `GET /v1/admin/delivery` — the delivery overview: share allowlist,
     /// manifest preview digest, approval/publication trail, unreconciled
     /// attempts and non-live provider state

@@ -328,13 +328,13 @@ fn forge_owned_metadata_mutations_are_recorded_and_read_back() {
     write_project(&proj, "pproj");
     register_project(&db, &proj);
 
-    // Add a tag.
+    // Add a tag (confirm-gated: preview → confirm → apply).
     let tag = post(
         &config,
         &db,
         &token,
         "/v1/admin/portfolio/pproj/tags",
-        br#"{"name":"priority"}"#,
+        br#"{"name":"priority","confirm":true}"#,
     );
     assert_eq!(tag.status, 200);
     let tag_body = body_json(&tag);
@@ -348,7 +348,7 @@ fn forge_owned_metadata_mutations_are_recorded_and_read_back() {
         &db,
         &token,
         "/v1/admin/portfolio/pproj/reviews",
-        br#"{"confidence":"high","lifecycle":"operational","next_action":"publish kit"}"#,
+        br#"{"confidence":"high","lifecycle":"operational","next_action":"publish kit","confirm":true}"#,
     );
     assert_eq!(review.status, 200);
     assert_eq!(body_json(&review)["effect"], "forge-owned-write");
@@ -359,7 +359,7 @@ fn forge_owned_metadata_mutations_are_recorded_and_read_back() {
         &db,
         &token,
         "/v1/admin/portfolio/pproj/goals",
-        br#"{"title":"Reach L3","status":"planned","description":"upgrade tooling"}"#,
+        br#"{"title":"Reach L3","status":"planned","description":"upgrade tooling","confirm":true}"#,
     );
     assert_eq!(goal.status, 200);
     assert_eq!(body_json(&goal)["result"]["goal"]["title"], "Reach L3");
@@ -606,6 +606,408 @@ fn evidence_view_reports_each_source_state_independently() {
 }
 
 #[test]
+fn portfolio_writes_require_confirm_and_change_nothing_when_refused() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+    let config = ApiConfig::default();
+    let token = login_token(&config, &db);
+    let proj = dir.path().join("proj");
+    write_project(&proj, "pproj");
+    register_project(&db, &proj);
+    let other = dir.path().join("other");
+    write_project(&other, "qproj");
+    register_project(&db, &other);
+
+    // Seed one row per sub-resource through the confirmed path.
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/tags",
+            br#"{"name":"priority","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/relations",
+            br#"{"to":"qproj","type":"depends-on","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/reviews",
+            br#"{"confidence":"high","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/goals",
+            br#"{"title":"Reach L3","status":"planned","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/evidence/import",
+            br#"{"source_system":"ci","source_revision":"r1","status":"observed","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+
+    let counts = || {
+        let registry = Registry::open(&db).unwrap();
+        (
+            registry.portfolio_tags_for("pproj").unwrap().len(),
+            registry.portfolio_relations_for("pproj").unwrap().len(),
+            registry.portfolio_reviews_for("pproj", 50).unwrap().len(),
+            registry.portfolio_goals().unwrap().len(),
+            registry
+                .portfolio_snapshots_for("pproj", 100)
+                .unwrap()
+                .len(),
+        )
+    };
+    let before = counts();
+
+    // Every write entry without (or with false) `confirm` is a 409 with
+    // the current-state preview and `effect: "none"`.
+    let cases = [
+        (
+            "/v1/admin/portfolio/pproj/tags",
+            r#"{"name":"other"}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/tags",
+            r#"{"name":"other","confirm":false}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/relations",
+            r#"{"to":"qproj","type":"replaces"}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/reviews",
+            r#"{"confidence":"low"}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/goals",
+            r#"{"title":"Other","status":"active"}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/tags/remove",
+            r#"{"name":"priority"}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/relations/remove",
+            r#"{"to":"qproj","type":"depends-on"}"#.to_string(),
+        ),
+        (
+            "/v1/admin/portfolio/pproj/evidence/import",
+            r#"{"source_system":"ci","source_revision":"r2","status":"observed"}"#.to_string(),
+        ),
+    ];
+    for (path, payload) in cases {
+        let response = post(&config, &db, &token, path, payload.as_bytes());
+        assert_eq!(response.status, 409, "POST {path} must require confirm");
+        let body = body_json(&response);
+        assert_eq!(body["error"]["code"], "portfolio-confirm-required");
+        assert_eq!(body["effect"], "none");
+        assert!(
+            body.get("preview").is_some() && !body["preview"].is_null(),
+            "the refusal must echo the reviewed preview"
+        );
+        assert!(!leaks_path(&response, &proj));
+    }
+    assert_eq!(counts(), before, "no refused write changed any row");
+}
+
+#[test]
+fn portfolio_tag_remove_round_trip_is_idempotent() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+    let config = ApiConfig::default();
+    let token = login_token(&config, &db);
+    let proj = dir.path().join("proj");
+    write_project(&proj, "pproj");
+    register_project(&db, &proj);
+
+    let list_tags = || {
+        body_json(&get(&config, &db, &token, "/v1/admin/portfolio/pproj/tags"))["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert!(list_tags().is_empty());
+
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/tags",
+            br#"{"name":"priority","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    assert_eq!(list_tags(), vec!["priority".to_string()]);
+
+    let removed = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/tags/remove",
+        br#"{"name":"priority","confirm":true}"#,
+    );
+    assert_eq!(removed.status, 200);
+    assert_eq!(body_json(&removed)["result"]["removed"], true);
+    assert!(list_tags().is_empty());
+
+    // Second remove is an idempotent no-op, still 200.
+    let again = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/tags/remove",
+        br#"{"name":"priority","confirm":true}"#,
+    );
+    assert_eq!(again.status, 200);
+    assert_eq!(body_json(&again)["result"]["removed"], false);
+    assert!(!leaks_path(&again, &proj));
+}
+
+#[test]
+fn portfolio_relation_remove_round_trip_keeps_the_self_link_refusal() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+    let config = ApiConfig::default();
+    let token = login_token(&config, &db);
+    let proj = dir.path().join("proj");
+    write_project(&proj, "pproj");
+    register_project(&db, &proj);
+    let other = dir.path().join("other");
+    write_project(&other, "qproj");
+    register_project(&db, &other);
+
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/relations",
+            br#"{"to":"qproj","type":"depends-on","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    let listed = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/relations",
+    ));
+    assert_eq!(listed["relations"].as_array().unwrap().len(), 1);
+
+    let removed = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/relations/remove",
+        br#"{"to":"qproj","type":"depends-on","confirm":true}"#,
+    );
+    assert_eq!(removed.status, 200);
+    assert_eq!(body_json(&removed)["result"]["removed"], true);
+    let listed = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/relations",
+    ));
+    assert!(listed["relations"].as_array().unwrap().is_empty());
+
+    // A self-link is still a typed refusal that changes nothing.
+    let selfie = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/relations",
+        br#"{"to":"pproj","type":"depends-on","confirm":true}"#,
+    );
+    assert_eq!(selfie.status, 400);
+    assert!(!leaks_path(&selfie, &proj));
+}
+
+#[test]
+fn portfolio_lists_read_back_and_goals_filter_to_membership() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+    let config = ApiConfig::default();
+    let token = login_token(&config, &db);
+    let proj = dir.path().join("proj");
+    write_project(&proj, "pproj");
+    register_project(&db, &proj);
+    let other = dir.path().join("other");
+    write_project(&other, "qproj");
+    register_project(&db, &other);
+
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/reviews",
+            br#"{"confidence":"medium","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/pproj/goals",
+            br#"{"title":"Shared goal","status":"active","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+    // Link a second goal to the other project only.
+    assert_eq!(
+        post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/portfolio/qproj/goals",
+            br#"{"title":"Other goal","status":"planned","confirm":true}"#,
+        )
+        .status,
+        200
+    );
+
+    let reviews = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/reviews",
+    ));
+    assert_eq!(reviews["reviews"].as_array().unwrap().len(), 1);
+
+    let goals = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/goals",
+    ));
+    let titles: Vec<&str> = goals["goals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, vec!["Shared goal"]);
+
+    // The show view still renders the whole projection.
+    let detail = body_json(&get(&config, &db, &token, "/v1/admin/portfolio/pproj"));
+    assert_eq!(detail["portfolio"]["profile"]["confidence"], "medium");
+    assert!(!detail["portfolio"]["goals"].as_array().unwrap().is_empty());
+    assert!(!detail["portfolio"]["reviews"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn portfolio_evidence_import_is_append_only_and_edits_stay_refused() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("registry.db");
+    let config = ApiConfig::default();
+    let token = login_token(&config, &db);
+    let proj = dir.path().join("proj");
+    write_project(&proj, "pproj");
+    register_project(&db, &proj);
+
+    let imported = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/evidence/import",
+        br#"{"source_system":"ci","source_revision":"r1","status":"observed","evidence":{"build":"green"},"confirm":true}"#,
+    );
+    assert_eq!(imported.status, 200);
+    let snapshot = &body_json(&imported)["result"]["snapshot"];
+    assert_eq!(snapshot["source_system"], "ci");
+    assert_eq!(snapshot["source_revision"], "r1");
+
+    let listed = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/evidence",
+    ));
+    let rows = listed["evidence"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["editable"], false);
+
+    // An unknown status is a typed 400 that stores nothing.
+    let bad = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/evidence/import",
+        br#"{"source_system":"ci","source_revision":"r2","status":"glowing","confirm":true}"#,
+    );
+    assert_eq!(bad.status, 400);
+    let listed = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/evidence",
+    ));
+    assert_eq!(listed["evidence"].as_array().unwrap().len(), 1);
+
+    // Direct edits stay refused with the snapshot provably unchanged.
+    let edit = post(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/evidence",
+        br#"{"source":"ci","revision":"r9","status":"observed","confirm":true}"#,
+    );
+    assert_eq!(edit.status, 403);
+    let listed = body_json(&get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/portfolio/pproj/evidence",
+    ));
+    assert_eq!(listed["evidence"].as_array().unwrap().len(), 1);
+    assert!(!leaks_path(&imported, &proj));
+}
+
+#[test]
 fn frontend_portfolio_is_standalone_json_only_and_shell_free() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let app = fs::read_to_string(root.join("frontend/app.js")).unwrap();
@@ -631,6 +1033,38 @@ fn frontend_portfolio_is_standalone_json_only_and_shell_free() {
         app.contains("/tags") && app.contains("/reviews"),
         "typed metadata write endpoints"
     );
+    for endpoint in [
+        "/tags/remove",
+        "/relations/remove",
+        "/evidence/import",
+        "/goals",
+        "confirm: true",
+    ] {
+        assert!(
+            app.contains(endpoint),
+            "completed portfolio surface endpoint: {endpoint}"
+        );
+    }
+    for marker in [
+        "portfolio-show",
+        "portfolio-remove-tag",
+        "portfolio-add-relation",
+        "portfolio-remove-relation",
+        "portfolio-add-goal",
+        "portfolio-link-goal",
+        "portfolio-import-evidence",
+        "portfolio-tag-list",
+        "portfolio-relation-list",
+        "portfolio-review-list",
+        "portfolio-goal-list",
+        "portfolio-evidence-list",
+        "portfolio-show-result",
+    ] {
+        assert!(
+            app.contains(marker) && index.contains(marker),
+            "completed portfolio control exists in app and markup: {marker}"
+        );
+    }
     // The portfolio region renders structured state only.
     let start = app
         .find("// ---- Portfolio controls")

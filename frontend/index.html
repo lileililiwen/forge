@@ -289,14 +289,73 @@
             </div>
             <p id="portfolio-project-empty" class="empty-state compact" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 9-7 9-7-9z"/></svg></span>No portfolio records yet. Register projects and tag or review them to build the cross-project view.</p>
             <section class="wb-card" aria-labelledby="portfolio-metadata-title">
-              <div class="panel-heading"><div><h3 id="portfolio-metadata-title">Manage Forge-owned metadata</h3><p class="muted">Tags, relations, reviews and goals are owned by Forge and editable here. Imported evidence cannot be edited from the browser.</p></div></div>
+              <div class="panel-heading"><div><h3 id="portfolio-metadata-title">Manage Forge-owned metadata</h3><p class="muted">Tags, relations, reviews and goals are owned by Forge and editable here. Imported evidence cannot be edited from the browser. Every write below applies only after you tick its confirmation.</p></div></div>
               <div id="portfolio-error-summary" class="error-summary" tabindex="-1" hidden></div>
               <div class="wb-plan-tools">
                 <label class="field" for="portfolio-project"><span class="field-label">Project <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-project" aria-describedby="portfolio-project-hint portfolio-project-error"><option value="">Choose a project…</option></select><span class="field-hint" id="portfolio-project-hint">The project the metadata is recorded on.</span><span class="field-error" id="portfolio-project-error" hidden></span></label>
+              </div>
+              <p class="wb-subtitle">Single-project view</p>
+              <div class="wb-plan-tools">
+                <button id="portfolio-show" class="button button-quiet" type="button">Show project record</button>
+              </div>
+              <dl id="portfolio-show-result" class="detail-list" role="status"></dl>
+              <p class="wb-subtitle">Tags</p>
+              <ul id="portfolio-tag-list" class="github-topics" role="status" aria-label="Tags on the selected project"></ul>
+              <div class="wb-plan-tools">
                 <label class="field" for="portfolio-tag"><span class="field-label">Tag name <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-tag" type="text" placeholder="e.g. payments" autocomplete="off" aria-describedby="portfolio-tag-hint portfolio-tag-error"><span class="field-hint" id="portfolio-tag-hint">Lowercase words or dashes; recorded on the chosen project.</span><span class="field-error" id="portfolio-tag-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-add-tag-confirm" type="checkbox"> Confirm adding this tag.</label>
                 <button id="portfolio-add-tag" class="button button-quiet" type="button">Add tag</button>
+              </div>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-tag-remove-name"><span class="field-label">Tag to remove <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-tag-remove-name" aria-describedby="portfolio-tag-remove-name-hint portfolio-tag-remove-name-error"><option value="">Choose a tag…</option></select><span class="field-hint" id="portfolio-tag-remove-name-hint">Only tags on the chosen project are listed.</span><span class="field-error" id="portfolio-tag-remove-name-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-remove-tag-confirm" type="checkbox"> Confirm removing this tag.</label>
+                <button id="portfolio-remove-tag" class="button button-quiet" type="button">Remove tag</button>
+              </div>
+              <p class="wb-subtitle">Relations</p>
+              <ul id="portfolio-relation-list" class="github-topics" role="status" aria-label="Relations on the selected project"></ul>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-relation-to"><span class="field-label">Other project <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-relation-to" type="text" placeholder="e.g. billing-api" autocomplete="off" aria-describedby="portfolio-relation-to-hint portfolio-relation-to-error"><span class="field-hint" id="portfolio-relation-to-hint">The managed project id this one links to.</span><span class="field-error" id="portfolio-relation-to-error" hidden></span></label>
+                <label class="field" for="portfolio-relation-type"><span class="field-label">Relation type <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-relation-type" aria-describedby="portfolio-relation-type-hint portfolio-relation-type-error"><option value="">Choose a type…</option></select><span class="field-hint" id="portfolio-relation-type-hint">Closed vocabulary; self-links are refused.</span><span class="field-error" id="portfolio-relation-type-error" hidden></span></label>
+                <label class="field" for="portfolio-relation-note"><span class="field-label">Note</span><input id="portfolio-relation-note" type="text" placeholder="e.g. calls its REST API" autocomplete="off" aria-describedby="portfolio-relation-note-hint"><span class="field-hint" id="portfolio-relation-note-hint">Optional one-line note.</span></label>
+                <label class="wb-confirm"><input id="portfolio-add-relation-confirm" type="checkbox"> Confirm adding this relation.</label>
+                <button id="portfolio-add-relation" class="button button-quiet" type="button">Add relation</button>
+              </div>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-relation-remove-to"><span class="field-label">Link to withdraw <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-relation-remove-to" type="text" placeholder="e.g. billing-api" autocomplete="off" aria-describedby="portfolio-relation-remove-to-hint portfolio-relation-remove-to-error"><span class="field-hint" id="portfolio-relation-remove-to-hint">Other project id of the declared link.</span><span class="field-error" id="portfolio-relation-remove-to-error" hidden></span></label>
+                <label class="field" for="portfolio-relation-remove-type"><span class="field-label">Relation type <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-relation-remove-type" aria-describedby="portfolio-relation-remove-type-hint portfolio-relation-remove-type-error"><option value="">Choose a type…</option></select><span class="field-hint" id="portfolio-relation-remove-type-hint">Type of the declared link.</span><span class="field-error" id="portfolio-relation-remove-type-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-remove-relation-confirm" type="checkbox"> Confirm withdrawing this relation.</label>
+                <button id="portfolio-remove-relation" class="button button-quiet" type="button">Remove relation</button>
+              </div>
+              <p class="wb-subtitle">Reviews</p>
+              <ul id="portfolio-review-list" class="github-topics" role="status" aria-label="Review history of the selected project"></ul>
+              <div class="wb-plan-tools">
                 <label class="field" for="portfolio-confidence"><span class="field-label">Review confidence <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-confidence" aria-describedby="portfolio-confidence-hint portfolio-confidence-error"><option value="">Record a review…</option></select><span class="field-hint" id="portfolio-confidence-hint">Your confidence in the project's current state.</span><span class="field-error" id="portfolio-confidence-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-record-review-confirm" type="checkbox"> Confirm recording this review.</label>
                 <button id="portfolio-record-review" class="button" type="button">Record review</button>
+              </div>
+              <p class="wb-subtitle">Goals</p>
+              <ul id="portfolio-goal-list" class="github-topics" role="status" aria-label="Goals linked to the selected project"></ul>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-goal-title"><span class="field-label">Goal title <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-goal-title" type="text" placeholder="e.g. Reach L3" autocomplete="off" aria-describedby="portfolio-goal-title-hint portfolio-goal-title-error"><span class="field-hint" id="portfolio-goal-title-hint">Created or re-stamped with the status below.</span><span class="field-error" id="portfolio-goal-title-error" hidden></span></label>
+                <label class="field" for="portfolio-goal-status"><span class="field-label">Status <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-goal-status" aria-describedby="portfolio-goal-status-hint portfolio-goal-status-error"><option value="">Choose a status…</option></select><span class="field-hint" id="portfolio-goal-status-hint">Planned, active, done or dropped.</span><span class="field-error" id="portfolio-goal-status-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-add-goal-confirm" type="checkbox"> Confirm saving this goal.</label>
+                <button id="portfolio-add-goal" class="button button-quiet" type="button">Save goal</button>
+              </div>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-goal-link-title"><span class="field-label">Goal to link <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-goal-link-title" type="text" placeholder="e.g. Reach L3" autocomplete="off" aria-describedby="portfolio-goal-link-title-hint portfolio-goal-link-title-error"><span class="field-hint" id="portfolio-goal-link-title-hint">An existing goal title, or a new one (created as planned).</span><span class="field-error" id="portfolio-goal-link-title-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-link-goal-confirm" type="checkbox"> Confirm linking this goal.</label>
+                <button id="portfolio-link-goal" class="button button-quiet" type="button">Link goal</button>
+              </div>
+              <p class="wb-subtitle">Evidence (read-only imports)</p>
+              <ul id="portfolio-evidence-list" class="github-topics" role="status" aria-label="Imported evidence snapshots"></ul>
+              <p class="muted">Snapshots are append-only: a later observation is a new row. Nothing here edits or deletes imported evidence.</p>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-evidence-source"><span class="field-label">Source system <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-evidence-source" type="text" placeholder="e.g. ci" autocomplete="off" aria-describedby="portfolio-evidence-source-hint portfolio-evidence-source-error"><span class="field-hint" id="portfolio-evidence-source-hint">Which source reported the observation.</span><span class="field-error" id="portfolio-evidence-source-error" hidden></span></label>
+                <label class="field" for="portfolio-evidence-revision"><span class="field-label">Source revision <span class="required-mark" aria-hidden="true">*</span></span><input id="portfolio-evidence-revision" type="text" placeholder="e.g. 2026-10-10" autocomplete="off" aria-describedby="portfolio-evidence-revision-hint portfolio-evidence-revision-error"><span class="field-hint" id="portfolio-evidence-revision-hint">The source's own revision label.</span><span class="field-error" id="portfolio-evidence-revision-error" hidden></span></label>
+                <label class="field" for="portfolio-evidence-status"><span class="field-label">Status <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-evidence-status" aria-describedby="portfolio-evidence-status-hint portfolio-evidence-status-error"><option value="">Choose a status…</option></select><span class="field-hint" id="portfolio-evidence-status-hint">What the source reported; never upgraded.</span><span class="field-error" id="portfolio-evidence-status-error" hidden></span></label>
+                <label class="field" for="portfolio-evidence-payload"><span class="field-label">Evidence JSON</span><input id="portfolio-evidence-payload" type="text" placeholder="{}" autocomplete="off" aria-describedby="portfolio-evidence-payload-hint portfolio-evidence-payload-error"><span class="field-hint" id="portfolio-evidence-payload-hint">Optional JSON object; redacted and bounded before storage.</span><span class="field-error" id="portfolio-evidence-payload-error" hidden></span></label>
+                <label class="wb-confirm"><input id="portfolio-import-evidence-confirm" type="checkbox"> Confirm importing this snapshot.</label>
+                <button id="portfolio-import-evidence" class="button button-quiet" type="button">Import snapshot</button>
               </div>
             </section>
           </section>

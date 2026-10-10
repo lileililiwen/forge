@@ -1,7 +1,7 @@
 # web-project-catalog-browser Specification
 
 ## Purpose
-TBD - created by archiving change web-project-catalog-browser. Update Purpose after archive.
+The browser exposes the normalized project catalog, tag/language distributions, evidence-backed gaps and one fleet entry as six typed read-only admin GET routes plus a catalog-browser section reusing the Core catalog/gaps/fleet services with no new filtering rule.
 ## Requirements
 ### Requirement: Typed read-only admin catalog routes
 

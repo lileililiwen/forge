@@ -2,6 +2,105 @@
 
 ## Current state
 
+### web-creation-catalog-browser delivered and archived (2026-10-10)
+
+`web-creation-catalog-browser` closes audit gap 6: operators can now
+browse the six pure creation catalogs (profiles, features,
+components, UI patterns, standards, procedures) with list/inspect/
+resolve, validate structured intents, and read per-project standard
+check/diff plus persisted plan receipts from the projects view
+instead of dropping to the CLI. Implemented, verified and archived
+as `openspec/changes/archive/2026-10-10-web-creation-catalog-browser`,
+promoting canonical `web-creation-catalog-browser` +3 requirements
+(no `--skip-specs`; archiver-stamped TBD Purpose replaced with a
+source-backed sentence):
+
+- **Twenty read-only typed admin GET routes** (new
+  `src/api/admin/creation.rs`, reusing `deploy_id_gate`, `guarded`,
+  `cors`, `error`, `scrub_*`): `GET /v1/admin/creation/{registry}`
+  (list) + `.../{id}` (inspect) + `.../resolve` (query-driven) for
+  `profiles|features|components|ui-patterns` via
+  `profile::{list_profiles, inspect_profile, resolve_profile}`,
+  `feature::{feature_catalog, inspect_feature, resolve_plan}`,
+  `component::{component_catalog, inspect_component,
+  resolve_outcome}`, `ui_pattern::{ui_pattern_catalog,
+  inspect_ui_pattern, resolve_outcome}`; list+inspect for `standards`
+  (`all_packs`, `inspect_pack`) and `procedures`
+  (`procedure_catalog`, `inspect_procedure`);
+  `GET .../creation/intents/validate` (action/profile/require/forbid/
+  constraint query keys mirroring the CLI flags, `validate_intent` +
+  `intent_hash`, journal-free by design); `GET
+  .../projects/{id}/standard/check|diff` (`check_snapshot`/
+  `diff_snapshot` over the server-resolved directory, bodies
+  scrubbed) and `GET .../projects/{id}/intent/plans` (plan ids only,
+  never the CLI's absolute receipt path; absent dir → empty, not an
+  error). Session-gated; hostile ids are static typed `400`s without
+  echo (traversal adding a segment matches no route → 404);
+  unmanaged ids typed `404`. No write, no provider, no adapter, no
+  toolchain probe, no shell, no journal row, no browser-supplied path
+  on any path; every response carries `contract:
+  API_CONTRACT_VERSION` plus the registry contract where one exists.
+- **Routing:** one `Route::AdminCreation { registry, item, action }`
+  validated-key triple (portfolio `{kind}`/`{action}` precedent) with
+  a `route_creation` matcher beside the handlers; the pre-table chain
+  folds into a `route_beside` helper in `src/api/admin/mod.rs` so
+  `router.rs` stays at 999/1000 lines (permission/short-circuit/
+  exhaustiveness append to existing arms); one `deploy.rs` dispatch
+  arm + one `handlers_core.rs` authorize arm; twenty
+  `ROUTE_ADMIN_CREATION_*` constants; the six reachable user-error
+  codes map to `400` in a `creation_error_status` helper beside the
+  handlers (kept out of `err_status` for the same cap).
+- **Catalog:** the twenty `NotYetWeb` rows convert to `web_at(Read,
+  route, caps)` (caps verbatim); count stays 234 (conversion);
+  `problems()` empty. `profile preflight`, `procedure validate`
+  (native/file boundary), `component qualify`, `ui-pattern install`,
+  `standard upgrade` (writes) and all other writes stay CLI-only with
+  reasons; `intent resolve|apply` already web, untouched.
+- **Frontend:** projects view gains a read-only "Creation catalog"
+  card after the project-catalog browser (registry picker + cached
+  client-side search, list/inspect/resolve-or-check/diff rendering,
+  project-gated standard/intent panels, CLI-only remainder derived
+  from the loaded command catalog as badges with reasons, honest
+  unavailable-with-reason states; explicit reads only, `role=status`
+  results, error-summary focus, native controls; no new dependency,
+  no `innerHTML`).
+- **Contract tests:** new
+  `tests/web_creation_catalog_browser_contract.rs` (10 tests: auth,
+  gates, six lists, inspects incl. live pack selector + typed
+  refusals, four resolves incl. missing-subject, intent validate
+  happy + malformed + journal-free, project-bound reads incl. scrub
+  asserts, catalog pins for all 20 rows + 5 CLI-only leftovers) plus
+  pin updates in `src/api/command_catalog/catalog.rs` (web vec +20)
+  and `tests/forge_web_command_catalog_contract.rs` (web-route +20
+  and web-id +20 allowlists).
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only (`ShareSurface` unused import) |
+| `cargo test --test web_creation_catalog_browser_contract` (new) | **10 passed / 0 failed** |
+| `cargo test --lib` | **1213 passed / 0 failed** (1 ignored) |
+| profile/feature/component/ui-pattern/standard/procedure/planner CLI suites | **132 passed / 0 failed** across 12 binaries |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap` web-id gap; no CLI file in this diff, signature byte-identical to the recorded pristine failure) |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin at workbench caret; this diff's app.js hunks exclude that region) |
+| `cargo test --test web_project_catalog_browser_contract` / `web_release_deploy_history_contract` / `web_agent_identity_readonly_contract` / `portal_ui_contract` / `forge_web_navigation_contract` / `web_command_reference_browser_contract` / `forge_web_maintainer_surface_contract` | **10 / 9 / 10 / 21 / 9 / 6 / 5 passed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **100 passed / 0 failed** active and post-archive |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after TBD Purpose repair + pointer removal) |
+| `git diff --check` | clean (cached + worktree) |
+| live oracle (throwaway API:8766+web:4173 default ports, scratch `FORGE_REGISTRY` with alpha fixture, `FORGE_ADMIN_PROJECTS_ROOT` set, real Chromium via bundled Playwright, script in `/tmp` — never committed) | **VERIFIED**: login → `/projects` → list 6 profiles → inspect rust-web → resolve audit-action (plan ids render) → validate intent hash → check absent snapshot → plans empty → CLI-only badges for preflight/qualify/install/upgrade/validate; curl cross-check of all twenty routes (19×200 + typed 400 diff-without-snapshot) + anon 401; **zero JS console/page/network errors, zero failed requests** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` (on committed tree) | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (402/402 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. Mid-task note: an interim `cargo fmt` split same-line router arms (1007 lines, gate source-file-size fail); repaired via the `route_beside` fold + beside-handler status mapping before archive, re-verified green. |
+| `openspec archive web-creation-catalog-browser --yes` | archived as `2026-10-10-web-creation-catalog-browser`, no `--skip-specs`; canonical `web-creation-catalog-browser` +3; post-archive validate **100 passed / 0 failed**, names PASS |
+
+Commits on `main`: implementation+specs+frontend+tests (`ba29ff9`)
++ this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.
+
+No active changes remain, so this handoff carries no `current_spec` pointer.
+
 ### web-agent-identity-readonly delivered and archived (2026-10-10)
 
 `web-agent-identity-readonly` closes audit gap 5: operators can now

@@ -336,7 +336,7 @@ fn detail_is_a_read_only_path_free_projection_with_honest_dispositions() {
     );
     let state = body["health"]["state"].as_str().unwrap();
     assert!(
-        ["healthy", "stale", "issues", "unavailable"].contains(&state),
+        ["healthy", "stale", "issues", "deferred", "unavailable"].contains(&state),
         "health state must be honest, got {state}"
     );
     let text = String::from_utf8_lossy(&response.body).to_string();

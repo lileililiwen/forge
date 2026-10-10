@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 
 use super::{ApiRequest, ApiResponse};
 use crate::core::{validate_project_id, ForgeError};
-use crate::doctor::{run_doctor, RegistryObservation};
+use crate::doctor::{run_doctor, DoctorReport, RegistryObservation};
 use crate::policy::{run_driftwatch, DriftWatchConfig};
 use crate::registry::Registry;
 use crate::upgrade::{apply_upgrade, plan_upgrade};
@@ -47,6 +47,16 @@ pub const CONTRACT_VERSION: &str = "forge-project-workbench/0.1.0";
 pub const ROUTE_PROJECT_DETAIL: &str = "GET /v1/admin/projects/{id}";
 pub const ROUTE_PROJECT_PLAN: &str = "GET /v1/admin/projects/{id}/plan";
 pub const ROUTE_PROJECT_APPLY: &str = "POST /v1/admin/projects/{id}/apply";
+/// Explicit on-demand full health check. Unlike the detail GET (fast local
+/// pass, see [`build_health`]), this route runs the live external policy
+/// check plus doctor and returns the complete health document. Read-only
+/// effect: no confirm/digest binding, no journal row.
+pub const ROUTE_PROJECT_HEALTH_REFRESH: &str = "POST /v1/admin/projects/{id}/health/refresh";
+
+/// Finding id appended by the fast read path when the live policy check
+/// did not run for the returned view. The workbench card renders this row
+/// with the refresh control instead of a remediate shortcut.
+const POLICY_DEFERRED_FINDING: &str = "policy-deferred";
 
 /// Reason shown for a catalog `web` row that is global (id-less) rather than
 /// scoped to the resolved project. Such a row is executable from the
@@ -258,39 +268,124 @@ fn management_label(id: &str) -> &'static str {
 /// Read-only doctor report for the resolved project directory, with the
 /// absolute `path` stripped. A project whose root is not currently present
 /// reports an honest `unavailable` health state rather than a fake pass.
+///
+/// Latency contract (`workbench-health-latency`): this is the **fast**
+/// path. It runs the local doctor pass only — no external policy process
+/// — and appends an explicit `unavailable` [`POLICY_DEFERRED_FINDING`]
+/// finding, so a locally-clean project reports `deferred`, never
+/// `healthy`. The full live pass runs only behind [`refresh_health`].
 fn build_health(record: &crate::registry::ProjectRecord, dir: &Path) -> Value {
     if !record.available || !dir.is_dir() {
-        return json!({
-            "state": "unavailable",
-            "note": "the registered project directory is not currently readable on this host; no health report can be produced. Nothing was changed.",
-        });
+        return unavailable_health();
     }
     let observation = Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at.clone()),
     });
-    let policy_outcome = run_driftwatch(dir, &DriftWatchConfig::from_env());
-    match run_doctor(dir, None, observation.as_ref(), Some(&policy_outcome)) {
-        Ok(report) => {
-            let mut value = serde_json::to_value(&report).unwrap_or(Value::Null);
-            if let Some(object) = value.as_object_mut() {
-                object.remove("path");
-            }
-            let label = if !report.healthy {
-                "issues"
-            } else if report.stale {
-                "stale"
-            } else {
-                "healthy"
-            };
-            value["state"] = json!(label);
-            value
-        }
+    match run_doctor(dir, None, observation.as_ref(), None) {
+        Ok(report) => finish_health(report, false),
         Err(_) => json!({
             "state": "unavailable",
             "note": "the health inspection could not complete for this project; no files were changed. Run `forge doctor` in a terminal for the full report.",
         }),
     }
+}
+
+/// Explicit full health check: the live external policy pass plus doctor,
+/// exactly as the detail GET computed before `workbench-health-latency`.
+/// Read-only effect — the returned document is the evidence, so no
+/// confirm/digest binding and no journal row.
+pub fn refresh_health(db_path: &Path, id: &str) -> ApiResponse {
+    let registry = match Registry::open(db_path) {
+        Ok(registry) => registry,
+        Err(_) => return unavailable(),
+    };
+    let record = match resolve(&registry, id) {
+        Resolved::Managed(record) => record,
+        Resolved::Refused { status, reason } => return refuse(status, reason),
+    };
+    let project_dir = Path::new(&record.path);
+    if !record.available || !project_dir.is_dir() {
+        return ApiResponse::json(
+            200,
+            json!({
+                "contract": CONTRACT_VERSION,
+                "project_id": record.id,
+                "health": unavailable_health(),
+            }),
+        );
+    }
+    let observation = Some(RegistryObservation {
+        registered: true,
+        observed_at: Some(record.observed_at.clone()),
+    });
+    let policy_outcome = run_driftwatch(project_dir, &DriftWatchConfig::from_env());
+    match run_doctor(
+        project_dir,
+        None,
+        observation.as_ref(),
+        Some(&policy_outcome),
+    ) {
+        Ok(report) => ApiResponse::json(
+            200,
+            json!({
+                "contract": CONTRACT_VERSION,
+                "project_id": record.id,
+                "health": finish_health(report, true),
+            }),
+        ),
+        Err(_) => ApiResponse::json(
+            200,
+            json!({
+                "contract": CONTRACT_VERSION,
+                "project_id": record.id,
+                "health": {
+                    "state": "unavailable",
+                    "note": "the health inspection could not complete for this project; no files were changed. Run `forge doctor` in a terminal for the full report.",
+                },
+            }),
+        ),
+    }
+}
+
+/// Shared shape finisher for both health paths: strip the absolute path,
+/// label honestly, and — on the fast path only — append the deferred
+/// policy finding so no row claims a pass that was not computed.
+fn finish_health(report: DoctorReport, policy_ran: bool) -> Value {
+    let mut value = serde_json::to_value(&report).unwrap_or(Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        object.remove("path");
+        if !policy_ran {
+            if let Some(findings) = object.get_mut("findings").and_then(|f| f.as_array_mut()) {
+                findings.push(json!({
+                    "id": POLICY_DEFERRED_FINDING,
+                    "status": "unavailable",
+                    "evidence": ["the live policy check runs only on explicit refresh, not on read"],
+                    "applicable": false,
+                    "remediation": "manual",
+                    "detail": "the live policy check has not run for this view; run the full health check to compute it",
+                }));
+            }
+        }
+    }
+    let label = if !report.healthy {
+        "issues"
+    } else if report.stale {
+        "stale"
+    } else if policy_ran {
+        "healthy"
+    } else {
+        "deferred"
+    };
+    value["state"] = json!(label);
+    value
+}
+
+fn unavailable_health() -> Value {
+    json!({
+        "state": "unavailable",
+        "note": "the registered project directory is not currently readable on this host; no health report can be produced. Nothing was changed.",
+    })
 }
 
 /// Newest-first journal rows for this project only, with timestamps. Only

@@ -336,6 +336,14 @@ pub enum Route {
     AdminProjectClassifyApply {
         id: String,
     },
+    /// `POST /v1/admin/projects/{id}/health/refresh` — explicit on-demand
+    /// full health check (`workbench-health-latency`): the live external
+    /// policy pass plus doctor, returning the complete health document.
+    /// Read-only effect: no confirm/digest binding, no journal row.
+    /// Session-gated; the root is resolved server-side from a validated id.
+    AdminProjectHealthRefresh {
+        id: String,
+    },
     /// `GET /v1/admin/projects/{id}/plan` — side-effect-free upgrade plan
     /// plus the digest a later confirmation must echo.
     AdminProjectPlan {

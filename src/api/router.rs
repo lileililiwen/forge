@@ -283,6 +283,15 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
                 id: (*id).to_string(),
             })
         }
+        // Explicit full health check (`workbench-health-latency`): the
+        // literal `health`/`refresh` segments never collide with the
+        // lifecycle or classify arms above, so no existing route is
+        // shadowed.
+        ("POST", ["v1", "admin", "projects", id, "health", "refresh"]) => {
+            Some(Route::AdminProjectHealthRefresh {
+                id: (*id).to_string(),
+            })
+        }
         // Portfolio routes: `/evidence` is a reserved second segment and is
         // matched before the generic `{id}` arm so a literal path never reads
         // as a project id. `{kind}`/`{action}` are validated keys, not paths.
@@ -521,6 +530,7 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectClassifyApprove { .. }
         | Route::AdminProjectClassifyReject { .. }
         | Route::AdminProjectClassifyApply { .. }
+        | Route::AdminProjectHealthRefresh { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -692,6 +702,7 @@ pub fn handle(
             | Route::AdminProjectClassifyApprove { .. }
             | Route::AdminProjectClassifyReject { .. }
             | Route::AdminProjectClassifyApply { .. }
+            | Route::AdminProjectHealthRefresh { .. }
             | Route::AdminProjectPlan { .. }
             | Route::AdminProjectApply { .. }
             | Route::AdminProjectFeature { .. }
@@ -829,6 +840,7 @@ pub fn handle(
         | Route::AdminProjectClassifyApprove { .. }
         | Route::AdminProjectClassifyReject { .. }
         | Route::AdminProjectClassifyApply { .. }
+        | Route::AdminProjectHealthRefresh { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }

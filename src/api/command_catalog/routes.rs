@@ -25,6 +25,12 @@ pub(super) const WEB_ROUTE_PROJECT_PLAN: &str = super::super::workbench::ROUTE_P
 
 pub(super) const WEB_ROUTE_PROJECT_APPLY: &str = super::super::workbench::ROUTE_PROJECT_APPLY;
 
+/// Explicit on-demand full health check (`workbench-health-latency`).
+/// Like the maintain GET, the refresh route is called directly by the
+/// workbench card and carries no catalog row of its own.
+pub(super) const WEB_ROUTE_PROJECT_HEALTH_REFRESH: &str =
+    super::super::workbench::ROUTE_PROJECT_HEALTH_REFRESH;
+
 /// Authoring-command typed routes (`forge-web-command-execution`). These name
 /// the exact admin paths the router registers so the catalog and the live
 /// endpoints can never diverge: `forge feature add` and `forge spec generate`
@@ -192,6 +198,7 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_PROJECT_DETAIL,
     WEB_ROUTE_PROJECT_PLAN,
     WEB_ROUTE_PROJECT_APPLY,
+    WEB_ROUTE_PROJECT_HEALTH_REFRESH,
     WEB_ROUTE_ADMIN_FEATURE,
     WEB_ROUTE_ADMIN_SPEC,
     WEB_ROUTE_ADMIN_FEATURE_REMOVE,

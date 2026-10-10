@@ -881,8 +881,8 @@
   // Every action here calls a typed in-process JSON endpoint; refused or
   // unavailable workflows are rendered as honest state, never as a fake
   // success and never as an executable control.
-  const HEALTH_LABELS = { healthy: "Healthy", stale: "Stale", issues: "Has issues", unavailable: "Unavailable" };
-  const HEALTH_BADGE = { healthy: "state-done", stale: "state-stale", issues: "state-failed", unavailable: "state-observed" };
+  const HEALTH_LABELS = { healthy: "Healthy", stale: "Stale", issues: "Has issues", deferred: "Deferred", unavailable: "Unavailable" };
+  const HEALTH_BADGE = { healthy: "state-done", stale: "state-stale", issues: "state-failed", deferred: "state-observed", unavailable: "state-observed" };
   const workbench = { id: null, digest: null, idempotencyKey: null, delivery: null };
   // The last `?project=` value the workbench applied itself. Guards the
   // route render against re-fetching the detail on unrelated re-renders
@@ -958,16 +958,69 @@
         // so the operator never hand-builds the finding id in a terminal.
         const li = document.createElement("li");
         li.className = "wb-finding-row";
-        li.append(
-          el("span", null, `${finding.id || "finding"} — ${finding.summary || finding.reason || "blocking"}`),
-          remediatePlanButton(finding.id || null),
-        );
+        if (finding.id === "policy-deferred") {
+          // Workbench-health-latency: there is nothing to remediate — the
+          // live policy check simply has not run for this view. Offer the
+          // explicit full check instead of a remediate shortcut.
+          li.append(
+            el("span", null, finding.detail || "the live policy check has not run for this view; run the full health check to compute it"),
+            healthRefreshButton(),
+          );
+        } else {
+          li.append(
+            el("span", null, `${finding.id || "finding"} — ${finding.summary || finding.reason || "blocking"}`),
+            remediatePlanButton(finding.id || null),
+          );
+        }
         ul.append(li);
       }
       box.append(ul);
     } else if (state === "healthy" || state === "stale") {
       const ok = document.createElement("p"); ok.className = "muted"; ok.textContent = "No blocking findings."; box.append(ok);
     }
+  }
+
+  // Explicit on-demand full health check (workbench-health-latency).
+  // The detail GET is a fast local pass; this button runs the live
+  // external policy check plus doctor behind one operator action, then
+  // re-renders the card. Read-only effect: the response is the evidence.
+  function healthRefreshButton() {
+    const btn = el("button", "button button-quiet wb-health-refresh");
+    btn.type = "button";
+    btn.textContent = "Run full health check";
+    btn.addEventListener("click", () => { refreshHealth(workbench.id); });
+    return btn;
+  }
+
+  async function refreshHealth(id) {
+    if (!id) return;
+    const box = document.getElementById("wb-health");
+    const buttons = box ? box.querySelectorAll(".wb-health-refresh") : [];
+    buttons.forEach((b) => { b.disabled = true; b.textContent = "Running full check…"; });
+    clearWorkbenchNotice();
+    let result;
+    try {
+      result = await requestStatus(`/v1/admin/projects/${encodeURIComponent(id)}/health/refresh`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+    } catch (err) {
+      buttons.forEach((b) => { b.disabled = false; b.textContent = "Run full health check"; });
+      showWorkbenchNotice((err && err.message) ? err.message : "The full health check could not run. The prior health state is kept.");
+      return;
+    }
+    if (!result.ok) {
+      buttons.forEach((b) => { b.disabled = false; b.textContent = "Run full health check"; });
+      const message = result.body && result.body.error && result.body.error.message
+        ? result.body.error.message
+        : "The full health check could not run. The prior health state is kept.";
+      showWorkbenchNotice(message);
+      return;
+    }
+    if (workbench.id !== id) return;
+    workbenchEvidence.health = (result.body && result.body.health) || null;
+    renderHealth(workbenchEvidence.health || { state: "unavailable" });
+    refreshLifecycleSeries();
   }
 
   // The read-only project status projection: one overall state plus its

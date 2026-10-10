@@ -116,6 +116,7 @@ pub(super) fn authorize(
         | Route::AdminProjectClassifyApprove { .. }
         | Route::AdminProjectClassifyReject { .. }
         | Route::AdminProjectClassifyApply { .. }
+        | Route::AdminProjectHealthRefresh { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }

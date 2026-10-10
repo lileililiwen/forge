@@ -92,6 +92,9 @@ pub(in crate::api) fn handle(
         Route::AdminProjectMaintain { id } => guarded(db_path, request, |_| {
             super::super::maintain::maintain(db_path, id)
         }),
+        Route::AdminProjectHealthRefresh { id } => guarded(db_path, request, |_| {
+            super::super::workbench::refresh_health(db_path, id)
+        }),
         Route::AdminProjectClassifyApprove { id } => {
             classify_decide(config, db_path, request, id, true)
         }

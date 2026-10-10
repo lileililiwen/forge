@@ -24,7 +24,7 @@ The [requirement.md](../requirement.md) §38 tree is logical guidance; the Core 
 
 ## Technology direction
 
-The brief suggests Rust Core/CLI, SQLite initially, YAML manifests and stdio MCP. These are the implemented baseline, recorded with exact toolchain, crate boundaries, schema/parser and SQLite strategy in the foundation ADR ([ADR 0001](adr/0001-foundation-toolchain.md)). PostgreSQL is conditional on demonstrated need. The portal ships as a read-only Core/CLI data surface; an ASP.NET Core or Next.js graphical portal remains a deferred downstream choice.
+The brief suggests Rust Core/CLI, SQLite initially, YAML manifests and stdio MCP. These are the implemented baseline, recorded with exact toolchain, crate boundaries, schema/parser and SQLite strategy in the foundation ADR ([ADR 0001](adr/0001-foundation-toolchain.md)). PostgreSQL is conditional on demonstrated need. The portal ships as a read-only Core/CLI data surface that points at the SPA as the single interactive browser surface ([portal–SPA](portal-spa.md)); an ASP.NET Core or Next.js graphical portal remains a deferred downstream choice.
 
 Adopt `forge.yaml` as canonical. An explicit legacy import may read `platform.yaml`, but ambiguous coexistence blocks mutation. Schema versions must be supported explicitly. Manifests describe desired infrastructure; observations include source revision, time and actual verification state. Credentials are references to external secret storage, not embedded tokens.
 

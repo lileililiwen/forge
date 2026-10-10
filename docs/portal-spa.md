@@ -19,7 +19,7 @@ codes and journaling are unchanged.
 | `policies` | `/workbench` | partial | Reads in the workbench; policy writes stay in the terminal |
 | `specs` | `/projects` | covered | Assurance browser; `spec generate/apply` run in the workbench |
 | `agents` | `/projects` | covered | Agent and identity reads |
-| `deployments` | `/delivery` | covered | Deploy plan/apply plus release and deploy history |
+| `deployments` | `/delivery` | covered | Deploy plan/apply plus release and deploy history, provider/plugin reads |
 | `repositories` | `/management` | partial | Workspace onboarding in management; git writes stay in the terminal |
 | `documentation` | — (CLI only) | cli-only | Provider translation; run `forge docs translate` in the terminal |
 | `analytics` | `/projects` | partial | Metrics read in the assurance browser; live inspect stays in the terminal |

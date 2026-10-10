@@ -61,7 +61,11 @@ the exact API origin. The API rejects requests from any other `Origin`.
   `forge identity setup --email …` command to run first.
 - **Empty registry:** after sign-in the dashboard shows just the Forge-self row.
 - **Populated registry (your real case):** the fleet lists every registered
-  project, and the Workbench, Portfolio, Commands and Delivery sections read the
+  project. The `/projects` view adds read-only browsers (command reference,
+  project catalog, creation catalog, assurance), `/workbench` runs the
+  project lifecycle, `/management` onboards workspace projects,
+  `/portfolio` edits Forge-owned metadata, and `/delivery` runs the share,
+  provider/plugin reads and staged-delivery workflows — all reading the
   same registry the CLI does.
 
 Optional read-only sources are environment-driven only, never directory scans:

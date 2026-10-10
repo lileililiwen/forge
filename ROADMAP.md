@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) and the later publish, portal, portfolio, catalog and studio packages listed under [Later packages](#later-packages) are implemented, archived and promoted to their canonical specs — 118 archived changes and 94 canonical specs; `openspec list` reports no remaining active changes. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) and the later publish, portal, portfolio, catalog and studio packages listed under [Later packages](#later-packages) are implemented, archived and promoted to their canonical specs — 129 archived changes and 103 canonical specs; `openspec list` reports no remaining active changes. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -85,8 +85,12 @@ acceptance oracle:
 5. `forge-web-delivery-controls` — confirmed repository, provider and delivery
    operations, depending on command catalog, workbench and portfolio controls.
 
-These are planning packages, not implementation evidence. The web frontend
-remains standalone HTML/CSS/JavaScript served by Forge's Rust web listener;
+These were planning packages; the five web command-center packages and nine
+web-gap browsers (command reference, portfolio completion, project catalog,
+release/deploy history, agent/identity reads, creation catalog, assurance,
+shipping/provider reads, portal–SPA convergence) plus `workbench-health-latency`
+are implemented, archived and promoted — see [portal–SPA](docs/portal-spa.md).
+The web frontend remains standalone HTML/CSS/JavaScript served by Forge's Rust web listener;
 the API remains JSON-only. Every CLI command stays discoverable, including
 transport/build commands that receive explicit CLI-only guidance rather than
 unsafe generic shell execution.

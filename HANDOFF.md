@@ -2,6 +2,59 @@
 
 ## Current state
 
+### portal-spa-convergence delivered and archived (2026-10-10)
+
+`portal-spa-convergence` closes audit gap 9 (final): the two-portal
+divergence is resolved by keeping ONE interactive surface (the SPA) and
+making the legacy server-side portal HTML an honest pointer. Every
+`forge portal dashboard|view` section now renders `spa: <route>` +
+`web: <covered|partial|cli-only> — <note>` lines (CLI-only sections
+render `spa: (none — CLI only)` and never name a dead deep-link), the
+dashboard header names the SPA (`forge web`, routes /projects
+/workbench /management /portfolio /delivery) as the interactive surface,
+and the JSON envelopes carry additive `spa_route`/`web_coverage` fields
+(`#[serde(default)]`, contract stays `0.1.0`). Section mapping:
+projects/features/components/specs/agents/deployments → covered at
+/projects, /workbench, /delivery; policies/repositories/analytics/
+settings → partial (reads in SPA, writes stay CLI); documentation/
+servers → cli-only (provider translation, loopback transports).
+`docs/portal-spa.md` carries the twelve-row coverage table with the
+honest-CLI reason keys (transports, git, native toolchain, secrets,
+live provider probes, capability-gated observe); the only SPA-side
+change is one HTML comment. No new SPA view/route/dependency, no new
+API route/write, no `forge portal` removal, no catalog reason
+rewording. Implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-portal-spa-convergence`,
+promoting canonical `portal-spa-convergence` +2 requirements (no
+`--skip-specs`; archiver-stamped TBD Purpose replaced with a
+source-backed sentence).
+
+Implementation commit: `41f8cae`. Nothing pushed. No
+`current_spec` pointer remains.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt` on touched files, `node --check frontend/app.js` | clean (global `cargo fmt --check` still flags the pre-existing drift in untouched `tests/web_assurance_browser_contract.rs`, reverted, not mine) |
+| `cargo build` | 0 errors; same 3 pre-existing warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) |
+| `cargo test --lib portal` | **29 passed / 0 failed** (incl. new twelve-triple table pin) |
+| `cargo test --test portal_contract` | **14 passed / 0 failed** (10 existing + 4 new SPA-pointer pins) |
+| `cargo test --lib` | **1214 passed / 0 failed** (1 ignored) |
+| `cargo test --test portal_cross_surface` / `forge_web_navigation_contract` / `web_command_reference_browser_contract` / `portal_ui_contract` / `forge_web_maintainer_surface_contract` | **6 / 9 / 6 / 21 / 5 passed / 0 failed** |
+| `cargo test --test web_assurance_browser_contract` / `web_creation_catalog_browser_contract` / `web_release_deploy_history_contract` / `web_agent_identity_readonly_contract` / `web_project_catalog_browser_contract` | **12 / 10 / 9 / 10 / 10 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap`-coverage gap, byte-identical on the pristine tree via `git stash -u` rerun; catalog reason pins green — every remaining honest-CLI pin carries its reason, nothing repaired) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **103 passed / 0 failed** active and post-archive |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after TBD Purpose repair + pointer removal) |
+| `git diff --check` | clean |
+| live proof (throwaway registry, `forge portal dashboard spa-proof` + `portal view servers|documentation`; throwaway API:18766+web:14173 serving a `/tmp` frontend copy with rewritten `config.js`, scratch `FORGE_REGISTRY`, `FORGE_ADMIN_PROJECTS_ROOT` set, real Chromium via bundled Playwright, scripts in `/tmp` — never committed) | **VERIFIED**: dashboard header names the SPA as the interactive surface with all four deep-links; all twelve sections render `spa:`/`web:` lines; CLI-only sections name no dead link; login → `/projects` → `/workbench` → `/management` → `/portfolio` → `/delivery` with **zero JS console/page/network errors** (initial 409s traced to the unset projects root in the oracle env; clean after restart with root set) |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (404/404 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive portal-spa-convergence --yes` | archived as `2026-10-10-portal-spa-convergence`, no `--skip-specs`; canonical `portal-spa-convergence` +2; post-archive validate **103 passed / 0 failed**, names PASS, governance PASS |
+
+No active changes remain, so this handoff carries no `current_spec` pointer.
+
 ### web-assurance-browser delivered and archived (2026-10-10)
 
 `web-assurance-browser` closes audit gap 7: operators can now browse the

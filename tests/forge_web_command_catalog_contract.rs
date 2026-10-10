@@ -308,6 +308,26 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/projects/{id}/identity/config",
                         "GET /v1/admin/projects/{id}/identity/sessions",
                         "GET /v1/admin/projects/{id}/identity/sessions/{session_id}",
+                        "GET /v1/admin/creation/profiles",
+                        "GET /v1/admin/creation/profiles/{id}",
+                        "GET /v1/admin/creation/profiles/resolve",
+                        "GET /v1/admin/creation/features",
+                        "GET /v1/admin/creation/features/{id}",
+                        "GET /v1/admin/creation/features/resolve",
+                        "GET /v1/admin/creation/components",
+                        "GET /v1/admin/creation/components/{id}",
+                        "GET /v1/admin/creation/components/resolve",
+                        "GET /v1/admin/creation/ui-patterns",
+                        "GET /v1/admin/creation/ui-patterns/{id}",
+                        "GET /v1/admin/creation/ui-patterns/resolve",
+                        "GET /v1/admin/creation/standards",
+                        "GET /v1/admin/creation/standards/{id}",
+                        "GET /v1/admin/creation/procedures",
+                        "GET /v1/admin/creation/procedures/{id}",
+                        "GET /v1/admin/creation/intents/validate",
+                        "GET /v1/admin/projects/{id}/standard/check",
+                        "GET /v1/admin/projects/{id}/standard/diff",
+                        "GET /v1/admin/projects/{id}/intent/plans",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -394,7 +414,12 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // (`web-agent-identity-readonly`) turns the recorded agent session
     // list/status, the validated identity config and the persisted
     // identity session list/inspect reads into typed read-only admin
-    // GETs. All now join the fleet read rows as `web`.
+    // GETs; and the creation-catalog package
+    // (`web-creation-catalog-browser`) turns the creation-catalog
+    // list/inspect/resolve reads (profile, feature, component,
+    // ui-pattern), the standard list/inspect/check/diff reads, the
+    // procedure list/inspect reads and the intent validate/list reads
+    // into typed read-only admin GETs. All now join the fleet read rows as `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
         .filter(|row| row["availability"] == "web")
@@ -479,6 +504,26 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "identity.validate-config",
             "identity.session-list",
             "identity.session-inspect",
+            "profile.list",
+            "profile.inspect",
+            "profile.resolve",
+            "feature.list",
+            "feature.inspect",
+            "feature.resolve",
+            "component.list",
+            "component.inspect",
+            "component.resolve",
+            "ui-pattern.list",
+            "ui-pattern.inspect",
+            "ui-pattern.resolve",
+            "standard.list",
+            "standard.inspect",
+            "standard.check",
+            "standard.diff",
+            "procedure.list",
+            "procedure.inspect",
+            "intent.validate",
+            "intent.list",
         ])
     );
 }

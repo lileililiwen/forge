@@ -318,6 +318,22 @@ pub enum Route {
     AdminFleetInspect {
         entry: String,
     },
+    /// `GET /v1/admin/creation/...` — the read-only creation-catalog
+    /// browser (`web-creation-catalog-browser`, audit gap 6):
+    /// list/inspect/resolve over the pure Core creation catalogs
+    /// (`profiles`, `features`, `components`, `ui-patterns`,
+    /// `standards`, `procedures`), structured-intent validation
+    /// (`intents`), and the project-bound snapshot reads plus plan
+    /// receipts (`project-standard`, `project-intent`). `registry`
+    /// is a validated catalog key, `item` the entry/project id (or
+    /// empty for list/resolve/validate), `action` one of
+    /// `list|inspect|resolve|validate|check|diff|plans`.
+    /// Session-gated; no write on any path.
+    AdminCreation {
+        registry: String,
+        item: String,
+        action: String,
+    },
     /// `GET /v1/admin/status` — read-only fleet readiness summary
     /// (`forge-project-status/0.1.0`): every registered project counted by
     /// overall state, plus a bounded per-project sample. Session-gated.

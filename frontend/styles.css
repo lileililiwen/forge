@@ -331,3 +331,14 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .catalog-gap{overflow-wrap:anywhere}
 #catalog-inspect-result,#catalog-fleet-result{display:grid;gap:12px}
 #catalog-tags-count,#catalog-languages-count,#catalog-gaps-count{font-size:var(--text-md)}
+/* Creation catalog browser (web-creation-catalog-browser): read-only
+ * creation-catalog section on the projects view. Reuses the panel,
+ * badge, table and 12px-floor tokens of the command reference;
+ * native controls with 44px targets, wrapped descriptor strings.
+ * Additive only; earlier rules untouched. */
+#creation-catalog .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#creation-catalog .field{min-width:min(240px,80vw)}
+#creation-catalog select,#creation-catalog input[type="text"],#creation-catalog input[type="search"]{min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raise);color:var(--ink);font-size:var(--text-md)}
+#creation-catalog button{min-height:44px}
+#creation-inspect-result,#creation-resolve-result,#creation-standard-result,#creation-intent-result{display:grid;gap:12px}
+#creation-count{font-size:var(--text-md)}

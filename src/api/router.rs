@@ -94,11 +94,10 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
     let path = path.trim_end_matches('/');
     let normalized = if path.is_empty() { "/" } else { path };
     let segments: Vec<&str> = normalized.trim_start_matches('/').split('/').collect();
-    // Read-only history + agent/identity reads live beside their handlers
-    // so this table stays under the cap; the shapes shadow no arm below.
-    if let Some(route) = super::admin::history::route_history(method, segments.as_slice())
-        .or_else(|| super::admin::agent_identity::route_agent_identity(method, segments.as_slice()))
-    {
+    // Read-only history, agent/identity and creation-catalog reads live
+    // beside their handlers so this table stays under the cap; the shapes
+    // shadow no arm below.
+    if let Some(route) = super::admin::route_beside(method, segments.as_slice()) {
         return Some(route);
     }
     match (method, segments.as_slice()) {
@@ -641,7 +640,7 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminFleetInspect { .. }
         | Route::AdminProjectAgents { .. }
         | Route::AdminProjectIdentityConfig { .. }
-        | Route::AdminProjectIdentitySessions { .. }
+        | Route::AdminProjectIdentitySessions { .. } | Route::AdminCreation { .. }
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -831,6 +830,7 @@ pub fn handle(
             | Route::AdminCatalogGaps
             | Route::AdminCatalogInspect { .. }
             | Route::AdminFleetInspect { .. }
+            | Route::AdminCreation { .. }
     ) {
         return super::admin::handle(config, db_path, request, &route);
     }
@@ -985,6 +985,7 @@ pub fn handle(
         | Route::AdminFleetInspect { .. }
         | Route::AdminProjectAgents { .. }
         | Route::AdminProjectIdentityConfig { .. }
+        | Route::AdminCreation { .. }
         | Route::AdminProjectIdentitySessions { .. } => not_found(),
     }
 }

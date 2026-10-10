@@ -179,6 +179,7 @@ pub(super) fn authorize(
         | Route::AdminCatalogGaps
         | Route::AdminCatalogInspect { .. }
         | Route::AdminFleetInspect { .. }
+        | Route::AdminCreation { .. }
         | Route::AdminOptions => Ok(String::new()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session

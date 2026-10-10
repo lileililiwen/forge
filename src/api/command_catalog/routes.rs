@@ -301,6 +301,54 @@ pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSIONS: &str =
 pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
     super::super::admin::ROUTE_ADMIN_IDENTITY_SESSION_INSPECT;
 
+/// Creation-catalog read-only typed routes
+/// (`web-creation-catalog-browser`). These reference the admin
+/// module's own route constants so the catalog and the live endpoints
+/// can never name different paths: the pure-catalog list/inspect/
+/// resolve reads, the structured-intent validation, and the
+/// project-bound standard check/diff plus plan-receipt reads — all
+/// read-only, session-gated, provider- and shell-free.
+pub(super) const WEB_ROUTE_ADMIN_CREATION_PROFILES: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_PROFILES;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_PROFILE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_PROFILE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_PROFILE_RESOLVE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_PROFILE_RESOLVE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_FEATURES: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_FEATURES;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_FEATURE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_FEATURE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_FEATURE_RESOLVE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_FEATURE_RESOLVE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_COMPONENTS: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_COMPONENTS;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_COMPONENT: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_COMPONENT;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_COMPONENT_RESOLVE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_COMPONENT_RESOLVE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_UI_PATTERNS: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_UI_PATTERNS;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_UI_PATTERN: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_UI_PATTERN;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_UI_PATTERN_RESOLVE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_UI_PATTERN_RESOLVE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_STANDARDS: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_STANDARDS;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_STANDARD: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_STANDARD;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_PROCEDURES: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_PROCEDURES;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_PROCEDURE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_PROCEDURE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_INTENT_VALIDATE: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_INTENT_VALIDATE;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_STANDARD_CHECK: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_STANDARD_CHECK;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_STANDARD_DIFF: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_STANDARD_DIFF;
+pub(super) const WEB_ROUTE_ADMIN_CREATION_INTENT_PLANS: &str =
+    super::super::admin::ROUTE_ADMIN_CREATION_INTENT_PLANS;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -381,6 +429,26 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
     WEB_ROUTE_ADMIN_IDENTITY_SESSIONS,
     WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
+    WEB_ROUTE_ADMIN_CREATION_PROFILES,
+    WEB_ROUTE_ADMIN_CREATION_PROFILE,
+    WEB_ROUTE_ADMIN_CREATION_PROFILE_RESOLVE,
+    WEB_ROUTE_ADMIN_CREATION_FEATURES,
+    WEB_ROUTE_ADMIN_CREATION_FEATURE,
+    WEB_ROUTE_ADMIN_CREATION_FEATURE_RESOLVE,
+    WEB_ROUTE_ADMIN_CREATION_COMPONENTS,
+    WEB_ROUTE_ADMIN_CREATION_COMPONENT,
+    WEB_ROUTE_ADMIN_CREATION_COMPONENT_RESOLVE,
+    WEB_ROUTE_ADMIN_CREATION_UI_PATTERNS,
+    WEB_ROUTE_ADMIN_CREATION_UI_PATTERN,
+    WEB_ROUTE_ADMIN_CREATION_UI_PATTERN_RESOLVE,
+    WEB_ROUTE_ADMIN_CREATION_STANDARDS,
+    WEB_ROUTE_ADMIN_CREATION_STANDARD,
+    WEB_ROUTE_ADMIN_CREATION_PROCEDURES,
+    WEB_ROUTE_ADMIN_CREATION_PROCEDURE,
+    WEB_ROUTE_ADMIN_CREATION_INTENT_VALIDATE,
+    WEB_ROUTE_ADMIN_CREATION_STANDARD_CHECK,
+    WEB_ROUTE_ADMIN_CREATION_STANDARD_DIFF,
+    WEB_ROUTE_ADMIN_CREATION_INTENT_PLANS,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

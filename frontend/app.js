@@ -1242,6 +1242,312 @@
     catalogRefreshAll();
   }
 
+  // ---- Creation catalog browser (web-creation-catalog-browser) ---------
+  //
+  // Read-only browser over the six pure creation catalogs (profiles,
+  // features, components, ui-patterns, standards, procedures) with
+  // list/inspect/resolve, plus structured-intent validation and the
+  // project-bound standard check/diff + plan receipts. Every call is
+  // an explicit GET over the twenty creation routes; the project-bound
+  // reads send only the chosen project id (the directory resolves
+  // server-side). Results render as scalar detail rows with
+  // `role="status"`; failures report through the section error summary
+  // with focus. The terminal-only remainder is derived from the loaded
+  // command catalog (never hardcoded) and renders badges + reasons +
+  // terminal commands with no executable control. No write, no
+  // provider, no shell: every string through `textContent`/`el()`.
+  const CREATION_RESOLVE_PARAM = { profiles: "feature", features: "feature", components: "component", "ui-patterns": "pattern" };
+  let creationCache = { registry: "", entries: [] };
+
+  function creationRegistry() {
+    const select = document.getElementById("creation-registry");
+    return select ? select.value : "profiles";
+  }
+
+  function creationFailure(action, err) {
+    renderErrorSummary("creation-error-summary", action, [{ label: "Creation catalog", message: (err && err.message) || "The creation catalog is unavailable; start the Forge API and reload." }]);
+  }
+
+  function creationScalarRows(obj) {
+    const rows = [];
+    if (!obj || typeof obj !== "object") return [detailRow("Value", String(obj ?? "—"))];
+    for (const key of Object.keys(obj)) {
+      const value = obj[key];
+      if (value === null || value === undefined || value === "") continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        rows.push(detailRow(key, String(value)));
+      } else if (Array.isArray(value) && value.every((v) => typeof v === "string" || typeof v === "number")) {
+        if (value.length) rows.push(detailRow(key, value.join(", ")));
+      } else if (Array.isArray(value)) {
+        const ids = value
+          .filter((v) => v && typeof v === "object" && v.id)
+          .map((v) => String(v.id));
+        if (ids.length === value.length && ids.length) rows.push(detailRow(key, ids.join(", ")));
+        else rows.push(detailRow(key, `${value.length} item(s) — inspect the entry for detail`));
+      }
+    }
+    if (!rows.length) rows.push(detailRow("Entry", "No scalar fields to show."));
+    return rows;
+  }
+
+  function creationEntryTitle(entry) {
+    return (entry && entry.id) || "entry";
+  }
+
+  function creationMatches(entry, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    return JSON.stringify(entry).toLowerCase().includes(q);
+  }
+
+  function creationSetResult(boxId, nodes, failed) {
+    const box = document.getElementById(boxId);
+    box.replaceChildren();
+    setResultRole(box, Boolean(failed));
+    for (const node of nodes) box.append(node);
+  }
+
+  async function creationList() {
+    clearErrorSummary("creation-error-summary");
+    const registry = creationRegistry();
+    const count = document.getElementById("creation-count");
+    creationSetResult("creation-list-result", [el("p", "muted", `Loading ${registry}…`)]);
+    let data;
+    try {
+      data = await request(`/v1/admin/creation/${encodeURIComponent(registry)}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure(`There is a problem listing ${registry}`, err);
+      creationSetResult("creation-list-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const entries = ((data.creation || {}).entries) || [];
+    creationCache = { registry, entries };
+    creationRenderCached();
+  }
+
+  function creationRenderCached() {
+    const registry = creationCache.registry;
+    const entries = creationCache.entries;
+    const search = document.getElementById("creation-search");
+    const count = document.getElementById("creation-count");
+    const rows = entries.filter((entry) => creationMatches(entry, search ? search.value : ""));
+    if (count) count.textContent = `Showing ${rows.length} of ${entries.length} ${registry}`;
+    if (!rows.length) { creationSetResult("creation-list-result", [el("p", "muted", entries.length ? "No matching entries — clear the search." : `No ${registry} entries were returned.`) ]); return; }
+    const fragment = document.createDocumentFragment();
+    for (const entry of rows) {
+      const card = el("article", "cmdref-row");
+      const head = el("div", "cmdref-head");
+      head.append(el("code", "cmdref-id", creationEntryTitle(entry)));
+      card.append(head);
+      const summary = entry.description || entry.title || entry.note;
+      if (summary) card.append(el("p", "cmdref-summary", String(summary)));
+      const meta = [entry.version, entry.quality, entry.support_status, entry.adapter, entry.language].filter(Boolean).join(" · ");
+      if (meta) card.append(el("p", "cmdref-reason", meta));
+      fragment.append(card);
+    }
+    creationSetResult("creation-list-result", [fragment]);
+  }
+
+  async function creationInspect() {
+    clearErrorSummary("creation-error-summary");
+    const registry = creationRegistry();
+    const id = document.getElementById("creation-inspect-id").value.trim();
+    if (!id) { renderErrorSummary("creation-error-summary", "There is a problem inspecting the entry", [{ fieldId: "creation-inspect-id", label: "Entry id", message: "Enter an entry id from the list." }]); return; }
+    creationSetResult("creation-inspect-result", [el("p", "muted", `Loading ${id}…`)]);
+    let data;
+    try {
+      data = await request(`/v1/admin/creation/${encodeURIComponent(registry)}/${encodeURIComponent(id)}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure("There is a problem inspecting the entry", err);
+      creationSetResult("creation-inspect-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    creationSetResult("creation-inspect-result", creationScalarRows((data.creation || {}).entry));
+  }
+
+  async function creationResolve() {
+    clearErrorSummary("creation-error-summary");
+    const registry = creationRegistry();
+    const param = CREATION_RESOLVE_PARAM[registry];
+    if (!param) { renderErrorSummary("creation-error-summary", "There is a problem resolving", [{ label: "Registry", message: `${registry} has no resolve verb; inspect an entry instead.` }]); return; }
+    const profile = document.getElementById("creation-resolve-profile").value.trim();
+    const ids = document.getElementById("creation-resolve-ids").value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!profile) { renderErrorSummary("creation-error-summary", "There is a problem resolving", [{ fieldId: "creation-resolve-profile", label: "Profile", message: "Enter a profile id." }]); return; }
+    if (!ids.length) { renderErrorSummary("creation-error-summary", "There is a problem resolving", [{ fieldId: "creation-resolve-ids", label: "Requested ids", message: "Enter at least one entry id." }]); return; }
+    creationSetResult("creation-resolve-result", [el("p", "muted", "Resolving…")]);
+    const params = new URLSearchParams();
+    if (registry === "profiles") params.set("id", profile);
+    else params.set("profile", profile);
+    for (const id of ids) params.append(param, id);
+    let data;
+    try {
+      data = await request(`/v1/admin/creation/${encodeURIComponent(registry)}/resolve?${params.toString()}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure("There is a problem resolving", err);
+      creationSetResult("creation-resolve-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const creation = data.creation || {};
+    const rows = [detailRow("Registry", creation.registry || registry), detailRow("Profile", creation.profile || creation.id || profile)];
+    const resolution = creation.resolution || {};
+    for (const row of creationScalarRows(resolution)) rows.push(row);
+    creationSetResult("creation-resolve-result", rows);
+  }
+
+  function creationProject() {
+    const id = document.getElementById("creation-project").value;
+    if (!id) {
+      renderErrorSummary("creation-error-summary", "There is a problem reading the project", [{ fieldId: "creation-project", label: "Project", message: "Choose a project first." }]);
+      return null;
+    }
+    return id;
+  }
+
+  async function creationStandardCheck() {
+    clearErrorSummary("creation-error-summary");
+    const id = creationProject();
+    if (!id) return;
+    creationSetResult("creation-standard-result", [el("p", "muted", "Checking snapshot…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/standard/check`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure("There is a problem checking the snapshot", err);
+      creationSetResult("creation-standard-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    creationSetResult("creation-standard-result", creationScalarRows((data.creation || {}).report));
+  }
+
+  async function creationStandardDiff() {
+    clearErrorSummary("creation-error-summary");
+    const id = creationProject();
+    if (!id) return;
+    const against = document.getElementById("creation-standard-against").value.trim();
+    if (!against) { renderErrorSummary("creation-error-summary", "There is a problem diffing the snapshot", [{ fieldId: "creation-standard-against", label: "Diff against", message: "Enter a pack selector, e.g. baseline-service@1.1.0." }]); return; }
+    creationSetResult("creation-standard-result", [el("p", "muted", "Diffing snapshot…")]);
+    const params = new URLSearchParams({ against });
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/standard/diff?${params.toString()}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure("There is a problem diffing the snapshot", err);
+      creationSetResult("creation-standard-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    creationSetResult("creation-standard-result", creationScalarRows((data.creation || {}).report));
+  }
+
+  function creationSplitList(value) {
+    return value.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  async function creationIntentValidate() {
+    clearErrorSummary("creation-error-summary");
+    const action = document.getElementById("creation-intent-action").value;
+    const profile = document.getElementById("creation-intent-profile").value.trim();
+    if (!profile) { renderErrorSummary("creation-error-summary", "There is a problem validating the intent", [{ fieldId: "creation-intent-profile", label: "Profile", message: "Enter a profile id." }]); return; }
+    creationSetResult("creation-intent-result", [el("p", "muted", "Validating intent…")]);
+    const params = new URLSearchParams({ action, profile });
+    for (const v of creationSplitList(document.getElementById("creation-intent-require").value)) params.append("require", v);
+    for (const v of creationSplitList(document.getElementById("creation-intent-forbid").value)) params.append("forbid", v);
+    for (const v of creationSplitList(document.getElementById("creation-intent-constraint").value)) params.append("constraint", v);
+    let data;
+    try {
+      data = await request(`/v1/admin/creation/intents/validate?${params.toString()}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure("There is a problem validating the intent", err);
+      creationSetResult("creation-intent-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const creation = data.creation || {};
+    const rows = [detailRow("Intent hash", creation.intent_hash || "—")];
+    for (const row of creationScalarRows(creation.validated)) rows.push(row);
+    creationSetResult("creation-intent-result", rows);
+  }
+
+  async function creationIntentPlans() {
+    clearErrorSummary("creation-error-summary");
+    const id = creationProject();
+    if (!id) return;
+    creationSetResult("creation-intent-result", [el("p", "muted", "Loading plan receipts…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/intent/plans`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      creationFailure("There is a problem listing plan receipts", err);
+      creationSetResult("creation-intent-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const plans = ((data.creation || {}).plans) || [];
+    if (!plans.length) { creationSetResult("creation-intent-result", [el("p", "muted", "No persisted plan receipts for this project.")]); return; }
+    creationSetResult("creation-intent-result", plans.map((plan) => detailRow("Plan", plan.plan_id || "—")));
+  }
+
+  function creationRenderCliOnly() {
+    const box = document.getElementById("creation-cli-only");
+    if (!box) return;
+    box.replaceChildren();
+    const rows = (catalogCommands || []).filter((row) => row.category === "creation" && row.availability !== "web");
+    if (!rows.length) {
+      box.append(el("p", "muted", catalogCommands.length ? "Every creation command is available in this browser." : "Command catalog unavailable — start the Forge API and reload to see the terminal-only verbs."));
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const row of rows) fragment.append(cmdrefRow(row));
+    box.append(fragment);
+  }
+
+  function creationRefreshProjects() {
+    const select = document.getElementById("creation-project");
+    if (select && window.__forgeProjects) {
+      const current = select.value;
+      select.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Choose a project…";
+      select.append(placeholder);
+      for (const project of window.__forgeProjects) {
+        const option = document.createElement("option");
+        option.value = project.identity;
+        option.textContent = project.name || project.identity;
+        select.append(option);
+      }
+      if (current) select.value = current;
+    }
+  }
+
+  function creationRefreshAll() {
+    creationRefreshProjects();
+    creationRenderCliOnly();
+    const count = document.getElementById("creation-count");
+    if (count) { count.textContent = "Creation catalog ready — pick a registry and list its entries."; setResultRole(count, false); }
+  }
+
+  function initCreationCatalog() {
+    const list = document.getElementById("creation-list");
+    const inspect = document.getElementById("creation-inspect");
+    const resolve = document.getElementById("creation-resolve");
+    const check = document.getElementById("creation-standard-check");
+    const diff = document.getElementById("creation-standard-diff");
+    const validate = document.getElementById("creation-intent-validate");
+    const plans = document.getElementById("creation-intent-plans");
+    const refresh = document.getElementById("creation-refresh");
+    const search = document.getElementById("creation-search");
+    const registry = document.getElementById("creation-registry");
+    if (list) list.addEventListener("click", creationList);
+    if (inspect) inspect.addEventListener("click", creationInspect);
+    if (resolve) resolve.addEventListener("click", creationResolve);
+    if (check) check.addEventListener("click", creationStandardCheck);
+    if (diff) diff.addEventListener("click", creationStandardDiff);
+    if (validate) validate.addEventListener("click", creationIntentValidate);
+    if (plans) plans.addEventListener("click", creationIntentPlans);
+    if (refresh) refresh.addEventListener("click", creationRefreshAll);
+    if (search) search.addEventListener("input", creationRenderCached);
+    if (registry) registry.addEventListener("change", creationList);
+    creationRefreshAll();
+  }
+
   // ---- Project workbench (single managed project) ------------------------
   //
   // Boundary: the browser only ever sends a validated project `id` chosen
@@ -5546,6 +5852,7 @@
       initFilterStatePersistence();
       initCommandReference();
       initCatalogBrowser();
+      initCreationCatalog();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }
     document.getElementById("sign-out").addEventListener("click", async (event) => {
       const button = event.currentTarget; button.disabled = true;

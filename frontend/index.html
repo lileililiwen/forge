@@ -143,6 +143,52 @@
             </div>
             <dl id="catalog-fleet-result" class="detail-list" role="status"></dl>
           </section>
+          <section class="project-panel" aria-labelledby="creation-title" id="creation-catalog">
+            <div class="panel-heading"><div><h2 id="creation-title">Creation catalog</h2><p class="muted">The read-only creation catalogs: profiles, features, components, UI patterns, standards and procedures with list, inspect and resolve — plus structured-intent validation, per-project standard check/diff and plan receipts. Read-only; nothing here runs or writes.</p></div><div class="panel-tools"><button id="creation-refresh" class="button button-quiet" type="button">Refresh creation catalog</button></div></div>
+            <div id="creation-error-summary" class="error-summary" tabindex="-1" hidden></div>
+            <div class="wb-plan-tools">
+              <label class="field" for="creation-registry"><span class="field-label">Registry</span><select id="creation-registry"><option value="profiles">profiles</option><option value="features">features</option><option value="components">components</option><option value="ui-patterns">ui-patterns</option><option value="standards">standards</option><option value="procedures">procedures</option></select></label>
+              <label class="field" for="creation-search"><span class="field-label">Search</span><input id="creation-search" type="search" placeholder="filter entries by id or text" autocomplete="off"></label>
+              <button id="creation-list" class="button button-quiet" type="button">List entries</button>
+            </div>
+            <p id="creation-count" class="muted cmdref-count" role="status" aria-live="polite">Creation catalog ready — pick a registry and list its entries.</p>
+            <div id="creation-list-result" class="cmdref-list"></div>
+            <p class="wb-subtitle">Inspect one entry</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="creation-inspect-id"><span class="field-label">Entry id</span><input id="creation-inspect-id" type="text" placeholder="e.g. audit-action or baseline-service@1.1.0" autocomplete="off"></label>
+              <button id="creation-inspect" class="button button-quiet" type="button">Inspect entry</button>
+            </div>
+            <dl id="creation-inspect-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Resolve for a profile</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="creation-resolve-profile"><span class="field-label">Profile</span><input id="creation-resolve-profile" type="text" placeholder="e.g. rust-web" autocomplete="off"></label>
+              <label class="field" for="creation-resolve-ids"><span class="field-label">Requested ids</span><input id="creation-resolve-ids" type="text" placeholder="comma-separated entry ids" autocomplete="off"></label>
+              <button id="creation-resolve" class="button button-quiet" type="button">Resolve</button>
+            </div>
+            <dl id="creation-resolve-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Project standard check and diff</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="creation-project"><span class="field-label">Project</span><select id="creation-project" aria-describedby="creation-project-hint"><option value="">Choose a project…</option></select><span class="field-hint" id="creation-project-hint">Check, diff and plan receipts read the chosen project only.</span></label>
+              <button id="creation-standard-check" class="button button-quiet" type="button">Check snapshot</button>
+              <label class="field" for="creation-standard-against"><span class="field-label">Diff against</span><input id="creation-standard-against" type="text" placeholder="e.g. baseline-service@1.1.0" autocomplete="off"></label>
+              <button id="creation-standard-diff" class="button button-quiet" type="button">Diff snapshot</button>
+            </div>
+            <dl id="creation-standard-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Structured-intent validation and plan receipts</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="creation-intent-action"><span class="field-label">Action</span><select id="creation-intent-action"><option value="create_project">create_project</option><option value="extend_project">extend_project</option></select></label>
+              <label class="field" for="creation-intent-profile"><span class="field-label">Profile</span><input id="creation-intent-profile" type="text" placeholder="e.g. rust-web" autocomplete="off"></label>
+              <label class="field" for="creation-intent-require"><span class="field-label">Required (comma-separated)</span><input id="creation-intent-require" type="text" placeholder="blank means none" autocomplete="off"></label>
+              <label class="field" for="creation-intent-forbid"><span class="field-label">Forbidden (comma-separated)</span><input id="creation-intent-forbid" type="text" placeholder="blank means none" autocomplete="off"></label>
+              <label class="field" for="creation-intent-constraint"><span class="field-label">Constraints (comma-separated key=value)</span><input id="creation-intent-constraint" type="text" placeholder="blank means none" autocomplete="off"></label>
+              <button id="creation-intent-validate" class="button button-quiet" type="button">Validate intent</button>
+              <button id="creation-intent-plans" class="button button-quiet" type="button">List plan receipts</button>
+            </div>
+            <dl id="creation-intent-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Still terminal-only</p>
+            <p class="muted">These creation verbs write, probe toolchains or read local files, so they stay in the terminal with their exact commands.</p>
+            <div id="creation-cli-only" class="cmdref-list"></div>
+          </section>
           </div>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title" hidden>
             <div class="panel-heading">

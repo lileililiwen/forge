@@ -172,3 +172,34 @@ pub const ROUTE_ADMIN_IDENTITY_SESSIONS: &str = "GET /v1/admin/projects/{id}/ide
 
 pub const ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
     "GET /v1/admin/projects/{id}/identity/sessions/{session_id}";
+
+/// Read-only creation-catalog browser (`web-creation-catalog-browser`,
+/// audit gap 6). All twenty routes are session-gated GETs reusing the
+/// existing Core creation registries — no write, no provider, no
+/// adapter, no toolchain probe, no shell, no journal row. Pure-catalog
+/// routes carry no project id; the three project-bound reads resolve
+/// the directory server-side from a validated id. Exported so the
+/// command catalog names the exact paths the router registers,
+/// keeping the two in lockstep.
+pub const ROUTE_ADMIN_CREATION_PROFILES: &str = "GET /v1/admin/creation/profiles";
+pub const ROUTE_ADMIN_CREATION_PROFILE: &str = "GET /v1/admin/creation/profiles/{id}";
+pub const ROUTE_ADMIN_CREATION_PROFILE_RESOLVE: &str = "GET /v1/admin/creation/profiles/resolve";
+pub const ROUTE_ADMIN_CREATION_FEATURES: &str = "GET /v1/admin/creation/features";
+pub const ROUTE_ADMIN_CREATION_FEATURE: &str = "GET /v1/admin/creation/features/{id}";
+pub const ROUTE_ADMIN_CREATION_FEATURE_RESOLVE: &str = "GET /v1/admin/creation/features/resolve";
+pub const ROUTE_ADMIN_CREATION_COMPONENTS: &str = "GET /v1/admin/creation/components";
+pub const ROUTE_ADMIN_CREATION_COMPONENT: &str = "GET /v1/admin/creation/components/{id}";
+pub const ROUTE_ADMIN_CREATION_COMPONENT_RESOLVE: &str =
+    "GET /v1/admin/creation/components/resolve";
+pub const ROUTE_ADMIN_CREATION_UI_PATTERNS: &str = "GET /v1/admin/creation/ui-patterns";
+pub const ROUTE_ADMIN_CREATION_UI_PATTERN: &str = "GET /v1/admin/creation/ui-patterns/{id}";
+pub const ROUTE_ADMIN_CREATION_UI_PATTERN_RESOLVE: &str =
+    "GET /v1/admin/creation/ui-patterns/resolve";
+pub const ROUTE_ADMIN_CREATION_STANDARDS: &str = "GET /v1/admin/creation/standards";
+pub const ROUTE_ADMIN_CREATION_STANDARD: &str = "GET /v1/admin/creation/standards/{id}";
+pub const ROUTE_ADMIN_CREATION_PROCEDURES: &str = "GET /v1/admin/creation/procedures";
+pub const ROUTE_ADMIN_CREATION_PROCEDURE: &str = "GET /v1/admin/creation/procedures/{id}";
+pub const ROUTE_ADMIN_CREATION_INTENT_VALIDATE: &str = "GET /v1/admin/creation/intents/validate";
+pub const ROUTE_ADMIN_CREATION_STANDARD_CHECK: &str = "GET /v1/admin/projects/{id}/standard/check";
+pub const ROUTE_ADMIN_CREATION_STANDARD_DIFF: &str = "GET /v1/admin/projects/{id}/standard/diff";
+pub const ROUTE_ADMIN_CREATION_INTENT_PLANS: &str = "GET /v1/admin/projects/{id}/intent/plans";

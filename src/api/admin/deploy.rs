@@ -290,6 +290,11 @@ pub(in crate::api) fn handle(
         Route::AdminProjectIdentitySessions { id, session } => {
             super::agent_identity::identity_sessions(config, db_path, request, id, session)
         }
+        Route::AdminCreation {
+            registry,
+            item,
+            action,
+        } => super::creation::dispatch(config, db_path, request, registry, item, action),
         Route::AdminProjectPublishPlan { id } => publish_plan(config, db_path, request, id),
         Route::AdminProjectPublish { id } => publish_write(config, db_path, request, id),
         Route::AdminProjectDeliveryStatus { id } => delivery_status(config, db_path, request, id),

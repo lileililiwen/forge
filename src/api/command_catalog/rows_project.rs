@@ -5,6 +5,16 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::{REASON_FILE_STDIN, REASON_GIT, REASON_LOCAL_FS, REASON_NATIVE};
 use super::routes::{
+    WEB_ROUTE_ADMIN_CREATION_COMPONENT, WEB_ROUTE_ADMIN_CREATION_COMPONENTS,
+    WEB_ROUTE_ADMIN_CREATION_COMPONENT_RESOLVE, WEB_ROUTE_ADMIN_CREATION_FEATURE,
+    WEB_ROUTE_ADMIN_CREATION_FEATURES, WEB_ROUTE_ADMIN_CREATION_FEATURE_RESOLVE,
+    WEB_ROUTE_ADMIN_CREATION_INTENT_PLANS, WEB_ROUTE_ADMIN_CREATION_INTENT_VALIDATE,
+    WEB_ROUTE_ADMIN_CREATION_PROCEDURE, WEB_ROUTE_ADMIN_CREATION_PROCEDURES,
+    WEB_ROUTE_ADMIN_CREATION_PROFILE, WEB_ROUTE_ADMIN_CREATION_PROFILES,
+    WEB_ROUTE_ADMIN_CREATION_PROFILE_RESOLVE, WEB_ROUTE_ADMIN_CREATION_STANDARD,
+    WEB_ROUTE_ADMIN_CREATION_STANDARDS, WEB_ROUTE_ADMIN_CREATION_STANDARD_CHECK,
+    WEB_ROUTE_ADMIN_CREATION_STANDARD_DIFF, WEB_ROUTE_ADMIN_CREATION_UI_PATTERN,
+    WEB_ROUTE_ADMIN_CREATION_UI_PATTERNS, WEB_ROUTE_ADMIN_CREATION_UI_PATTERN_RESOLVE,
     WEB_ROUTE_ADMIN_FEATURE, WEB_ROUTE_ADMIN_FEATURE_REMOVE, WEB_ROUTE_ADMIN_FEATURE_UPGRADE,
     WEB_ROUTE_ADMIN_GRADUATION_IMPORT, WEB_ROUTE_ADMIN_GRADUATION_PREVIEW,
     WEB_ROUTE_ADMIN_INTENT_APPLY, WEB_ROUTE_ADMIN_INTENT_RESOLVE, WEB_ROUTE_ADMIN_PROJECT_IMPORT,
@@ -150,34 +160,34 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("profile"),
             "list",
             "List all MVP profiles with descriptor versions.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_PROFILES,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("profile"),
             "inspect",
             "Inspect one MVP profile descriptor.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_PROFILE,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("profile"),
             "resolve",
             "Resolve a profile plus requested capabilities without changing files.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_PROFILE_RESOLVE,
             none,
         );
         self.cli_only(
@@ -234,34 +244,34 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("feature"),
             "list",
             "List all catalog features with tested versions and strategies.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_FEATURES,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("feature"),
             "inspect",
             "Inspect one catalog feature descriptor.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_FEATURE,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("feature"),
             "resolve",
             "Resolve requested capabilities into a deterministic install plan without changing files.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_FEATURE_RESOLVE,
             none,
         );
         self.web_exec(
@@ -317,34 +327,34 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("component"),
             "list",
             "List the versioned semantic component catalog.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_COMPONENTS,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("component"),
             "inspect",
             "Inspect one catalog component (contract, evidence, compatibility).",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_COMPONENT,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("component"),
             "resolve",
             "Resolve the named components for a profile with quality-aware selection.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_COMPONENT_RESOLVE,
             none,
         );
         self.leaf(
@@ -364,34 +374,34 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("ui-pattern"),
             "list",
             "List the versioned semantic UI pattern catalog.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_UI_PATTERNS,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("ui-pattern"),
             "inspect",
             "Inspect one catalog UI pattern (state, design, adapter, evidence).",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_UI_PATTERN,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("ui-pattern"),
             "resolve",
             "Resolve the named UI patterns for a profile with quality-aware selection.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_UI_PATTERN_RESOLVE,
             none,
         );
         self.leaf(
@@ -411,14 +421,14 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("intent"),
             "validate",
             "Validate a structured intent without resolving or applying it.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_INTENT_VALIDATE,
             none,
         );
         self.web_exec(
@@ -457,14 +467,14 @@ impl CatalogBuilder {
             ],
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("intent"),
             "list",
             "List the persisted plan receipts under `.forge/planner/`.",
             Creation,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_INTENT_PLANS,
             caps_local,
         );
         self.group(
@@ -474,24 +484,24 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("procedure"),
             "list",
             "List the named AI procedures in the catalog.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_PROCEDURES,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("procedure"),
             "inspect",
             "Inspect one named AI procedure (prerequisites, ordered steps, verification).",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_PROCEDURE,
             none,
         );
         self.cli_only(
@@ -511,44 +521,44 @@ impl CatalogBuilder {
             Creation,
             Profile,
         );
-        self.leaf(
+        self.web_at(
             Some("standard"),
             "list",
             "List all versioned standard packs with support and evidence state.",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_STANDARDS,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("standard"),
             "inspect",
             "Inspect one standard pack version (`<pack>@<version>`).",
             Creation,
             Profile,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_STANDARD,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("standard"),
             "check",
             "Verify a project's `.standard/` snapshot against its ownership receipt.",
             Creation,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_STANDARD_CHECK,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("standard"),
             "diff",
             "Show what an upgrade to a pack version would change (read-only).",
             Creation,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CREATION_STANDARD_DIFF,
             caps_local,
         );
         self.leaf(

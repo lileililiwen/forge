@@ -4321,3 +4321,90 @@ Evidence:
 Commits on `main`: implementation+specs+frontend+tests (`3f29c50`)
 + this handoff (commit 2); nothing pushed; `openspec list`
 reports no active changes and no `current_spec` pointer remains.
+
+### web-project-catalog-browser delivered and archived (2026-10-10)
+
+`web-project-catalog-browser` closes web UI/UX audit gap 3,
+implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-web-project-catalog-browser`,
+promoting canonical `web-project-catalog-browser` +3 (no
+`--skip-specs`):
+
+- **Backend (6 typed read-only admin GETs, Core reuse only).** New
+  `src/api/catalog_browser.rs` behind `guarded()` + exact-origin
+  checks: `GET /v1/admin/projects/catalog` (paginated list, same bytes
+  as `GET /v1/projects/catalog`), `GET /v1/admin/projects/{id}/catalog`
+  (all records for one id), `.../catalog/tags` and `.../languages`
+  (distinct values with counts, CLI `project tags|languages --format
+  json` shapes), `.../catalog/gaps` (`?project=` + repeatable
+  `?category=`/`?status=`/`?remediation-class=`, CLI `project gaps
+  --format json` shape), `GET /v1/admin/fleet/{entry}` (CLI `fleet
+  inspect --format json` shape, registry resolves server-side via
+  `resolve_registry_path`, browser sends no path). Reuses
+  `parse_catalog_query_params` / `build_catalog_selection` /
+  `catalog_filter_pairs_from`, `CatalogQuery::from_pairs`, `collect` +
+  `apply` / `inspect_records` / `tag_counts` / `language_counts`,
+  `gaps::build_report` + `GapFilters`, `fleet::observe` +
+  `inspect_entry`. Unknown id → typed `unknown-project`; unknown
+  filter/category/status/class → typed `catalog-invalid`; no session →
+  401; hostile id → 400 without echo. Registry opened read-only; no
+  journal row, no provider, no shell. Router literals precede `{id}`;
+  new `fleet` OPTIONS arm; permission `None` (any admin session).
+  `IMPLEMENTED_WEB_ROUTES` +6; the six `NotYetWeb` rows
+  (`fleet.inspect`, `project.list|inspect|tags|languages|gaps`) become
+  `web_at(Read, route, registry_read)` — count stays 234
+  (conversion, not addition). `fleet online`, `project github *`,
+  `inventory show` untouched.
+- **Frontend (gap-1 reference pattern).** New `#catalog-browser`
+  section on the projects view after `#command-reference`, before
+  `#workbench` (no `src/web.rs`/sidebar/route change): project select
+  + inspect rendering every source record with provenance
+  (`source_kind`, `source_revision`, `observed_at`, `freshness`);
+  tag/language tables with counts; gaps list (verdict badge, category,
+  remediation class, `Evidence (source revision · observed_at)` +
+  `Showing N of M gaps` / `No gaps — clean`); fleet-entry inspect.
+  `textContent`/`el()` only, `role=status` results, error-summary
+  focus, 12px floor, no motion, no new dependency. Boot wires
+  `initCatalogBrowser()` once; catalog auto-loads tags/languages/gaps.
+- **Tests.** New `tests/web_project_catalog_browser_contract.rs`
+  (**10 passed / 0 failed**): 4 static (section placement/controls,
+  provenance/counts/gaps/evidence tokens + six route strings,
+  no-POST/no-shell/no-innerHTML block bound, style floor) + 6 live
+  in-process (list byte-parity + provenance, inspect all-source +
+  unknown/hostile refusals, tags/languages counts incl. `rust`/`python`,
+  gaps evidence + `project+status` scoping + bogus-category 400,
+  anonymous 401 + invalid filter + unconfigured-fleet honest refusal,
+  registry-bytes-identical read-only proof). Pin updates for this
+  change's rows: `tests/forge_web_command_catalog_contract.rs`
+  route-allowlist + web-id set, `src/api/command_catalog/catalog.rs`
+  web-row vec.
+- **Pin repair note.** The web-id-set pin was already stale on the
+  pristine tree (byte-identical `git stash -u` rerun): it missed the
+  8 `web-lifecycle-execution` rows (`graduation.*`, `intent.*`,
+  `remediate.*`, `studio.*`). This change refreshes the pin to the
+  current truth (8 lifecycle + 6 catalog-browser rows) so the suite
+  distinguishes this change's rows; the remaining `cap`-coverage
+  failure is untouched pre-existing.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check`, `node --check frontend/app.js` | clean |
+| `cargo build` | 0 errors; same 3 pre-existing warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) — one transient `CONTRACT_VERSION` warning introduced mid-change and removed before closeout |
+| `cargo test --test web_project_catalog_browser_contract` (new) | **10 passed / 0 failed** |
+| `cargo test --lib api::command_catalog` | **7 passed / 0 failed** (incl. updated web-row vec pin) |
+| `cargo test --lib contract` | **26 passed / 0 failed** |
+| `cargo test --test catalog_contract` / `catalog_cross_surface` / `project_gaps_contract` / `project_gaps_cross_surface` / `fleet_contract` | **18 / 9 / 16 / 18 / 14 passed / 0 failed** |
+| `cargo test --test portal_ui_contract` / `forge_web_navigation_contract` / `web_command_reference_browser_contract` / `forge_web_maintainer_surface_contract` / `forge_admin_api_contract` / `api_contract` / `web_login_credentials_contract` | **21 / 9 / 6 / 5 / 11 / 4 / 6 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap`-coverage gap, byte-identical on the pristine tree via `git stash -u` rerun; route-allowlist + web-id pins updated and green, incl. repairing the stale lifecycle rows) |
+| `cargo test --test project_query_surface_contract` | **11 passed + 2 pre-existing failures** (403-vs-401 origin check, byte-identical on the pristine tree via `git stash -u` rerun) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **97 passed / 0 failed** active; **97 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| live oracle (throwaway API:18766+web:14173, scratch `FORGE_REGISTRY` with alpha/beta fixtures, `FORGE_WORKSPACE_REGISTRY` projects.json with gamma, `FORGE_ADMIN_PROJECTS_ROOT` set, real Chromium via bundled Playwright, script in `/tmp` — never committed) | **VERIFIED**: login → `/projects` → browser ready; inspect alpha renders `local` provenance (`Observed at`, `Source revision`); tag rows `1` (`auth` after registering a feature-bearing manifest); languages `rust`+`python`; gaps `Showing 14 of 14 gaps` with `Evidence (` rows; fleet `gamma` renders; curl cross-check of all six routes 200 + anonymous 401; **zero JS console/page/network errors** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (399/399 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-project-catalog-browser --yes` | archived as `2026-10-10-web-project-catalog-browser`, no `--skip-specs`; canonical `web-project-catalog-browser` +3; post-archive validate **97 passed / 0 failed**, names PASS |
+
+No active changes remain, so this handoff carries no `current_spec` pointer.

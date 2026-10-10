@@ -2,6 +2,76 @@
 
 ## Current state
 
+### web-release-deploy-history delivered and archived (2026-10-10)
+
+`web-release-deploy-history` closes audit gap 4: operators can now
+browse persisted release/deploy history from the dashboard instead of
+dropping to the CLI. Implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-web-release-deploy-history`,
+promoting canonical `web-release-deploy-history` +6 requirements (no
+`--skip-specs`; archiver-stamped TBD Purpose replaced with a
+source-backed sentence):
+
+- **Five read-only typed admin GET routes** (new
+  `src/api/admin/history.rs`, reusing `deploy_id_gate`, `guarded`,
+  `cors`, `error`, `scrub_*`): `GET
+  .../{id}/releases` (`release::engine::list_releases`), `GET
+  .../releases/{release_id}` (`read_release`, unknown → typed 404),
+  `GET .../{id}/deploys` (`deploy::engine::list_deploys` with the
+  absolute `state_path` projected out), `GET
+  .../deploys/{deploy_id}` (`read_deploy`, unknown → typed 404),
+  `GET .../{id}/deploy/status` (`operations_for_project` filtered
+  to the CLI's `publish|deploy|publish.github` set, `?limit=`
+  default 20 clamped 1..=100). Session-gated; hostile ids, bad
+  inspect ids (`/`, `\`, `..`, `%` rejected without echo) and bad
+  limits are typed `400`s; unmanaged ids typed `404`. No write, no
+  journal row, no provider, no adapter, no shell on any path; every
+  response carries `contract: API_CONTRACT_VERSION` and is scrubbed
+  of the project dir.
+- **Routing:** five `Route` variants + `route_history` matcher tried
+  before the main table (kept beside the handlers so `router.rs`
+  stays at 991/1000 lines), permission/short-circuit/exhaustiveness
+  threading, five `ROUTE_ADMIN_*` constants.
+- **Catalog:** `release.list|inspect`,
+  `deploy.list|inspect|status` convert `NotYetWeb` → `web_at`;
+  count stays 234 (conversion); `deploy.observe` untouched.
+- **Frontend:** Delivery gains a read-only "Release & deploy
+  history" card reusing `#delivery-project` (list buttons, inspect
+  inputs, status read; `role=status` results, error-summary focus,
+  native controls; no new dependency, no `innerHTML`).
+- **Contract tests:** new
+  `tests/web_release_deploy_history_contract.rs` (9 tests: auth,
+  gates, lists, inspects, status filter, limit, scrub, catalog +
+  frontend pins) plus pin updates in
+  `src/api/command_catalog/catalog.rs` (web-id vec) and
+  `tests/forge_web_command_catalog_contract.rs` (web-route + web-id
+  allowlists).
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 3 pre-existing warnings only |
+| `cargo test --test web_release_deploy_history_contract` (new) | **9 passed / 0 failed** |
+| `cargo test --lib` | **1212 passed + 1 attributable pin failure fixed in-tree** (`web_rows_only_point_at_implemented_routes` hardcoded web vec; updated with the 5 rows, then green on rerun) |
+| `cargo test --lib api::command_catalog` (closeout) | **7 passed / 0 failed** |
+| `cargo test --test forge_web_project_release_contract` / `forge_web_project_deployment_contract` | **8 / 8 passed** |
+| `cargo test --test portal_ui_contract` / `forge_web_project_delivery_contract` / `web_command_reference_browser_contract` / `forge_web_maintainer_surface_contract` / `web_project_catalog_browser_contract` | **21 / 12 / 6 / 5 / 10 passed** |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap` web-id gap, byte-identical on pristine tree via `git stash -u` rerun; the second failure was the attributable web-id pin, fixed in-tree) |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin: both uses pre-date this change, count 2 on both trees) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **98 passed / 0 failed** pre- and post-archive |
+| `git diff --check` | clean (cached + worktree) |
+| live oracle (throwaway API+web, scratch `FORGE_REGISTRY`, real Chromium via `tests/browser` Playwright driving system Chrome, script in `/tmp` — never committed) | **VERIFIED**: login → `/delivery` → select p1 → List releases (rel-live/2.0.0) → inspect rel-live → list/inspect dep-live → status read (honest `empty`); missing-project refusal focuses the error summary; curl cross-check of all five routes (200 + envelope) and anon 401; **zero attributable JS errors** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` (on committed tree) | **blocked, 0 attributable** — pass: build, placeholder-threshold, product-code-boundary, repository, security, source-file-size (400/400 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries); fail pre-existing: governance-quality (the single in-scope error is the `web-project-catalog-browser` canonical TBD Purpose left by commit `32bd8fc`, byte-identical on the pristine tree via node-checker rerun — this change's own promoted Purpose was repaired source-backed). Remediation: replace that TBD Purpose with a source-backed sentence; warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-release-deploy-history --yes` | archived as `2026-10-10-web-release-deploy-history`, no `--skip-specs`; canonical `web-release-deploy-history` +6; post-archive validate **98 passed / 0 failed**, names PASS |
+
+Commits on `main`: implementation+specs+frontend+tests (`1011117`)
++ this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.
+
 ### web-portfolio-completion delivered and archived (2026-10-10)
 
 `web-portfolio-completion` is implemented, verified and archived as

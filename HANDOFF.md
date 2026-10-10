@@ -4768,3 +4768,46 @@ Evidence:
 | `openspec archive web-project-catalog-browser --yes` | archived as `2026-10-10-web-project-catalog-browser`, no `--skip-specs`; canonical `web-project-catalog-browser` +3; post-archive validate **97 passed / 0 failed**, names PASS |
 
 No active changes remain, so this handoff carries no `current_spec` pointer.
+
+### web-shipping-provider-reads delivered and archived (2026-10-10)
+
+`web-shipping-provider-reads` closes audit gap 8: the five
+local-config/registry reads that were `not_yet_web` but need no provider
+probing — `publish provider list|inspect`, `provider matrix|inspect`,
+`plugins list` — are now read-only session-gated admin GETs reusing the
+existing Core stores (`src/api/admin/shipping_reads.rs` on the shared
+`Route::AdminCreation` triple: `shipping-providers`,
+`evidence-providers`, `shipping-plugins`; `router.rs` constant at
+999/1000, `deploy.rs` untouched). `fleet inspect` was already web and is
+reused as-is with a pointer from the new SPA card. Everything else stays
+as-is: `publish sync|db|fleet|prepare|deploy|all`, `docs translate`,
+`provider run`, `fleet online`, `project.github *`, `push`/`mirror`,
+`readiness *`, `deploy observe`, transports, agent/identity lifecycle
+writes, and `publish provider enable|disable` gained no route here.
+Secrets/redactions preserved; live-probe verbs untouched.
+
+Implementation commit: `95c964d`. Nothing pushed. No `current_spec`
+pointer remains.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check`, `node --check frontend/app.js` | clean for all touched files; one pre-existing rustfmt drift in untouched `tests/web_assurance_browser_contract.rs` (reverted, not mine) |
+| `cargo build` | 0 errors; same 3 pre-existing warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) |
+| `cargo test --test web_shipping_provider_reads_contract` (new) | **10 passed / 0 failed** |
+| `cargo test --lib api::command_catalog` | **7 passed / 0 failed** (count stays 234, `problems()` empty, 5-row web vec pin) |
+| `cargo test --lib` | **1213 passed / 0 failed** on rerun (first run: 1212 passed + 1 transient failure, name not retained, green on immediate rerun) |
+| `cargo test --test portal_ui_contract` / `forge_web_navigation_contract` / `web_command_reference_browser_contract` / `forge_web_maintainer_surface_contract` / `web_assurance_browser_contract` / `web_creation_catalog_browser_contract` / `web_release_deploy_history_contract` / `web_agent_identity_readonly_contract` / `web_project_catalog_browser_contract` / `api_contract` / `forge_admin_api_contract` | **21 / 9 / 6 / 5 / 12 / 10 / 9 / 10 / 10 / 11 / 4 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap`-coverage gap, byte-identical on the pristine tree via `git stash -u` rerun; route-allowlist + web-id pins updated and green) |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` in login/caret code, byte-identical on the pristine tree via `git stash -u` rerun) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **102 passed / 0 failed** active; **102 passed / 0 failed** after archive |
+| `node scripts/check-spec-governance.mjs` | PASS (after archiver-TBD Purpose repair + pointer removal) |
+| `git diff --check` | clean |
+| live oracle (throwaway API:18766+web:14173 with rewritten `config.js` copy under `/tmp`, scratch `FORGE_REGISTRY` with alpha/beta fixtures incl. `.forge/providers.yaml`, `FORGE_ADMIN_PROJECTS_ROOT` + `FORGE_FRONTEND_ORIGIN` set, real Chromium via bundled Playwright, script in `/tmp` — never committed) | **VERIFIED**: login → `/delivery` → five reads render (providers list+inspect `jenkins-mac`, matrix all `not-run` incl. `driftwatch-policy`, evidence inspect, plugins, CLI-only remainder with `provider run` + fleet-inspect pointer); curl cross-check of all five routes 200 + anonymous 401; **zero JS console/page/network errors** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (404/404 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-shipping-provider-reads --yes` | archived as `2026-10-10-web-shipping-provider-reads`, no `--skip-specs`; canonical `web-shipping-provider-reads` +2; archiver-stamped TBD Purpose repaired source-backed before commit; post-archive validate **102 passed / 0 failed**, names PASS, governance PASS |
+
+No active changes remain, so this handoff carries no `current_spec` pointer.

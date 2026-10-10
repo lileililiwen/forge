@@ -231,3 +231,22 @@ pub const ROUTE_ADMIN_GOVERNANCE_STATUS: &str = "GET /v1/admin/projects/{id}/gov
 pub const ROUTE_ADMIN_GOVERNANCE_INSPECT: &str = "GET /v1/admin/projects/{id}/governance/inspect";
 pub const ROUTE_ADMIN_ANALYTICS_METRICS: &str = "GET /v1/admin/projects/{id}/analytics/metrics";
 pub const ROUTE_ADMIN_STUDIO_PREVIEW: &str = "GET /v1/admin/projects/{id}/studio/preview";
+
+/// Read-only shipping/provider reads (`web-shipping-provider-reads`,
+/// audit gap 8). All five routes are session-gated GETs reusing the
+/// existing Core stores — no adapter, no probe, no network, no write,
+/// no journal row, no browser-supplied path. The two project-bound
+/// publish-provider reads and the plugin list resolve the directory
+/// server-side from a validated id; the two evidence-provider reads are
+/// pure globals. Exported so the command catalog names the exact paths
+/// the router registers, keeping the two in lockstep.
+pub const ROUTE_ADMIN_PUBLISH_PROVIDERS: &str = "GET /v1/admin/projects/{id}/publish/providers";
+
+pub const ROUTE_ADMIN_PUBLISH_PROVIDER_INSPECT: &str =
+    "GET /v1/admin/projects/{id}/publish/providers/{provider}";
+
+pub const ROUTE_ADMIN_EVIDENCE_MATRIX: &str = "GET /v1/admin/providers/matrix";
+
+pub const ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT: &str = "GET /v1/admin/providers/{provider}";
+
+pub const ROUTE_ADMIN_SHIPPING_PLUGINS: &str = "GET /v1/admin/projects/{id}/plugins";

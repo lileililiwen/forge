@@ -60,9 +60,10 @@ fn inspect_route(section: &str, item: &str, action: &str) -> Route {
 }
 
 /// Beside-table entry point for the shared triple: assurance sections run
-/// here, every other registry keeps the creation-catalog behavior, and an
-/// unknown registry is a static 404. One call site keeps the deploy
-/// dispatch arm (and ) at a constant line count.
+/// here, shipping sections run in `shipping_reads::dispatch`, every other
+/// registry keeps the creation-catalog behavior, and an unknown registry
+/// is a static 404. One call site keeps the deploy dispatch arm (and ) at
+/// a constant line count.
 pub(in crate::api) fn dispatch_creation(
     config: &ApiConfig,
     db_path: &Path,
@@ -73,6 +74,8 @@ pub(in crate::api) fn dispatch_creation(
 ) -> ApiResponse {
     if is_assurance_registry(registry) {
         dispatch(config, db_path, request, registry, item, action)
+    } else if super::shipping_reads::is_shipping_registry(registry) {
+        super::shipping_reads::dispatch(config, db_path, request, registry, item, action)
     } else {
         super::creation::dispatch(config, db_path, request, registry, item, action)
     }

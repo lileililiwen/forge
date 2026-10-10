@@ -10,6 +10,11 @@ use super::routes::{
     WEB_ROUTE_ADMIN_RELEASE, WEB_ROUTE_ADMIN_RELEASE_HISTORY, WEB_ROUTE_ADMIN_RELEASE_INSPECT,
     WEB_ROUTE_ADMIN_RELEASE_PLAN,
 };
+use super::routes::{
+    WEB_ROUTE_ADMIN_EVIDENCE_MATRIX, WEB_ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT,
+    WEB_ROUTE_ADMIN_PUBLISH_PROVIDERS, WEB_ROUTE_ADMIN_PUBLISH_PROVIDER_INSPECT,
+    WEB_ROUTE_ADMIN_SHIPPING_PLUGINS,
+};
 
 impl CatalogBuilder {
     pub(super) fn shipping_rows(&mut self) {
@@ -162,24 +167,24 @@ impl CatalogBuilder {
             Release,
             Provider,
         );
-        self.leaf(
+        self.web_at(
             Some("publish.provider"),
             "list",
             "List configured providers and their enabled state.",
             Release,
             Provider,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PUBLISH_PROVIDERS,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("publish.provider"),
             "inspect",
             "Inspect one configured provider without invoking it.",
             Release,
             Provider,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_PUBLISH_PROVIDER_INSPECT,
             none,
         );
         self.leaf(
@@ -336,14 +341,14 @@ impl CatalogBuilder {
             Release,
             Provider,
         );
-        self.leaf(
+        self.web_at(
             Some("provider"),
             "matrix",
             "Report the provider matrix; without `--live` every row is `not-run` and never claims support.",
             Release,
             Provider,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_EVIDENCE_MATRIX,
             none,
         );
         self.provider_required(
@@ -355,14 +360,14 @@ impl CatalogBuilder {
             LocalWrite,
             caps_provider,
         );
-        self.leaf(
+        self.web_at(
             Some("provider"),
             "inspect",
             "Describe one provider's boundary, binary override, secret and teardown rules without probing.",
             Release,
             Provider,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT,
             none,
         );
         self.group(
@@ -372,14 +377,14 @@ impl CatalogBuilder {
             Release,
             Provider,
         );
-        self.leaf(
+        self.web_at(
             Some("plugins"),
             "list",
             "List every configured plugin with its kind, state and capabilities.",
             Release,
             Provider,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_SHIPPING_PLUGINS,
             none,
         );
     }

@@ -345,6 +345,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/projects/{id}/governance/inspect",
                         "GET /v1/admin/projects/{id}/analytics/metrics",
                         "GET /v1/admin/projects/{id}/studio/preview",
+                        "GET /v1/admin/projects/{id}/publish/providers",
+                        "GET /v1/admin/projects/{id}/publish/providers/{provider}",
+                        "GET /v1/admin/providers/matrix",
+                        "GET /v1/admin/providers/{provider}",
+                        "GET /v1/admin/projects/{id}/plugins",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -441,7 +446,10 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // the remediate scan/diff reads, the describe/classify list/show
     // reads, the contract list/inspect/emit reads, the governance
     // list/status/inspect reads, the analytics metrics read and the
-    // studio preview read into typed read-only admin GETs. All now join
+    // studio preview read into typed read-only admin GETs; and the shipping
+    // package (`web-shipping-provider-reads`) turns the publish-provider
+    // list/inspect, evidence matrix/inspect and plugin list reads into
+    // typed read-only admin GETs. All now join
     // the fleet read rows as `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
@@ -564,6 +572,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "governance.inspect",
             "analytics.metrics",
             "studio.preview",
+            "publish.provider.list",
+            "publish.provider.inspect",
+            "provider.matrix",
+            "provider.inspect",
+            "plugins.list",
         ])
     );
 }

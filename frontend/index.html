@@ -561,6 +561,31 @@
                 </div>
                 <dl id="history-status-result" class="detail-list" role="status"></dl>
               </section>
+              <section class="wb-card" aria-labelledby="shipping-reads-title">
+                <h3 id="shipping-reads-title">Provider &amp; plugin reads</h3>
+                <p class="muted">Read-only local-config reads for the project chosen above: publish providers, the evidence-provider matrix, and plugins. Nothing here runs, probes, or writes: no provider is invoked, no binary is probed, no network is contacted.</p>
+                <div id="shipping-reads-error-summary" class="error-summary" tabindex="-1" hidden></div>
+                <p class="wb-subtitle">Publish providers</p>
+                <div class="wb-plan-tools">
+                  <button id="shipping-providers" class="button button-quiet" type="button">List publish providers</button>
+                  <label class="field" for="shipping-provider-id"><span class="field-label">Provider id</span><input id="shipping-provider-id" type="text" placeholder="e.g. jenkins-mac" autocomplete="off" aria-describedby="shipping-provider-id-hint"><span class="field-hint" id="shipping-provider-id-hint">The provider id from the list above.</span></label>
+                  <button id="shipping-provider-inspect" class="button button-quiet" type="button">Inspect publish provider</button>
+                </div>
+                <dl id="shipping-providers-result" class="detail-list" role="status"></dl>
+                <p class="wb-subtitle">Evidence providers (never live)</p>
+                <div class="wb-plan-tools">
+                  <button id="shipping-matrix" class="button button-quiet" type="button">Read provider matrix</button>
+                  <button id="shipping-evidence-inspect" class="button button-quiet" type="button">Inspect evidence provider</button>
+                </div>
+                <dl id="shipping-matrix-result" class="detail-list" role="status"></dl>
+                <p class="wb-subtitle">Plugins</p>
+                <div class="wb-plan-tools">
+                  <button id="shipping-plugins" class="button button-quiet" type="button">List plugins</button>
+                </div>
+                <dl id="shipping-plugins-result" class="detail-list" role="status"></dl>
+                <p class="wb-subtitle">Not in the browser</p>
+                <p id="shipping-reads-cli-only" class="muted" role="status">Loading the command catalog…</p>
+              </section>
               <section class="wb-card" aria-labelledby="delivery-actions-title">
                 <h3 id="delivery-actions-title">Confirmed actions</h3>
                 <p class="muted">Each action below requires an explicit confirmation tick and echoes the exact preview you reviewed. A changed or stale preview is refused and nothing is dispatched.</p>

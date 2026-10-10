@@ -387,6 +387,24 @@ pub(super) const WEB_ROUTE_ADMIN_ANALYTICS_METRICS: &str =
 pub(super) const WEB_ROUTE_ADMIN_STUDIO_PREVIEW: &str =
     super::super::admin::ROUTE_ADMIN_STUDIO_PREVIEW;
 
+/// Shipping read-only typed routes (`web-shipping-provider-reads`).
+/// These reference the admin module's own route constants so the
+/// catalog and the live endpoints can never name different paths: the
+/// project-bound publish-provider list/inspect, the pure-global
+/// evidence matrix/inspect (never live, never probed), and the
+/// project-bound plugin list — all read-only, session-gated,
+/// adapter- and network-free.
+pub(super) const WEB_ROUTE_ADMIN_PUBLISH_PROVIDERS: &str =
+    super::super::admin::ROUTE_ADMIN_PUBLISH_PROVIDERS;
+pub(super) const WEB_ROUTE_ADMIN_PUBLISH_PROVIDER_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_PUBLISH_PROVIDER_INSPECT;
+pub(super) const WEB_ROUTE_ADMIN_EVIDENCE_MATRIX: &str =
+    super::super::admin::ROUTE_ADMIN_EVIDENCE_MATRIX;
+pub(super) const WEB_ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT;
+pub(super) const WEB_ROUTE_ADMIN_SHIPPING_PLUGINS: &str =
+    super::super::admin::ROUTE_ADMIN_SHIPPING_PLUGINS;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -504,6 +522,11 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_GOVERNANCE_INSPECT,
     WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
     WEB_ROUTE_ADMIN_STUDIO_PREVIEW,
+    WEB_ROUTE_ADMIN_PUBLISH_PROVIDERS,
+    WEB_ROUTE_ADMIN_PUBLISH_PROVIDER_INSPECT,
+    WEB_ROUTE_ADMIN_EVIDENCE_MATRIX,
+    WEB_ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT,
+    WEB_ROUTE_ADMIN_SHIPPING_PLUGINS,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

@@ -353,3 +353,9 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 #assurance-browser button{min-height:44px}
 #assurance-inspect-result,#assurance-routed-result,#assurance-extra-result{display:grid;gap:12px}
 #assurance-count{font-size:var(--text-md)}
+/* Shipping provider reads (web-shipping-provider-reads): read-only
+ * provider/plugin card in the delivery view. Reuses the panel, badge,
+ * table and 12px-floor tokens of the command reference; native controls
+ * with 44px targets, wrapped payload strings. Additive only; earlier
+ * rules untouched. */
+#shipping-reads-title{font-size:var(--text-md)}

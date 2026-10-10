@@ -866,12 +866,14 @@
         if (workbench.id) renderProjectActions();
         renderManagementActions();
         renderCommandReference();
+        shippingRenderCliOnly();
       })
       .catch(() => {
         catalogCommands = [];
         if (workbench.id) renderProjectActions();
         renderManagementActions();
         renderCommandReference();
+        shippingRenderCliOnly();
       });
   }
 
@@ -1922,6 +1924,163 @@
     if (search) search.addEventListener("input", assuranceRenderCached);
     if (registry) registry.addEventListener("change", assuranceList);
     assuranceRefreshAll();
+  }
+
+  // ---- Shipping provider reads (web-shipping-provider-reads) ---------
+  //
+  // Read-only local-config reads for the Delivery project: publish
+  // provider list/inspect, the evidence-provider matrix (never live) and
+  // static inspect, and the plugin list. Every call is an explicit
+  // session-gated GET; project-bound reads send only the chosen project
+  // id (the directory and config path resolve server-side). No adapter
+  // invocation, no probe, no network, no write, no browser-supplied
+  // path: unavailable shapes render honestly with their reason. Results
+  // render as scalar detail rows with `role="status"`; failures report
+  // through the Delivery error summary with focus. The excluded
+  // probe/write verbs are derived from the loaded command catalog (never
+  // hardcoded), with a pointer to the existing fleet-inspect control.
+  // No write, no shell: every string through `textContent`/`el()`.
+  const SHIPPING_CLI_ONLY_PREFIXES = ["publish.", "provider.", "plugins.", "fleet.", "project.github.", "docs.", "readiness.", "deploy.observe"];
+  const SHIPPING_CLI_ONLY_IDS = ["push", "mirror"];
+
+  function shippingSetResult(boxId, nodes, failed) {
+    const box = document.getElementById(boxId);
+    box.replaceChildren();
+    setResultRole(box, Boolean(failed));
+    for (const node of nodes) box.append(node);
+  }
+
+  function shippingFailure(action, err) {
+    deliverySubmitError(action, [{ fieldId: "delivery-project", errorId: "delivery-project-error", label: "Project", message: (err && err.message) || "Shipping reads are unavailable; start the Forge API and reload." }]);
+  }
+
+  function shippingScalarRows(obj) {
+    const rows = [];
+    if (!obj || typeof obj !== "object") return [detailRow("Value", String(obj ?? "—"))];
+    if (obj.unavailable) {
+      rows.push(detailRow("Unavailable", obj.reason || "This read is unavailable in the browser."));
+      return rows;
+    }
+    for (const key of Object.keys(obj)) {
+      const value = obj[key];
+      if (value === null || value === undefined || value === "") continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        rows.push(detailRow(key, String(value)));
+      } else if (Array.isArray(value) && value.every((v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean")) {
+        if (value.length) rows.push(detailRow(key, value.join(", ")));
+      } else if (Array.isArray(value)) {
+        const ids = value
+          .filter((v) => v && typeof v === "object" && (v.id || v.provider))
+          .map((v) => String(v.id || v.provider));
+        if (ids.length === value.length && ids.length) rows.push(detailRow(key, ids.join(", ")));
+        else rows.push(detailRow(key, `${value.length} item(s) — inspect the entry for detail`));
+      }
+    }
+    if (!rows.length) rows.push(detailRow("Entry", "No scalar fields to show."));
+    return rows;
+  }
+
+  async function shippingListProviders() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    shippingSetResult("shipping-providers-result", [el("p", "muted", "Loading publish providers…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/publish/providers`, { headers: { Accept: "application/json" } });
+    } catch (err) { shippingFailure("There is a problem listing publish providers", err); shippingSetResult("shipping-providers-result", []); return; }
+    if (data.unavailable) { shippingSetResult("shipping-providers-result", shippingScalarRows(data)); return; }
+    const entries = data.providers || [];
+    if (!entries.length) { shippingSetResult("shipping-providers-result", [el("p", "muted", "No publish providers configured for this project.")]); return; }
+    shippingSetResult("shipping-providers-result", entries.flatMap((entry) => shippingScalarRows(entry)));
+  }
+
+  async function shippingInspectProvider() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    const provider = document.getElementById("shipping-provider-id").value.trim();
+    if (!provider) { deliverySubmitError("There is a problem inspecting the publish provider", [{ fieldId: "shipping-provider-id", label: "Provider id", message: "Enter a provider id from the list." }]); return; }
+    shippingSetResult("shipping-providers-result", [el("p", "muted", `Loading provider ${provider}…`)]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/publish/providers/${encodeURIComponent(provider)}`, { headers: { Accept: "application/json" } });
+    } catch (err) { shippingFailure("There is a problem inspecting the publish provider", err); shippingSetResult("shipping-providers-result", []); return; }
+    shippingSetResult("shipping-providers-result", shippingScalarRows(data.provider || data));
+  }
+
+  async function shippingReadMatrix() {
+    clearErrorSummary("delivery-error-summary");
+    shippingSetResult("shipping-matrix-result", [el("p", "muted", "Reading provider matrix…")]);
+    let data;
+    try {
+      data = await request("/v1/admin/providers/matrix", { headers: { Accept: "application/json" } });
+    } catch (err) { shippingFailure("There is a problem reading the provider matrix", err); shippingSetResult("shipping-matrix-result", []); return; }
+    const matrix = data.matrix || {};
+    const rows = [
+      detailRow("Live", String(matrix.live ?? false)),
+      detailRow("Supported", String(matrix.supported ?? 0)),
+      detailRow("Unavailable", String(matrix.unavailable ?? 0)),
+      detailRow("Not run", String(matrix.not_run ?? 0)),
+    ];
+    for (const row of matrix.rows || []) rows.push(detailRow(row.provider || "provider", `${row.status || "not-run"} — ${row.reason || "no probe attempted"}`));
+    shippingSetResult("shipping-matrix-result", rows);
+  }
+
+  async function shippingInspectEvidence() {
+    clearErrorSummary("delivery-error-summary");
+    const provider = document.getElementById("shipping-provider-id").value.trim();
+    if (!provider) { deliverySubmitError("There is a problem inspecting the evidence provider", [{ fieldId: "shipping-provider-id", label: "Provider id", message: "Enter a provider id from the matrix." }]); return; }
+    shippingSetResult("shipping-matrix-result", [el("p", "muted", `Loading evidence provider ${provider}…`)]);
+    let data;
+    try {
+      data = await request(`/v1/admin/providers/${encodeURIComponent(provider)}`, { headers: { Accept: "application/json" } });
+    } catch (err) { shippingFailure("There is a problem inspecting the evidence provider", err); shippingSetResult("shipping-matrix-result", []); return; }
+    shippingSetResult("shipping-matrix-result", shippingScalarRows(data.descriptor || data));
+  }
+
+  async function shippingListPlugins() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    shippingSetResult("shipping-plugins-result", [el("p", "muted", "Loading plugins…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/plugins`, { headers: { Accept: "application/json" } });
+    } catch (err) { shippingFailure("There is a problem listing plugins", err); shippingSetResult("shipping-plugins-result", []); return; }
+    if (data.unavailable) { shippingSetResult("shipping-plugins-result", shippingScalarRows(data)); return; }
+    const entries = data.plugins || [];
+    if (!entries.length) { shippingSetResult("shipping-plugins-result", [el("p", "muted", "No plugins configured for this project.")]); return; }
+    shippingSetResult("shipping-plugins-result", entries.flatMap((entry) => shippingScalarRows(entry)));
+  }
+
+  function shippingRenderCliOnly() {
+    const box = document.getElementById("shipping-reads-cli-only");
+    if (!box) return;
+    box.replaceChildren();
+    const rows = (catalogCommands || []).filter((row) => row.availability !== "web" && (SHIPPING_CLI_ONLY_IDS.includes(String(row.id || "")) || SHIPPING_CLI_ONLY_PREFIXES.some((prefix) => String(row.id || "").startsWith(prefix))));
+    const fragment = document.createDocumentFragment();
+    fragment.append(el("p", "muted", "fleet inspect is already in the browser — use Inspect fleet entry in the Project catalog."));
+    if (!rows.length) {
+      fragment.append(el("p", "muted", catalogCommands.length ? "Every other shipping command is available in this browser." : "Command catalog unavailable — start the Forge API and reload to see the terminal-only verbs."));
+    } else {
+      for (const row of rows) fragment.append(cmdrefRow(row));
+    }
+    box.append(fragment);
+  }
+
+  function initShippingReads() {
+    const list = document.getElementById("shipping-providers");
+    const inspect = document.getElementById("shipping-provider-inspect");
+    const matrix = document.getElementById("shipping-matrix");
+    const evidence = document.getElementById("shipping-evidence-inspect");
+    const plugins = document.getElementById("shipping-plugins");
+    if (list) list.addEventListener("click", shippingListProviders);
+    if (inspect) inspect.addEventListener("click", shippingInspectProvider);
+    if (matrix) matrix.addEventListener("click", shippingReadMatrix);
+    if (evidence) evidence.addEventListener("click", shippingInspectEvidence);
+    if (plugins) plugins.addEventListener("click", shippingListPlugins);
+    shippingRenderCliOnly();
   }
 
   // ---- Project workbench (single managed project) ------------------------
@@ -6141,6 +6300,7 @@
     document.getElementById("history-deploys").addEventListener("click", historyListDeploys);
     document.getElementById("history-deploy-inspect").addEventListener("click", historyInspectDeploy);
     document.getElementById("history-status").addEventListener("click", historyReadStatus);
+    initShippingReads();
     initGithubMetadata();
     loadDelivery();
   }

@@ -4209,3 +4209,56 @@ the same project with its committed `packages/` deleted — fails with
 `error NU1301`, naming the relative feed as the missing local source. So the
 committed bytes are what supply the packages: not the cache, not a sibling, not
 an environment variable.
+
+### web-command-reference-browser delivered and archived (2026-10-10)
+
+`web-command-reference-browser` closes web UI/UX audit gap 1,
+implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-web-command-reference-browser`,
+promoting canonical `portal-web-ui` +2 (no `--skip-specs`). Frontend
+only; no API/CLI/router/catalog/registry/journal change:
+
+- New `#command-reference` section on the projects view rendering
+  every `GET /v1/admin/commands` row from the already-fetched
+  `catalogCommands` (no new endpoint/fetch/dep): search (id/label/
+  summary/CLI/reason/category) + availability filter (all six states)
+  with a live `role=status` count and honest unavailable/no-matches
+  states. Every row shows badge + summary + exact `cli_invocation`;
+  non-web rows add the plain-language reason + clipboard Copy button
+  (clipboard + select-fallback) and never an executable control; web
+  rows link to their existing serving view via `referenceViewForRoute`
+  (delivery → `/delivery`, portfolio → `/portfolio`, workspace + the
+  three server-rooted creations → `/management`, fleet reads →
+  `/projects`, else project-scoped → `/workbench`). No new route, so
+  `src/web.rs` and the navigation contract are untouched. All catalog
+  strings via `textContent` only; the only browser-side effect is a
+  clipboard write. Styles: one additive block at the 12px floor with
+  44px control targets, wrapped CLI strings, no new motion.
+- New static oracle `tests/web_command_reference_browser_contract.rs`
+  (6 tests) pinning section/controls, all-six-state filter, badge +
+  reason + exact CLI + copy with no executable control, web-row links
+  to the five real paths, single catalog fetch, no shell/eval/
+  innerHTML in the new block, and the style floor.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `node --check frontend/app.js`, `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; same 3 pre-existing warnings |
+| `cargo test --test web_command_reference_browser_contract` (new) | **6 passed / 0 failed** |
+| `cargo test --test portal_ui_contract` | **21 passed / 0 failed** |
+| `cargo test --test forge_web_navigation_contract` | **9 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` | **7 passed + 2 pre-existing failures** (cap-coverage gap, byte-identical on the pristine tree via `git stash -u` rerun) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **96 passed / 0 failed** active; **95 passed / 0 failed** after archive |
+| `git diff --check` | clean |
+| browser oracle (throwaway API+web, scratch `FORGE_REGISTRY`, real Chromium via `/tmp/cmdref-oracle/cmdref-oracle.mjs`, since removed from repo — never committed) | **VERIFIED**: `Showing 234 of 234 commands`, 234 row nodes; `cli_only` → `Showing 81 of 234`, every row badge `CLI only` + reason + Copy, no extra control, CLI starts `forge `; copy announces `Copied forge workspace to the clipboard.`; search `delivery.status` → 1 row linking `/delivery`; no-matches state renders; **zero JS console/page errors** (run with `FORGE_ADMIN_PROJECTS_ROOT=/tmp`) |
+| oracle side findings (attribution) | 390px overflow 122px and one `409 /v1/admin/workspace/candidates` (rootless discovery) are **byte-identical on the pristine tree** (probe rerun stashed); the reference section is not among the overflowing elements; with a projects root the error count is zero. Pre-existing, 0 attributable |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (397/397 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-command-reference-browser --yes` | archived as `2026-10-10-web-command-reference-browser`, no `--skip-specs`; canonical `portal-web-ui` +2; post-archive validate **95 passed / 0 failed**, names PASS |
+
+Commits on `main`: implementation+specs+frontend+tests (`3f29c50`)
++ this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.

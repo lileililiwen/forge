@@ -1,6 +1,44 @@
+current_spec: workbench-health-latency
+
 # Forge handoff
 
 ## Current state
+
+### workbench-health-latency in progress, implementation complete (2026-10-10)
+
+`workbench-health-latency` resumes from the uncommitted backend tree (fast
+`build_health` + `refresh_health` + router/model/dispatch/catalog
+threading) and completes the remaining spec tasks: the `frontend/` health
+card (`deferred` labels/badge, `policy-deferred` row with **Run full
+health check** + progress state via `refreshHealth`, never a remediate
+shortcut), the sentinel-oracle `tests/workbench_health_latency_contract.rs`
+(5 tests) and the workbench contract `deferred` pin. One deliberate
+deviation from `design.md` §1: the refresh route carries no catalog row —
+direct-called route, same precedent as the maintain GET — so
+`IMPLEMENTED_WEB_ROUTES` gains the route while the catalog count stays
+234. Not archived yet: manual dashboard check and `openspec archive`
+remain open in `tasks.md`; `current_spec` stays on this change.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; 3 pre-existing warnings only |
+| `cargo test --test workbench_health_latency_contract` (new) | **5 passed / 0 failed** (GET leaves sentinel untouched + `deferred`; refresh touches it + full document, no deferred finding; local `issues` without checker; refresh 401-gated; frontend token pins) |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin, identical on the pristine tree, recorded earlier) |
+| `cargo test --test forge_web_maintainer_surface_contract` | **5 passed / 0 failed** |
+| `cargo test --test forge_web_command_catalog_contract` | **7 passed + 2 pre-existing failures** (`cap`-coverage gap, identical on the pristine tree) |
+| `cargo test --test portal_ui_contract` | **21 passed / 0 failed** |
+| `cargo test --lib doctor` / `policy` / `api` / `workbench` | **39 / 42 / 32 / 5 passed** (one transient policy failure, green on 3 retries) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **95 passed / 0 failed** |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (397/397 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+
+Commits on `main`: implementation+specs+frontend+tests (`2693de5`,
+commit 1) + this handoff (commit 2); nothing pushed.
 
 ### resync-ui-token-kit delivered and archived (2026-10-09)
 

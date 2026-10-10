@@ -130,3 +130,19 @@ pub const ROUTE_ADMIN_CATALOG_GAPS: &str = "GET /v1/admin/projects/catalog/gaps"
 pub const ROUTE_ADMIN_CATALOG_INSPECT: &str = "GET /v1/admin/projects/{id}/catalog";
 
 pub const ROUTE_ADMIN_FLEET_INSPECT: &str = "GET /v1/admin/fleet/{entry}";
+
+/// Read-only release history (`web-release-deploy-history`, audit gap 4).
+/// All five routes are session-gated GETs reusing the existing Core
+/// release/deploy stores and the registry journal — no write, no
+/// provider, no adapter, no shell. Exported so the command catalog
+/// names the exact paths the router registers, keeping the two in
+/// lockstep.
+pub const ROUTE_ADMIN_RELEASE_HISTORY: &str = "GET /v1/admin/projects/{id}/releases";
+
+pub const ROUTE_ADMIN_RELEASE_INSPECT: &str = "GET /v1/admin/projects/{id}/releases/{release_id}";
+
+pub const ROUTE_ADMIN_DEPLOY_HISTORY: &str = "GET /v1/admin/projects/{id}/deploys";
+
+pub const ROUTE_ADMIN_DEPLOY_INSPECT: &str = "GET /v1/admin/projects/{id}/deploys/{deploy_id}";
+
+pub const ROUTE_ADMIN_DEPLOY_STATUS: &str = "GET /v1/admin/projects/{id}/deploy/status";

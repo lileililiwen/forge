@@ -428,6 +428,29 @@
                 </div>
                 <p id="delivery-publication-empty" class="empty-state compact" hidden>No publication attempts recorded yet.</p>
               </section>
+              <section class="wb-card" aria-labelledby="history-title">
+                <h3 id="history-title">Release &amp; deploy history</h3>
+                <p class="muted">Read-only persisted history for the project chosen above. Nothing here runs or writes: lists read the on-disk release/deploy stores, status reads the journal, and no provider is contacted.</p>
+                <p class="wb-subtitle">Persisted releases</p>
+                <div class="wb-plan-tools">
+                  <button id="history-releases" class="button button-quiet" type="button">List releases</button>
+                  <label class="field" for="history-release-id"><span class="field-label">Release id</span><input id="history-release-id" type="text" placeholder="e.g. rel-2026-10-10" autocomplete="off" aria-describedby="history-release-id-hint"><span class="field-hint" id="history-release-id-hint">The release id from the list above.</span></label>
+                  <button id="history-release-inspect" class="button button-quiet" type="button">Inspect release</button>
+                </div>
+                <dl id="history-releases-result" class="detail-list" role="status"></dl>
+                <p class="wb-subtitle">Persisted deploys</p>
+                <div class="wb-plan-tools">
+                  <button id="history-deploys" class="button button-quiet" type="button">List deploys</button>
+                  <label class="field" for="history-deploy-id"><span class="field-label">Deploy id</span><input id="history-deploy-id" type="text" placeholder="e.g. dep-2026-10-10" autocomplete="off" aria-describedby="history-deploy-id-hint"><span class="field-hint" id="history-deploy-id-hint">The deploy id from the list above.</span></label>
+                  <button id="history-deploy-inspect" class="button button-quiet" type="button">Inspect deploy</button>
+                </div>
+                <dl id="history-deploys-result" class="detail-list" role="status"></dl>
+                <p class="wb-subtitle">Publish / deploy status</p>
+                <div class="wb-plan-tools">
+                  <button id="history-status" class="button button-quiet" type="button">Read status</button>
+                </div>
+                <dl id="history-status-result" class="detail-list" role="status"></dl>
+              </section>
               <section class="wb-card" aria-labelledby="delivery-actions-title">
                 <h3 id="delivery-actions-title">Confirmed actions</h3>
                 <p class="muted">Each action below requires an explicit confirmation tick and echoes the exact preview you reviewed. A changed or stale preview is refused and nothing is dispatched.</p>

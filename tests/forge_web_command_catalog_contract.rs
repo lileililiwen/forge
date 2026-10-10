@@ -252,6 +252,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "POST /v1/admin/projects/{id}/deploy",
                         "GET /v1/admin/projects/{id}/release/plan",
                         "POST /v1/admin/projects/{id}/release",
+                        "GET /v1/admin/projects/{id}/releases",
+                        "GET /v1/admin/projects/{id}/releases/{release_id}",
+                        "GET /v1/admin/projects/{id}/deploys",
+                        "GET /v1/admin/projects/{id}/deploys/{deploy_id}",
+                        "GET /v1/admin/projects/{id}/deploy/status",
                         "POST /v1/admin/projects/{id}/publish",
                         "GET /v1/admin/projects/{id}/delivery/status",
                         "POST /v1/admin/projects/{id}/delivery/preflight",
@@ -377,6 +382,9 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // typed browser routes; and the catalog-browser package
     // (`web-project-catalog-browser`) turns the fleet inspect and the
     // normalized-catalog reads (list, inspect, tags, languages, gaps) into
+    // typed read-only admin GETs; and the history package
+    // (`web-release-deploy-history`) turns the persisted release
+    // list/inspect, deploy list/inspect and journal status reads into
     // typed read-only admin GETs. All now join the fleet read rows as
     // `web`.
     let web_ids: BTreeSet<&str> = commands
@@ -405,8 +413,13 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "classify.reject",
             "release.prepare",
             "release.apply",
+            "release.list",
+            "release.inspect",
             "deploy.plan",
             "deploy.apply",
+            "deploy.list",
+            "deploy.inspect",
+            "deploy.status",
             "publish",
             "delivery.status",
             "delivery.preflight",

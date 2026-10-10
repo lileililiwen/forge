@@ -266,6 +266,21 @@ pub(in crate::api) fn handle(
         Route::AdminProjectDeploy { id } => deploy_write(config, db_path, request, id),
         Route::AdminProjectReleasePlan { id } => release_plan(config, db_path, request, id),
         Route::AdminProjectRelease { id } => release_write(config, db_path, request, id),
+        Route::AdminProjectReleaseHistory { id } => {
+            super::history::release_history(config, db_path, request, id)
+        }
+        Route::AdminProjectReleaseInspect { id, release_id } => {
+            super::history::release_inspect(config, db_path, request, id, release_id)
+        }
+        Route::AdminProjectDeployHistory { id } => {
+            super::history::deploy_history(config, db_path, request, id)
+        }
+        Route::AdminProjectDeployInspect { id, deploy_id } => {
+            super::history::deploy_inspect(config, db_path, request, id, deploy_id)
+        }
+        Route::AdminProjectDeployStatus { id } => {
+            super::history::deploy_status(config, db_path, request, id)
+        }
         Route::AdminProjectPublishPlan { id } => publish_plan(config, db_path, request, id),
         Route::AdminProjectPublish { id } => publish_write(config, db_path, request, id),
         Route::AdminProjectDeliveryStatus { id } => delivery_status(config, db_path, request, id),

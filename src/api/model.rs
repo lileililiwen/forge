@@ -451,6 +451,40 @@ pub enum Route {
     AdminProjectRelease {
         id: String,
     },
+    /// `GET /v1/admin/projects/{id}/releases` — the read-only persisted
+    /// release list through `release::engine::list_releases`. No write,
+    /// no adapter, no provider.
+    AdminProjectReleaseHistory {
+        id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/releases/{release_id}` — one
+    /// persisted release through `release::engine::read_release`.
+    /// Unknown ids are a typed `404`. No write, no adapter.
+    AdminProjectReleaseInspect {
+        id: String,
+        release_id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/deploys` — the read-only persisted
+    /// deploy list through `deploy::engine::list_deploys`. The absolute
+    /// `state_path` is omitted. No write, no adapter, no provider.
+    AdminProjectDeployHistory {
+        id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/deploys/{deploy_id}` — one persisted
+    /// deploy through `deploy::engine::read_deploy`. Unknown ids are a
+    /// typed `404`. No write, no adapter.
+    AdminProjectDeployInspect {
+        id: String,
+        deploy_id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/deploy/status` — the persisted
+    /// publish/deploy journal status for that project only
+    /// (`operations_for_project` filtered to
+    /// `publish|deploy|publish.github`). No provider contact, no queue
+    /// scoping, no watch loop.
+    AdminProjectDeployStatus {
+        id: String,
+    },
     /// `GET /v1/admin/projects/{id}/publish/plan` — the read-only provider
     /// publish plan, exposed as a session-gated admin route that resolves the
     /// provider id, the provider configuration and the committed git revision

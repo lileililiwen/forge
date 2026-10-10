@@ -93,6 +93,14 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
     let path = path.trim_end_matches('/');
     let normalized = if path.is_empty() { "/" } else { path };
     let segments: Vec<&str> = normalized.trim_start_matches('/').split('/').collect();
+    // Read-only release/deploy history (`web-release-deploy-history`) is
+    // matched beside its handlers so this table stays under the
+    // source-file-size cap. The shapes never collide with the plan/apply
+    // arms below, so trying them first shadows no existing route; a miss
+    // falls through to the table.
+    if let Some(route) = super::admin::history::route_history(method, segments.as_slice()) {
+        return Some(route);
+    }
     match (method, segments.as_slice()) {
         ("GET", ["v1", "admin", "session"]) => Some(Route::AdminSessionGet),
         ("POST", ["v1", "admin", "session"]) => Some(Route::AdminSessionPost),
@@ -585,6 +593,11 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectDeploy { .. }
         | Route::AdminProjectReleasePlan { .. }
         | Route::AdminProjectRelease { .. }
+        | Route::AdminProjectReleaseHistory { .. }
+        | Route::AdminProjectReleaseInspect { .. }
+        | Route::AdminProjectDeployHistory { .. }
+        | Route::AdminProjectDeployInspect { .. }
+        | Route::AdminProjectDeployStatus { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
         | Route::AdminProjectDeliveryStatus { .. }
@@ -766,6 +779,11 @@ pub fn handle(
             | Route::AdminProjectDeploy { .. }
             | Route::AdminProjectReleasePlan { .. }
             | Route::AdminProjectRelease { .. }
+            | Route::AdminProjectReleaseHistory { .. }
+            | Route::AdminProjectReleaseInspect { .. }
+            | Route::AdminProjectDeployHistory { .. }
+            | Route::AdminProjectDeployInspect { .. }
+            | Route::AdminProjectDeployStatus { .. }
             | Route::AdminProjectPublishPlan { .. }
             | Route::AdminProjectPublish { .. }
             | Route::AdminProjectDeliveryStatus { .. }
@@ -913,6 +931,11 @@ pub fn handle(
         | Route::AdminProjectDeploy { .. }
         | Route::AdminProjectReleasePlan { .. }
         | Route::AdminProjectRelease { .. }
+        | Route::AdminProjectReleaseHistory { .. }
+        | Route::AdminProjectReleaseInspect { .. }
+        | Route::AdminProjectDeployHistory { .. }
+        | Route::AdminProjectDeployInspect { .. }
+        | Route::AdminProjectDeployStatus { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
         | Route::AdminProjectDeliveryStatus { .. }

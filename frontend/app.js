@@ -5153,6 +5153,151 @@
     });
   }
 
+  // ---- Release & deploy history (web-release-deploy-history) -----------
+  // Read-only persisted history for the Delivery project: release list /
+  // inspect, deploy list / inspect, journal status. Every call is a GET
+  // over the five history routes; failures report through the Delivery
+  // error summary with focus, results render as scalar detail rows with
+  // `role=status`. No write, no provider, no new dependency.
+  function historyProject() {
+    const id = document.getElementById("delivery-project").value;
+    if (!id) {
+      deliverySubmitError("There is a problem reading history", [{ fieldId: "delivery-project", errorId: "delivery-project-error", label: "Project", message: "Choose a project first." }]);
+      return null;
+    }
+    return id;
+  }
+
+  function historyResult(boxId, rows) {
+    const box = document.getElementById(boxId);
+    box.replaceChildren();
+    setResultRole(box, false);
+    for (const row of rows) box.append(row);
+  }
+
+  function historyFailure(action, err) {
+    deliverySubmitError(action, [{ fieldId: "delivery-project", errorId: "delivery-project-error", label: "Project", message: (err && err.message) || "History is unavailable; start the Forge API and reload." }]);
+  }
+
+  async function historyListReleases() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    const box = document.getElementById("history-releases-result");
+    box.replaceChildren(el("p", "muted", "Loading releases…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/releases`, { headers: { Accept: "application/json" } });
+    } catch (err) { historyFailure("There is a problem listing releases", err); box.replaceChildren(); return; }
+    const entries = data.releases || [];
+    if (!entries.length) { historyResult("history-releases-result", [el("p", "muted", "No persisted releases for this project.")]); return; }
+    const rows = [];
+    for (const entry of entries) {
+      rows.push(detailRow("Release", entry.release_id));
+      rows.push(detailRow("Version", entry.version));
+      rows.push(detailRow("Stages", entry.stage_count));
+      rows.push(detailRow("Last run", entry.last_run_at));
+    }
+    historyResult("history-releases-result", rows);
+  }
+
+  async function historyInspectRelease() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    const releaseId = document.getElementById("history-release-id").value.trim();
+    if (!releaseId) { deliverySubmitError("There is a problem inspecting the release", [{ fieldId: "history-release-id", label: "Release id", message: "Enter a release id from the list." }]); return; }
+    const box = document.getElementById("history-releases-result");
+    box.replaceChildren(el("p", "muted", "Loading release…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/releases/${encodeURIComponent(releaseId)}`, { headers: { Accept: "application/json" } });
+    } catch (err) { historyFailure("There is a problem inspecting the release", err); box.replaceChildren(); return; }
+    const release = data.release || {};
+    const identity = release.identity || {};
+    const rows = [
+      detailRow("Release", identity.id),
+      detailRow("Version", identity.version),
+      detailRow("Source revision", identity.source_revision),
+      detailRow("Stages", (release.stages || []).join(", ")),
+      detailRow("Last run", release.last_run_at),
+    ];
+    for (const outcome of release.stage_outcomes || []) {
+      rows.push(detailRow(`Stage ${outcome.stage}`, `${outcome.status}: ${outcome.note || "—"}`));
+    }
+    historyResult("history-releases-result", rows);
+  }
+
+  async function historyListDeploys() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    const box = document.getElementById("history-deploys-result");
+    box.replaceChildren(el("p", "muted", "Loading deploys…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/deploys`, { headers: { Accept: "application/json" } });
+    } catch (err) { historyFailure("There is a problem listing deploys", err); box.replaceChildren(); return; }
+    const entries = data.deploys || [];
+    if (!entries.length) { historyResult("history-deploys-result", [el("p", "muted", "No persisted deploys for this project.")]); return; }
+    const rows = [];
+    for (const entry of entries) {
+      rows.push(detailRow("Deploy", entry.deploy_id));
+      rows.push(detailRow("Target", entry.target));
+      rows.push(detailRow("State", entry.current_state));
+      rows.push(detailRow("Last run", entry.last_run_at));
+    }
+    historyResult("history-deploys-result", rows);
+  }
+
+  async function historyInspectDeploy() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    const deployId = document.getElementById("history-deploy-id").value.trim();
+    if (!deployId) { deliverySubmitError("There is a problem inspecting the deploy", [{ fieldId: "history-deploy-id", label: "Deploy id", message: "Enter a deploy id from the list." }]); return; }
+    const box = document.getElementById("history-deploys-result");
+    box.replaceChildren(el("p", "muted", "Loading deploy…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/deploys/${encodeURIComponent(deployId)}`, { headers: { Accept: "application/json" } });
+    } catch (err) { historyFailure("There is a problem inspecting the deploy", err); box.replaceChildren(); return; }
+    const deploy = data.deploy || {};
+    const identity = deploy.identity || {};
+    const target = deploy.target || {};
+    const observation = deploy.last_observation || null;
+    const state = observation ? observation.status : "pending";
+    const rows = [
+      detailRow("Deploy", identity.id),
+      detailRow("Target", target.name),
+      detailRow("Target kind", target.kind),
+      detailRow("Source revision", identity.source_revision),
+      detailRow("State", state),
+      detailRow("Last run", deploy.last_run_at),
+    ];
+    if (observation) rows.push(detailRow("Last observation", `${observation.status || "—"}: ${observation.detail || "—"}`));
+    historyResult("history-deploys-result", rows);
+  }
+
+  async function historyReadStatus() {
+    clearErrorSummary("delivery-error-summary");
+    const id = historyProject();
+    if (!id) return;
+    const box = document.getElementById("history-status-result");
+    box.replaceChildren(el("p", "muted", "Loading status…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/deploy/status`, { headers: { Accept: "application/json" } });
+    } catch (err) { historyFailure("There is a problem reading deploy status", err); box.replaceChildren(); return; }
+    const entries = data.entries || [];
+    const rows = [detailRow("State", data.state)];
+    if (!entries.length) rows.push(detailRow("History", "No publish/deploy history for this project."));
+    for (const entry of entries.slice(0, 20)) {
+      rows.push(detailRow(`#${entry.op_id} ${entry.kind}`, `${entry.state} · ${entry.detail || "—"}`));
+    }
+    historyResult("history-status-result", rows);
+  }
+
   function initDelivery(projects) {
     window.__forgeProjects = projects;
     document.getElementById("delivery-refresh").addEventListener("click", loadDelivery);
@@ -5162,6 +5307,11 @@
     document.getElementById("delivery-publish").addEventListener("click", deliveryPublish);
     document.getElementById("delivery-reconcile").addEventListener("click", deliveryReconcile);
     document.getElementById("delivery-lookup").addEventListener("click", deliveryLookup);
+    document.getElementById("history-releases").addEventListener("click", historyListReleases);
+    document.getElementById("history-release-inspect").addEventListener("click", historyInspectRelease);
+    document.getElementById("history-deploys").addEventListener("click", historyListDeploys);
+    document.getElementById("history-deploy-inspect").addEventListener("click", historyInspectDeploy);
+    document.getElementById("history-status").addEventListener("click", historyReadStatus);
     initGithubMetadata();
     loadDelivery();
   }

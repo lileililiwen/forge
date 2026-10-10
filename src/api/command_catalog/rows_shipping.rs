@@ -5,8 +5,10 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::{REASON_GIT, REASON_NATIVE, REASON_PROJECT_CAPABILITY};
 use super::routes::{
-    WEB_ROUTE_ADMIN_DEPLOY, WEB_ROUTE_ADMIN_DEPLOY_PLAN, WEB_ROUTE_ADMIN_PUBLISH,
-    WEB_ROUTE_ADMIN_RELEASE, WEB_ROUTE_ADMIN_RELEASE_PLAN,
+    WEB_ROUTE_ADMIN_DEPLOY, WEB_ROUTE_ADMIN_DEPLOY_HISTORY, WEB_ROUTE_ADMIN_DEPLOY_INSPECT,
+    WEB_ROUTE_ADMIN_DEPLOY_PLAN, WEB_ROUTE_ADMIN_DEPLOY_STATUS, WEB_ROUTE_ADMIN_PUBLISH,
+    WEB_ROUTE_ADMIN_RELEASE, WEB_ROUTE_ADMIN_RELEASE_HISTORY, WEB_ROUTE_ADMIN_RELEASE_INSPECT,
+    WEB_ROUTE_ADMIN_RELEASE_PLAN,
 };
 
 impl CatalogBuilder {
@@ -50,24 +52,24 @@ impl CatalogBuilder {
             &[("version", "string", true)],
             caps_git_remote,
         );
-        self.leaf(
+        self.web_at(
             Some("release"),
             "list",
             "List all persisted releases under the project's release directory.",
             Release,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_RELEASE_HISTORY,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("release"),
             "inspect",
             "Inspect a single persisted release record.",
             Release,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_RELEASE_INSPECT,
             caps_local,
         );
         self.group(
@@ -111,34 +113,34 @@ impl CatalogBuilder {
             Some(REASON_PROJECT_CAPABILITY),
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("deploy"),
             "list",
             "List all persisted deploys for the named project.",
             Release,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_DEPLOY_HISTORY,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("deploy"),
             "inspect",
             "Inspect a single persisted deploy by its id.",
             Release,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_DEPLOY_INSPECT,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("deploy"),
             "status",
             "Show the persisted Forge publish/deploy status without contacting a provider.",
             Release,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_DEPLOY_STATUS,
             caps_registry,
         );
         self.web_exec(

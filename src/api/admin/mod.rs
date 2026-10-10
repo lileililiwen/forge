@@ -2,6 +2,7 @@
 
 pub mod deploy;
 pub mod gateway;
+pub mod history;
 pub mod model;
 pub mod publish;
 pub mod release;

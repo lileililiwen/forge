@@ -63,6 +63,30 @@ pub(super) const WEB_ROUTE_ADMIN_RELEASE_PLAN: &str = super::super::admin::ROUTE
 
 pub(super) const WEB_ROUTE_ADMIN_RELEASE: &str = super::super::admin::ROUTE_ADMIN_RELEASE;
 
+/// Release-history typed routes (`web-release-deploy-history`). These name
+/// the exact read-only history paths the router registers so the catalog
+/// and the live endpoints can never diverge: the persisted release list
+/// and single-release inspect reusing `release::engine`.
+pub(super) const WEB_ROUTE_ADMIN_RELEASE_HISTORY: &str =
+    super::super::admin::ROUTE_ADMIN_RELEASE_HISTORY;
+
+pub(super) const WEB_ROUTE_ADMIN_RELEASE_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_RELEASE_INSPECT;
+
+/// Deploy-history typed routes (`web-release-deploy-history`). These name
+/// the exact read-only history paths the router registers so the catalog
+/// and the live endpoints can never diverge: the persisted deploy list,
+/// single-deploy inspect and journal status reusing `deploy::engine` and
+/// the registry journal — never a provider.
+pub(super) const WEB_ROUTE_ADMIN_DEPLOY_HISTORY: &str =
+    super::super::admin::ROUTE_ADMIN_DEPLOY_HISTORY;
+
+pub(super) const WEB_ROUTE_ADMIN_DEPLOY_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_DEPLOY_INSPECT;
+
+pub(super) const WEB_ROUTE_ADMIN_DEPLOY_STATUS: &str =
+    super::super::admin::ROUTE_ADMIN_DEPLOY_STATUS;
+
 /// Publish-command typed routes (`forge-web-project-publish`). These name the
 /// exact admin paths the router registers so the catalog and the live endpoints
 /// can never diverge: the read-only publish plan and the session-gated,
@@ -275,6 +299,11 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_DEPLOY,
     WEB_ROUTE_ADMIN_RELEASE_PLAN,
     WEB_ROUTE_ADMIN_RELEASE,
+    WEB_ROUTE_ADMIN_RELEASE_HISTORY,
+    WEB_ROUTE_ADMIN_RELEASE_INSPECT,
+    WEB_ROUTE_ADMIN_DEPLOY_HISTORY,
+    WEB_ROUTE_ADMIN_DEPLOY_INSPECT,
+    WEB_ROUTE_ADMIN_DEPLOY_STATUS,
     WEB_ROUTE_ADMIN_PUBLISH_PLAN,
     WEB_ROUTE_ADMIN_PUBLISH,
     WEB_ROUTE_ADMIN_DELIVERY_STATUS,

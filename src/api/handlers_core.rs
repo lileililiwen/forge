@@ -128,6 +128,11 @@ pub(super) fn authorize(
         | Route::AdminProjectDeploy { .. }
         | Route::AdminProjectReleasePlan { .. }
         | Route::AdminProjectRelease { .. }
+        | Route::AdminProjectReleaseHistory { .. }
+        | Route::AdminProjectReleaseInspect { .. }
+        | Route::AdminProjectDeployHistory { .. }
+        | Route::AdminProjectDeployInspect { .. }
+        | Route::AdminProjectDeployStatus { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
         | Route::AdminProjectDeliveryStatus { .. }

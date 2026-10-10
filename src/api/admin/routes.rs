@@ -203,3 +203,31 @@ pub const ROUTE_ADMIN_CREATION_INTENT_VALIDATE: &str = "GET /v1/admin/creation/i
 pub const ROUTE_ADMIN_CREATION_STANDARD_CHECK: &str = "GET /v1/admin/projects/{id}/standard/check";
 pub const ROUTE_ADMIN_CREATION_STANDARD_DIFF: &str = "GET /v1/admin/projects/{id}/standard/diff";
 pub const ROUTE_ADMIN_CREATION_INTENT_PLANS: &str = "GET /v1/admin/projects/{id}/intent/plans";
+
+/// Read-only assurance browser (`web-assurance-browser`, audit gap 7).
+/// All seventeen routes are session-gated GETs reusing the existing Core
+/// stores — no write, no provider probe, no adapter run, no shell, no
+/// journal row, no browser-supplied path. Pure contract routes carry no
+/// project id; the fifteen project-bound reads resolve the directory
+/// server-side from a validated id. Exported so the command catalog
+/// names the exact paths the router registers, keeping the two in
+/// lockstep.
+pub const ROUTE_ADMIN_CONTRACTS: &str = "GET /v1/admin/contracts";
+pub const ROUTE_ADMIN_CONTRACT_INSPECT: &str = "GET /v1/admin/contracts/{family}";
+pub const ROUTE_ADMIN_SPECS: &str = "GET /v1/admin/projects/{id}/specs";
+pub const ROUTE_ADMIN_SPEC_INSPECT: &str = "GET /v1/admin/projects/{id}/specs/{spec}";
+pub const ROUTE_ADMIN_SPEC_ROUTE: &str = "GET /v1/admin/projects/{id}/spec/route";
+pub const ROUTE_ADMIN_REMEDIATE_SCAN: &str = "GET /v1/admin/projects/{id}/remediate/scan";
+pub const ROUTE_ADMIN_REMEDIATE_DIFF: &str = "GET /v1/admin/projects/{id}/remediate/diff";
+pub const ROUTE_ADMIN_DESCRIBE_LIST: &str = "GET /v1/admin/projects/{id}/describe/proposals";
+pub const ROUTE_ADMIN_DESCRIBE_SHOW: &str =
+    "GET /v1/admin/projects/{id}/describe/proposals/{proposal}";
+pub const ROUTE_ADMIN_CLASSIFY_LIST: &str = "GET /v1/admin/projects/{id}/classify/proposals";
+pub const ROUTE_ADMIN_CLASSIFY_SHOW: &str =
+    "GET /v1/admin/projects/{id}/classify/proposals/{proposal}";
+pub const ROUTE_ADMIN_CONTRACT_EMIT: &str = "GET /v1/admin/projects/{id}/contracts/emit";
+pub const ROUTE_ADMIN_GOVERNANCE_LIST: &str = "GET /v1/admin/projects/{id}/governance";
+pub const ROUTE_ADMIN_GOVERNANCE_STATUS: &str = "GET /v1/admin/projects/{id}/governance/status";
+pub const ROUTE_ADMIN_GOVERNANCE_INSPECT: &str = "GET /v1/admin/projects/{id}/governance/inspect";
+pub const ROUTE_ADMIN_ANALYTICS_METRICS: &str = "GET /v1/admin/projects/{id}/analytics/metrics";
+pub const ROUTE_ADMIN_STUDIO_PREVIEW: &str = "GET /v1/admin/projects/{id}/studio/preview";

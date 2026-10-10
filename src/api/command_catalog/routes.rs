@@ -349,6 +349,44 @@ pub(super) const WEB_ROUTE_ADMIN_CREATION_STANDARD_DIFF: &str =
 pub(super) const WEB_ROUTE_ADMIN_CREATION_INTENT_PLANS: &str =
     super::super::admin::ROUTE_ADMIN_CREATION_INTENT_PLANS;
 
+/// Assurance read-only typed routes (`web-assurance-browser`). These
+/// reference the admin module's own route constants so the catalog and
+/// the live endpoints can never name different paths: spec
+/// list/inspect/route, remediate scan/diff, describe/classify
+/// list/show, contract list/inspect/emit, governance list/status/
+/// inspect, analytics metrics, studio preview read — all read-only,
+/// session-gated, provider- and shell-free.
+pub(super) const WEB_ROUTE_ADMIN_CONTRACTS: &str = super::super::admin::ROUTE_ADMIN_CONTRACTS;
+pub(super) const WEB_ROUTE_ADMIN_CONTRACT_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_CONTRACT_INSPECT;
+pub(super) const WEB_ROUTE_ADMIN_SPECS: &str = super::super::admin::ROUTE_ADMIN_SPECS;
+pub(super) const WEB_ROUTE_ADMIN_SPEC_INSPECT: &str = super::super::admin::ROUTE_ADMIN_SPEC_INSPECT;
+pub(super) const WEB_ROUTE_ADMIN_SPEC_ROUTE: &str = super::super::admin::ROUTE_ADMIN_SPEC_ROUTE;
+pub(super) const WEB_ROUTE_ADMIN_REMEDIATE_SCAN: &str =
+    super::super::admin::ROUTE_ADMIN_REMEDIATE_SCAN;
+pub(super) const WEB_ROUTE_ADMIN_REMEDIATE_DIFF: &str =
+    super::super::admin::ROUTE_ADMIN_REMEDIATE_DIFF;
+pub(super) const WEB_ROUTE_ADMIN_DESCRIBE_LIST: &str =
+    super::super::admin::ROUTE_ADMIN_DESCRIBE_LIST;
+pub(super) const WEB_ROUTE_ADMIN_DESCRIBE_SHOW: &str =
+    super::super::admin::ROUTE_ADMIN_DESCRIBE_SHOW;
+pub(super) const WEB_ROUTE_ADMIN_CLASSIFY_LIST: &str =
+    super::super::admin::ROUTE_ADMIN_CLASSIFY_LIST;
+pub(super) const WEB_ROUTE_ADMIN_CLASSIFY_SHOW: &str =
+    super::super::admin::ROUTE_ADMIN_CLASSIFY_SHOW;
+pub(super) const WEB_ROUTE_ADMIN_CONTRACT_EMIT: &str =
+    super::super::admin::ROUTE_ADMIN_CONTRACT_EMIT;
+pub(super) const WEB_ROUTE_ADMIN_GOVERNANCE_LIST: &str =
+    super::super::admin::ROUTE_ADMIN_GOVERNANCE_LIST;
+pub(super) const WEB_ROUTE_ADMIN_GOVERNANCE_STATUS: &str =
+    super::super::admin::ROUTE_ADMIN_GOVERNANCE_STATUS;
+pub(super) const WEB_ROUTE_ADMIN_GOVERNANCE_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_GOVERNANCE_INSPECT;
+pub(super) const WEB_ROUTE_ADMIN_ANALYTICS_METRICS: &str =
+    super::super::admin::ROUTE_ADMIN_ANALYTICS_METRICS;
+pub(super) const WEB_ROUTE_ADMIN_STUDIO_PREVIEW: &str =
+    super::super::admin::ROUTE_ADMIN_STUDIO_PREVIEW;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -449,6 +487,23 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_CREATION_STANDARD_CHECK,
     WEB_ROUTE_ADMIN_CREATION_STANDARD_DIFF,
     WEB_ROUTE_ADMIN_CREATION_INTENT_PLANS,
+    WEB_ROUTE_ADMIN_CONTRACTS,
+    WEB_ROUTE_ADMIN_CONTRACT_INSPECT,
+    WEB_ROUTE_ADMIN_SPECS,
+    WEB_ROUTE_ADMIN_SPEC_INSPECT,
+    WEB_ROUTE_ADMIN_SPEC_ROUTE,
+    WEB_ROUTE_ADMIN_REMEDIATE_SCAN,
+    WEB_ROUTE_ADMIN_REMEDIATE_DIFF,
+    WEB_ROUTE_ADMIN_DESCRIBE_LIST,
+    WEB_ROUTE_ADMIN_DESCRIBE_SHOW,
+    WEB_ROUTE_ADMIN_CLASSIFY_LIST,
+    WEB_ROUTE_ADMIN_CLASSIFY_SHOW,
+    WEB_ROUTE_ADMIN_CONTRACT_EMIT,
+    WEB_ROUTE_ADMIN_GOVERNANCE_LIST,
+    WEB_ROUTE_ADMIN_GOVERNANCE_STATUS,
+    WEB_ROUTE_ADMIN_GOVERNANCE_INSPECT,
+    WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
+    WEB_ROUTE_ADMIN_STUDIO_PREVIEW,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

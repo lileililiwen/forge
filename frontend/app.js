@@ -1548,6 +1548,382 @@
     creationRefreshAll();
   }
 
+  // ---- Assurance browser (web-assurance-browser) -------------------------
+  //
+  // Read-only browser over the seventeen assurance reads (spec
+  // list/inspect/route, remediate scan/diff, describe/classify
+  // list/show, contract list/inspect/emit, governance list/status/
+  // inspect, analytics metrics, studio preview read). Every call is an
+  // explicit session-gated GET; project-bound reads send only the chosen
+  // project id (the directory resolves server-side). Writes, provider
+  // probes, adapter runs and browser-supplied paths never cross this
+  // boundary: unavailable shapes render honestly with their reason.
+  // Results render as scalar detail rows with `role="status"`; failures
+  // report through the section error summary with focus. The
+  // terminal-only remainder is derived from the loaded command catalog
+  // (never hardcoded). No write, no shell: every string through
+  // `textContent`/`el()`.
+  const ASSURANCE_PREFIXES = ["spec.", "remediate.", "describe.", "classify.", "contract.", "governance.", "analytics.", "studio."];
+  let assuranceCache = { registry: "", entries: [] };
+
+  function assuranceRegistry() {
+    const select = document.getElementById("assurance-registry");
+    return select ? select.value : "specs";
+  }
+
+  function assuranceProject() {
+    const id = document.getElementById("assurance-project").value;
+    if (!id) {
+      renderErrorSummary("assurance-error-summary", "There is a problem reading the project", [{ fieldId: "assurance-project", label: "Project", message: "Choose a project first." }]);
+      return null;
+    }
+    return id;
+  }
+
+  function assuranceFailure(action, err) {
+    renderErrorSummary("assurance-error-summary", action, [{ label: "Assurance", message: (err && err.message) || "The assurance read is unavailable; start the Forge API and reload." }]);
+  }
+
+  function assuranceScalarRows(obj) {
+    const rows = [];
+    if (!obj || typeof obj !== "object") return [detailRow("Value", String(obj ?? "—"))];
+    if (obj.unavailable) {
+      rows.push(detailRow("Unavailable", obj.reason || "This read is unavailable in the browser."));
+      return rows;
+    }
+    for (const key of Object.keys(obj)) {
+      const value = obj[key];
+      if (value === null || value === undefined || value === "") continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        rows.push(detailRow(key, String(value)));
+      } else if (Array.isArray(value) && value.every((v) => typeof v === "string" || typeof v === "number")) {
+        if (value.length) rows.push(detailRow(key, value.join(", ")));
+      } else if (Array.isArray(value)) {
+        const ids = value
+          .filter((v) => v && typeof v === "object" && (v.id || v.plan_id || v.finding_id || v.family || v.provider || v.project_id))
+          .map((v) => String(v.id || v.plan_id || v.finding_id || v.family || v.provider || v.project_id));
+        if (ids.length === value.length && ids.length) rows.push(detailRow(key, ids.join(", ")));
+        else rows.push(detailRow(key, `${value.length} item(s) — inspect the entry for detail`));
+      }
+    }
+    if (!rows.length) rows.push(detailRow("Entry", "No scalar fields to show."));
+    return rows;
+  }
+
+  function assuranceEntryTitle(entry) {
+    return (entry && (entry.id || entry.plan_id || entry.finding_id || entry.family || entry.provider)) || "entry";
+  }
+
+  function assuranceMatches(entry, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    return JSON.stringify(entry).toLowerCase().includes(q);
+  }
+
+  function assuranceSetResult(boxId, nodes, failed) {
+    const box = document.getElementById(boxId);
+    box.replaceChildren();
+    setResultRole(box, Boolean(failed));
+    for (const node of nodes) box.append(node);
+  }
+
+  function assuranceListEntries(data, registry) {
+    if (data.contracts) return data.contracts;
+    if (data.specs) return data.specs;
+    if (data.scan) return (data.scan.findings) || [];
+    if (data.proposals) return data.proposals;
+    if (data.providers) return data.providers;
+    if (data.metrics) return (data.metrics.aggregates) || [];
+    if (data.preview) return [data.preview];
+    if (data.observation) return [data.observation];
+    return [];
+  }
+
+  async function assuranceList() {
+    clearErrorSummary("assurance-error-summary");
+    const registry = assuranceRegistry();
+    const count = document.getElementById("assurance-count");
+    assuranceSetResult("assurance-list-result", [el("p", "muted", `Loading ${registry}…`)]);
+    let path;
+    if (registry === "contracts") {
+      path = "/v1/admin/contracts";
+    } else {
+      const id = assuranceProject();
+      if (!id) { assuranceSetResult("assurance-list-result", []); return; }
+      const project = encodeURIComponent(id);
+      if (registry === "specs") path = `/v1/admin/projects/${project}/specs`;
+      else if (registry === "remediate") path = `/v1/admin/projects/${project}/remediate/scan`;
+      else if (registry === "describe") path = `/v1/admin/projects/${project}/describe/proposals`;
+      else if (registry === "classify") path = `/v1/admin/projects/${project}/classify/proposals`;
+      else if (registry === "governance") path = `/v1/admin/projects/${project}/governance`;
+      else if (registry === "analytics") {
+        const window = document.getElementById("assurance-window").value.trim();
+        path = `/v1/admin/projects/${project}/analytics/metrics${window ? `?window_days=${encodeURIComponent(window)}` : ""}`;
+      } else if (registry === "studio") path = `/v1/admin/projects/${project}/studio/preview`;
+    }
+    let data;
+    try {
+      data = await request(path, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure(`There is a problem listing ${registry}`, err);
+      assuranceSetResult("assurance-list-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    if (data.unavailable) { assuranceSetResult("assurance-list-result", assuranceScalarRows(data)); return; }
+    const entries = assuranceListEntries(data, registry);
+    assuranceCache = { registry, entries };
+    assuranceRenderCached();
+    if (count) { count.textContent = `${entries.length} ${registry} entr${entries.length === 1 ? "y" : "ies"} — use Inspect for detail.`; setResultRole(count, false); }
+  }
+
+  function assuranceRenderCached() {
+    const registry = assuranceCache.registry;
+    const entries = assuranceCache.entries;
+    const search = document.getElementById("assurance-search");
+    const rows = entries.filter((entry) => assuranceMatches(entry, search ? search.value : ""));
+    if (!rows.length) { assuranceSetResult("assurance-list-result", [el("p", "muted", entries.length ? "No matching entries — clear the search." : `No ${registry} entries were returned.`) ]); return; }
+    const fragment = document.createDocumentFragment();
+    for (const entry of rows.slice(0, 200)) {
+      const row = el("div", "cmdref-row");
+      const head = el("div", "cmdref-head");
+      head.append(el("code", "cmdref-id", String(assuranceEntryTitle(entry))));
+      row.append(head);
+      for (const detail of assuranceScalarRows(entry).slice(0, 4)) row.append(detail);
+      fragment.append(row);
+    }
+    if (rows.length > 200) fragment.append(el("p", "muted", `Showing 200 of ${rows.length} — refine the search.`));
+    assuranceSetResult("assurance-list-result", [fragment]);
+  }
+
+  async function assuranceInspect() {
+    clearErrorSummary("assurance-error-summary");
+    const registry = assuranceRegistry();
+    const id = document.getElementById("assurance-inspect-id").value.trim();
+    if (!id) { renderErrorSummary("assurance-error-summary", "There is a problem inspecting the entry", [{ fieldId: "assurance-inspect-id", label: "Entry id", message: "Enter an entry id from the list." }]); return; }
+    assuranceSetResult("assurance-inspect-result", [el("p", "muted", `Loading ${id}…`)]);
+    let path;
+    if (registry === "contracts") {
+      path = `/v1/admin/contracts/${encodeURIComponent(id)}`;
+    } else {
+      const project = assuranceProject();
+      if (!project) { assuranceSetResult("assurance-inspect-result", []); return; }
+      const base = `/v1/admin/projects/${encodeURIComponent(project)}`;
+      if (registry === "specs") path = `${base}/specs/${encodeURIComponent(id)}`;
+      else if (registry === "describe") path = `${base}/describe/proposals/${encodeURIComponent(id)}`;
+      else if (registry === "classify") path = `${base}/classify/proposals/${encodeURIComponent(id)}`;
+      else { renderErrorSummary("assurance-error-summary", "There is a problem inspecting the entry", [{ label: "Registry", message: `${registry} has no inspect verb; use the list or the action below.` }]); assuranceSetResult("assurance-inspect-result", []); return; }
+    }
+    let data;
+    try {
+      data = await request(path, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem inspecting the entry", err);
+      assuranceSetResult("assurance-inspect-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const payload = data.spec || data.proposal || data.schema || data.entry || data;
+    assuranceSetResult("assurance-inspect-result", assuranceScalarRows(payload));
+  }
+
+  async function assuranceRoute() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-routed-result", []); return; }
+    const finding = document.getElementById("assurance-finding").value.trim();
+    if (!finding) { renderErrorSummary("assurance-error-summary", "There is a problem routing the finding", [{ fieldId: "assurance-finding", label: "Finding", message: "Enter a finding id." }]); return; }
+    assuranceSetResult("assurance-routed-result", [el("p", "muted", "Routing…")]);
+    const params = new URLSearchParams({ finding });
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/spec/route?${params.toString()}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem routing the finding", err);
+      assuranceSetResult("assurance-routed-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    assuranceSetResult("assurance-routed-result", assuranceScalarRows(data.route || data));
+  }
+
+  async function assuranceScan() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-routed-result", []); return; }
+    assuranceSetResult("assurance-routed-result", [el("p", "muted", "Scanning…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/remediate/scan`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem scanning", err);
+      assuranceSetResult("assurance-routed-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const findings = ((data.scan || {}).findings) || [];
+    if (!findings.length) { assuranceSetResult("assurance-routed-result", [el("p", "muted", "No automatic remediation findings.")]); return; }
+    assuranceSetResult("assurance-routed-result", findings.flatMap((finding) => assuranceScalarRows(finding)));
+  }
+
+  async function assuranceDiff() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-routed-result", []); return; }
+    const finding = document.getElementById("assurance-finding").value.trim();
+    if (!finding) { renderErrorSummary("assurance-error-summary", "There is a problem diffing the plan", [{ fieldId: "assurance-finding", label: "Finding", message: "Enter a finding id." }]); return; }
+    const pack = document.getElementById("assurance-pack").value.trim();
+    assuranceSetResult("assurance-routed-result", [el("p", "muted", "Diffing…")]);
+    const params = new URLSearchParams({ finding });
+    if (pack) params.set("pack", pack);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/remediate/diff?${params.toString()}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem diffing the plan", err);
+      assuranceSetResult("assurance-routed-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const diff = data.diff || [];
+    if (!diff.length) { assuranceSetResult("assurance-routed-result", [el("p", "muted", "The plan changes no files.")]); return; }
+    assuranceSetResult("assurance-routed-result", diff.flatMap((entry) => assuranceScalarRows(entry)));
+  }
+
+  async function assuranceEmit() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-extra-result", []); return; }
+    const family = document.getElementById("assurance-family").value;
+    assuranceSetResult("assurance-extra-result", [el("p", "muted", "Emitting…")]);
+    const params = new URLSearchParams({ family });
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/contracts/emit?${params.toString()}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem emitting the envelope", err);
+      assuranceSetResult("assurance-extra-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    assuranceSetResult("assurance-extra-result", assuranceScalarRows(data.envelope || data));
+  }
+
+  async function assuranceMetrics() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-extra-result", []); return; }
+    const window = document.getElementById("assurance-window").value.trim();
+    assuranceSetResult("assurance-extra-result", [el("p", "muted", "Reading metrics…")]);
+    const suffix = window ? `?window_days=${encodeURIComponent(window)}` : "";
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/analytics/metrics${suffix}`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem reading metrics", err);
+      assuranceSetResult("assurance-extra-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    const metrics = data.metrics || {};
+    const rows = [detailRow("Complete", String(metrics.complete ?? "—"))];
+    for (const aggregate of metrics.aggregates || []) rows.push(detailRow(aggregate.metric_id || "aggregate", String((aggregate.projects ?? []).length ?? aggregate.count ?? "—")));
+    assuranceSetResult("assurance-extra-result", rows.length > 1 ? rows : assuranceScalarRows(metrics));
+  }
+
+  async function assuranceGovernance() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-extra-result", []); return; }
+    assuranceSetResult("assurance-extra-result", [el("p", "muted", "Reading governance…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/governance/status`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem reading governance", err);
+      assuranceSetResult("assurance-extra-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    assuranceSetResult("assurance-extra-result", assuranceScalarRows(data.observation || data));
+  }
+
+  async function assurancePreview() {
+    clearErrorSummary("assurance-error-summary");
+    const id = assuranceProject();
+    if (!id) { assuranceSetResult("assurance-extra-result", []); return; }
+    assuranceSetResult("assurance-extra-result", [el("p", "muted", "Reading preview state…")]);
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/studio/preview`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      assuranceFailure("There is a problem reading the preview state", err);
+      assuranceSetResult("assurance-extra-result", [el("p", "muted", `Unavailable — ${(err && err.message) || "request failed"}`)], true);
+      return;
+    }
+    assuranceSetResult("assurance-extra-result", assuranceScalarRows(data.preview || data));
+  }
+
+  function assuranceRenderCliOnly() {
+    const box = document.getElementById("assurance-cli-only");
+    if (!box) return;
+    box.replaceChildren();
+    const rows = (catalogCommands || []).filter((row) => row.availability !== "web" && ASSURANCE_PREFIXES.some((prefix) => String(row.id || "").startsWith(prefix)));
+    if (!rows.length) {
+      box.append(el("p", "muted", catalogCommands.length ? "Every assurance command is available in this browser." : "Command catalog unavailable — start the Forge API and reload to see the terminal-only verbs."));
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const row of rows) fragment.append(cmdrefRow(row));
+    box.append(fragment);
+  }
+
+  function assuranceRefreshProjects() {
+    const select = document.getElementById("assurance-project");
+    if (select && window.__forgeProjects) {
+      const current = select.value;
+      select.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Choose a project…";
+      select.append(placeholder);
+      for (const project of window.__forgeProjects) {
+        const option = document.createElement("option");
+        option.value = project.identity;
+        option.textContent = project.name || project.identity;
+        select.append(option);
+      }
+      if (current) select.value = current;
+    }
+  }
+
+  function assuranceRefreshAll() {
+    assuranceRefreshProjects();
+    assuranceRenderCliOnly();
+    const count = document.getElementById("assurance-count");
+    if (count) { count.textContent = "Assurance ready — pick a registry and list its entries."; setResultRole(count, false); }
+  }
+
+  function initAssuranceBrowser() {
+    const list = document.getElementById("assurance-list");
+    const inspect = document.getElementById("assurance-inspect");
+    const route = document.getElementById("assurance-route");
+    const scan = document.getElementById("assurance-scan");
+    const diff = document.getElementById("assurance-diff");
+    const emit = document.getElementById("assurance-emit");
+    const metrics = document.getElementById("assurance-metrics");
+    const governance = document.getElementById("assurance-governance");
+    const preview = document.getElementById("assurance-preview");
+    const refresh = document.getElementById("assurance-refresh");
+    const search = document.getElementById("assurance-search");
+    const registry = document.getElementById("assurance-registry");
+    if (list) list.addEventListener("click", assuranceList);
+    if (inspect) inspect.addEventListener("click", assuranceInspect);
+    if (route) route.addEventListener("click", assuranceRoute);
+    if (scan) scan.addEventListener("click", assuranceScan);
+    if (diff) diff.addEventListener("click", assuranceDiff);
+    if (emit) emit.addEventListener("click", assuranceEmit);
+    if (metrics) metrics.addEventListener("click", assuranceMetrics);
+    if (governance) governance.addEventListener("click", assuranceGovernance);
+    if (preview) preview.addEventListener("click", assurancePreview);
+    if (refresh) refresh.addEventListener("click", assuranceRefreshAll);
+    if (search) search.addEventListener("input", assuranceRenderCached);
+    if (registry) registry.addEventListener("change", assuranceList);
+    assuranceRefreshAll();
+  }
+
   // ---- Project workbench (single managed project) ------------------------
   //
   // Boundary: the browser only ever sends a validated project `id` chosen
@@ -5853,6 +6229,7 @@
       initCommandReference();
       initCatalogBrowser();
       initCreationCatalog();
+      initAssuranceBrowser();
     } catch (_) { showDashboardError("Forge could not load project data. Reload to try again."); }
     document.getElementById("sign-out").addEventListener("click", async (event) => {
       const button = event.currentTarget; button.disabled = true;

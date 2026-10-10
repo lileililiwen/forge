@@ -328,6 +328,23 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/projects/{id}/standard/check",
                         "GET /v1/admin/projects/{id}/standard/diff",
                         "GET /v1/admin/projects/{id}/intent/plans",
+                        "GET /v1/admin/contracts",
+                        "GET /v1/admin/contracts/{family}",
+                        "GET /v1/admin/projects/{id}/specs",
+                        "GET /v1/admin/projects/{id}/specs/{spec}",
+                        "GET /v1/admin/projects/{id}/spec/route",
+                        "GET /v1/admin/projects/{id}/remediate/scan",
+                        "GET /v1/admin/projects/{id}/remediate/diff",
+                        "GET /v1/admin/projects/{id}/describe/proposals",
+                        "GET /v1/admin/projects/{id}/describe/proposals/{proposal}",
+                        "GET /v1/admin/projects/{id}/classify/proposals",
+                        "GET /v1/admin/projects/{id}/classify/proposals/{proposal}",
+                        "GET /v1/admin/projects/{id}/contracts/emit",
+                        "GET /v1/admin/projects/{id}/governance",
+                        "GET /v1/admin/projects/{id}/governance/status",
+                        "GET /v1/admin/projects/{id}/governance/inspect",
+                        "GET /v1/admin/projects/{id}/analytics/metrics",
+                        "GET /v1/admin/projects/{id}/studio/preview",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -419,7 +436,13 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // list/inspect/resolve reads (profile, feature, component,
     // ui-pattern), the standard list/inspect/check/diff reads, the
     // procedure list/inspect reads and the intent validate/list reads
-    // into typed read-only admin GETs. All now join the fleet read rows as `web`.
+    // into typed read-only admin GETs; and the assurance package
+    // (`web-assurance-browser`) turns the spec list/inspect/route reads,
+    // the remediate scan/diff reads, the describe/classify list/show
+    // reads, the contract list/inspect/emit reads, the governance
+    // list/status/inspect reads, the analytics metrics read and the
+    // studio preview read into typed read-only admin GETs. All now join
+    // the fleet read rows as `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
         .filter(|row| row["availability"] == "web")
@@ -524,6 +547,23 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "procedure.inspect",
             "intent.validate",
             "intent.list",
+            "spec.list",
+            "spec.inspect",
+            "spec.route",
+            "remediate.scan",
+            "remediate.diff",
+            "describe.list",
+            "describe.show",
+            "classify.list",
+            "classify.show",
+            "contract.list",
+            "contract.inspect",
+            "contract.emit",
+            "governance.list",
+            "governance.status",
+            "governance.inspect",
+            "analytics.metrics",
+            "studio.preview",
         ])
     );
 }

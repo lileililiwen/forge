@@ -294,7 +294,7 @@ pub(in crate::api) fn handle(
             registry,
             item,
             action,
-        } => super::creation::dispatch(config, db_path, request, registry, item, action),
+        } => super::assurance::dispatch_creation(config, db_path, request, registry, item, action),
         Route::AdminProjectPublishPlan { id } => publish_plan(config, db_path, request, id),
         Route::AdminProjectPublish { id } => publish_write(config, db_path, request, id),
         Route::AdminProjectDeliveryStatus { id } => delivery_status(config, db_path, request, id),

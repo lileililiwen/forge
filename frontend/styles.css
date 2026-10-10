@@ -342,3 +342,14 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 #creation-catalog button{min-height:44px}
 #creation-inspect-result,#creation-resolve-result,#creation-standard-result,#creation-intent-result{display:grid;gap:12px}
 #creation-count{font-size:var(--text-md)}
+/* Assurance browser (web-assurance-browser): read-only assurance
+ * section on the projects view. Reuses the panel, badge, table and
+ * 12px-floor tokens of the command reference; native controls with
+ * 44px targets, wrapped payload strings. Additive only; earlier rules
+ * untouched. */
+#assurance-browser .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#assurance-browser .field{min-width:min(240px,80vw)}
+#assurance-browser select,#assurance-browser input[type="text"],#assurance-browser input[type="search"]{min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raise);color:var(--ink);font-size:var(--text-md)}
+#assurance-browser button{min-height:44px}
+#assurance-inspect-result,#assurance-routed-result,#assurance-extra-result{display:grid;gap:12px}
+#assurance-count{font-size:var(--text-md)}

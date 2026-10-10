@@ -8,12 +8,13 @@ use super::routes::{
     REASON_TRANSPORT, REASON_TTY_HIDDEN,
 };
 use super::routes::{
-    WEB_ROUTE_ADMIN_AGENT_LIST, WEB_ROUTE_ADMIN_AGENT_STATUS,
+    WEB_ROUTE_ADMIN_AGENT_LIST, WEB_ROUTE_ADMIN_AGENT_STATUS, WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
     WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY, WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
     WEB_ROUTE_ADMIN_DELIVERY_PROMOTE, WEB_ROUTE_ADMIN_DELIVERY_STAGE,
     WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
     WEB_ROUTE_ADMIN_IDENTITY_SESSIONS, WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
-    WEB_ROUTE_ADMIN_STUDIO_REFINE, WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
+    WEB_ROUTE_ADMIN_STUDIO_PREVIEW, WEB_ROUTE_ADMIN_STUDIO_REFINE,
+    WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
 };
 
 impl CatalogBuilder {
@@ -44,14 +45,14 @@ impl CatalogBuilder {
             Read,
             caps_provider,
         );
-        self.leaf(
+        self.web_at(
             Some("analytics"),
             "metrics",
             "Aggregate timestamped project metrics from the registry, doctor, deploy and external observations.",
             Portfolio,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
             caps_registry,
         );
         self.group(
@@ -138,14 +139,14 @@ impl CatalogBuilder {
             &[("spec", "string", true), ("expected_revision", "string", false)],
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("studio"),
             "preview",
             "Read the current Studio session record; `--start`/`--stop` bind the reserved port only with a confirmation token.",
             Delivery,
             Project,
             LocalWrite,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_STUDIO_PREVIEW,
             caps_local,
         );
         self.web_exec(

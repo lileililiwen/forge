@@ -5,8 +5,14 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::REASON_FILE_STDIN;
 use super::routes::{
-    WEB_ROUTE_ADMIN_REMEDIATE_APPLY, WEB_ROUTE_ADMIN_REMEDIATE_PLAN, WEB_ROUTE_ADMIN_SPEC,
-    WEB_ROUTE_ADMIN_SPEC_APPLY, WEB_ROUTE_CLASSIFY_APPLY, WEB_ROUTE_CLASSIFY_APPROVE,
+    WEB_ROUTE_ADMIN_CLASSIFY_LIST, WEB_ROUTE_ADMIN_CLASSIFY_SHOW, WEB_ROUTE_ADMIN_CONTRACTS,
+    WEB_ROUTE_ADMIN_CONTRACT_EMIT, WEB_ROUTE_ADMIN_CONTRACT_INSPECT, WEB_ROUTE_ADMIN_DESCRIBE_LIST,
+    WEB_ROUTE_ADMIN_DESCRIBE_SHOW, WEB_ROUTE_ADMIN_GOVERNANCE_INSPECT,
+    WEB_ROUTE_ADMIN_GOVERNANCE_LIST, WEB_ROUTE_ADMIN_GOVERNANCE_STATUS,
+    WEB_ROUTE_ADMIN_REMEDIATE_APPLY, WEB_ROUTE_ADMIN_REMEDIATE_DIFF,
+    WEB_ROUTE_ADMIN_REMEDIATE_PLAN, WEB_ROUTE_ADMIN_REMEDIATE_SCAN, WEB_ROUTE_ADMIN_SPEC,
+    WEB_ROUTE_ADMIN_SPECS, WEB_ROUTE_ADMIN_SPEC_APPLY, WEB_ROUTE_ADMIN_SPEC_INSPECT,
+    WEB_ROUTE_ADMIN_SPEC_ROUTE, WEB_ROUTE_CLASSIFY_APPLY, WEB_ROUTE_CLASSIFY_APPROVE,
     WEB_ROUTE_CLASSIFY_REJECT,
 };
 
@@ -41,34 +47,34 @@ impl CatalogBuilder {
             ],
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("spec"),
             "list",
             "List all generated specs under `.forge/specs/` for the named project.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_SPECS,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("spec"),
             "inspect",
             "Show the full bounded proposal for a generated spec.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_SPEC_INSPECT,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("spec"),
             "route",
             "Classify one finding into a deterministic, semantic or manual route.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_SPEC_ROUTE,
             caps_local,
         );
         self.web_exec(
@@ -90,14 +96,14 @@ impl CatalogBuilder {
             Quality,
             Project,
         );
-        self.leaf(
+        self.web_at(
             Some("remediate"),
             "scan",
             "Inspect automatic findings and produce a read-only plan.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_REMEDIATE_SCAN,
             caps_local,
         );
         self.web_exec(
@@ -112,14 +118,14 @@ impl CatalogBuilder {
             &[("finding", "string", true), ("pack", "string", false)],
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("remediate"),
             "diff",
             "Show the files a remediation plan would change.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_REMEDIATE_DIFF,
             caps_local,
         );
         self.web_exec(
@@ -151,24 +157,24 @@ impl CatalogBuilder {
             NotYetWeb,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("describe"),
             "list",
             "List every recorded semantic proposal for the named project.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_DESCRIBE_LIST,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("describe"),
             "show",
             "Show the full proposal manifest for one proposal id.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_DESCRIBE_SHOW,
             caps_local,
         );
         self.leaf(
@@ -230,24 +236,24 @@ impl CatalogBuilder {
             &[],
             caps_provider,
         );
-        self.leaf(
+        self.web_at(
             Some("classify"),
             "list",
             "List every recorded classification proposal for the named project.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CLASSIFY_LIST,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("classify"),
             "show",
             "Show the full proposal manifest for one proposal id.",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CLASSIFY_SHOW,
             caps_local,
         );
         self.web_exec(
@@ -281,34 +287,34 @@ impl CatalogBuilder {
             Quality,
             Forge,
         );
-        self.leaf(
+        self.web_at(
             Some("contract"),
             "list",
             "List every versioned surface and its platform mapping.",
             Quality,
             Forge,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CONTRACTS,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("contract"),
             "inspect",
             "Inspect one platform family and its schema.",
             Quality,
             Forge,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CONTRACT_INSPECT,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("contract"),
             "emit",
             "Project a Core record into a platform envelope (read-only).",
             Quality,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_CONTRACT_EMIT,
             caps_local,
         );
         self.cli_only(
@@ -328,34 +334,34 @@ impl CatalogBuilder {
             Quality,
             Workspace,
         );
-        self.leaf(
+        self.web_at(
             Some("governance"),
             "list",
             "List the local provider and the configured optional provider.",
             Quality,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_GOVERNANCE_LIST,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("governance"),
             "status",
             "Run the selected provider and record a bounded observation.",
             Quality,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_GOVERNANCE_STATUS,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("governance"),
             "inspect",
             "Alias for status that returns the full normalized observation.",
             Quality,
             Workspace,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_GOVERNANCE_INSPECT,
             caps_local,
         );
         self.leaf(

@@ -189,6 +189,46 @@
             <p class="muted">These creation verbs write, probe toolchains or read local files, so they stay in the terminal with their exact commands.</p>
             <div id="creation-cli-only" class="cmdref-list"></div>
           </section>
+          <section class="project-panel" aria-labelledby="assurance-title" id="assurance-browser">
+            <div class="panel-heading"><div><h2 id="assurance-title">Assurance</h2><p class="muted">The read-only assurance reads: specs, remediations, semantic proposals, contracts, governance, metrics and the Studio preview state. Read-only; nothing here runs, writes or contacts a provider.</p></div><div class="panel-tools"><button id="assurance-refresh" class="button button-quiet" type="button">Refresh assurance</button></div></div>
+            <div id="assurance-error-summary" class="error-summary" tabindex="-1" hidden></div>
+            <div class="wb-plan-tools">
+              <label class="field" for="assurance-project"><span class="field-label">Project</span><select id="assurance-project" aria-describedby="assurance-project-hint"><option value="">Choose a project…</option></select><span class="field-hint" id="assurance-project-hint">Project-bound reads use the chosen project only; the contract list needs no project.</span></label>
+              <label class="field" for="assurance-registry"><span class="field-label">Registry</span><select id="assurance-registry"><option value="specs">specs</option><option value="remediate">remediate</option><option value="describe">describe</option><option value="classify">classify</option><option value="contracts">contracts</option><option value="governance">governance</option><option value="analytics">analytics</option><option value="studio">studio</option></select></label>
+              <label class="field" for="assurance-search"><span class="field-label">Search</span><input id="assurance-search" type="search" placeholder="filter entries by id or text" autocomplete="off"></label>
+              <button id="assurance-list" class="button button-quiet" type="button">List or read</button>
+            </div>
+            <p id="assurance-count" class="muted cmdref-count" role="status" aria-live="polite">Assurance ready — pick a registry and list its entries.</p>
+            <div id="assurance-list-result" class="cmdref-list"></div>
+            <p class="wb-subtitle">Inspect one entry</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="assurance-inspect-id"><span class="field-label">Entry id</span><input id="assurance-inspect-id" type="text" placeholder="e.g. spec id, <kind>-<hash> proposal or contract family" autocomplete="off"></label>
+              <button id="assurance-inspect" class="button button-quiet" type="button">Inspect entry</button>
+            </div>
+            <dl id="assurance-inspect-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Route, scan and diff</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="assurance-finding"><span class="field-label">Finding</span><input id="assurance-finding" type="text" placeholder="e.g. gaps.ci.alpha.ci" autocomplete="off"></label>
+              <label class="field" for="assurance-pack"><span class="field-label">Pack (diff only)</span><input id="assurance-pack" type="text" placeholder="e.g. baseline-service@1.1.0" autocomplete="off"></label>
+              <button id="assurance-route" class="button button-quiet" type="button">Route finding</button>
+              <button id="assurance-scan" class="button button-quiet" type="button">Scan</button>
+              <button id="assurance-diff" class="button button-quiet" type="button">Diff plan</button>
+            </div>
+            <dl id="assurance-routed-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Emit, metrics, governance and preview</p>
+            <div class="wb-plan-tools">
+              <label class="field" for="assurance-family"><span class="field-label">Contract family</span><select id="assurance-family"><option value="platform.gate-result">platform.gate-result</option><option value="platform.readiness">platform.readiness</option><option value="platform.release-evidence">platform.release-evidence</option><option value="platform.capability">platform.capability</option><option value="platform.audit-event">platform.audit-event</option><option value="platform.job-outcome">platform.job-outcome</option></select></label>
+              <button id="assurance-emit" class="button button-quiet" type="button">Emit envelope</button>
+              <label class="field" for="assurance-window"><span class="field-label">Metrics window (days)</span><input id="assurance-window" type="text" placeholder="blank means 7" autocomplete="off"></label>
+              <button id="assurance-metrics" class="button button-quiet" type="button">Read metrics</button>
+              <button id="assurance-governance" class="button button-quiet" type="button">Governance status</button>
+              <button id="assurance-preview" class="button button-quiet" type="button">Preview state</button>
+            </div>
+            <dl id="assurance-extra-result" class="detail-list" role="status"></dl>
+            <p class="wb-subtitle">Still terminal-only</p>
+            <p class="muted">These assurance verbs write, probe providers or read local files, so they stay in the terminal with their exact commands.</p>
+            <div id="assurance-cli-only" class="cmdref-list"></div>
+          </section>
           </div>
           <section id="workbench" class="project-panel" aria-labelledby="workbench-title" hidden>
             <div class="panel-heading">

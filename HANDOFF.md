@@ -2,6 +2,91 @@
 
 ## Current state
 
+### web-agent-identity-readonly delivered and archived (2026-10-10)
+
+`web-agent-identity-readonly` closes audit gap 5: operators can now
+read per-project agent sessions, identity sessions and the validated
+identity configuration from the Workbench instead of dropping to the
+CLI. Implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-web-agent-identity-readonly`,
+promoting canonical `web-agent-identity-readonly` +6 requirements (no
+`--skip-specs`; archiver-stamped TBD Purpose replaced with a
+source-backed sentence):
+
+- **Five read-only typed admin GET routes** (new
+  `src/api/admin/agent_identity.rs`, reusing `deploy_id_gate`,
+  `guarded`, `cors`, `error`, `scrub_*`): `GET .../{id}/agents`
+  (`agent::list_sessions`), `GET .../agents/{session_id}`
+  (`agent::status_for`, unknown → typed 404, `project_path`
+  projected out, `live: null` + CLI-only note — `live_runtime_status`
+  never called so no adapter subprocess spawns — plus spawn-free
+  `probe_provider` availability), `GET .../identity/config`
+  (`IdentityConfig::from_manifest_opt`, unconfigured → typed 404,
+  invalid → typed `identity-invalid` via the new `err_status` 400
+  arm, no provider contacted), `GET .../identity/sessions`
+  (`identity::list_sessions`), `GET
+  .../identity/sessions/{session_id}` (`identity::load_session`,
+  unknown → typed 404, sibling-owned → typed 403 cross-project
+  refusal). Session-gated; hostile ids, bad agent/identity session
+  ids (kebab-danger / non-hex gates) are typed `400`s without echo;
+  unmanaged ids typed `404`. No write, no challenge, no mint/revoke,
+  no provider, no shell on any path; every response carries
+  `contract: API_CONTRACT_VERSION` with no path or secret material.
+- **Routing:** three `Route` variants (list/inspect folded on
+  `Option`) + `route_agent_identity` matcher tried before the main
+  table (kept beside the handlers so `router.rs` lands at 998/1000
+  lines), permission/authorize/dispatch/exhaustiveness threading,
+  five `ROUTE_ADMIN_*` constants, six-segment OPTIONS arm widened in
+  place to six-or-more (covers the 7-segment identity inspect with
+  no added line).
+- **Catalog:** `agent.status|list`,
+  `identity.validate-config|session-list|session-inspect` convert
+  `NotYetWeb` → `web_at`; `identity.session-terminate` converts
+  leaf → `cli_only` (a write the browser must never trigger); count
+  stays 234 (conversion); `identity.build-challenge` stays
+  `NotYetWeb` (persist + `code_verifier` secret boundary, OIDC
+  round-trip non-goal); every lifecycle/secret/transport verb stays
+  `cli_only`.
+- **Frontend:** Workbench gains a read-only "Agent & identity" card
+  reusing `#workbench-project` (explicit reads only, no auto-load;
+  list buttons, inspect inputs, config read; `role=status` results,
+  error-summary focus, native controls; no new dependency, no
+  `innerHTML`).
+- **Contract tests:** new
+  `tests/web_agent_identity_readonly_contract.rs` (10 tests: auth,
+  gates, lists, inspects incl. cross-project, config
+  validated/unconfigured/invalid, scrub, no-write-on-read, catalog +
+  frontend pins) plus pin updates in
+  `src/api/command_catalog/catalog.rs` (web vec) and
+  `tests/forge_web_command_catalog_contract.rs` (web-route + web-id
+  allowlists).
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only (`ShareSurface` unused import) |
+| `cargo test --test web_agent_identity_readonly_contract` (new) | **10 passed / 0 failed** |
+| `cargo test --lib` | **1213 passed / 0 failed** (1 ignored) |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap` web-id gap, byte-identical on pristine tree via `git stash -u` rerun) |
+| `cargo test --test web_release_deploy_history_contract` / `web_project_catalog_browser_contract` / `forge_web_maintainer_surface_contract` / `portal_ui_contract` | **9 / 10 / 5 / 21 passed** |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin, byte-identical on pristine tree via `git stash -u` rerun) |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **99 passed / 0 failed** pre- and post-archive |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after TBD Purpose repair + pointer removal) |
+| `git diff --check` | clean (cached + worktree) |
+| live oracle (throwaway API+web on default ports, scratch `FORGE_REGISTRY`, real Chromium via `tests/browser` Playwright, script in `/tmp` — never committed) | **VERIFIED**: login → `/workbench?project=live-probe` → list agents (live-agent) → inspect (recorded-only note) → list/inspect identity (subject user-1) → config read (okta); curl cross-check of all five routes (200 + envelope), anon 401, unknown 404; **zero attributable JS errors** (two 409 console resource errors come from pre-existing workbench auto-loads `workspace/candidates` + `delivery/status`, untouched by this change; my five card GETs all 200) |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` (on committed tree) | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (401/401 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-agent-identity-readonly --yes` | archived as `2026-10-10-web-agent-identity-readonly`, no `--skip-specs`; canonical `web-agent-identity-readonly` +6; post-archive validate **99 passed / 0 failed**, names PASS |
+
+Commits on `main`: implementation+specs+frontend+tests (`d32d028`)
++ this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.
+
+No active changes remain, so this handoff carries no `current_spec` pointer.
+
 ### web-release-deploy-history delivered and archived (2026-10-10)
 
 `web-release-deploy-history` closes audit gap 4: operators can now

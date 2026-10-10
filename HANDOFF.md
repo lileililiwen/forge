@@ -2,6 +2,112 @@
 
 ## Current state
 
+### web-assurance-browser delivered and archived (2026-10-10)
+
+`web-assurance-browser` closes audit gap 7: operators can now browse the
+seventeen assurance reads (`spec list|inspect|route`, `remediate
+scan|diff`, `describe list|show`, `classify list|show`, `contract
+list|inspect|emit`, `governance list|status|inspect`, `analytics
+metrics`, `studio preview` read) from the projects view instead of
+dropping to the CLI. Implemented, verified and archived as
+`openspec/changes/archive/2026-10-10-web-assurance-browser`, promoting
+canonical `web-assurance-browser` +2 requirements (no `--skip-specs`;
+archiver-stamped TBD Purpose replaced with a source-backed sentence):
+
+- **Seventeen read-only typed admin GET routes** (new
+  `src/api/admin/assurance.rs`, reusing `deploy_id_gate`, `guarded`,
+  `cors`, `error`, `scrub_*`): `GET /v1/admin/contracts` (list) +
+  `.../contracts/{family}` (inspect) over the vendored contract
+  catalog; project-bound `GET .../projects/{id}/specs` (list via
+  `spec::list_specs`), `.../specs/{spec}` (inspect via
+  `spec::read_spec` with CLI-parity prefix match), `.../spec/route?
+  finding=` (`spec::route_finding` with CLI-parity source, never
+  apply), `.../remediate/scan` (`remediation::scan`),
+  `.../remediate/diff?finding=&pack=` (server-side `build_plan` +
+  `diff`, no `--plan` file), `.../describe|classify/proposals` (list)
+  + `.../proposals/{proposal}` (show) via `semantic::decide::list|
+  read`, `.../contracts/emit?family=` (gate-result/readiness/
+  release-evidence-latest/capability; job-outcome + audit-event +
+  empty sources answer honest `unavailable-with-reason`),
+  `.../governance` (`list_providers`), `.../governance/status` +
+  `.../governance/inspect` (`evaluate_project` only — never
+  `check_project`; enabled external providers answer
+  `unavailable-with-reason`, adapters never run),
+  `.../analytics/metrics?window_days=` (registry-only
+  `aggregate_project_metrics` with empty externals; no provider probe,
+  no summary write, no journal), `.../studio/preview`
+  (`load_session` + `envelope_from_session`; none → `state: none`,
+  never start/stop/spawn). Session-gated; hostile ids are static
+  typed `400`s without echo; unmanaged ids typed `404`. No write, no
+  provider, no adapter, no shell, no journal row, no browser-supplied
+  path on any path; every response carries `contract:
+  API_CONTRACT_VERSION` plus the registry contract where one exists.
+- **Routing:** the nine assurance sections ride the shared
+  `Route::AdminCreation { registry, item, action }` validated-key
+  triple (creation-catalog precedent; disjoint keys) — no new variant,
+  no new `router.rs`/permission/authorize/exhaustiveness arm
+  (`router.rs` constant 999/1000; `deploy.rs` constant 991 via one
+  `dispatch_creation` branch); `route_assurance` matcher beside the
+  handlers via the `route_beside` fold; seventeen
+  `ROUTE_ADMIN_*` constants; beside-handler `assurance_error_status`
+  mapping for the reachable user-error codes.
+- **Catalog:** the seventeen `NotYetWeb` rows convert to
+  `web_at(Read, route, caps)` (caps verbatim; `studio preview` keeps
+  its `LocalWrite` risk with the read-only restriction documented);
+  count stays 234 (conversion); `problems()` empty. All writes stay
+  where they are (`spec generate|apply`, `remediate plan|apply`,
+  `classify apply|approve|reject` already web, untouched; `describe
+  suggest|approve|reject`, `classify suggest|derive`, `contract
+  validate`, `governance use`, `analytics inspect`, `studio
+  spec|refine` CLI-or-existing-web, no new write route).
+- **Frontend:** projects view gains a read-only "Assurance" card after
+  the creation-catalog browser (registry picker + cached client-side
+  search, list/inspect/route-or-scan-or-diff-or-emit-or-metrics-or-
+  preview rendering, CLI-only remainder derived from the loaded
+  command catalog as badges with reasons, honest
+  unavailable-with-reason states; explicit reads only, `role=status`
+  results, error-summary focus, native controls; no new dependency,
+  no `innerHTML`).
+- **Contract tests:** new
+  `tests/web_assurance_browser_contract.rs` (12 tests: auth, gates,
+  contract list/inspect incl. typed refusals, spec list/inspect/route
+  incl. journal-free, scan/diff incl. server-side rebuild parity,
+  describe/classify lists/shows, emit honest gaps, governance
+  local + external-unavailable + no-persist, analytics clamps +
+  no-probe-no-write, studio none-envelope, scrub, hostile/unknown,
+  catalog pins for all 17 rows + 17 CLI-or-web leftovers) plus pin
+  updates in `src/api/command_catalog/catalog.rs` (web vec +17, row
+  order corrected to `rows()` order) and
+  `tests/forge_web_command_catalog_contract.rs` (web-route +17 and
+  web-id +17 allowlists).
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors; pre-existing warnings only (`ShareSurface` unused import) |
+| `cargo test --test web_assurance_browser_contract` (new) | **12 passed / 0 failed** |
+| `cargo test --lib` | **1213 passed / 0 failed** (1 ignored) |
+| spec/remediation/governance/analytics CLI suites | **9 / 9 / 23 / 17 passed / 0 failed**; studio preview suites **7 + 1 passed** |
+| `cargo test --test forge_web_command_catalog_contract` | **8 passed + 1 pre-existing failure** (`cap` help-coverage gap, identical signature to the recorded pristine failure; no CLI file in this diff) |
+| `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin at workbench caret; this diff's app.js hunks exclude that region, `git diff` shows 0 `innerHTML` lines) |
+| `web_project_catalog_browser` / `web_release_deploy_history` / `web_agent_identity_readonly` / `web_creation_catalog_browser` / `portal_ui` / `forge_web_navigation` / `web_command_reference_browser` / `forge_web_maintainer_surface` | **10 / 9 / 10 / 10 / 21 / 9 / 6 / 5 passed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **101 passed / 0 failed** active and post-archive |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after TBD Purpose repair + pointer removal) |
+| `git diff --check` | clean (cached + worktree) |
+| live oracle (throwaway API:8766+web:4173, scratch `FORGE_REGISTRY` with alpha fixture, `FORGE_ADMIN_PROJECTS_ROOT` set, real Chromium via bundled Playwright, script in `/tmp` — never committed) | **VERIFIED**: login → `/projects` → per-registry list (specs/remediate/contracts/governance/analytics/studio) → contract inspect → spec route → remediate scan → diff with live pack `baseline-service@0.9.0` → emit (readiness) → metrics → governance status → preview (`state: none`) → CLI-only badges; curl cross-check of all seventeen routes (16×200 + typed 404 unknown-spec) + anon gate + unmanaged 404; **zero JS console/page/network errors, zero failed requests** |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| `forge gate --timeout-secs 600` (on the implementation tree) | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (403/403 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
+| `openspec archive web-assurance-browser --yes` | archived as `2026-10-10-web-assurance-browser`, no `--skip-specs`; canonical `web-assurance-browser` +2; post-archive validate **101 passed / 0 failed**, names PASS |
+
+Commits on `main`: implementation+specs+frontend+tests (commit 1 below)
++ this handoff (commit 2); nothing pushed; `openspec list`
+reports no active changes and no `current_spec` pointer remains.
+
+No active changes remain, so this handoff carries no `current_spec` pointer.
+
 ### web-creation-catalog-browser delivered and archived (2026-10-10)
 
 `web-creation-catalog-browser` closes audit gap 6: operators can now

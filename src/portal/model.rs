@@ -72,6 +72,76 @@ impl PortalSection {
             PortalSection::Settings => "Settings",
         }
     }
+    /// SPA deep-link for the section (`portal-spa-convergence`).
+    /// The SPA is the single interactive surface; the legacy
+    /// server-side portal HTML is a read-only pointer. CLI-only
+    /// sections return an empty route so the renderer never
+    /// names a deep-link no view serves.
+    pub fn spa_route(self) -> &'static str {
+        match self {
+            PortalSection::Projects => "/projects",
+            PortalSection::Features => "/workbench",
+            PortalSection::Components => "/projects",
+            PortalSection::Policies => "/workbench",
+            PortalSection::Specs => "/projects",
+            PortalSection::Agents => "/projects",
+            PortalSection::Deployments => "/delivery",
+            PortalSection::Repositories => "/management",
+            PortalSection::Documentation => "",
+            PortalSection::Analytics => "/projects",
+            PortalSection::Servers => "",
+            PortalSection::Settings => "/projects",
+        }
+    }
+    /// Coverage verdict for the section in the SPA
+    /// (`portal-spa-convergence`): `covered` (fully browsable
+    /// or executable in the SPA), `partial` (reads in the SPA,
+    /// writes stay in the terminal) or `cli-only` (no browser
+    /// surface by design; the command catalog reason applies).
+    pub fn web_coverage(self) -> &'static str {
+        match self {
+            PortalSection::Projects => "covered",
+            PortalSection::Features => "covered",
+            PortalSection::Components => "covered",
+            PortalSection::Policies => "partial",
+            PortalSection::Specs => "covered",
+            PortalSection::Agents => "covered",
+            PortalSection::Deployments => "covered",
+            PortalSection::Repositories => "partial",
+            PortalSection::Documentation => "cli-only",
+            PortalSection::Analytics => "partial",
+            PortalSection::Servers => "cli-only",
+            PortalSection::Settings => "partial",
+        }
+    }
+    /// One-line operator wording for the `web:` renderer line
+    /// (`portal-spa-convergence`).
+    pub fn spa_note(self) -> &'static str {
+        match self {
+            PortalSection::Projects => "fleet, catalog and reference browsers",
+            PortalSection::Features => "feature add/remove/upgrade run in the workbench",
+            PortalSection::Components => "creation-catalog browser",
+            PortalSection::Policies => "reads in the workbench; policy writes stay in the terminal",
+            PortalSection::Specs => "assurance browser; spec generate/apply run in the workbench",
+            PortalSection::Agents => "agent and identity reads",
+            PortalSection::Deployments => "deploy plan/apply plus release and deploy history",
+            PortalSection::Repositories => {
+                "workspace onboarding in management; git writes stay in the terminal"
+            }
+            PortalSection::Documentation => {
+                "provider translation; run `forge docs translate` in the terminal"
+            }
+            PortalSection::Analytics => {
+                "metrics read in the assurance browser; live inspect stays in the terminal"
+            }
+            PortalSection::Servers => {
+                "loopback transports; run `forge api serve` or `forge web serve` in the terminal"
+            }
+            PortalSection::Settings => {
+                "governance reads in the assurance browser; `governance use` stays in the terminal"
+            }
+        }
+    }
 }
 /// How the (optionally configured) workspace fleet registry projects
 /// into the portal. `None` (no registry configured) renders no fleet
@@ -228,6 +298,15 @@ pub struct PortalSectionView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<PortalEntry>,
     pub controls_available: Vec<String>,
+    /// SPA deep-link for this section (`portal-spa-convergence`):
+    /// one of the five dashboard routes, or empty for CLI-only
+    /// sections. Additive; pre-change payloads parse via default.
+    #[serde(default)]
+    pub spa_route: String,
+    /// SPA coverage verdict (`portal-spa-convergence`):
+    /// `covered` | `partial` | `cli-only`. Additive.
+    #[serde(default)]
+    pub web_coverage: String,
 }
 impl PortalSectionView {
     pub(super) fn rollup_status(entries: &[PortalEntry]) -> PortalStatus {

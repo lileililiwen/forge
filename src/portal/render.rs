@@ -7,7 +7,10 @@ use chrono::{DateTime, Utc};
 use super::model::PortalSectionView;
 
 /// detail line. The renderer prints the section heading,
-/// the rolled-up status and one line per entry.
+/// the rolled-up status and one line per entry. The SPA
+/// pointer (`portal-spa-convergence`) names the matching
+/// dashboard deep-link and the SPA coverage verdict so the
+/// legacy HTML reads as a pointer, not a second surface.
 pub fn render_section_human(view: &PortalSectionView) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -17,6 +20,21 @@ pub fn render_section_human(view: &PortalSectionView) -> String {
         status = view.status.id(),
         source = view.source,
         ts = view.generated_at,
+    ));
+    let spa = if view.spa_route.is_empty() {
+        "(none — CLI only)".to_string()
+    } else {
+        view.spa_route.clone()
+    };
+    let coverage = if view.web_coverage.is_empty() {
+        view.section.web_coverage()
+    } else {
+        view.web_coverage.as_str()
+    };
+    out.push_str(&format!("  spa: {spa}\n"));
+    out.push_str(&format!(
+        "  web: {coverage} — {note}\n",
+        note = view.section.spa_note()
     ));
     if let Some(id) = view.project_id.as_ref() {
         out.push_str(&format!("  project_id: {id}\n"));

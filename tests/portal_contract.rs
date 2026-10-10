@@ -322,3 +322,115 @@ fn view_for_fleet_section_succeeds_with_synthetic_id() {
     assert_eq!(json["view"]["section_id"], "servers");
     assert!(json["view"]["project_id"].is_null());
 }
+
+// `portal-spa-convergence`: the SPA is the single interactive surface
+// and the legacy server-side HTML is an honest pointer. Every section
+// names its deep-link and coverage verdict in both projections, and the
+// dashboard header says so once.
+
+const SPA_TRIPLES: [(&str, &str, &str); 12] = [
+    ("projects", "/projects", "covered"),
+    ("features", "/workbench", "covered"),
+    ("components", "/projects", "covered"),
+    ("policies", "/workbench", "partial"),
+    ("specs", "/projects", "covered"),
+    ("agents", "/projects", "covered"),
+    ("deployments", "/delivery", "covered"),
+    ("repositories", "/management", "partial"),
+    ("documentation", "", "cli-only"),
+    ("analytics", "/projects", "partial"),
+    ("servers", "", "cli-only"),
+    ("settings", "/projects", "partial"),
+];
+
+#[test]
+fn every_section_view_carries_its_spa_pointer_in_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("portal-spa");
+    create_fresh_project(&db, &proj, "portal-spa");
+    for (section, route, coverage) in SPA_TRIPLES {
+        let json = run_json(
+            &db,
+            &["portal", "view", section, "portal-spa", "--format", "json"],
+        );
+        let view = &json["view"];
+        assert_eq!(view["section_id"], section, "{section} id");
+        assert_eq!(view["spa_route"], route, "{section} route");
+        assert_eq!(view["web_coverage"], coverage, "{section} coverage");
+    }
+}
+
+#[test]
+fn dashboard_json_carries_spa_pointers_for_all_twelve_sections() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("portal-spa-dash");
+    create_fresh_project(&db, &proj, "portal-spa-dash");
+    let json = run_json(&db, &["portal", "dashboard", "portal-spa-dash"]);
+    let sections = json["dashboard"]["sections"].as_array().unwrap();
+    assert_eq!(sections.len(), 12);
+    for (section, route, coverage) in SPA_TRIPLES {
+        let found = sections
+            .iter()
+            .find(|s| s["section_id"] == section)
+            .unwrap_or_else(|| panic!("dashboard misses section {section}"));
+        assert_eq!(found["spa_route"], route, "{section} route");
+        assert_eq!(found["web_coverage"], coverage, "{section} coverage");
+    }
+}
+
+#[test]
+fn dashboard_human_output_names_the_spa_as_the_interactive_surface() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("portal-spa-human");
+    create_fresh_project(&db, &proj, "portal-spa-human");
+    let out = run(&db, &["portal", "dashboard", "portal-spa-human"]);
+    assert_eq!(out.status.code(), Some(0), "stderr={}", lossy(&out.stderr));
+    let stdout = lossy(&out.stdout);
+    assert!(
+        stdout.contains("interactive surface")
+            && stdout.contains("`forge web`")
+            && stdout.contains("read-only pointer"),
+        "dashboard must name the SPA as the interactive surface: {stdout}"
+    );
+    for route in ["/projects", "/workbench", "/management", "/delivery"] {
+        assert!(stdout.contains(route), "dashboard misses SPA route {route}");
+    }
+    // Every section pointer renders, including the CLI-only pair that
+    // must never name a dead deep-link.
+    for needle in [
+        "spa: /projects",
+        "spa: /workbench",
+        "spa: /delivery",
+        "spa: /management",
+        "spa: (none — CLI only)",
+        "web: covered",
+        "web: partial",
+        "web: cli-only",
+    ] {
+        assert!(stdout.contains(needle), "{needle} missing in {stdout}");
+    }
+}
+
+#[test]
+fn cli_only_section_view_names_no_dead_deep_link() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("portal-spa-cli");
+    create_fresh_project(&db, &proj, "portal-spa-cli");
+    for section in ["documentation", "servers"] {
+        let out = run(&db, &["portal", "view", section, "portal-spa-cli"]);
+        assert_eq!(out.status.code(), Some(0), "stderr={}", lossy(&out.stderr));
+        let stdout = lossy(&out.stdout);
+        assert!(
+            stdout.contains("spa: (none — CLI only)"),
+            "{section} must not name a deep-link: {stdout}"
+        );
+        assert!(
+            stdout.contains("web: cli-only"),
+            "{section} must carry the cli-only verdict: {stdout}"
+        );
+    }
+}

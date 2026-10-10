@@ -99,6 +99,9 @@ pub fn render_dashboard_human(view: &PortalDashboard) -> String {
         scope = view.scope.id(),
         ts = view.generated_at,
     ));
+    out.push_str(
+        "interactive surface: the SPA dashboard served by `forge web` (routes /projects /workbench /management /portfolio /delivery) — this legacy server-side HTML is a read-only pointer\n",
+    );
     if let Some(id) = view.project_id.as_ref() {
         out.push_str(&format!("project_id: {id}\n"));
     }

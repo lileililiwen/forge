@@ -319,6 +319,8 @@ fn build_section(
         source: source.to_string(),
         entries,
         controls_available: controls_for(section),
+        spa_route: section.spa_route().to_string(),
+        web_coverage: section.web_coverage().to_string(),
     };
     Ok(view)
 }

@@ -79,6 +79,57 @@ features: {}
     }
 
     #[test]
+    fn every_section_names_a_valid_spa_pointer() {
+        // The (section, spa_route, web_coverage) triple is the
+        // convergence contract: only the five dashboard routes (or
+        // empty for CLI-only) and only the three verdicts.
+        let expected: &[(&str, &str, &str)] = &[
+            ("projects", "/projects", "covered"),
+            ("features", "/workbench", "covered"),
+            ("components", "/projects", "covered"),
+            ("policies", "/workbench", "partial"),
+            ("specs", "/projects", "covered"),
+            ("agents", "/projects", "covered"),
+            ("deployments", "/delivery", "covered"),
+            ("repositories", "/management", "partial"),
+            ("documentation", "", "cli-only"),
+            ("analytics", "/projects", "partial"),
+            ("servers", "", "cli-only"),
+            ("settings", "/projects", "partial"),
+        ];
+        assert_eq!(expected.len(), SUPPORTED_SECTIONS.len());
+        for (id, route, coverage) in expected {
+            let section = parse_section(id).expect(id);
+            assert_eq!(section.spa_route(), *route, "{id} route");
+            assert_eq!(section.web_coverage(), *coverage, "{id} coverage");
+            assert!(
+                [
+                    "/projects",
+                    "/workbench",
+                    "/management",
+                    "/portfolio",
+                    "/delivery",
+                    ""
+                ]
+                .contains(&section.spa_route()),
+                "{id} names a route no dashboard view serves",
+            );
+            assert!(
+                ["covered", "partial", "cli-only"].contains(&section.web_coverage()),
+                "{id} names an unknown verdict",
+            );
+            assert!(
+                (*coverage == "cli-only") == section.spa_route().is_empty(),
+                "{id} must pair cli-only with an empty route and vice versa",
+            );
+            assert!(
+                !section.spa_note().trim().is_empty(),
+                "{id} must carry an operator note",
+            );
+        }
+    }
+
+    #[test]
     fn parse_section_is_idempotent_on_whitespace() {
         let parsed = parse_section("  projects  ").unwrap();
         assert_eq!(parsed, PortalSection::Projects);
@@ -289,6 +340,8 @@ portal:
             source: "registry".to_string(),
             entries: Vec::new(),
             controls_available: Vec::new(),
+            spa_route: PortalSection::Projects.spa_route().to_string(),
+            web_coverage: PortalSection::Projects.web_coverage().to_string(),
         };
         let section_b = PortalSectionView {
             status: PortalStatus::Unavailable,
@@ -386,6 +439,8 @@ portal:
                 source: source.to_string(),
                 entries,
                 controls_available: controls_for(section),
+                spa_route: section.spa_route().to_string(),
+                web_coverage: section.web_coverage().to_string(),
             });
         }
         Ok(PortalDashboard {
@@ -454,6 +509,9 @@ portal:
             "rollup",
             "sections",
             "recent operations",
+            "interactive surface",
+            "forge web",
+            "read-only pointer",
         ] {
             assert!(text.contains(needle), "{needle} missing in {text}");
         }
@@ -501,6 +559,8 @@ portal:
             source: "feature".to_string(),
             entries: vec![entry],
             controls_available: controls_for(PortalSection::Features),
+            spa_route: PortalSection::Features.spa_route().to_string(),
+            web_coverage: PortalSection::Features.web_coverage().to_string(),
         };
         let text = render_section_human(&view);
         for needle in [
@@ -510,6 +570,8 @@ portal:
             "p1:auth",
             "version=0.1.0",
             "controls_available",
+            "spa: /workbench",
+            "web: covered",
         ] {
             assert!(text.contains(needle), "{needle} missing in {text}");
         }

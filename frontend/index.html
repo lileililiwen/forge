@@ -242,6 +242,30 @@
                   <p class="muted">Read-only staged-delivery phase from the journal. Providers and adapters run only after you preview and confirm an action below.</p>
                   <div id="wb-delivery" class="wb-health" role="status" aria-live="polite"></div>
                 </section>
+                <section class="wb-card" aria-labelledby="wb-agent-identity-title">
+                  <h3 id="wb-agent-identity-title">Agent &amp; identity</h3>
+                  <p class="muted">Read-only recorded agent sessions, persisted identity sessions and the validated identity configuration for the open project. Lifecycle writes, secrets and the OIDC round-trip stay in the terminal.</p>
+                  <div id="agent-identity-error-summary" class="error-summary" tabindex="-1" hidden></div>
+                  <p class="wb-subtitle">Agent sessions</p>
+                  <div class="wb-plan-tools">
+                    <button id="agent-identity-agents" class="button button-quiet" type="button">List agent sessions</button>
+                    <label class="field" for="agent-identity-agent-id"><span class="field-label">Agent session id</span><input id="agent-identity-agent-id" type="text" placeholder="e.g. main-session" autocomplete="off" aria-describedby="agent-identity-agent-id-hint"><span class="field-hint" id="agent-identity-agent-id-hint">The session id from the list above.</span></label>
+                    <button id="agent-identity-agent-inspect" class="button button-quiet" type="button">Inspect agent session</button>
+                  </div>
+                  <dl id="agent-identity-agents-result" class="detail-list" role="status"></dl>
+                  <p class="wb-subtitle">Identity sessions</p>
+                  <div class="wb-plan-tools">
+                    <button id="agent-identity-sessions" class="button button-quiet" type="button">List identity sessions</button>
+                    <label class="field" for="agent-identity-session-id"><span class="field-label">Identity session id</span><input id="agent-identity-session-id" type="text" placeholder="e.g. 9f2c…" autocomplete="off" aria-describedby="agent-identity-session-id-hint"><span class="field-hint" id="agent-identity-session-id-hint">The hex session id from the list above.</span></label>
+                    <button id="agent-identity-session-inspect" class="button button-quiet" type="button">Inspect identity session</button>
+                  </div>
+                  <dl id="agent-identity-sessions-result" class="detail-list" role="status"></dl>
+                  <p class="wb-subtitle">Identity configuration</p>
+                  <div class="wb-plan-tools">
+                    <button id="agent-identity-config" class="button button-quiet" type="button">Read identity config</button>
+                  </div>
+                  <dl id="agent-identity-config-result" class="detail-list" role="status"></dl>
+                </section>
                 <section class="wb-card" aria-labelledby="wb-evidence-title">
                   <h3 id="wb-evidence-title">Journal evidence</h3>
                   <div class="table-scroll compact" tabindex="0" role="region" aria-label="Project journal evidence">

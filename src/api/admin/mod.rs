@@ -1,5 +1,6 @@
 //! JSON-only Forge-wide administrator endpoints used by `frontend/`.
 
+pub mod agent_identity;
 pub mod deploy;
 pub mod gateway;
 pub mod history;

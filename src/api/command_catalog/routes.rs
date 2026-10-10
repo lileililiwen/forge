@@ -282,6 +282,25 @@ pub(super) const WEB_ROUTE_ADMIN_CATALOG_INSPECT: &str =
 pub(super) const WEB_ROUTE_ADMIN_FLEET_INSPECT: &str =
     super::super::admin::ROUTE_ADMIN_FLEET_INSPECT;
 
+/// Agent/identity read-only typed routes (`web-agent-identity-readonly`).
+/// These reference the admin module's own route constants so the
+/// catalog and the live endpoints can never name different paths: the
+/// recorded agent session list + status, the validated identity
+/// configuration, and the persisted identity session list + inspect —
+/// all read-only, session-gated, provider- and adapter-free.
+pub(super) const WEB_ROUTE_ADMIN_AGENT_LIST: &str = super::super::admin::ROUTE_ADMIN_AGENT_LIST;
+
+pub(super) const WEB_ROUTE_ADMIN_AGENT_STATUS: &str = super::super::admin::ROUTE_ADMIN_AGENT_STATUS;
+
+pub(super) const WEB_ROUTE_ADMIN_IDENTITY_CONFIG: &str =
+    super::super::admin::ROUTE_ADMIN_IDENTITY_CONFIG;
+
+pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSIONS: &str =
+    super::super::admin::ROUTE_ADMIN_IDENTITY_SESSIONS;
+
+pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
+    super::super::admin::ROUTE_ADMIN_IDENTITY_SESSION_INSPECT;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -357,6 +376,11 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_CATALOG_GAPS,
     WEB_ROUTE_ADMIN_CATALOG_INSPECT,
     WEB_ROUTE_ADMIN_FLEET_INSPECT,
+    WEB_ROUTE_ADMIN_AGENT_LIST,
+    WEB_ROUTE_ADMIN_AGENT_STATUS,
+    WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
+    WEB_ROUTE_ADMIN_IDENTITY_SESSIONS,
+    WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

@@ -3868,6 +3868,11 @@
     });
     document.getElementById("wb-plan").addEventListener("click", planUpgrade);
     document.getElementById("wb-apply").addEventListener("click", applyUpgrade);
+    document.getElementById("agent-identity-agents").addEventListener("click", agentIdentityListAgents);
+    document.getElementById("agent-identity-agent-inspect").addEventListener("click", agentIdentityInspectAgent);
+    document.getElementById("agent-identity-sessions").addEventListener("click", agentIdentityListSessions);
+    document.getElementById("agent-identity-session-inspect").addEventListener("click", agentIdentityInspectSession);
+    document.getElementById("agent-identity-config").addEventListener("click", agentIdentityReadConfig);
     document.getElementById("wb-maintain-refresh").addEventListener("click", () => {
       if (!workbench.id) { showWorkbenchNotice("Select a managed project first."); return; }
       loadMaintain(workbench.id);
@@ -5296,6 +5301,148 @@
       rows.push(detailRow(`#${entry.op_id} ${entry.kind}`, `${entry.state} · ${entry.detail || "—"}`));
     }
     historyResult("history-status-result", rows);
+  }
+
+  // ---- Agent & identity (web-agent-identity-readonly) ------------------
+  // Read-only recorded agent sessions, persisted identity sessions and the
+  // validated identity configuration for the open Workbench project. Every
+  // call is a GET over the five agent/identity routes; failures report
+  // through the card error summary with focus, results render as scalar
+  // detail rows with `role=status`. No write, no provider, no adapter
+  // subprocess, no secret material, no new dependency.
+  function agentIdentityProject() {
+    const id = document.getElementById("workbench-project").value;
+    if (!id) {
+      renderErrorSummary("agent-identity-error-summary", "There is a problem reading sessions", [{ fieldId: "workbench-project", label: "Project", message: "Choose a project first." }]);
+      return null;
+    }
+    return id;
+  }
+
+  function agentIdentityResult(boxId, rows) {
+    const box = document.getElementById(boxId);
+    box.replaceChildren();
+    setResultRole(box, false);
+    for (const row of rows) box.append(row);
+  }
+
+  function agentIdentityFailure(action, err) {
+    renderErrorSummary("agent-identity-error-summary", action, [{ fieldId: "workbench-project", label: "Project", message: (err && err.message) || "Sessions are unavailable; start the Forge API and reload." }]);
+  }
+
+  async function agentIdentityListAgents() {
+    clearErrorSummary("agent-identity-error-summary");
+    const id = agentIdentityProject();
+    if (!id) return;
+    const box = document.getElementById("agent-identity-agents-result");
+    box.replaceChildren(el("p", "muted", "Loading agent sessions…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/agents`, { headers: { Accept: "application/json" } });
+    } catch (err) { agentIdentityFailure("There is a problem listing agent sessions", err); box.replaceChildren(); return; }
+    const entries = data.agent_sessions || [];
+    if (!entries.length) { agentIdentityResult("agent-identity-agents-result", [el("p", "muted", "No recorded agent sessions for this project.")]); return; }
+    const rows = [];
+    for (const entry of entries) {
+      rows.push(detailRow("Session", entry.session_id));
+      rows.push(detailRow("Provider", entry.provider));
+      rows.push(detailRow("State", entry.state));
+      rows.push(detailRow("Spec", entry.spec_id || "—"));
+    }
+    agentIdentityResult("agent-identity-agents-result", rows);
+  }
+
+  async function agentIdentityInspectAgent() {
+    clearErrorSummary("agent-identity-error-summary");
+    const id = agentIdentityProject();
+    if (!id) return;
+    const sessionId = document.getElementById("agent-identity-agent-id").value.trim();
+    if (!sessionId) { renderErrorSummary("agent-identity-error-summary", "There is a problem inspecting the agent session", [{ fieldId: "agent-identity-agent-id", label: "Agent session id", message: "Enter a session id from the list." }]); return; }
+    const box = document.getElementById("agent-identity-agents-result");
+    box.replaceChildren(el("p", "muted", "Loading agent session…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/agents/${encodeURIComponent(sessionId)}`, { headers: { Accept: "application/json" } });
+    } catch (err) { agentIdentityFailure("There is a problem inspecting the agent session", err); box.replaceChildren(); return; }
+    const session = data.session || {};
+    const adapter = data.adapter || {};
+    const rows = [
+      detailRow("Session", session.session_id),
+      detailRow("Provider", session.provider),
+      detailRow("State", session.state),
+      detailRow("Spec", session.spec_id || "—"),
+      detailRow("Live", data.live === null ? `recorded only — ${data.live_note || "see the terminal for liveness"}` : "—"),
+      detailRow("Adapter", adapter.available ? "available" : `unavailable — ${adapter.reason || "not present on this host"}`),
+    ];
+    for (const transition of session.transitions || []) {
+      rows.push(detailRow(`Transition ${transition.kind}`, `${transition.state}: ${transition.note || "—"}`));
+    }
+    agentIdentityResult("agent-identity-agents-result", rows);
+  }
+
+  async function agentIdentityListSessions() {
+    clearErrorSummary("agent-identity-error-summary");
+    const id = agentIdentityProject();
+    if (!id) return;
+    const box = document.getElementById("agent-identity-sessions-result");
+    box.replaceChildren(el("p", "muted", "Loading identity sessions…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/identity/sessions`, { headers: { Accept: "application/json" } });
+    } catch (err) { agentIdentityFailure("There is a problem listing identity sessions", err); box.replaceChildren(); return; }
+    const entries = data.sessions || [];
+    if (!entries.length) { agentIdentityResult("agent-identity-sessions-result", [el("p", "muted", "No persisted identity sessions for this project.")]); return; }
+    const rows = [];
+    for (const entry of entries) {
+      rows.push(detailRow("Session", entry.session_id));
+      rows.push(detailRow("Subject", entry.subject));
+      rows.push(detailRow("State", entry.state));
+      rows.push(detailRow("Expires", entry.expires_at));
+    }
+    agentIdentityResult("agent-identity-sessions-result", rows);
+  }
+
+  async function agentIdentityInspectSession() {
+    clearErrorSummary("agent-identity-error-summary");
+    const id = agentIdentityProject();
+    if (!id) return;
+    const sessionId = document.getElementById("agent-identity-session-id").value.trim();
+    if (!sessionId) { renderErrorSummary("agent-identity-error-summary", "There is a problem inspecting the identity session", [{ fieldId: "agent-identity-session-id", label: "Identity session id", message: "Enter a session id from the list." }]); return; }
+    const box = document.getElementById("agent-identity-sessions-result");
+    box.replaceChildren(el("p", "muted", "Loading identity session…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/identity/sessions/${encodeURIComponent(sessionId)}`, { headers: { Accept: "application/json" } });
+    } catch (err) { agentIdentityFailure("There is a problem inspecting the identity session", err); box.replaceChildren(); return; }
+    const session = data.session || {};
+    agentIdentityResult("agent-identity-sessions-result", [
+      detailRow("Session", session.session_id),
+      detailRow("Provider", session.provider),
+      detailRow("Subject", session.subject),
+      detailRow("Permissions", (session.permissions || []).join(", ")),
+      detailRow("State", session.state),
+      detailRow("Expires", session.expires_at),
+    ]);
+  }
+
+  async function agentIdentityReadConfig() {
+    clearErrorSummary("agent-identity-error-summary");
+    const id = agentIdentityProject();
+    if (!id) return;
+    const box = document.getElementById("agent-identity-config-result");
+    box.replaceChildren(el("p", "muted", "Loading identity config…"));
+    let data;
+    try {
+      data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/identity/config`, { headers: { Accept: "application/json" } });
+    } catch (err) { agentIdentityFailure("There is a problem reading the identity config", err); box.replaceChildren(); return; }
+    const cfg = data.identity_config || {};
+    agentIdentityResult("agent-identity-config-result", [
+      detailRow("Provider", cfg.provider),
+      detailRow("Issuer", cfg.issuer),
+      detailRow("Client", cfg.client_id),
+      detailRow("Scopes", (cfg.scopes || []).join(" ")),
+      detailRow("Admin claim", cfg.admin_claim),
+    ]);
   }
 
   function initDelivery(projects) {

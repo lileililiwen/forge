@@ -56,6 +56,7 @@ pub(in crate::api) fn err_status(err: &ForgeError) -> u16 {
         "studio-revision-conflict" => 409,
         "api-invalid"
         | "manifest-invalid"
+        | "identity-invalid"
         | "manifest-not-found"
         | "path-unavailable"
         | "unknown-project"
@@ -93,12 +94,11 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
     let path = path.trim_end_matches('/');
     let normalized = if path.is_empty() { "/" } else { path };
     let segments: Vec<&str> = normalized.trim_start_matches('/').split('/').collect();
-    // Read-only release/deploy history (`web-release-deploy-history`) is
-    // matched beside its handlers so this table stays under the
-    // source-file-size cap. The shapes never collide with the plan/apply
-    // arms below, so trying them first shadows no existing route; a miss
-    // falls through to the table.
-    if let Some(route) = super::admin::history::route_history(method, segments.as_slice()) {
+    // Read-only history + agent/identity reads live beside their handlers
+    // so this table stays under the cap; the shapes shadow no arm below.
+    if let Some(route) = super::admin::history::route_history(method, segments.as_slice())
+        .or_else(|| super::admin::agent_identity::route_agent_identity(method, segments.as_slice()))
+    {
         return Some(route);
     }
     match (method, segments.as_slice()) {
@@ -383,11 +383,9 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
         // own OPTIONS arms.
         ("OPTIONS", ["v1", "admin", "projects", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "projects", _, _]) => Some(Route::AdminOptions),
-        // The lifecycle-write routes (`feature/remove`, `feature/upgrade`,
-        // `spec/apply`) are six-segment paths, so their CORS preflight needs a
-        // matching six-segment OPTIONS arm; the four- and five-segment arms
-        // above never match a six-segment request.
-        ("OPTIONS", ["v1", "admin", "projects", _, _, _]) => Some(Route::AdminOptions),
+        // The six-segment lifecycle writes and the seven-segment identity
+        // session inspect share one six-or-more tail arm for preflight.
+        ("OPTIONS", ["v1", "admin", "projects", _, _, _, ..]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _]) => Some(Route::AdminOptions),
         ("OPTIONS", ["v1", "admin", "portfolio", _, _]) => Some(Route::AdminOptions),
         // The portfolio removal/import routes (`tags/remove`,
@@ -641,6 +639,9 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminCatalogGaps
         | Route::AdminCatalogInspect { .. }
         | Route::AdminFleetInspect { .. }
+        | Route::AdminProjectAgents { .. }
+        | Route::AdminProjectIdentityConfig { .. }
+        | Route::AdminProjectIdentitySessions { .. }
         | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
@@ -784,6 +785,9 @@ pub fn handle(
             | Route::AdminProjectDeployHistory { .. }
             | Route::AdminProjectDeployInspect { .. }
             | Route::AdminProjectDeployStatus { .. }
+            | Route::AdminProjectAgents { .. }
+            | Route::AdminProjectIdentityConfig { .. }
+            | Route::AdminProjectIdentitySessions { .. }
             | Route::AdminProjectPublishPlan { .. }
             | Route::AdminProjectPublish { .. }
             | Route::AdminProjectDeliveryStatus { .. }
@@ -978,7 +982,10 @@ pub fn handle(
         | Route::AdminCatalogLanguages
         | Route::AdminCatalogGaps
         | Route::AdminCatalogInspect { .. }
-        | Route::AdminFleetInspect { .. } => not_found(),
+        | Route::AdminFleetInspect { .. }
+        | Route::AdminProjectAgents { .. }
+        | Route::AdminProjectIdentityConfig { .. }
+        | Route::AdminProjectIdentitySessions { .. } => not_found(),
     }
 }
 

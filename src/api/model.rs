@@ -485,6 +485,31 @@ pub enum Route {
     AdminProjectDeployStatus {
         id: String,
     },
+    /// `GET /v1/admin/projects/{id}/agents` (list) and
+    /// `GET /v1/admin/projects/{id}/agents/{session_id}` (status) —
+    /// the read-only recorded agent sessions through
+    /// `agent::{list_sessions, status_for}`. No write, no adapter
+    /// subprocess, no provider contact.
+    AdminProjectAgents {
+        id: String,
+        session: Option<String>,
+    },
+    /// `GET /v1/admin/projects/{id}/identity/config` — the read-only
+    /// manifest identity-block validation through
+    /// `IdentityConfig::from_manifest_opt`. No provider contact, no
+    /// challenge, no write.
+    AdminProjectIdentityConfig {
+        id: String,
+    },
+    /// `GET /v1/admin/projects/{id}/identity/sessions` (list) and
+    /// `GET .../sessions/{session_id}` (inspect) — the read-only
+    /// persisted identity sessions through
+    /// `identity::{list_sessions, load_session}`. No mint, no
+    /// revoke, no secret material.
+    AdminProjectIdentitySessions {
+        id: String,
+        session: Option<String>,
+    },
     /// `GET /v1/admin/projects/{id}/publish/plan` — the read-only provider
     /// publish plan, exposed as a session-gated admin route that resolves the
     /// provider id, the provider configuration and the committed git revision

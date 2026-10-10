@@ -303,6 +303,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/projects/catalog/gaps",
                         "GET /v1/admin/projects/{id}/catalog",
                         "GET /v1/admin/fleet/{entry}",
+                        "GET /v1/admin/projects/{id}/agents",
+                        "GET /v1/admin/projects/{id}/agents/{session_id}",
+                        "GET /v1/admin/projects/{id}/identity/config",
+                        "GET /v1/admin/projects/{id}/identity/sessions",
+                        "GET /v1/admin/projects/{id}/identity/sessions/{session_id}",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -385,8 +390,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
     // typed read-only admin GETs; and the history package
     // (`web-release-deploy-history`) turns the persisted release
     // list/inspect, deploy list/inspect and journal status reads into
-    // typed read-only admin GETs. All now join the fleet read rows as
-    // `web`.
+    // typed read-only admin GETs; and the agent/identity package
+    // (`web-agent-identity-readonly`) turns the recorded agent session
+    // list/status, the validated identity config and the persisted
+    // identity session list/inspect reads into typed read-only admin
+    // GETs. All now join the fleet read rows as `web`.
     let web_ids: BTreeSet<&str> = commands
         .iter()
         .filter(|row| row["availability"] == "web")
@@ -466,6 +474,11 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
             "portfolio.share.publish",
             "portfolio.share.reconcile",
             "portfolio.share.audit",
+            "agent.status",
+            "agent.list",
+            "identity.validate-config",
+            "identity.session-list",
+            "identity.session-inspect",
         ])
     );
 }

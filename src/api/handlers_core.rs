@@ -133,6 +133,9 @@ pub(super) fn authorize(
         | Route::AdminProjectDeployHistory { .. }
         | Route::AdminProjectDeployInspect { .. }
         | Route::AdminProjectDeployStatus { .. }
+        | Route::AdminProjectAgents { .. }
+        | Route::AdminProjectIdentityConfig { .. }
+        | Route::AdminProjectIdentitySessions { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
         | Route::AdminProjectDeliveryStatus { .. }

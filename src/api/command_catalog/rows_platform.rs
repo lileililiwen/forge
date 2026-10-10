@@ -8,10 +8,12 @@ use super::routes::{
     REASON_TRANSPORT, REASON_TTY_HIDDEN,
 };
 use super::routes::{
+    WEB_ROUTE_ADMIN_AGENT_LIST, WEB_ROUTE_ADMIN_AGENT_STATUS,
     WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY, WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
     WEB_ROUTE_ADMIN_DELIVERY_PROMOTE, WEB_ROUTE_ADMIN_DELIVERY_STAGE,
-    WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_STUDIO_REFINE,
-    WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
+    WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
+    WEB_ROUTE_ADMIN_IDENTITY_SESSIONS, WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
+    WEB_ROUTE_ADMIN_STUDIO_REFINE, WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
 };
 
 impl CatalogBuilder {
@@ -209,14 +211,14 @@ impl CatalogBuilder {
             REASON_LOCAL_FS,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("identity"),
             "validate-config",
             "Validate the manifest's `identity:` block without contacting any provider.",
             Identity,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
             caps_local,
         );
         self.leaf(
@@ -239,24 +241,24 @@ impl CatalogBuilder {
             REASON_TTY_HIDDEN,
             none,
         );
-        self.leaf(
+        self.web_at(
             Some("identity"),
             "session-list",
             "List every persisted admin session for the named project.",
             Identity,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_IDENTITY_SESSIONS,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("identity"),
             "session-inspect",
             "Inspect one persisted admin session.",
             Identity,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
             caps_local,
         );
         self.cli_only(
@@ -269,14 +271,14 @@ impl CatalogBuilder {
             REASON_LOCAL_FS,
             caps_local,
         );
-        self.leaf(
+        self.cli_only(
             Some("identity"),
             "session-terminate",
             "Terminate the named admin session and remove its persisted state.",
             Identity,
             Project,
             SessionAdmin,
-            NotYetWeb,
+            REASON_LOCAL_FS,
             caps_local,
         );
         self.group(
@@ -427,24 +429,24 @@ impl CatalogBuilder {
             REASON_AGENT,
             caps_local,
         );
-        self.leaf(
+        self.web_at(
             Some("agent"),
             "status",
             "Show the current agent session status for the project.",
             Creation,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_AGENT_STATUS,
             caps_registry,
         );
-        self.leaf(
+        self.web_at(
             Some("agent"),
             "list",
             "List the agent sessions Forge knows about.",
             Creation,
             Project,
             Read,
-            NotYetWeb,
+            WEB_ROUTE_ADMIN_AGENT_LIST,
             caps_registry,
         );
         self.cli_only(

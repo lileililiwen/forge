@@ -281,6 +281,15 @@ pub(in crate::api) fn handle(
         Route::AdminProjectDeployStatus { id } => {
             super::history::deploy_status(config, db_path, request, id)
         }
+        Route::AdminProjectAgents { id, session } => {
+            super::agent_identity::agent_sessions(config, db_path, request, id, session)
+        }
+        Route::AdminProjectIdentityConfig { id } => {
+            super::agent_identity::identity_config(config, db_path, request, id)
+        }
+        Route::AdminProjectIdentitySessions { id, session } => {
+            super::agent_identity::identity_sessions(config, db_path, request, id, session)
+        }
         Route::AdminProjectPublishPlan { id } => publish_plan(config, db_path, request, id),
         Route::AdminProjectPublish { id } => publish_write(config, db_path, request, id),
         Route::AdminProjectDeliveryStatus { id } => delivery_status(config, db_path, request, id),

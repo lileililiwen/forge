@@ -146,3 +146,29 @@ pub const ROUTE_ADMIN_DEPLOY_HISTORY: &str = "GET /v1/admin/projects/{id}/deploy
 pub const ROUTE_ADMIN_DEPLOY_INSPECT: &str = "GET /v1/admin/projects/{id}/deploys/{deploy_id}";
 
 pub const ROUTE_ADMIN_DEPLOY_STATUS: &str = "GET /v1/admin/projects/{id}/deploy/status";
+
+/// Read-only agent sessions (`web-agent-identity-readonly`, audit gap 5).
+/// Both routes are session-gated GETs over the existing Core agent
+/// store (`.forge/agents/`): the recorded session list and one
+/// recorded session. No write, no adapter subprocess, no provider,
+/// no shell. Exported so the command catalog names the exact paths
+/// the router registers, keeping the two in lockstep.
+pub const ROUTE_ADMIN_AGENT_LIST: &str = "GET /v1/admin/projects/{id}/agents";
+
+pub const ROUTE_ADMIN_AGENT_STATUS: &str = "GET /v1/admin/projects/{id}/agents/{session_id}";
+
+/// Read-only identity sessions + config validation
+/// (`web-agent-identity-readonly`, audit gap 5). All three routes are
+/// session-gated GETs over the existing Core identity store
+/// (`.forge/identity/`) and the manifest's `identity:` block: the
+/// persisted session list, one persisted session, and the validated
+/// identity configuration. No write, no challenge, no mint, no
+/// provider contact, no secret material. Exported so the command
+/// catalog names the exact paths the router registers, keeping the
+/// two in lockstep.
+pub const ROUTE_ADMIN_IDENTITY_CONFIG: &str = "GET /v1/admin/projects/{id}/identity/config";
+
+pub const ROUTE_ADMIN_IDENTITY_SESSIONS: &str = "GET /v1/admin/projects/{id}/identity/sessions";
+
+pub const ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
+    "GET /v1/admin/projects/{id}/identity/sessions/{session_id}";

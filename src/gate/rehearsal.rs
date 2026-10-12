@@ -332,11 +332,14 @@ pub fn parse_rehearsal(value: &serde_json::Value, dir: &Path) -> Option<GateRehe
         return None;
     }
     let wire: WireRehearsal = serde_json::from_value(value.clone()).ok()?;
-    // The producer's own side-effect markers, re-checked on the parsed
+    // The producer's own side-effect markers, re-read from the typed
     // document rather than trusted from the shape test: a document that
     // claims `dry_run: true` while reporting `executed: true` is a
-    // contradiction, and Forge refuses to interpret it at all.
-    if wire.executed || wire.persisted {
+    // contradiction, and Forge refuses to interpret it at all. `dry_run`
+    // is already implied by detection; it is re-read here so all four
+    // markers are asserted in one place and this refusal survives any
+    // future relaxation of [`declares_rehearsal`].
+    if !wire.dry_run || wire.executed || wire.persisted {
         return None;
     }
     if wire.blocking_prediction.would_block == Some(false) {

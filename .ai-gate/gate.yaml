@@ -17,12 +17,14 @@ blocking:
 
 # Per-check execution deadlines. Unlisted checks take the runtime default
 # (60s). `tests` and `declared-verification` both bind `cargo test
-# --workspace`, which measures ~289s on this machine, so the default timed
-# both out and surfaced as REVIEW_REQUIRED — a claim about the clock, not
-# about the code. This is the per-check timeout declaration.
+# --workspace`, which measures ~289s warm on this machine and considerably
+# more on a cold dependency build. The default timed both out and surfaced
+# as REVIEW_REQUIRED — a claim about the clock, not about the code.
+# Note these two checks duplicate the same command, so the gate runs the
+# workspace suite twice; the deadline is sized for one run.
 timeouts:
-  tests: 600000
-  declared-verification: 600000
+  tests: 1800000
+  declared-verification: 1800000
 
 commands:
   # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.

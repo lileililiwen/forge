@@ -2,6 +2,33 @@
 
 ## Current state
 
+### gate-rehearsal-document-consumption delivered and archived (2026-10-12)
+
+`gate-rehearsal-document-consumption` is implemented, verified and
+archived as
+`openspec/changes/archive/2026-10-12-gate-rehearsal-document-consumption`,
+updating the `gate-runtime-evidence` spec (+1, no `--skip-specs`): the
+gate engine consumes rehearsal documents for planning and review
+(`src/gate/rehearsal.rs`, CLI wiring, fixture plan JSON, documented-help
+contract tests, fixture NOTES).
+
+Evidence at archive:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` / `cargo build` / `git diff --check` | clean (fmt applied once) / 0 errors / clean |
+| `cargo test --lib gate::` | **44 passed / 0 failed** |
+| `cargo test --test gate_contract` | **29 passed / 0 failed** |
+| `check-openspec-change-names` | PASS |
+| `openspec validate --all --strict` | **103 passed / 0 failed** (104 active pre-archive) |
+| `forge gate --dry-run` | plan rendered |
+| `forge gate --timeout-secs 600` | **7 pass, 0 attributable fail** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (406/406); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter 60s timeouts, identical signature to prior entries) |
+| `openspec archive` | archived as `2026-10-12-gate-rehearsal-document-consumption`; `openspec list` clean |
+| `openspec list` | no active changes |
+
+Implementation commit: `93e793d`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### platform-gate-result-major-adoption delivered and archived (2026-10-12)
 
 `platform-gate-result-major-adoption` migrates Forge, as a **producer** of

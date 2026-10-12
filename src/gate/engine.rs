@@ -22,6 +22,7 @@ use super::model::{
     DeclaredRuntime, GateAggregate, GateCheck, GateCheckState, GateConfig, GateEvidence,
     GateFreshness, GateOutcome, MappedDocument, ResolvedRuntime,
 };
+use super::rehearsal::parse_rehearsal;
 
 /// Validate a `--timeout-secs` override before anything runs.
 pub fn parse_timeout_secs(raw: u64) -> Result<Duration, ForgeError> {
@@ -291,8 +292,32 @@ pub fn run_gate(dir: &Path, project_id: &str, config: &GateConfig, dry_run: bool
         )
     };
     let document: Option<serde_json::Value> = serde_json::from_str(&raw).ok();
-    if let Some(value) = document {
-        if let Some(mapped) = parse_gate_document(&value, dir) {
+    if let Some(value) = &document {
+        // The rehearsal detector runs BEFORE the status-document parse.
+        // A document that declares itself a rehearsal is a rehearsal
+        // even if a future sibling gave it a `blocked` bit: detection by
+        // shape first is what makes "a rehearsal is never evidence"
+        // structural rather than incidental.
+        if let Some(rehearsal) = parse_rehearsal(value, dir) {
+            if dry_run {
+                return GateOutcome::Rehearsal {
+                    runtime: resolved.name,
+                    runtime_version,
+                    rehearsal,
+                };
+            }
+            // A rehearsal answers nothing, so a rehearsal answering a
+            // real run is a contradiction: reported, never evidence.
+            return GateOutcome::Unavailable {
+                reason: format!(
+                    "gate runtime `{}` answered a non-dry-run gate invocation with a plan \
+                     rehearsal document; a rehearsal executes nothing and is never evidence, \
+                     never a pass",
+                    resolved.name
+                ),
+            };
+        }
+        if let Some(mapped) = parse_gate_document(value, dir) {
             let revision = capture_revision(dir);
             let aggregate =
                 classify_aggregate(&mapped.status, mapped.blocked, output.status.success());
@@ -314,9 +339,12 @@ pub fn run_gate(dir: &Path, project_id: &str, config: &GateConfig, dry_run: bool
         }
     }
     if dry_run {
-        // The real sibling's dry-run surface: a human plan with exit 0
-        // and no JSON composition (verified at driftwatchdog `25811ed`).
-        // It is a genuine side-effect-free preview, not evidence.
+        // The degrade path: the runtime answered a rehearsal with exit 0
+        // and something Forge does not recognise as a rehearsal document
+        // — the older sibling's human plan text, an unrecognised contract
+        // family, a renamed required field, or any non-JSON output. It is
+        // a genuine side-effect-free preview, not evidence, and it is
+        // never a verdict.
         if output.status.success() {
             let plan = bounded_plan_lines(&raw, dir);
             if !plan.is_empty() {
@@ -716,6 +744,11 @@ pub fn evidence_summary(evidence: &GateEvidence) -> String {
 /// Journal verdict for one outcome: `done` for a passed aggregate,
 /// `blocked` for a blocked one, `failed` for every other attempted run
 /// (failed, unknown, unavailable, timeout). `partial` stays reserved.
+///
+/// A rehearsal or a plan preview returns `rehearsed`: nothing was
+/// attempted, so there is no run outcome to journal, and `done` — the
+/// word that means the run succeeded — would be the one claim a rehearsal
+/// can never support.
 pub fn journal_verdict(outcome: &GateOutcome) -> &'static str {
     match outcome {
         GateOutcome::Evidence(evidence) => match evidence.aggregate {
@@ -723,7 +756,7 @@ pub fn journal_verdict(outcome: &GateOutcome) -> &'static str {
             GateAggregate::Blocked => "blocked",
             _ => "failed",
         },
-        GateOutcome::PlanPreview { .. } => "done",
+        GateOutcome::PlanPreview { .. } | GateOutcome::Rehearsal { .. } => "rehearsed",
         GateOutcome::Unavailable { .. } => "failed",
     }
 }

@@ -473,6 +473,25 @@ pub(super) mod tests {
             }),
             "failed"
         );
+        // A rehearsal is never a completed run: `done` is the word that
+        // means the run succeeded, so both non-run outcomes journal the
+        // non-outcome word instead.
+        assert_eq!(
+            journal_verdict(&GateOutcome::PlanPreview {
+                runtime: "driftwatchdog".to_string(),
+                runtime_version: None,
+                plan: vec!["gate plan (dry-run; nothing was executed)".to_string()],
+            }),
+            "rehearsed"
+        );
+        assert_ne!(
+            journal_verdict(&GateOutcome::PlanPreview {
+                runtime: "driftwatchdog".to_string(),
+                runtime_version: None,
+                plan: Vec::new(),
+            }),
+            "done"
+        );
     }
 
     #[test]

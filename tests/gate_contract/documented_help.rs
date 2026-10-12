@@ -62,6 +62,101 @@ fn dry_run_previews_the_plan_without_persisting_or_journaling() {
     assert_eq!(before, after, "rehearsal journaled a row");
 }
 
+/// The sibling's machine-readable rehearsal document (a third document
+/// kind, captured at `gate-dry-run-json-plan`). It is recognised by shape
+/// and rendered as the resolved plan — and it is never evidence.
+#[test]
+fn dry_run_rehearsal_document_renders_the_plan_and_never_becomes_evidence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = project(tmp.path(), "gate-rehearsal");
+    let doc = fixture("gate-rehearsal-plan.json").display().to_string();
+    let stub = write_script(
+        tmp.path(),
+        "gate-rehearsal.sh",
+        &format!(
+            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi\nif [ \"$2\" = \"--dry-run\" ]; then cat '{doc}'; exit 0; fi\necho 'unexpected argv' >&2\nexit 1\n"
+        ),
+    );
+
+    let before = Registry::open(&db)
+        .unwrap()
+        .journal_entries()
+        .unwrap()
+        .len();
+    let run = gate(
+        &db,
+        &["--dry-run", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert_eq!(run.status, 0, "stderr: {}", run.stderr);
+    let value = gate_json(&run);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["gate"]["persisted"], false);
+    assert_eq!(value["gate"]["journaled"], false);
+    let rehearsal = &value["gate"]["rehearsal"];
+    assert_eq!(rehearsal["contract"], "driftwatch-gate-plan/0.1.0");
+    assert_eq!(rehearsal["document_kind"], "gate-plan-rehearsal");
+    assert_eq!(rehearsal["execution_mode"], "dry-run");
+    assert_eq!(rehearsal["planned_checks"].as_array().unwrap().len(), 9);
+    assert_eq!(
+        rehearsal["blocking_prediction"]["would_block"],
+        serde_json::Value::Null
+    );
+    // A rehearsal carries no verdict-shaped key at any depth: not in the
+    // typed document, not in the envelope Forge renders around it.
+    assert!(
+        forge::gate::verdict_like_keys(&rehearsal).is_empty(),
+        "{rehearsal}"
+    );
+    assert!(forge::gate::verdict_like_keys(&value).is_empty(), "{value}");
+
+    // The human surface renders the resolved plan, not raw document text.
+    let human = gate_human(
+        &db,
+        &["--dry-run", &proj.display().to_string()],
+        Some(&stub),
+    );
+    assert_eq!(human.status, 0, "stderr: {}", human.stderr);
+    assert!(
+        human.stdout.contains("checks (9 planned)"),
+        "{}",
+        human.stdout
+    );
+    assert!(
+        human
+            .stdout
+            .contains("source-file-size [required] command=in-process"),
+        "{}",
+        human.stdout
+    );
+    assert!(
+        human
+            .stdout
+            .contains("would_block=unknown (the bound commands decide; unknown is never a pass)"),
+        "{}",
+        human.stdout
+    );
+    assert!(
+        !human.stdout.contains("{\""),
+        "raw document text leaked: {}",
+        human.stdout
+    );
+
+    // Nothing was executed, nothing was persisted, nothing was journaled.
+    assert!(
+        !proj.join(".forge").exists(),
+        "rehearsal wrote a .forge tree"
+    );
+    let after = Registry::open(&db)
+        .unwrap()
+        .journal_entries()
+        .unwrap()
+        .len();
+    assert_eq!(before, after, "rehearsal journaled a row");
+    assert!(journal_for(&db, "gate-rehearsal").is_empty());
+}
+
 #[test]
 fn status_flag_conflicts_and_extra_positionals_refuse_before_work() {
     let tmp = tempfile::tempdir().unwrap();

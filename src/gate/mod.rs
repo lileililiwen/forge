@@ -10,12 +10,18 @@
 //! policy: the sibling says passed/blocked, Forge reports that
 //! attribution.
 //!
-//! Live sibling evidence (`tests/fixtures/gate/NOTES.md`, captured at
-//! driftwatchdog `25811ed`) disproved the change design's assumption that
-//! `gate --dry-run` has a JSON composition: the dry-run surface prints a
-//! human-readable plan and exits before the JSON writer, so a rehearsal
-//! is reported as a plan preview that is never persisted and never
-//! journaled, while the evidence surface is the real
+//! Live sibling evidence (`tests/fixtures/gate/NOTES.md`) recorded the
+//! dry-run surface as prose: at `25811ed` `gate --dry-run` printed a
+//! human-readable plan and exited before the JSON writer, so a rehearsal
+//! could only ever be a plan preview. The sibling's `gate-dry-run-json-plan`
+//! change (`02a13d4`, `447d1b0`) gave that surface a **third document
+//! kind** — a machine-readable rehearsal of the resolved plan, composed
+//! without executing anything. [`rehearsal`] consumes it: recognised by
+//! the document's own shape (never by the runtime's version, which did not
+//! change when the shape did), rendered as the resolved plan, and routed
+//! to [`GateOutcome::Rehearsal`] so it can never become evidence. A
+//! rehearsal answer Forge does not recognise still degrades to the
+//! bounded plan-line preview. The evidence surface remains the real
 //! `gate --format json` run (whose only side effect is one `gate_runs`
 //! row in the project's own `.driftwatch/` store — sibling state, never
 //! Forge registry state).
@@ -35,8 +41,10 @@ pub mod engine;
 pub mod engine_tests;
 pub mod evidence;
 pub mod model;
+pub mod rehearsal;
 
 // Re-export all types
 pub use contract::*;
 pub use engine::*;
 pub use model::*;
+pub use rehearsal::*;

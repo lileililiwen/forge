@@ -32,13 +32,43 @@ source-tree release build.
   `status: "REVIEW_REQUIRED"`, `blocked: true`, `pending_reviews`
   naming the review. This is the THIRD top-level status value Forge
   must classify; the change design only assumed PASS/FAIL.
-- `gate-dryrun-plan.txt` — real `gate --dry-run --format json`, exit 0:
-  the human plan text, NOT a JSON document. Reconfirms the
-  `../driftwatch/NOTES.md` finding that the dry-run surface exits
-  before the JSON writer; `--format json` changes nothing there.
-  Forge therefore treats a `--dry-run` rehearsal as a plan preview
-  (never persisted, never journaled) and only the real
-  `gate --format json` run as the evidence surface.
+- `gate-dryrun-plan.txt` — the **older** `gate --dry-run --format json`,
+  exit 0: the human plan text, NOT a JSON document. This is what the
+  stale `~/.cargo/bin/driftwatchdog` (Oct 5) still prints, and it is the
+  shape Forge still degrades to for an unrecognised rehearsal. The
+  sibling's `gate-dry-run-json-plan` change (`02a13d4`, `447d1b0`)
+  ended that behaviour; the fixture is kept because it pins the degrade
+  path, not because the current sibling produces it.
+- `gate-rehearsal-plan.json` — the **current** `gate --dry-run --format
+  json`, exit 0: the machine-readable rehearsal document. Captured
+  2026-10-13 from the source-tree release build of the sibling at
+  `02a13d4`/`447d1b0`, run in this repository, verbatim with no hand
+  edits. It declares itself three times over — `contract:
+  "driftwatch-gate-plan/0.1.0"`, `document_kind:
+  "gate-plan-rehearsal"`, `dry_run: true` — and carries **no
+  verdict-shaped key at any depth**: there is no `status`, no `result`,
+  no `passed`, no `blocked`, no `outcome`. Its
+  `blocking_prediction.would_block` is `null` ("the bound commands
+  decide"), never `false`. 9 planned checks, all required, 8 bound
+  `manifest` and `source-file-size` `in-process`, every timeout 60000,
+  no unbound required checks, exemption budget `within`.
+  Forge recognises it by shape and renders the resolved plan; it is
+  never persisted, never journaled and never an aggregate.
+
+## The version cannot discriminate these two documents
+
+Both binaries report `driftwatch 0.1.0`:
+
+| binary | `--version` | `gate --dry-run --format json` |
+|---|---|---|
+| `~/.cargo/bin/driftwatchdog` (Oct 5) | `driftwatch 0.1.0` | `gate-dryrun-plan.txt` (human text) |
+| `~/code/driftwatchdog/target/release/driftwatchdog` (current) | `driftwatch 0.1.0` | `gate-rehearsal-plan.json` |
+
+The document shape changed and the reported version did not, so Forge
+detects the rehearsal document from its payload (`contract` family +
+`document_kind` + `dry_run: true`, plus a complete typed parse and the
+producer's own `executed: false` / `persisted: false` / `would_block != false`
+invariants) and never from `runtime_version`.
 
 ## Shape and vocabulary facts (verified)
 
@@ -66,5 +96,6 @@ source-tree release build.
   not a passed gate); any future status → `unknown`.
 - The real run persists exactly one `gate_runs` row into the project's
   own `.driftwatch/state.db` (sibling state, never Forge state); the
-  plan preview persists nothing. Neither surface accepts a `--project`
+  rehearsal persists nothing and writes no row, exactly like the plan
+  preview. Neither surface accepts a `--project`
   flag; scope confinement is the invocation working directory.

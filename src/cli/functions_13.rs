@@ -587,6 +587,32 @@ fn cmd_gate_run(
     };
     let outcome = gate::run_gate(dir, project_id, config, dry_run);
     let (output, verdict) = match outcome {
+        GateOutcome::Rehearsal {
+            runtime,
+            runtime_version,
+            rehearsal,
+        } => {
+            // A rehearsal is never evidence: this arm persists nothing,
+            // journals nothing and derives no aggregate. The envelope
+            // reports both facts explicitly.
+            let json = gate::rehearsal_envelope(
+                project_id,
+                &runtime,
+                runtime_version.as_deref(),
+                &rehearsal,
+            );
+            let mut human = format!(
+                "dry-run: gate plan rehearsal for {project_id} (nothing was executed, persisted or journaled)\nruntime: {}",
+                runtime_version
+                    .as_deref()
+                    .map(|version| format!("{runtime} ({version})"))
+                    .unwrap_or_else(|| runtime.clone())
+            );
+            for line in gate::rehearsal_plan_lines(&rehearsal) {
+                human.push_str(&format!("\n{line}"));
+            }
+            (as_output(format, human, json), ExitCode::SUCCESS)
+        }
         GateOutcome::PlanPreview {
             runtime,
             runtime_version,

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::contract::{DEFAULT_GATE_TIMEOUT, GATE_BIN_ENV};
+use super::rehearsal::GateRehearsal;
 
 /// One normalized check row from the sibling's `results[]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,13 +114,26 @@ impl GateConfig {
 /// Outcome of one bounded gate invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GateOutcome {
-    /// A parseable status document mapped into evidence (real run), or
-    /// a forward-compatible parseable document from a rehearsal
-    /// (`dry_run: true`, never persisted).
+    /// A parseable status document mapped into evidence. Only a real run
+    /// produces this: a rehearsal document is recognised by its own shape
+    /// and routed to [`GateOutcome::Rehearsal`] instead, so no aggregate
+    /// or check state can ever be derived from a plan that ran nothing.
     Evidence(GateEvidence),
-    /// A `--dry-run` rehearsal whose runtime answered with the real
-    /// sibling's human plan text. Nothing was executed, persisted or
-    /// journaled; the plan lines are already redacted and bounded.
+    /// A `--dry-run` whose runtime answered with the sibling's
+    /// machine-readable plan rehearsal document, recognised by shape.
+    /// Nothing was executed, persisted or journaled, and the rehearsal
+    /// carries no aggregate, no check state and no revision binding, so
+    /// it can never be read as a run outcome.
+    Rehearsal {
+        runtime: String,
+        runtime_version: Option<String>,
+        rehearsal: GateRehearsal,
+    },
+    /// A `--dry-run` whose answer Forge did not recognise as a rehearsal
+    /// document — the older sibling's human plan text, an unrecognised
+    /// contract family, a renamed field, or any non-JSON output. It is a
+    /// genuine side-effect-free preview, not evidence; the plan lines are
+    /// already redacted and bounded.
     PlanPreview {
         runtime: String,
         runtime_version: Option<String>,
@@ -151,8 +165,9 @@ pub struct GateEvidence {
     pub checks: Vec<GateCheck>,
     pub observed_at: String,
     /// Rehearsal marker. A persisted record is always the product of a
-    /// real run (`dry_run: false`); a `--dry-run` preview is reported in
-    /// the plan-preview shape and never persisted.
+    /// real run (`dry_run: false`); a `--dry-run` is reported in the
+    /// rehearsal or plan-preview shape and never persisted — this field
+    /// is the last line of defence if one ever reaches this type.
     #[serde(default)]
     pub dry_run: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

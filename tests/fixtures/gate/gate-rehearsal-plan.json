@@ -1,0 +1,132 @@
+{
+  "blocking_policy": {
+    "review_required_blocks": true
+  },
+  "blocking_prediction": {
+    "derived_from": "resolved-plan",
+    "kind": "undetermined-before-execution",
+    "note": "A prediction from the resolved plan alone, never an observed outcome. The plan cannot decide: the bound commands decide. A null here means unknown, never a pass. Nothing has been executed.",
+    "reasons": [],
+    "sufficient_but_not_necessary": true,
+    "would_block": null
+  },
+  "context_providers": [],
+  "contract": "driftwatch-gate-plan/0.1.0",
+  "default_timeout_ms": 60000,
+  "document_kind": "gate-plan-rehearsal",
+  "dry_run": true,
+  "executed": false,
+  "execution_mode": "dry-run",
+  "exempted_checks": {},
+  "exemption_budget": {
+    "cap": 2,
+    "declared": 0,
+    "headroom": 2,
+    "never_exempable": [],
+    "required_checks": 9,
+    "verdict": "within"
+  },
+  "governance_quality_codes": [
+    "QUALITY_NEW_CHANGE_WITH_GATE_DEBT",
+    "QUALITY_README_CLAIM_CONTRADICTED",
+    "QUALITY_README_CLAIM_UNSCOPED",
+    "QUALITY_VERIFICATION_COMMAND_UNBOUND",
+    "RULES_DRIFT_BASELINE_STALE",
+    "RULES_DRIFT_NEW",
+    "SPEC_PURPOSE_PLACEHOLDER"
+  ],
+  "manifest_digest": "sha256:53102e32f760136b",
+  "not_scheduled": [
+    "a11y",
+    "browser",
+    "capability-conformance",
+    "release-evidence",
+    "responsive"
+  ],
+  "notice": "A rehearsal of a resolved gate plan. Nothing was executed, nothing was persisted, and no check in this document has an outcome: it describes what would run, not what ran.",
+  "persisted": false,
+  "plan_version": 1,
+  "planned_checks": [
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "build",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "declared-verification",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "governance-quality",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "placeholder-threshold",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "product-code-boundary",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "repository",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "security",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "in-process",
+      "exempt": false,
+      "id": "source-file-size",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    },
+    {
+      "command_source": "manifest",
+      "exempt": false,
+      "id": "tests",
+      "required": true,
+      "selected_by": "manifest",
+      "timeout_ms": 60000
+    }
+  ],
+  "profile": "rust-product",
+  "project_command_names": [],
+  "rule_pack_version": "workspace-governance@1",
+  "source_size_policy": {
+    "exclude": [],
+    "include": [],
+    "max_lines": 1000
+  },
+  "unbound_required_checks": []
+}

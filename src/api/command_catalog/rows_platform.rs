@@ -4,8 +4,8 @@
 use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::{
-    REASON_AGENT, REASON_HELP, REASON_LEGACY_HTML, REASON_LOCAL_FS, REASON_LOCAL_SECRET,
-    REASON_TRANSPORT, REASON_TTY_HIDDEN,
+    REASON_AGENT, REASON_CAP_PREVIEW, REASON_HELP, REASON_LEGACY_HTML, REASON_LOCAL_FS,
+    REASON_LOCAL_SECRET, REASON_TRANSPORT, REASON_TTY_HIDDEN,
 };
 use super::routes::{
     WEB_ROUTE_ADMIN_AGENT_LIST, WEB_ROUTE_ADMIN_AGENT_STATUS, WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
@@ -459,6 +459,53 @@ impl CatalogBuilder {
             LocalWrite,
             REASON_AGENT,
             caps_local,
+        );
+        self.group(
+            None,
+            "cap",
+            "Group the flat commands by capability (gate, quality, agent, contract, delivery, analytics, metadata); the old flat commands stay working aliases and this facade only lists, inspects and previews the same surface.",
+            Reference,
+            Forge,
+        );
+        self.cli_only(
+            Some("cap"),
+            "add",
+            "Print the descriptor snippet for adding a plugin to a capability group; `cap add` writes nothing.",
+            Reference,
+            Forge,
+            Read,
+            REASON_CAP_PREVIEW,
+            none,
+        );
+        self.cli_only(
+            Some("cap"),
+            "inspect",
+            "Inspect one capability group: the Ready plugins that advertise it plus the flat commands it maps to.",
+            Reference,
+            Project,
+            Read,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.cli_only(
+            Some("cap"),
+            "list",
+            "List every capability group with the live Ready plugin count derived from the project's `.forge/providers.yaml`.",
+            Reference,
+            Project,
+            Read,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.cli_only(
+            Some("cap"),
+            "run",
+            "Print the underlying flat `forge …` command a capability group maps to, for the operator to review before running it.",
+            Reference,
+            Forge,
+            Read,
+            REASON_CAP_PREVIEW,
+            none,
         );
         self.cli_only(
             None,

@@ -514,7 +514,7 @@ fn refused_reads_create_no_state_or_journal_rows() {
 #[test]
 fn catalog_names_the_reads_and_keeps_writes_cli_only() {
     let rows = command_catalog::rows();
-    assert_eq!(rows.len(), 234, "catalog conversion keeps row count");
+    assert_eq!(rows.len(), 239, "catalog conversion keeps row count");
     assert!(
         command_catalog::problems().is_empty(),
         "catalog problems: {:?}",

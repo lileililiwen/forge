@@ -535,6 +535,8 @@ pub(super) const REASON_GROUP: &str = "Command groups only organize their subcom
 
 pub(super) const REASON_HELP: &str = "Terminal context help is replaced in the browser by this catalog view: every command is listed here with its state. Run `forge help` in a terminal for the same tree as text.";
 
+pub(super) const REASON_CAP_PREVIEW: &str = "This command only prints the flat `forge …` command, or the descriptor snippet, that the capability group maps to; it never executes what it prints and never writes the manifest. There is nothing for a browser route to perform. Next step: run it in a terminal, then run the flat command it names.";
+
 pub(super) const REASON_TRANSPORT: &str = "This command starts a long-running server process bound to a loopback listener; it is a transport, not a browser workflow. Next step: run it in a terminal and open the page or API it serves.";
 
 pub(super) const REASON_LOCAL_FS: &str = "This command reads or writes the local project tree directly; a browser cannot safely touch the filesystem and no typed JSON route for it exists yet. Next step: run it in a terminal inside the project.";

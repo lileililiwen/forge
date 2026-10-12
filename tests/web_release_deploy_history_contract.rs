@@ -533,7 +533,7 @@ fn catalog_reports_the_five_history_rows_as_web() {
     );
     assert_eq!(
         rows.len(),
-        234,
+        239,
         "catalog conversion must not add rows ({} found)",
         rows.len()
     );

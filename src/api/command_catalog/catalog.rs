@@ -195,14 +195,16 @@ pub(super) mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 233 Clap paths (probe-verified from
+        // The row count equals the 238 Clap paths (probe-verified from
         // `Cli::command()`, including the `identity change-password` and
         // `identity generate-password` leaf commands, the `workspace` /
         // `workspace.sync` bulk-convergence paths and the `plugins` /
         // `plugins.list` registry paths, plus the `classify.derive` and
-        // `classify.apply` paths, plus the new `identity.status` path) plus
-        // the explicit top-level `help` row.
-        assert_eq!(rows().len(), 234);
+        // `classify.apply` paths, plus the new `identity.status` path, plus
+        // the capability-grouping facade paths `cap`, `cap.add`,
+        // `cap.inspect`, `cap.list` and `cap.run`) plus the explicit
+        // top-level `help` row.
+        assert_eq!(rows().len(), 239);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 

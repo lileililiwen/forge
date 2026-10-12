@@ -15,6 +15,15 @@ blocking:
   - FAIL
   - REVIEW_REQUIRED
 
+# Per-check execution deadlines. Unlisted checks take the runtime default
+# (60s). `tests` and `declared-verification` both bind `cargo test
+# --workspace`, which measures ~289s on this machine, so the default timed
+# both out and surfaced as REVIEW_REQUIRED — a claim about the clock, not
+# about the code. This is the per-check timeout declaration.
+timeouts:
+  tests: 600000
+  declared-verification: 600000
+
 commands:
   # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.
   # A verifier that no gate runs does not gate (ruling D18). Re-run the

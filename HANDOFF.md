@@ -2,6 +2,109 @@
 
 ## Current state
 
+### platform-gate-result-major-adoption delivered and archived (2026-10-12)
+
+`platform-gate-result-major-adoption` migrates Forge, as a **producer** of
+`platform.gate-result`, from `0.1.0` to the `1.0.0` major published by
+`platform-contracts` (`gate-result-major-review-state`, `3cfd310` / `5e8a6ca`;
+registry `supported_major_versions: [0, 1]`, narrowing `state: "declared"`).
+`driftwatchdog` already adopted it (`platform-gate-result-major-adoption`,
+`2221f63` / `cf823dc`). Implemented, verified and archived as
+`openspec/changes/archive/2026-10-12-platform-gate-result-major-adoption`,
+promoting canonical `platform-contract-consumption` +1 requirement and
+modifying 2 (no `--skip-specs`).
+
+**Corrected mapping** (`src/contract/mod.rs`, previously `map_gate_aggregate`
+plus an inline per-check `match`). Three rows asserted outcomes Forge never
+observed:
+
+| Forge state | 0.1.0 | 1.0.0 | Why |
+|---|---|---|---|
+| `GateCheckState::Unresolved` | `errored` | **`review_required`** | the state exists so Forge does not assert an unobserved outcome ("never `pass`", `src/gate/model.rs:169`); `review_required` = "a human decision is still open and no one has decided the outcome" |
+| `GateAggregate::Unknown` | `errored` | **`review_required`** | "unclassifiable document" (`src/gate/model.rs:30`); same reasoning |
+| `GateAggregate::Failed` | `errored` | **`failed`** | Forge documents it as "a non-blocking failure" — an attempted check *did* report a failure; `errored` ("could not be evaluated to a verdict") was never observed |
+| `GateAggregate::Blocked` + a `Fail` row | `failed` | `failed` | unchanged |
+| `GateAggregate::Blocked`, no `Fail` row | `failed` | **`review_required`** | `classify_aggregate` short-circuits on the sibling's `blocked` bit, which covers a required-check failure **and** pending reviews under `review_required_blocks` (default `true`). Only the observed check rows separate the two claims; a flat `failed` asserts a failure Forge never saw for the review case |
+| `Pass` / `Fail` / `Skip` / `NotApplicable` checks | unchanged | unchanged | `NotApplicable → skipped` is the word-for-word 1.0.0 meaning ("proven not to apply; this is an exemption") |
+
+`errored` is now produced by no gate state and is unreachable: Forge does not
+run the checks, and an unparseable document / timeout / spawn failure is
+`GateOutcome::Unavailable`, which leaves no evidence at all. `unbound` is
+never produced either — `GateCheckState` has no such variant (a `src/gate/`
+change, out of scope), so a sibling `UNBOUND` row lands in `Unresolved` and
+renders `review_required`, which under-claims rather than over-claims. Every
+reachable record has an honest value, so no gate-result refusal was needed;
+`design.md` §3a-bis records the case analysis (including the rejected
+option of refusing the blocked-without-a-failure shape, which would have
+added a new hard failure on a realistic emit path) and keeps the
+`Result<&'static str, ContractUnmappable>` interface.
+
+**Version declaration.** New `PLATFORM_FAMILY_VERSIONS` table registers the
+wire version per family (`platform.gate-result` → `1.0.0`; the other five stay
+`0.1.0`); `contract_discriminator` reads it, so envelopes now stamp
+`platform.gate-result/1.0.0` instead of a hardcoded `0.1.0` that no longer
+described the document, and `forge contract inspect` renders the same value
+instead of a `"/0.1.0"` literal (`src/cli/functions_13.rs`). `validate_envelope`
+replaced `!version.starts_with("0.")` — which rejected the sibling's own
+1.0.0 document — with a lookup of the family's `supported_major_versions` in
+the vendored `contracts/registry.json`, failing closed on an unreadable,
+unparseable or family-less registry. The schema `$id` carries no version, so
+the table plus the discriminator is the only place the version is expressed.
+
+**Re-vendoring.** `contracts/` was re-synced with `node scripts/sync-contracts.mjs`
+(run as `GOVERNANCE_DIR=/tmp/ws-gov` — a clone of `workspace-governance`
+checked out at `0301ee88864d37957f5a6688005d5758b201cbe7`, the revision the
+mirror already records — so the sibling checkout's newer
+`vocabulary.json`, which has grown `roles` / `stacks` /
+`standalone_statuses` and dropped the `placeholder` / `stub` markers, did not
+enter this change). No vendored byte and no manifest record was hand-edited.
+`contracts/manifest.json` moves from revision `645d8c0…` to
+`5e8a6ca705cb48c2900f75b59abd97fe6e47576f`, and the gate-result schema sha
+from `55750b591f92b3ec…` to
+`49e7583cce9e2febc44af5b4bf45cbe46f724bf76d420be5d77989eb8e7d1a5a`.
+`git diff --stat contracts/` names only `registry.json`,
+`schemas/gate-result.schema.json` and `manifest.json`; `contracts/registry.json`
+differs from its pre-sync copy **only** inside `contracts["platform.gate-result"]`
+(verified with `diff`), so no other family record moved. Recorded side effect
+(design §5): the sync also added a manifest entry for the tracked file
+`contracts/vocabulary/README.md`, which the manifest never listed, labelled
+`source: "platform-contracts"` although the file is Forge's own — the
+script's `collect()` treats every non-manifest file as vendored. Kept as
+written (hand-editing the manifest is forbidden); the sha256 is correct, the
+offline digest check now covers a file it previously ignored, and
+`contract-parity.sh` excludes `contracts/vocabulary/`. Remediation path:
+teach `collect()` a Forge-owned source value, a `scripts/` change with its own
+scope.
+
+**Scope.** `platform.gate-result` only. `GATE_CONTRACT_VERSION` stays
+`"0.1.0"` (it versions Forge's persisted `GateEvidence`, not the family);
+`GateEvidence`, `GateAggregate`, `GateCheckState`, `classify_aggregate`,
+`src/gate/evidence.rs`, `forge gate` / `--dry-run`, the MCP registry, the API
+route table, portal sections and the command catalog are untouched.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo build` | 0 errors; the same 3 pre-existing warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) |
+| `cargo fmt --check` | clean for every touched file; the pre-existing rustfmt drift in untouched `tests/web_assurance_browser_contract.rs` (reformatted by a repo-wide `cargo fmt`, reverted, not staged) is the only remaining flag |
+| `cargo clippy` (default targets) | 0 findings in `src/contract/**`; the pre-existing `functions_13.rs:461` "identical blocks" warning and the 37 other pre-existing lib/bin warnings unchanged |
+| `cargo test --lib contract` | **33 passed / 0 failed** (1 ignored) — mapping tables, blocked decomposition, `errored`-never-produced proofs, vendored-schema vocabulary proof, version-registry coverage, envelope discriminator, rewritten major tests, emit + refusal-shaped tests |
+| `cargo test --lib` | **1221 passed / 0 failed** (1 ignored) |
+| `cargo test --test api_contract` / `gate_contract` / `cli_contract` / `web_assurance_browser_contract` / `forge_admin_api_contract` | **11 / 5 / 28 / 12 / 4 passed / 0 failed** |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after pointer removal; archiver stamped no TBD Purpose on this spec) |
+| `openspec validate --all --strict --no-interactive` | **104 passed / 0 failed** active; **103 passed / 0 failed** post-archive |
+| `scripts/contract-parity.sh` | exit **0**: `13 retained file(s) compared byte-for-byte, 10 published family digest(s) checked` → `OK`. Before the change it exited 1 with exactly three findings (`registry.json` and `schemas/gate-result.schema.json` byte mismatches + the `platform.gate-result` family digest mismatch), all from this major bump |
+| `verify_manifest_digests` (offline, `manifest_digests_match`) | passes over the new manifest |
+| live CLI (throwaway evidence under `/tmp`, never committed) | **VERIFIED**: `forge contract inspect platform.gate-result` → `contract: platform.gate-result/1.0.0` (and `platform.readiness/0.1.0`); `forge contract emit platform.gate-result <dir>` → an envelope stamped `platform.gate-result/1.0.0` with `result: failed` + `checks[].status: failed` / `review_required`, accepted by `validate_envelope`; a blocked record whose rows attribute no failure emits `result: review_required`; `forge contract validate` accepts `/1.0.0` and `/0.1.0` and refuses `/2.0.0` with `unsupported major for 'platform.gate-result': 2.0.0 (the vendored registry serves [0, 1])` |
+| `git diff --check` | clean (archiver's blank line at EOF in the promoted spec repaired) |
+| `forge gate --dry-run` + bounded `forge gate` | **not run in this cycle** — the orchestrator owns the heavy gate for this task; no verdict is claimed here. Every lightweight check above is green and the tree adds no new failure. |
+| `openspec archive platform-gate-result-major-adoption -y` | archived as `2026-10-12-platform-gate-result-major-adoption`, no `--skip-specs`; canonical `platform-contract-consumption` +1 / ~2; post-archive validate **103 passed / 0 failed**, names PASS, governance PASS |
+
+Implementation commit: `79c755f` (implementation + tests + promoted specs +
+archive). Nothing pushed. No `current_spec` pointer remains.
+
 ### portal-spa-convergence delivered and archived (2026-10-10)
 
 `portal-spa-convergence` closes audit gap 9 (final): the two-portal

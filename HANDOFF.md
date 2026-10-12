@@ -2,6 +2,134 @@
 
 ## Current state
 
+### command-catalog-capability-group delivered and archived (2026-10-12)
+
+`command-catalog-capability-group` closes the last known blocker on Forge's
+Gate. `forge gate` was exiting 1 with `aggregate: blocked` on exactly two
+checks — `tests` and `declared-verification` — and both had the same single
+cause: `cli::inventory::command_catalog_tests::catalog_has_exactly_one_row_per_clap_path`
+failed with `missing=["cap", "cap.add", "cap.inspect", "cap.list", "cap.run"]
+extra=[]`. `extra=[]` was the load-bearing half: the catalog had nothing the
+CLI does not have, so this was pure under-coverage and the fix belongs in the
+catalog, not in the assertion. `src/cli/cap.rs`, `CapCommands` and
+`src/cli/inventory.rs` are untouched.
+
+Implemented, verified and archived as
+`openspec/changes/archive/2026-10-12-command-catalog-capability-group`,
+promoting canonical `forge-web-command-catalog` +1 requirement "Capability
+grouping facade coverage" (no `--skip-specs`).
+
+**Five rows**, added to the platform row family
+(`src/api/command_catalog/rows_platform.rs`) between the `agent` rows and the
+terminal `help` row, with the existing `group(...)` + `cli_only(...)` pair —
+the `agent` group shape at `rows_platform.rs:366-463`. No new builder method,
+no new enum variant, no new dependency:
+
+| id | category | scope | risk | availability | route | reason | capabilities |
+|---|---|---|---|---|---|---|---|
+| `cap` | `reference` | `forge` | `read` | `cli_only` | `None` | `REASON_GROUP` | `[]` |
+| `cap.list` | `reference` | `project` | `read` | `cli_only` | `None` | `REASON_LOCAL_FS` | `["local_filesystem"]` |
+| `cap.inspect` | `reference` | `project` | `read` | `cli_only` | `None` | `REASON_LOCAL_FS` | `["local_filesystem"]` |
+| `cap.add` | `reference` | `forge` | `read` | `cli_only` | `None` | `REASON_CAP_PREVIEW` | `[]` |
+| `cap.run` | `reference` | `forge` | `read` | `cli_only` | `None` | `REASON_CAP_PREVIEW` | `[]` |
+
+**Per-row judgement** (design §5):
+
+- **`route: None` / `availability: cli_only` on all five — verified, not
+  assumed.** No `ROUTE_ADMIN_*CAP*` constant anywhere in `src/`; no
+  capability-group handler in `src/api/admin/`; no `cap` entry in
+  `routes.rs`, hence none in `IMPLEMENTED_WEB_ROUTES`;
+  `rg 'cap_group_commands|CAP_CONTRACT'` matches only `src/cli/cap.rs`, so
+  the facade has no consumer outside the CLI. The false lead is named in
+  design §3: `plugins list` **is** web
+  (`GET /v1/admin/projects/{id}/plugins`,
+  `WEB_ROUTE_ADMIN_SHIPPING_PLUGINS`) but is a *different command* —
+  `cap list` is a composition of `plugins::CAPABILITIES` × live `Ready`
+  records × `cap_group_commands`, and pointing a `cap` row at the plugins
+  route would tell the operator the browser renders a capability group when
+  it renders a plugin list. `not_yet_web` was rejected too: its reason claims
+  a planned staged web workflow, and none exists.
+- **`risk: read` everywhere, including `cap add` and `cap run`.** Both are
+  "actionable" in intent — the operator reaches for them to *do* something —
+  but neither mutates state: `cap add`'s own output ends "`cap add` writes
+  nothing" and `cap run`'s own hint ends "run the flat command directly —
+  `cap run` never executes it". `local_write` would claim a mutation that
+  cannot happen. What distinguishes them is the **reason**, not the risk.
+- **Scope.** `list`/`inspect` are `project` (they take `--project` and read
+  `<project>/.forge/providers.yaml`). `add`/`run` are `forge` — neither takes
+  a path or reads a project; they consult `plugins::CAPABILITIES` and
+  `cap_group_commands`, two Forge-owned constant tables compiled into the
+  binary. Mixed scope inside one group is the existing `identity` precedent.
+- **`REASON_CAP_PREVIEW`, one new constant in `routes.rs`, for `cap.add` and
+  `cap.run` only.** `REASON_LOCAL_FS` claims a local-tree read or write the
+  two print rows do not perform, and `REASON_GROUP` addresses the group row's
+  disposition, not a leaf. The precedent is exact:
+  `identity generate-password` takes `REASON_LOCAL_SECRET` rather than
+  borrowing a neighbouring family's reason, and `REASON_AGENT` /
+  `REASON_LEGACY_HTML` do the same for theirs.
+- **Capability tokens.** `["local_filesystem"]` for the two reads (existing
+  token, used by `identity status` / `session-validate` /
+  `studio spec`); `plugins::list` (`src/plugins/mod.rs:244-258`) is a pure
+  fold over the parsed config, so no `external_provider` token is honest.
+  Empty for `add`/`run` — like `group()` assigns every group row and like
+  `identity generate-password` — rather than a token no provider declares.
+- **Category `reference` on all five**, beside `help`. `registry` was rejected
+  (the reads load the project's `providers.yaml`, not the project registry,
+  and `add`/`run` load neither), `quality` was rejected (only 2 of the 7
+  capability groups are quality-shaped), and per-row categories were rejected
+  because splitting one facade across four buckets would hide it in the
+  frontend's category filter.
+
+**`problems()` treatment.** Every invariant is satisfied by construction,
+not by luck (design §6 tabulates all twelve per row): unique ids; `cap`
+pushed before its four leaves so each `parent_id` resolves and each dotted id
+carries a parent; non-empty summaries; non-`web` ⇒ non-empty plain-language
+reason **and** `route.is_none()` (the rule that makes `route: None` a
+requirement, not a preference); `availability: cli_only` ∈ the closed
+vocabulary; `risk: read` and `scope` ∈ the closed vocabularies;
+`category: reference` ∈ `ALL_CATEGORIES`;
+`cli_invocation` = `forge ` + id with dots→spaces (`forge cap`,
+`forge cap list`, `forge cap inspect`, `forge cap add`, `forge cap run`);
+and `reference` was already used by `help`, so the "every category is used"
+rule holds. `problems()` returns empty — no rule was relaxed, only satisfied.
+
+**Row-count pins.** The catalog total moves **234 → 239**. That is the count
+of *all* rows, not the parity assertion; three pins assert it and each now
+reads 239 while keeping its original intent ("a web conversion must not add
+rows"): `src/api/command_catalog/catalog.rs:205`,
+`tests/web_release_deploy_history_contract.rs:536`,
+`tests/web_agent_identity_readonly_contract.rs:517`.
+`tests/web_command_reference_browser_contract.rs:264` mentions "the 234-row
+render" only inside an assertion *message* — prose, not a pin — and is
+deliberately left alone. `tests/forge_web_command_catalog_contract.rs` needed
+no edit at all: its `TOP_LEVEL_COMMANDS` subset never listed `cap`, and its
+`web_ids` allowlist is untouched because no `cap` row is `web`.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo build` | 0 errors; the same 3 pre-existing bin warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) |
+| `cargo fmt --check` | **clean for every touched file.** Repo-wide exit 1 comes only from two pre-existing untouched files: `tests/web_assurance_browser_contract.rs` (recorded in prior entries) and `src/gate/rehearsal_tests.rs` (landed with the rehearsal work, not in this diff — neither file appears in `git status`) |
+| `cargo clippy` (default targets) | **0 errors**, 41 pre-existing warnings, **zero findings mentioning `command_catalog`** |
+| `cargo test --lib command_catalog` | **7 passed / 0 failed** (count pin 239, integrity empty, web-route vector unchanged, parent/prefix, execution pins) |
+| `cargo test --lib inventory` | **22 passed / 0 failed** |
+| `cargo test --bin forge command_catalog` | **2 passed / 0 failed** — the two named tests live in the **bin** target (`mod cli` is declared in `src/main.rs:6`), so `--lib` never compiles them; this is the run that actually exercises them |
+| `cli::inventory::command_catalog_tests::catalog_has_exactly_one_row_per_clap_path` | **ok** |
+| `cli::inventory::command_catalog_tests::catalog_integrity_is_clean` | **ok** |
+| `cargo test --test forge_web_command_catalog_contract` | **9 passed / 0 failed** — was *8 passed + 1 pre-existing failure*; `catalog_covers_the_real_help_output_of_the_binary` (which runs the real `forge --help` and requires every listed name to be covered) was failing on exactly this `cap` gap and goes green from the catalog fix alone. Run beyond the lightweight set precisely because this claim needed evidence |
+| `catalog_reports_the_five_history_rows_as_web` / `catalog_names_the_reads_and_keeps_writes_cli_only` | **1 passed / 0 failed** each — the two count pins this change moved, verified rather than assumed |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after pointer removal) |
+| `openspec validate --all --strict --no-interactive` | **104 passed / 0 failed** active; **103 passed / 0 failed** post-archive |
+| `git diff --check` | clean (cached + worktree) |
+| `git diff -- src/cli/cap.rs src/cli/commands.rs .ai-gate/gate.yaml` | **empty** — the CLI surface and the Gate configuration (with the `ccb3b0b` per-check timeout fix) are untouched; `src/gate/**` likewise |
+| `forge gate --dry-run` + bounded `forge gate` | **not run in this cycle — the orchestrator owns the heavy gate for this task; no verdict is claimed here.** This change targets the *cause* of the two `tests` / `declared-verification` failures named in the brief; the `project-runtime` adapter timeout remediation recorded in prior entries is unchanged and still owned there |
+| `openspec archive command-catalog-capability-group -y` | archived as `2026-10-12-command-catalog-capability-group`, no `--skip-specs`; canonical `forge-web-command-catalog` +1 / ~0 / -0; post-archive validate **103 passed / 0 failed**, names PASS, governance PASS |
+
+Implementation commit: `7519a46`. Nothing pushed. No `current_spec` pointer
+remains because no OpenSpec change is active.
+
 ### gate-rehearsal-document-consumption delivered and archived (2026-10-12)
 
 `gate-rehearsal-document-consumption` is implemented, verified and

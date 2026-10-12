@@ -374,6 +374,37 @@ pub fn supported_families() -> Vec<&'static str> {
     ]
 }
 
+/// The wire version Forge emits for every family it can project onto,
+/// registered as one reviewed table rather than interpolated at each call
+/// site. The schema `$id` carries no version, so this table and the
+/// envelope's `contract` discriminator are the only places a version is
+/// expressed: a family bump is a table edit, and the
+/// `registered_family_coverage` test proves no supported family is left
+/// without a row.
+pub const PLATFORM_FAMILY_VERSIONS: &[(&str, &str)] = &[
+    ("platform.audit-event", "0.1.0"),
+    ("platform.capability", "0.1.0"),
+    ("platform.gate-result", "1.0.0"),
+    ("platform.job-outcome", "0.1.0"),
+    ("platform.readiness", "0.1.0"),
+    ("platform.release-evidence", "0.1.0"),
+];
+
+/// Fallback used only by [`build_envelope`] for a family nobody
+/// registered. No Forge emission path reaches it — every family passed to
+/// an `emit_*` helper is in `supported_families()` and therefore covered
+/// by [`PLATFORM_FAMILY_VERSIONS`] — and the coverage test is what makes
+/// that claim checkable rather than hopeful. It exists so the envelope
+/// builder stays total instead of panicking on a caller mistake.
+const UNREGISTERED_FAMILY_VERSION: &str = "0.1.0";
+
+pub fn platform_family_version(family: &str) -> Option<&'static str> {
+    PLATFORM_FAMILY_VERSIONS
+        .iter()
+        .find(|(name, _)| *name == family)
+        .map(|(_, version)| *version)
+}
+
 pub fn family_schema_path(family: &str) -> Option<&'static str> {
     match family {
         "platform.gate-result" => Some("schemas/gate-result.schema.json"),
@@ -387,7 +418,7 @@ pub fn family_schema_path(family: &str) -> Option<&'static str> {
 }
 
 pub fn contract_discriminator(family: &str) -> Option<String> {
-    Some(format!("{family}/0.1.0"))
+    platform_family_version(family).map(|version| format!("{family}/{version}"))
 }
 
 pub fn secret_field_substrings() -> Vec<String> {
@@ -442,15 +473,84 @@ pub fn payload_contains_secret_field(
     walk(payload, substrings, "")
 }
 
-pub fn map_gate_aggregate(
-    agg: crate::gate::GateAggregate,
+/// Project one persisted gate-evidence record onto the contract's root
+/// `result`.
+///
+/// `platform.gate-result/1.0.0` gives Forge the value its own
+/// `GateCheckState` exists for: `review_required` — "a human decision is
+/// still open and no one has decided the outcome". `Unresolved` and
+/// `Unknown` are precisely states Forge refused to classify, so reporting
+/// them as `errored` ("a check could not be evaluated to a verdict")
+/// asserted an evaluation failure that Forge never observed.
+///
+/// `Blocked` is decomposed rather than mapped flat because Forge's
+/// aggregate is a superposition: `classify_aggregate` short-circuits on
+/// the sibling's `blocked` bit before reading the status, so `Blocked`
+/// covers both "a required check reported a failure" and "required reviews
+/// are pending under `review_required_blocks`". The observed check rows
+/// separate them. When no check row carries a failure, Forge has observed
+/// no attempted failure at all while the gate did not proceed, so the one
+/// claim 1.0.0 can make honestly is that no outcome was decided.
+///
+/// Every reachable record has an honest value, so the `Err` arm is
+/// unreachable for this family today; the `Result` shape is kept so the
+/// refusing mapping stays the interface, not so a future state has to be
+/// invented first.
+pub fn map_gate_result(
+    evidence: &crate::gate::GateEvidence,
 ) -> Result<&'static str, ContractUnmappable> {
-    match agg {
-        crate::gate::GateAggregate::Passed => Ok("passed"),
-        crate::gate::GateAggregate::Blocked => Ok("failed"),
-        crate::gate::GateAggregate::Failed => Ok("errored"),
-        crate::gate::GateAggregate::Unknown => Ok("errored"),
+    use crate::gate::{GateAggregate, GateCheckState};
+    match evidence.aggregate {
+        GateAggregate::Passed => Ok("passed"),
+        // A non-blocking failure is an attempted check that reported a
+        // failure, which is what the 1.0.0 `failed` value states.
+        GateAggregate::Failed => Ok("failed"),
+        GateAggregate::Unknown => Ok("review_required"),
+        GateAggregate::Blocked => {
+            let failed = evidence
+                .checks
+                .iter()
+                .any(|c| c.state == GateCheckState::Fail);
+            if failed {
+                Ok("failed")
+            } else {
+                // No row attributed a failure to the block, so the honest
+                // claim is that the outcome is undecided — not that a
+                // check failed and not that a check could not be
+                // evaluated.
+                Ok("review_required")
+            }
+        }
     }
+}
+
+/// Project one recorded check state onto the contract's
+/// `checks[].status`. The 1.0.0 vocabulary is shared by `result` and
+/// `checks[].status` and carries the same claim at both levels, so this
+/// table and [`map_gate_result`] agree by construction.
+///
+/// `errored` is never produced: Forge does not run the checks, and its
+/// gate plane never observes an adapter-level evaluation failure — an
+/// unparseable document, a timeout or a spawn failure is
+/// `GateOutcome::Unavailable`, which leaves no evidence and therefore
+/// reaches no payload.
+pub fn map_gate_check_state(
+    state: crate::gate::GateCheckState,
+) -> Result<&'static str, ContractUnmappable> {
+    use crate::gate::GateCheckState;
+    let mapped = match state {
+        GateCheckState::Pass => "passed",
+        GateCheckState::Fail => "failed",
+        // `skipped` is "a check was proven not to apply; this is an
+        // exemption", which is what NOT_APPLICABLE states. `Skip` keeps
+        // the same rendering: the packaged runtime emits no SKIP status,
+        // so the arm exists to keep the closed vocabulary closed.
+        GateCheckState::Skip | GateCheckState::NotApplicable => "skipped",
+        // No decision has been taken and no outcome was observed. The raw
+        // status survives in the redacted, bounded `detail` string.
+        GateCheckState::Unresolved => "review_required",
+    };
+    Ok(mapped)
 }
 
 pub fn map_readiness_status(
@@ -483,13 +583,45 @@ pub fn map_release_evidence_kind(_stages: &[String]) -> &'static str {
 }
 
 pub fn build_envelope(family: &str, payload: serde_json::Value) -> serde_json::Value {
-    let contract = contract_discriminator(family).unwrap_or_else(|| format!("{family}/0.1.0"));
+    let contract = contract_discriminator(family)
+        .unwrap_or_else(|| format!("{family}/{UNREGISTERED_FAMILY_VERSION}"));
     let generated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     serde_json::json!({
         "contract": contract,
         "generated_at": generated_at,
         "payload": payload,
     })
+}
+
+/// The majors a family still serves, read from the vendored registry
+/// record. The registry is the authority the source publishes and
+/// `verify_manifest_digests` pins; an unreadable, unparseable or
+/// family-less registry is a refusal, never a skipped check.
+fn supported_majors(family: &str) -> Result<Vec<u64>, String> {
+    let path = contracts_dir().join("registry.json");
+    let text =
+        fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let registry: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("invalid {}: {e}", path.display()))?;
+    let majors = registry
+        .get("contracts")
+        .and_then(|c| c.get(family))
+        .and_then(|f| f.get("supported_major_versions"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            format!(
+                "{} records no supported majors for '{family}'",
+                path.display()
+            )
+        })?;
+    let parsed: Vec<u64> = majors.iter().filter_map(|v| v.as_u64()).collect();
+    if parsed.len() != majors.len() {
+        return Err(format!(
+            "{} declares a non-integer supported major for '{family}'",
+            path.display()
+        ));
+    }
+    Ok(parsed)
 }
 
 pub fn validate_envelope(doc: &serde_json::Value) -> Result<(), String> {
@@ -508,8 +640,16 @@ pub fn validate_envelope(doc: &serde_json::Value) -> Result<(), String> {
     if !supported_families().contains(&family) {
         return Err(format!("unsupported family '{family}'"));
     }
-    if !version.starts_with("0.") {
-        return Err(format!("unsupported major for '{family}': {version}"));
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|m| m.parse::<u64>().ok())
+        .ok_or_else(|| format!("contract '{contract}' has no parsable major version"))?;
+    let majors = supported_majors(family)?;
+    if !majors.contains(&major) {
+        return Err(format!(
+            "unsupported major for '{family}': {version} (the vendored registry serves {majors:?})"
+        ));
     }
     doc.get("generated_at")
         .and_then(|v| v.as_str())
@@ -575,20 +715,15 @@ pub fn emit_gate_result(
         .ok_or_else(|| ForgeError::ContractInvalid {
             reason: "no gate evidence for this project".to_string(),
         })?;
-    let result =
-        map_gate_aggregate(evidence.aggregate).map_err(|e| ForgeError::ContractInvalid {
-            reason: e.to_string(),
-        })?;
+    let result = map_gate_result(&evidence).map_err(|e| ForgeError::ContractInvalid {
+        reason: e.to_string(),
+    })?;
     let gate_id = format!("{}/{}", evidence.project_id, evidence.runtime);
     let mut checks = Vec::new();
     for c in &evidence.checks {
-        let status = match c.state {
-            crate::gate::GateCheckState::Pass => "passed",
-            crate::gate::GateCheckState::Fail => "failed",
-            crate::gate::GateCheckState::Skip => "skipped",
-            crate::gate::GateCheckState::NotApplicable => "skipped",
-            crate::gate::GateCheckState::Unresolved => "errored",
-        };
+        let status = map_gate_check_state(c.state).map_err(|e| ForgeError::ContractInvalid {
+            reason: e.to_string(),
+        })?;
         let mut entry = serde_json::json!({"check_id": c.id, "status": status});
         if let Some(note) = &c.note {
             entry["detail"] = serde_json::Value::String(redact_credentials(note));

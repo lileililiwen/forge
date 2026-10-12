@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://platform.contracts/gate-result.schema.json",
   "title": "Gate result",
-  "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed; new result values require a major version bump.",
+  "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed; new result values require a major version bump. The vocabulary is shared by `result` and `checks[].status` and each value carries the same meaning at both levels.",
   "type": "object",
   "required": ["gate_id", "pipeline", "evaluated_at", "result"],
   "additionalProperties": true,
@@ -25,7 +25,8 @@
     },
     "result": {
       "type": "string",
-      "enum": ["passed", "failed", "errored", "skipped"]
+      "description": "Aggregate gate outcome, drawn from the same vocabulary as checks[].status. passed: the gate ran and every asserted check passed. failed: an attempted check reported a failure. errored: a check could not be evaluated to a verdict. skipped: a check was proven not to apply; this is an exemption, not an absence of evidence. review_required: a human decision is still open and no one has decided the outcome. unbound: the check was asserted and no command was ever bound to it, so nothing ran; this is a configuration defect and is never an exemption. A consumer MUST NOT read `skipped` and `unbound` alike, and MUST NOT read `review_required` as a decision already taken.",
+      "enum": ["passed", "failed", "errored", "skipped", "review_required", "unbound"]
     },
     "subject_ref": {
       "type": ["string", "null"],
@@ -47,7 +48,8 @@
           },
           "status": {
             "type": "string",
-            "enum": ["passed", "failed", "errored", "skipped"]
+            "description": "One check's outcome, drawn from the same vocabulary as result: passed, failed, errored, skipped, review_required, or unbound. The same six values with the same claims, and no additional meaning at check level. An unbound check is reported here rather than omitted, so a consumer counting checks sees every check the gate asserted.",
+            "enum": ["passed", "failed", "errored", "skipped", "review_required", "unbound"]
           },
           "detail": {
             "type": ["string", "null"],

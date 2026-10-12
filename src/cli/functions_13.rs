@@ -761,9 +761,10 @@ pub(crate) fn cmd_contract(
                 .and_then(|v| v.as_array())
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
                 .unwrap_or_default();
+            let declared = forge::contract::contract_discriminator(family)
+                .unwrap_or_else(|| family.to_string());
             let human = format!(
-                "family: {family}\ncontract: {}/0.1.0\nschema: {schema_path}\nrequired: {}\n{}",
-                family,
+                "family: {family}\ncontract: {declared}\nschema: {schema_path}\nrequired: {}\n{}",
                 required.join(", "),
                 schema_text.lines().take(20).collect::<Vec<_>>().join("\n")
             );

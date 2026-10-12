@@ -47,12 +47,19 @@
     },
     "platform.gate-result": {
       "schema": "schemas/gate-result.schema.json",
-      "supported_major_versions": [0],
-      "current_version": "0.1.0",
+      "supported_major_versions": [0, 1],
+      "current_version": "1.0.0",
       "status_fields": ["result", "checks.status"],
       "security_sensitive_fields": ["subject_ref", "tenant_id"],
       "owner_runtime": "driftwatchdog (gate runner)",
-      "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed."
+      "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed. Major 1 adds `review_required` (a human decision is still open) and `unbound` (a required check was asserted and no command was ever bound to it, so nothing ran) to the shared `result` / `checks[].status` vocabulary; `unbound` is a configuration defect and is never a `skipped` exemption.",
+      "narrowing": {
+        "declared_on": "2026-10-12T00:00:00Z",
+        "drops": [0],
+        "previous_supported_major_versions": [0],
+        "notice": "platform.gate-result major 0 is declared for removal. It is still served: supported_major_versions remains [0, 1] and a 0.x document is still accepted. A consumer MUST emit 1.0.0 or later and MUST NOT depend on a value outside the 1.x vocabulary. Major 0 is removed only in a separate change that moves this record to state 'enforced' once the sole producer, driftwatchdog, emits platform.gate-result/1.0.0.",
+        "state": "declared"
+      }
     },
     "platform.job-outcome": {
       "schema": "schemas/job-outcome.schema.json",

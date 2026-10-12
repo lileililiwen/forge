@@ -313,7 +313,7 @@ pub(super) mod tests {
                 parse_rehearsal(&value, Path::new(".")).is_none(),
                 "{name} must never be read as a rehearsal"
             );
-            let mapped = parse_gate_document(&value, &project_dir().path().to_path_buf())
+            let mapped = parse_gate_document(&value, project_dir().path())
                 .unwrap_or_else(|| panic!("{name} must still parse as a status document"));
             assert_eq!(
                 classify_aggregate(&mapped.status, mapped.blocked, exit_ok),
@@ -321,13 +321,13 @@ pub(super) mod tests {
                 "{name} aggregate"
             );
             assert!(!mapped.checks.is_empty(), "{name} check rows");
-            assert_eq!(mapped.manifest_digest.is_some(), true, "{name} digest");
+            assert!(mapped.manifest_digest.is_some(), "{name} digest");
             assert!(mapped.rule_pack_version.is_some(), "{name} rule pack");
         }
         // The pass capture keeps its exact row vocabulary.
         let pass = parse_gate_document(
             &fixture("gate-status-pass.json"),
-            &project_dir().path().to_path_buf(),
+            project_dir().path(),
         )
         .expect("status shape");
         assert_eq!(pass.checks.len(), 1);
@@ -344,7 +344,7 @@ pub(super) mod tests {
         assert!(
             parse_gate_document(
                 &fixture("gate-rehearsal-plan.json"),
-                &project_dir().path().to_path_buf()
+                project_dir().path()
             )
             .is_none(),
             "a rehearsal must never normalise into evidence"

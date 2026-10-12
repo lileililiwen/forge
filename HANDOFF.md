@@ -29,6 +29,22 @@ Evidence at archive:
 Implementation commit: `93e793d`. Nothing pushed. No `current_spec`
 pointer remains because no OpenSpec change is active.
 
+Follow-up audit `80a7a67` (no spec delta, same change): reading
+`WireRehearsal.dry_run` in the existing post-parse refusal. Detection
+reads `dry_run` off the raw `serde_json::Value`, so the typed field was
+dead and raised a `dead_code` clippy warning; it is now asserted
+alongside `executed`, `persisted` and the `would_block != false` rule
+so the producer's four side-effect markers are checked in one place.
+No behavior change. Re-verified after it: `cargo fmt --check` clean,
+`cargo build` 0 errors, `cargo test --lib` 1230 passed / 0 failed,
+`cargo test --lib gate::` 44 passed, `scripts/contract-parity.sh` OK,
+`check-openspec-change-names` PASS, `check-spec-governance` PASS,
+`openspec validate --all --strict` 103 passed / 0 failed,
+`git diff --check` clean. `forge gate --dry-run` confirmed against both
+siblings: the current build renders the typed rehearsal and the stale
+Oct 5 `~/.cargo/bin` copy degrades to plan lines — **both report
+`driftwatch 0.1.0`**, which is why detection is by document shape.
+
 ### platform-gate-result-major-adoption delivered and archived (2026-10-12)
 
 `platform-gate-result-major-adoption` migrates Forge, as a **producer** of

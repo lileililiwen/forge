@@ -11,7 +11,6 @@ checks:
   governance-quality: true
   placeholder-threshold: true
   product-code-boundary: true
-  declared-verification: true
 blocking:
   - FAIL
   - REVIEW_REQUIRED

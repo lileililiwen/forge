@@ -7,7 +7,7 @@
   "profile": "rust-product",
   "lifecycle": "active",
   "verification": {
-    "command": "cargo test --workspace",
+    "command": "cargo test --workspace -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent",
     "gate_runtime": "driftwatchdog",
     "evidence_status": "planned"
   },

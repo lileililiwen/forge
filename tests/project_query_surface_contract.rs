@@ -34,6 +34,12 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 const CONTRACT: &str = "forge-project-catalog/0.1.0";
+/// The one browser origin the admin API accepts. A catalog read with no
+/// `Authorization` header is resolved as a browser session read, and the
+/// exact-origin check runs before the session check
+/// (`web-project-catalog-browser`: "session-gated (401 without), exact-origin
+/// checked"), so this is the value every request in this file presents.
+const ADMIN_ORIGIN: &str = "http://127.0.0.1:4173";
 const IDENTITY_YAML: &str = "  provider: okta\n  issuer: https://example.okta.com\n  client_id: forge-admin\n  audience: forge-admin\n  redirect_uri: https://admin.example.com/oidc/callback\n  scopes:\n    - openid\n    - profile\n  admin_claim: groups\n  admin_values:\n    - forge-admins\n  state_ttl_seconds: 120\n  session_ttl_seconds: 3600\n  client_secret_ref: env://OIDC_CLIENT_SECRET\n";
 
 fn forge_bin() -> PathBuf {
@@ -169,6 +175,9 @@ fn start_api(db: &Path) -> (u16, std::process::Child) {
     let port = free_port();
     let mut cmd = clean_cmd();
     cmd.arg("--registry").arg(db);
+    // Pin the exact browser origin this suite presents, so the result never
+    // depends on an ambient `FORGE_FRONTEND_ORIGIN`.
+    cmd.env("FORGE_FRONTEND_ORIGIN", ADMIN_ORIGIN);
     cmd.arg("api")
         .arg("serve")
         .arg("--port")
@@ -298,12 +307,28 @@ fn mcp_inspect(db: &Path, target: &str) -> Result<Value, forge::mcp::McpRpcError
 /// `(status, json)`; the body parses as `null` when the route
 /// answers with no body (refusals still carry a JSON envelope).
 fn api_get_catalog(port: u16, query: &str, bearer: Option<&str>) -> (u16, Value) {
+    api_get_catalog_from(ADMIN_ORIGIN, port, query, bearer)
+}
+
+/// The catalog read resolves its session two ways, in order: an exact-origin
+/// check first (a caller with no `Authorization` header is a browser cookie
+/// caller, so `web-project-catalog-browser` requires the exact origin
+/// checked), then the session gate itself. A request with no `Origin` at all
+/// is refused with `403 admin-origin-rejected` *before* the session is
+/// consulted, which is why every request here carries `ADMIN_ORIGIN`: the
+/// suite is about the session gate, not the origin gate.
+fn api_get_catalog_from(
+    origin: &str,
+    port: u16,
+    query: &str,
+    bearer: Option<&str>,
+) -> (u16, Value) {
     let path = if query.is_empty() {
         "/v1/projects/catalog".to_string()
     } else {
         format!("/v1/projects/catalog?{query}")
     };
-    let mut headers: Vec<(&str, String)> = Vec::new();
+    let mut headers: Vec<(&str, String)> = vec![("Origin", origin.to_string())];
     if let Some(token) = bearer {
         headers.push(("Authorization", format!("Bearer {token}")));
     }
@@ -659,12 +684,22 @@ fn an_unauthorized_caller_sees_no_fleet_on_every_transport() {
 
     // API: missing bearer is a 401 and discloses nothing.
     let (port, mut child) = start_api(&db);
+    // The request carries the exact browser origin, so the origin check
+    // passes and the *session* gate is what answers.
     let (status, api) = api_get_catalog(port, "", None);
-    stop_api(&mut child);
     assert_eq!(status, 401);
     assert_eq!(api["error"]["code"], "api-unauthorized");
     // The unauthorized response must not leak any record.
     assert!(api.get("catalog").map(|c| c.is_null()).unwrap_or(true));
+    // The gate the 401 belongs to is the session, not the origin: a
+    // different origin is refused earlier with 403 `admin-origin-rejected`,
+    // which is the second half of `web-project-catalog-browser`'s
+    // "session-gated (401 without), exact-origin checked".
+    let (status, api) = api_get_catalog_from("http://evil.example", port, "", None);
+    assert_eq!(status, 403);
+    assert_eq!(api["error"]["code"], "admin-origin-rejected");
+    assert!(api.get("catalog").map(|c| c.is_null()).unwrap_or(true));
+    stop_api(&mut child);
 }
 
 #[test]

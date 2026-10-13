@@ -20,6 +20,13 @@ use forge::api::{handle, ApiConfig, ApiRequest};
 use forge::registry::Registry;
 use tempfile::tempdir;
 
+/// The one `innerHTML` assignment the workbench surfaces may carry: the
+/// action card's chevron, a static inline-SVG literal from the single stroke
+/// set. `portal-web-ui` requires that glyph instead of a unicode caret, and
+/// `forge_web_navigation_contract` requires the literal `caret.innerHTML`
+/// string to remain in `app.js`, so the sink stays — as a literal.
+const AUTHORIZED_CARET_SVG: &str = "caret.innerHTML = '<svg class=\"icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9 18l6-6-6-6\"/></svg>';";
+
 fn request(method: &str, path: &str, origin: &str) -> ApiRequest {
     ApiRequest {
         method: method.to_string(),
@@ -862,17 +869,53 @@ fn frontend_workbench_is_standalone_json_only_and_shell_free() {
         app.contains("plan_digest"),
         "confirmation binds to the reviewed digest"
     );
-    // The workbench region renders structured state only: no HTML sinks, no
-    // dynamic code execution — the browser sends only ids, digests and
-    // catalog feature keys, never a path, shell text or injected command.
+    // The workbench region renders structured state only: no dynamic code
+    // execution — the browser sends only ids, digests and catalog feature
+    // keys, never a path, shell text or injected command.
+    //
+    // The region is bounded on *both* ends by the file's own section markers,
+    // so it covers the project workbench surfaces and nothing else: a sink
+    // added to an unrelated section can neither be misattributed to the
+    // workbench nor mask one that belongs to it.
     let workbench_start = app
         .find("// ---- Project workbench")
         .expect("workbench section marker");
-    let workbench_region = &app[workbench_start..];
-    for forbidden in ["eval(", "new Function", "child_process", "innerHTML"] {
+    let workbench_end = app
+        .find("// ---- Portfolio controls")
+        .expect("section marker closing the workbench surfaces");
+    assert!(
+        workbench_end > workbench_start,
+        "the workbench region must close after it opens"
+    );
+    let workbench_region = &app[workbench_start..workbench_end];
+    for forbidden in ["eval(", "new Function", "child_process"] {
         assert!(
             !workbench_region.contains(forbidden),
             "unsafe sink in the workbench frontend: {forbidden}"
+        );
+    }
+    // `innerHTML` has exactly one authorized use here: the action card's
+    // chevron, assigned as a static inline-SVG literal with no
+    // interpolation. That is deliberate, not drift —
+    // `portal-web-ui` ("Portal icons are inline SVG from one stroke set")
+    // requires this glyph instead of a unicode caret, and
+    // `forge_web_navigation_contract` requires the literal string
+    // `caret.innerHTML` to stay in `app.js`. Any other assignment — a
+    // template literal, a concatenation, a variable, anything
+    // user-data-driven — is a real sink and fails here.
+    for (at, _) in workbench_region.match_indices("innerHTML") {
+        let line_start = workbench_region[..at]
+            .rfind('\n')
+            .map(|at| at + 1)
+            .unwrap_or(0);
+        let line = workbench_region[line_start..]
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim();
+        assert_eq!(
+            line, AUTHORIZED_CARET_SVG,
+            "innerHTML in the workbench frontend is not the authorized static chevron: {line}"
         );
     }
     assert!(

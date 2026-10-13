@@ -25,10 +25,16 @@ fn result_containers_are_live_regions() {
     let app = read("frontend/app.js");
 
     // Every static result container declares a polite live region in markup.
+    // The count is the tripwire: it fails when a container loses its region and
+    // when one is added without a role, so the role check below is never
+    // silently skipped. Ten is what `index.html` declares today — the seven of
+    // `ff91bca` (plan, apply, mgmt-preview, mgmt-apply, ws-preview, ws-apply,
+    // delivery-action) plus `github-action-result` (`216abe1`),
+    // `delivery-next-idea` (`c71805c`) and `idea-result` (`8e638ea`).
     let containers = html.matches("class=\"wb-plan-result\"").count();
     assert_eq!(
-        containers, 7,
-        "expected seven .wb-plan-result containers in index.html"
+        containers, 10,
+        "expected ten .wb-plan-result containers in index.html"
     );
     let with_role = html
         .matches("class=\"wb-plan-result\" role=\"status\"")

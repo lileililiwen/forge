@@ -79,29 +79,73 @@ try {
   await page.waitForURL('**/index.html', { timeout: 30000 });
   note('signed in');
 
-  // Dashboard order: work comes before reference.
-  const positions = await page.evaluate(() => {
-    const out = {};
-    for (const id of ['workbench-title', 'management-title', 'commands-title']) {
-      const el = document.getElementById(id);
-      out[id] = el ? el.getBoundingClientRect().top : -1;
-    }
-    return out;
-  });
-  if (!(positions['workbench-title'] < positions['management-title'] && positions['management-title'] < positions['commands-title'])) {
-    fail(`dashboard order is not workbench < management < commands: ${JSON.stringify(positions)}`);
+  // Dashboard order: the four routed work surfaces appear in the document in
+  // the order the nav offers them, and every one of them carries a title its
+  // `aria-labelledby` actually resolves to.
+  //
+  // Vertical geometry cannot prove this any more: `d34c92d` made each panel a
+  // routed view, so on `/projects` all four are `hidden` and every
+  // `getBoundingClientRect().top` is 0 — the old comparison silently measured
+  // nothing. Document position distinguishes order whatever the visibility,
+  // and resolving the label turns a deleted id (as `commands-title` became in
+  // `fb3feb5`, which sorted as -1 and reported "order is not …") into an
+  // explicit failure.
+  const routes = ['workbench', 'management', 'portfolio', 'delivery'];
+  const layout = await page.evaluate((ids) => {
+    const panels = ids.map((id) => document.getElementById(id));
+    const domOrder = panels.every(
+      (el, index) =>
+        el &&
+        (index === 0 ||
+          Boolean(
+            panels[index - 1].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING,
+          )),
+    );
+    const labels = panels.map((el) => (el ? el.getAttribute('aria-labelledby') || '' : ''));
+    return {
+      domOrder,
+      labelsResolve: labels.every((label) => Boolean(document.getElementById(label))),
+      missing: ids.filter((id, index) => !panels[index]),
+      unresolved: labels.filter((label) => !label || !document.getElementById(label)),
+      nav: Array.from(document.querySelectorAll('nav .nav-link[data-route]')).map(
+        (link) => link.dataset.route,
+      ),
+    };
+  }, routes);
+  if (layout.missing.length) {
+    fail(`dashboard is missing the routed panel(s): ${layout.missing.join(', ')}`);
+  }
+  if (!layout.labelsResolve) {
+    fail(`dashboard panel aria-labelledby does not resolve: ${layout.unresolved.join(', ')}`);
+  }
+  if (!layout.domOrder) {
+    fail(`dashboard document order is not ${routes.join(' < ')}`);
+  }
+  const navWork = layout.nav.filter((route) => route !== 'projects');
+  if (navWork.join(',') !== routes.join(',')) {
+    fail(`nav route order ${layout.nav.join(',')} does not match the dashboard panel order ${routes.join(',')}`);
   }
   note('order ok');
 
-  // Auto-discovery: no Discover click. The table populates itself.
+  // Auto-discovery: no Discover click. Discovery runs at boot, so the fleet
+  // hint on *this* route (the projects panel, where the operator reads it)
+  // is the visible signal that it completed.
+  await page.locator('#ws-fleet-hint').waitFor({ state: 'visible', timeout: 30000 });
+  const hint = await page.locator('#ws-fleet-hint').innerText();
+  if (!hint.includes('not yet onboarded')) fail(`fleet hint missing: ${hint}`);
+
+  // Onboarding itself lives in the management route (`d34c92d` turned the
+  // panels into routed views), so the operator — and this oracle — go there
+  // through the sidebar. Every assertion below is then made on an element
+  // that is actually on screen in the route that owns it.
+  await page.getByRole('link', { name: 'Manage projects' }).click();
+  await page.locator('#management').waitFor({ state: 'visible', timeout: 30000 });
   const rows = page.locator('#ws-rows tr');
   await rows.first().waitFor({ timeout: 30000 });
   const tableText = await page.locator('#ws-rows').innerText();
   for (const dir of dirs) {
     if (!tableText.includes(dir)) fail(`auto-discovery did not list ${dir}: ${tableText}`);
   }
-  const hint = await page.locator('#ws-fleet-hint').innerText();
-  if (!hint.includes('not yet onboarded')) fail(`fleet hint missing: ${hint}`);
   note('discovered');
 
   // Keyboard-driven preview: focus the preview control and activate it.
@@ -145,6 +189,15 @@ try {
   if (!(await page.getByRole('button', { name: 'Reload project list' }).isVisible())) {
     fail('manual Reload fallback is missing after onboarding');
   }
+  // Walking back to the fleet is a sidebar route change, never a document
+  // reload: a marker on `window` survives an SPA route swap and dies on any
+  // reload, so this proves the rows below were re-fetched in place.
+  await page.evaluate(() => { window.__forgeNoDocumentReload = true; });
+  await page.getByRole('link', { name: 'All projects' }).click();
+  await page.locator('#view-projects').waitFor({ state: 'visible', timeout: 30000 });
+  if (!(await page.evaluate(() => window.__forgeNoDocumentReload === true))) {
+    fail('the fleet was reloaded instead of re-fetched in place');
+  }
   const fleet = page.locator('#project-rows');
   await fleet.getByText(ids[0], { exact: false }).waitFor({ timeout: 30000 });
   const fleetText = await fleet.innerText();
@@ -154,8 +207,8 @@ try {
   // Fleet rows lead with a human name and one plain status line — no
   // source/lifecycle/access/evidence code columns in the primary view.
   const fleetHeaders = await page.locator('#project-rows').evaluate(() => {
-    const table = document.querySelector('.table-scroll table thead');
-    return table ? table.innerText : '';
+    const head = document.querySelector('#fleet-table thead');
+    return head ? head.innerText : '';
   });
   for (const code of ['Source', 'Lifecycle', 'Access', 'Evidence']) {
     if (fleetHeaders.includes(code)) fail(`fleet still shows a ${code} code column`);

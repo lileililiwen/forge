@@ -140,6 +140,16 @@ const MATRIX: [(&str, &str, &str, &str); 6] = [
 /// regression.
 /// Earlier re-captures: `rs-app` by `react-web-live-preview` for the runnable
 /// Vite+React client, the first set by `jenkins-deploy-adapter-consumption`.
+/// `rs-app` and `node-app` re-captured a fourth time, by
+/// `resync-ui-token-kit` (2026-10-09), which refreshed the vendored
+/// `platform-ui-web` kit to 0.2.0: three kit files changed in
+/// `kits/tokens/` (`tokens.css` 1844→2872, `verify-tokens.mjs`
+/// 505→3707, `tokens.ts` 1879→2976 bytes), and `.platform/` is scoped to
+/// `react-web` and `nextjs-web` scaffolds by
+/// `scaffold-prewires-shared-layer` ("Token artifacts are vendored and
+/// receipted"), so exactly those two profiles moved. The opt-out guard
+/// still holds where it is meant to: no declaration, no receipt and no
+/// `.forge` tree is emitted — asserted separately in this test.
 const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     (
         "net-app",
@@ -151,7 +161,7 @@ const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     ),
     (
         "node-app",
-        "9b58ced791c2ae8da9316740e9794d13b2f441305240d5e6c2da31d247724759",
+        "d4f41ecb0ca38284a2b235ecedf625af7d82257488c4b2704783b50a51e1fe74",
     ),
     (
         "py-app",
@@ -159,7 +169,7 @@ const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
     ),
     (
         "rs-app",
-        "a5cf216c6306c43ff7384b64cdf3052b55c205728150d72e93a2390c8446fb42",
+        "f6ce762c1087317b01685bfe1fc6c3c559e4e45bc0d9543b5ae8ff8b2fcd04ac",
     ),
     (
         "rs-web-app",

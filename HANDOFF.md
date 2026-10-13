@@ -2,6 +2,152 @@
 
 ## Current state
 
+### `agent-provider-honest-state` delivered and archived (2026-10-13)
+
+Forge no longer reports agent activity it did not produce.
+`start_or_resume` (`src/agent/transitions.rs:181`) answered the bundled
+`opencode`/`codex` path with `SessionState::Active` after exactly one
+observation — `command_on_path(binary)` — and spawned nothing: no
+subprocess, no prompt, no output, no exit code. `restart` set `Active`
+from a state check alone. A session could report `active` having never
+run, on the same repository where `src/gate/model.rs:184` holds
+"Unknown or unexpected state strings become `unresolved` — never
+`pass`" and `transitions.rs:509` holds "A state the runtime did not
+report is never synthesized".
+
+**Decision: option (a), on the quoted spec evidence.**
+
+- `agent-runtime-workflows/spec.md:8` requires the six operations to be
+  **exposed** for "**supported** OpenCode/Codex adapters" — a surface
+  requirement. It is the only canonical line in `openspec/specs/**`
+  naming OpenCode or Codex (`rg -l -i 'opencode|codex' openspec/specs/
+  --glob '*.md'` returns that one file, and inside it that one line).
+- `spec.md:44-50` is the requirement that does demand a real backing
+  runtime, and its only success scenario (`spec.md:52-57`) is conditioned
+  on "**the supervised provider**".
+- `spec.md:65-70` already forbids this unconditionally: "SHALL **never
+  claim a state the runtime did not report**".
+- `spec.md:15-18` already names the honest outcome: "the requested
+  transition is unsupported THEN Forge reports failed, disconnected or
+  **unsupported with recovery guidance**".
+- Option (b) would additionally contradict `AGENTS.md:50` ("Do not
+  replace DriftWatch, **the existing PTY manager**") and
+  `requirement.md:1358-1364` ("OpenCode PTY manager → Agent Runtime …
+  should retain their identities"). The manager is not wired into this
+  build at all — `transitions.rs` says so in the `pause`/`takeover`
+  details. Option (b) is building the missing integration, not fixing a
+  described adapter.
+
+**What an operator can no longer do with `opencode`/`codex`** — a real
+reduction in claimed capability, though a correction:
+
+| Command | Before | After |
+|---|---|---|
+| `forge agent start --provider codex` | `active` when the binary is on `PATH`; typed `agent-unavailable` when absent | `unsupported` (exit 0) with the probe result and reason in evidence; typed `agent-unavailable` (exit 1) when the binary is absent |
+| `forge agent resume` / `restart` / `new-session` | `active` | `unsupported` |
+| `forge agent run-spec` (no supervisor, bundled session) | `active` | `unsupported` |
+| `forge agent status` / `list` | render the record | render the record (unchanged) |
+| `forge agent start --provider ariadex` | real `ariadex start`, state from `ariadex status --json` | **unchanged** |
+
+Sessions recorded by an earlier build are **not** rewritten; a stored
+`state: "active"` reads back exactly as written, and `status`/`list`
+render it as stored. The six operations stay exposed for all three
+providers — `spec.md:8` requires the surface.
+
+**Before/after matrix.** Full table in `design.md` §4. Summary: for both
+bundled providers, `start`/`resume`/`new_session` go `active →`
+`unsupported` and `restart` goes `active →` `unsupported`; `pause` and
+`takeover` were already `unsupported` and are unchanged; `run-spec` with
+`sisyphusfy` is unchanged (it really spawns). For `ariadex`, **every row
+is unchanged** — `ariadex_transition`, `invoke_runtime`,
+`map_ariadex_status`, `live_runtime_status`, `disconnected_outcome` and
+`RuntimeBacking` have zero diff hunks, and `git diff` shows no hunk after
+`transitions.rs:290`.
+
+**Two existing tests encoded the bug and were rewritten**, plus one that
+merely permitted it:
+
+| Test | Encoded | Change |
+|---|---|---|
+| `agent_tests::start_records_state_for_present_or_missing_provider` | `assert_eq!(outcome.state, SessionState::Active)` for the present-binary arm | now asserts `unsupported` when the binary is present and `agent-unavailable` when absent |
+| `agent_tests::restart_preserves_prior_state_and_records_active` | `assert_eq!(outcome.state, SessionState::Active)` from a state check alone | renamed `restart_preserves_the_prior_record_without_claiming_active`; asserts `unsupported`, one recorded transition, spec binding preserved |
+| `agent_contract::restart_preserves_prior_state_and_records_active` | `assert_eq!(out["transition"]["state"], "active")` | renamed `restart_preserves_the_prior_record_without_claiming_active`; asserts `unsupported` plus the persisted record and the transition-log line |
+| `agent_contract::start_records_session_with_provider_and_project_association` | `assert!(s == "active" \|\| s == "unsupported")` — **accepted** the fabrication | `assert_eq!(s, "unsupported")` when a state is reported; session id, project id, provider and both written files still asserted |
+
+`tests/supervised_agent_contract/native_toolchain.rs`
+(`runtime_absent_lists_resolution_attempts_and_bundled_still_works`) also
+constrains this work and was **not** changed: it asserts the bundled
+`codex` failure must never mention `ariadex`. An earlier draft of the
+missing-binary text named `--provider ariadex` and tripped it; the text
+was corrected instead, so the bundled vocabulary stays bundled and the
+named recovery guidance lives in the outcome's `next_step` field.
+
+**New tests** (all mutation-checked — reverting the bundled path to
+`Active` fails each of the seven):
+
+- `start_on_a_bundled_provider_never_claims_active` — both bundled
+  providers × `start`/`resume`/`new_session`; the state, the evidence, the
+  note and the next step all say why.
+- `restart_on_a_bundled_provider_never_claims_active` — all five
+  non-terminal prior states land on `unsupported`, `stopped` still refuses,
+  the spec binding survives.
+- `no_transition_reaches_active_without_a_process_or_a_live_report` — the
+  exhaustive `is_supervised()` × `SessionTransition` matrix.
+- `agent_contract::start_with_the_provider_binary_on_path_reports_unsupported_and_never_runs_it`
+  — an executable `codex`/`opencode` on an explicit `PATH`, proof that
+  Forge records `unsupported`, and a marker file **plus a positive
+  control spawn** proving Forge never executed the binary it probed.
+
+**One judgment call beyond `transitions.rs`,** reported rather than
+hidden: `src/api/admin/agent_identity.rs` told the browser operator
+"recorded session state is **the live surface** for this provider; no
+runtime probe exists" — the same fabrication one layer up, since that
+record can never be an observation. It now says the recorded state is the
+only surface and that no process backs the session. The pinned
+substring (`recorded`) is kept, so
+`tests/web_agent_identity_readonly_contract.rs` is unchanged. The
+`unsupported()` note was also corrected from "session `x` stays in state
+`y`" (which named the *prior* state while the record said `unsupported`)
+to "session `x` was `y` and is recorded as `unsupported`".
+
+**Untouched, verified by diff:** `src/agent/model.rs` (`AgentProvider`,
+`SessionState`, `AgentSession`), `validate_session_id`,
+`resolve_binary_path`, `src/cli/**`, `src/gate/**`, `src/contract/**`,
+`src/api/command_catalog/**`, and every `tests/supervised_agent_contract`
+and `tests/supervised_agent_cross_surface` test. `next_step_for` was
+removed because its only two callers no longer use it — a dead-code
+warning would otherwise have been introduced.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo build` | 0 errors; the same 3 pre-existing warnings (`ShareSurface` unused import, `FleetEntryOutcome::Published`, `FLEET_DEFAULT_JOBS`) |
+| `cargo fmt --check` | clean for every touched file. Repo-wide the only remaining drift is the two pre-existing untouched files: `tests/web_assurance_browser_contract.rs` and `src/gate/rehearsal_tests.rs` (neither appears in `git status`) |
+| `cargo clippy` (default targets) | **41 warnings, 0 errors** — the pre-existing count, and **zero findings mentioning** `transitions.rs`, `agent_tests.rs`, `agent_contract.rs` or `agent_identity.rs` |
+| `cargo test --lib agent` | **17 passed / 0 failed** |
+| `cargo test --lib` | **1232 passed / 0 failed** (1 ignored) — whole-target safety net, no new failure |
+| `cargo test --lib gate` | **64 passed / 0 failed** (the reference plane, untouched) |
+| `cargo test --test agent_contract` | **11 passed / 0 failed** (was 10; +1 new, one rewritten) |
+| `cargo test --test supervised_agent_contract` | **29 passed / 0 failed** — Ariadex/sisyphusfy non-regression, **unchanged files** |
+| `cargo test --test supervised_agent_cross_surface` | **8 passed / 0 failed** — unchanged file |
+| `cargo test --test agent_runtime_workflows_cross_surface` | **4 passed / 0 failed** — unchanged file |
+| `cargo test --test web_agent_identity_readonly_contract` | **10 passed / 0 failed** — unchanged file |
+| mutation check: `bundled_unsupported` forced to return `Active` | **4 lib failures** (`start_on_a_bundled_provider_never_claims_active`, `restart_on_a_bundled_provider_never_claims_active`, `no_transition_reaches_active_without_a_process_or_a_live_report`, `restart_preserves_the_prior_record_without_claiming_active`) + **3 `agent_contract` failures**; reverted |
+| mutation check: bundled refusal text naming `--provider ariadex` | `native_toolchain::runtime_absent_lists_resolution_attempts_and_bundled_still_works` **FAILED**; text corrected, test untouched |
+| live proof (throwaway project under `/tmp`, explicit `PATH`, never committed) | **VERIFIED**: `forge agent start --provider codex` → `state: unsupported`, evidence `binary: codex (present on PATH)` + `detail: forge spawns no process for the bundled \`codex\` adapter…`, `next_step` naming `--provider ariadex`, exit 0; `forge agent restart` → `unsupported` with `prior_state: unsupported`, exit 0; the stub's marker file **was never created** |
+| `node scripts/check-openspec-change-names.mjs` | PASS (pre-archive and post-archive) |
+| `node scripts/check-spec-governance.mjs` | PASS post-archive (after pointer removal) |
+| `openspec validate --all --strict --no-interactive` | **104 passed / 0 failed** active; **103 passed / 0 failed** post-archive, re-run after the commit |
+| `git diff --check` | clean (cached + worktree); the archiver's blank line at EOF in the promoted spec repaired |
+| `git diff -- src/gate src/contract src/api/command_catalog src/cli src/agent/model.rs` | **empty** |
+| `forge gate --dry-run` | plan rendered; 9 required checks, `tests`/`declared-verification` at 600000ms |
+| `forge gate` (full runtime) | **not run in this cycle — the orchestrator owns the heavy gate for this task; no verdict is claimed here.** Every check above is green and the tree adds no new failure. The `project-runtime` adapter timeout recorded in prior entries is unchanged and still owned there |
+| `openspec archive agent-provider-honest-state -y` | archived as `2026-10-13-agent-provider-honest-state`, **no `--skip-specs`**; canonical `agent-runtime-workflows` **+1 / ~0 / -0**; post-archive validate **103 passed / 0 failed**; `openspec list` clean |
+
+Implementation commit: `7be989c`. Nothing pushed. No `current_spec`
+pointer remains because no OpenSpec change is active.
+
 ### `portfolio_ui_contract` repointed at the surviving portfolio surface (2026-10-13)
 
 The last stale target is closed. No product code changed:

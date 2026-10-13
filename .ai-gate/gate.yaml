@@ -11,22 +11,21 @@ checks:
   governance-quality: true
   placeholder-threshold: true
   product-code-boundary: true
+  declared-verification: true
 blocking:
   - FAIL
   - REVIEW_REQUIRED
 
 # Per-check execution deadlines. Unlisted checks take the runtime default
-# (60s). `tests` and `declared-verification` both bind `cargo test
-# --workspace`, which measures ~2469s warm on this machine — of which ~2220s
-# is the single `rust_scaffold_builds_and_tests_with_native_toolchain` test,
-# which compiles and tests a freshly generated Rust project. The default timed
-# both out and surfaced as REVIEW_REQUIRED — a claim about the clock, not
-# about the code.
-# Note these two checks duplicate the same command, so one gate run executes
-# the workspace suite twice (~82 min); the deadline is sized for one run.
+# (60s). The two are deliberately different:
+#   declared-verification — the CI fast suite; ~250s.
+#   tests — the full workspace suite bound by bind_gate_commands.py, which
+#     has no per-repo skip hook, so it still includes
+#     `rust_scaffold_builds_and_tests_with_native_toolchain` (~2220s, which
+#     compiles and tests a freshly generated Rust project).
 timeouts:
   tests: 3000000
-  declared-verification: 3000000
+  declared-verification: 600000
 
 commands:
   # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.
@@ -44,3 +43,7 @@ commands:
   governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project forge --json'
   placeholder-threshold: 'python3 ../workspace-governance/scripts/product_code_quality.py .'
   product-code-boundary: 'python3 ../workspace-governance/scripts/product_code_quality.py .'
+  # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.
+  # A verifier that no gate runs does not gate (ruling D18). Re-run the
+  # generator to update it; do not hand-edit.
+  declared-verification: 'cargo test --workspace -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent'

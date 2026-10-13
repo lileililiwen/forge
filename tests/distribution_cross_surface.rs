@@ -388,6 +388,16 @@ fn agent_session_does_not_block_mirror_or_vice_versa() {
     );
     let session_id = start["transition"]["session_id"].as_str().unwrap();
     assert_eq!(session_id, "sess-1");
+    // The contract under test is that `forge mirror` leaves the agent
+    // session state untouched — not that the state is any particular
+    // value. A bundled provider reports `unsupported` because no adapter
+    // was spawned (see `agent-provider-honest-state`); pinning the
+    // literal here would re-assert the old fabricated `active`.
+    let state_before = start["transition"]["state"].as_str().unwrap();
+    assert_eq!(
+        state_before, "unsupported",
+        "a bundled provider must not claim a state the runtime never reported"
+    );
     // Run a mirror. The agent session must remain
     // `active` (the mirror contract is not aware of the
     // agent runtime).
@@ -412,7 +422,7 @@ fn agent_session_does_not_block_mirror_or_vice_versa() {
         ],
     );
     let state = status["state"].as_str().unwrap();
-    assert_eq!(state, "active");
+    assert_eq!(state, state_before, "forge mirror must not change agent session state");
     // List sessions to ensure the session is still
     // discoverable after the mirror run.
     let list = run_json(&db, &["agent", "list", proj.to_str().unwrap()]);

@@ -441,9 +441,8 @@ mod tests {
     #[cfg(unix)]
     fn publish_timeout_is_bounded() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("forge-share-timeout-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("tempdir");
-        let script = dir.join("wedged.sh");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let script = dir.path().join("wedged.sh");
         std::fs::write(&script, "#!/bin/sh\nsleep 30\n").expect("write stub");
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         let context = PublishContext {
@@ -459,7 +458,6 @@ mod tests {
             .expect_err("a wedged adapter must not be trusted");
         assert_eq!(err.code(), "portfolio-share-invalid");
         assert!(err.to_string().contains("budget"), "{err}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

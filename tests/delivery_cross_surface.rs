@@ -12,6 +12,9 @@
 //! - that a credential-shaped value in any delivery surface is
 //!   scrubbed before it reaches stdout / stderr / journal.
 
+#[path = "support/listener.rs"]
+mod listener;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -145,36 +148,24 @@ fn write_identity_project(dir: &Path, id: &str) {
         .output();
 }
 
-fn free_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-    port
-}
-
+/// Start the API server on a claimed port: `support/listener.rs` holds the
+/// listener from the claim until the server owns it, so no parallel suite can
+/// be listening on it, and the wait returns only once the socket belongs to
+/// this child.
 fn start_api(db: &Path) -> (u16, std::process::Child) {
-    let port = free_port();
-    let mut cmd = clean_cmd();
-    cmd.arg("--registry").arg(db);
-    cmd.arg("api").arg("serve");
-    cmd.arg("--port").arg(port.to_string());
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    let child = cmd.spawn().expect("spawn api server");
-    let start = std::time::Instant::now();
-    let mut bound = false;
-    while start.elapsed() < std::time::Duration::from_secs(5) {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            bound = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    if !bound {
-        panic!("api server did not bind on 127.0.0.1:{port}");
-    }
-    (port, child)
+    let server = listener::claim(listener::suite::DELIVERY_CROSS_SURFACE).spawn("api", |port| {
+        let mut cmd = clean_cmd();
+        cmd.arg("--registry").arg(db);
+        cmd.arg("api").arg("serve");
+        // The same address the claim holds, so the child and the claim cannot
+        // disagree about which socket owns the port.
+        cmd.arg("--bind").arg("127.0.0.1");
+        cmd.arg("--port").arg(port.to_string());
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::piped());
+        cmd
+    });
+    (server.port(), server.into_child())
 }
 
 fn stop_api(child: &mut std::process::Child) {

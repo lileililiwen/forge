@@ -11,8 +11,11 @@
 //! Node harness exits `2`, this test prints `UNVERIFIED` and returns. That
 //! outcome is never recorded as a pass.
 
+#[path = "support/listener.rs"]
+mod listener;
+
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 const EMAIL: &str = "operator@example.test";
 const PASSWORD: &str = "a-long-test-password";
@@ -31,13 +34,6 @@ fn node_available() -> bool {
         .unwrap_or(false)
 }
 
-fn free_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-    port
-}
-
 fn copy_dir(source: &Path, target: &Path) {
     std::fs::create_dir_all(target).expect("create web root");
     for entry in std::fs::read_dir(source).expect("read frontend") {
@@ -50,26 +46,6 @@ fn copy_dir(source: &Path, target: &Path) {
             std::fs::copy(entry.path(), target).expect("copy frontend file");
         }
     }
-}
-
-struct ChildGuard(Child);
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn wait_for_port(port: u16) {
-    let start = std::time::Instant::now();
-    while start.elapsed() < std::time::Duration::from_secs(10) {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    panic!("server did not bind on 127.0.0.1:{port}");
 }
 
 #[test]
@@ -115,9 +91,13 @@ fn dashboard_onboards_workspace_siblings_in_chromium() {
         ids.push(name.to_string());
     }
 
-    let api_port = free_port();
-    let web_port = free_port();
-    let web_origin = format!("http://127.0.0.1:{web_port}");
+    // Both listeners are claimed before either one starts: the API child's
+    // CORS origin names the web port and the web root's `config.js` names the
+    // API port, and `support/listener.rs` holds each claim until that server
+    // owns it — so neither port can be taken in the gap between them.
+    let api_claim = listener::claim(listener::suite::FORGE_WEB_WORKSPACE_ONBOARDING_BROWSER);
+    let web_claim = listener::claim(listener::suite::FORGE_WEB_WORKSPACE_ONBOARDING_BROWSER);
+    let web_origin = format!("http://127.0.0.1:{}", web_claim.port());
     let web_root = dir.path().join("web-root");
     copy_dir(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend"),
@@ -126,13 +106,15 @@ fn dashboard_onboards_workspace_siblings_in_chromium() {
     std::fs::write(
         web_root.join("config.js"),
         format!(
-            "// Test copy pointing at the throwaway API listener.\nwindow.FORGE_API_BASE = \"http://127.0.0.1:{api_port}\";\n"
+            "// Test copy pointing at the throwaway API listener.\nwindow.FORGE_API_BASE = \"http://127.0.0.1:{}\";\n",
+            api_claim.port()
         ),
     )
     .expect("test API origin");
 
-    let api = ChildGuard(
-        Command::new(forge_bin())
+    let api = api_claim.spawn("api", |port| {
+        let mut command = Command::new(forge_bin());
+        command
             .arg("--registry")
             .arg(&db)
             .env("FORGE_FRONTEND_ORIGIN", &web_origin)
@@ -145,31 +127,26 @@ fn dashboard_onboards_workspace_siblings_in_chromium() {
             .arg("--bind")
             .arg("127.0.0.1")
             .arg("--port")
-            .arg(api_port.to_string())
+            .arg(port.to_string())
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn API"),
-    );
-    wait_for_port(api_port);
-    let web = ChildGuard(
-        Command::new(forge_bin())
+            .stdout(Stdio::null());
+        command
+    });
+    let web = web_claim.spawn("web", |port| {
+        let mut command = Command::new(forge_bin());
+        command
             .arg("web")
             .arg("serve")
             .arg("--bind")
             .arg("127.0.0.1")
             .arg("--port")
-            .arg(web_port.to_string())
+            .arg(port.to_string())
             .arg("--root")
             .arg(&web_root)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn web server"),
-    );
-    wait_for_port(web_port);
+            .stdout(Stdio::null());
+        command
+    });
 
     let script = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

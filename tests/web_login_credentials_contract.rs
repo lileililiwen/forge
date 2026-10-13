@@ -8,6 +8,9 @@
 //! and a start/reset script that prints the login exactly once without
 //! persisting it.
 
+#[path = "support/listener.rs"]
+mod listener;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -107,15 +110,6 @@ fn banner_password(stdout: &str) -> Option<String> {
         .find_map(|line| line.strip_prefix("web: password:"))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty() && !value.starts_with('('))
-}
-
-/// Reserve a free loopback port by binding to `0` and releasing it.
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("bind ephemeral")
-        .local_addr()
-        .expect("local addr")
-        .port()
 }
 
 #[test]
@@ -329,10 +323,13 @@ fn reset_password_prints_once_and_never_writes_the_password_to_state() {
 fn start_creates_then_recognizes_the_account_without_inventing_a_password() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
-    let api_port = free_port();
-    let web_port = free_port();
-    let api = api_port.to_string();
-    let web = web_port.to_string();
+    // `scripts/web.sh` starts both listeners itself, so the claims are taken
+    // first and released only here — the ports are known to be free at the
+    // moment the script is handed them. See `support/listener.rs`.
+    let api_claim = listener::claim(listener::suite::WEB_LOGIN_CREDENTIALS_CONTRACT);
+    let web_claim = listener::claim(listener::suite::WEB_LOGIN_CREDENTIALS_CONTRACT);
+    let api = api_claim.release().to_string();
+    let web = web_claim.release().to_string();
 
     // First start: no administrator, so a password is created and printed.
     let first = run_script(

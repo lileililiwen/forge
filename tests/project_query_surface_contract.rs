@@ -23,13 +23,15 @@
 //! transport is the in-process `mcp::dispatch` over a bounded
 //! argument map.
 
+#[path = "support/listener.rs"]
+mod listener;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -164,41 +166,28 @@ fn local_fleet(tmp: &Path) -> (PathBuf, PathBuf) {
     (db, alpha)
 }
 
-fn free_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-    port
-}
-
+/// Start the API server on a claimed port: `support/listener.rs` holds the
+/// listener from the claim until the server owns it, so no parallel suite can
+/// be listening on it, and the wait returns only once the socket belongs to
+/// this child.
 fn start_api(db: &Path) -> (u16, std::process::Child) {
-    let port = free_port();
-    let mut cmd = clean_cmd();
-    cmd.arg("--registry").arg(db);
-    // Pin the exact browser origin this suite presents, so the result never
-    // depends on an ambient `FORGE_FRONTEND_ORIGIN`.
-    cmd.env("FORGE_FRONTEND_ORIGIN", ADMIN_ORIGIN);
-    cmd.arg("api")
-        .arg("serve")
-        .arg("--port")
-        .arg(port.to_string());
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    let child = cmd.spawn().expect("spawn api server");
-    let start = Instant::now();
-    let mut bound = false;
-    while start.elapsed() < Duration::from_secs(5) {
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            bound = true;
-            break;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    if !bound {
-        panic!("api server did not bind on 127.0.0.1:{port}");
-    }
-    (port, child)
+    let server =
+        listener::claim(listener::suite::PROJECT_QUERY_SURFACE_CONTRACT).spawn("api", |port| {
+            let mut cmd = clean_cmd();
+            cmd.arg("--registry").arg(db);
+            // Pin the exact browser origin this suite presents, so the result never
+            // depends on an ambient `FORGE_FRONTEND_ORIGIN`.
+            cmd.env("FORGE_FRONTEND_ORIGIN", ADMIN_ORIGIN);
+            cmd.arg("api").arg("serve");
+            // The same address the claim holds, so the child and the claim cannot
+            // disagree about which socket owns the port.
+            cmd.arg("--bind").arg("127.0.0.1");
+            cmd.arg("--port").arg(port.to_string());
+            cmd.stdin(Stdio::null());
+            cmd.stdout(Stdio::piped());
+            cmd
+        });
+    (server.port(), server.into_child())
 }
 
 fn stop_api(child: &mut std::process::Child) {

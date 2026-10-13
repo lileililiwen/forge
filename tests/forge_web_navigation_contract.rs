@@ -16,11 +16,14 @@
 //!   project-scoped management view boots that project (unknown/empty ids
 //!   select nothing, plain /management stays the global bulk view).
 
+#[path = "support/listener.rs"]
+mod listener;
+
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use tempfile::TempDir;
 
@@ -45,13 +48,6 @@ fn forge_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_forge"))
 }
 
-fn free_port() -> u16 {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-    port
-}
-
 fn copy_dir(source: &Path, target: &Path) {
     std::fs::create_dir_all(target).expect("create web root");
     for entry in std::fs::read_dir(source).expect("read frontend") {
@@ -64,26 +60,6 @@ fn copy_dir(source: &Path, target: &Path) {
             std::fs::copy(entry.path(), target).expect("copy frontend file");
         }
     }
-}
-
-struct ChildGuard(Child);
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn wait_for_port(port: u16) {
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(10) {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    panic!("web server did not bind on 127.0.0.1:{port}");
 }
 
 /// One raw HTTP/1.1 request. The path is written literally so unknown-path
@@ -120,25 +96,28 @@ fn http_get(port: u16, path: &str) -> (u16, String, Vec<u8>) {
     (status, content_type, body)
 }
 
-fn start_web(root: &Path, port: u16) -> ChildGuard {
-    let child = Command::new(forge_bin())
-        .env_remove("FORGE_REGISTRY")
-        .arg("web")
-        .arg("serve")
-        .arg("--bind")
-        .arg("127.0.0.1")
-        .arg("--port")
-        .arg(port.to_string())
-        .arg("--root")
-        .arg(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn web server");
-    let guard = ChildGuard(child);
-    wait_for_port(port);
-    guard
+/// Start the real web server on a claimed port and wait until it *owns* it.
+///
+/// The claim is held until the spawn, and readiness means the listening socket
+/// belongs to this child — so the requests below can never be answered by
+/// another suite's server on a stolen port. See `support/listener.rs`.
+fn start_web(root: &Path) -> listener::Server {
+    listener::claim(listener::suite::FORGE_WEB_NAVIGATION_CONTRACT).spawn("web", |port| {
+        let mut command = Command::new(forge_bin());
+        command
+            .env_remove("FORGE_REGISTRY")
+            .arg("web")
+            .arg("serve")
+            .arg("--bind")
+            .arg("127.0.0.1")
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--root")
+            .arg(root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null());
+        command
+    })
 }
 
 fn web_root(tmp: &TempDir) -> PathBuf {
@@ -157,8 +136,8 @@ fn every_dashboard_route_serves_the_application_shell() {
     let shell = std::fs::read(root.join("index.html")).expect("read shell");
     let login = std::fs::read(root.join("login.html")).expect("read login");
 
-    let port = free_port();
-    let _server = start_web(&root, port);
+    let server = start_web(&root);
+    let port = server.port();
 
     let (status, content_type, body) = http_get(port, "/");
     assert_eq!(status, 200, "GET / must serve the login page");
@@ -183,8 +162,8 @@ fn dashboard_routes_keep_serving_the_shell_with_a_query_string() {
     let root = web_root(&tmp);
     let shell = std::fs::read(root.join("index.html")).expect("read shell");
 
-    let port = free_port();
-    let _server = start_web(&root, port);
+    let server = start_web(&root);
+    let port = server.port();
 
     let (status, content_type, body) = http_get(port, "/management?project=deep-link-alpha");
     assert_eq!(status, 200, "GET /management?project= must be served");
@@ -206,8 +185,8 @@ fn the_server_stays_an_exact_allowlist() {
     let tmp = TempDir::new().expect("tempdir");
     let root = web_root(&tmp);
 
-    let port = free_port();
-    let _server = start_web(&root, port);
+    let server = start_web(&root);
+    let port = server.port();
 
     for path in [
         "/does-not-exist",

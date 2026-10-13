@@ -68,6 +68,29 @@ fn write_rust_project(dir: &Path, id: &str) {
     fs::write(dir.join("forge.yaml"), &text).unwrap();
 }
 
+/// Write an executable named `name` into `dir` that appends one line to
+/// `marker` every time it runs. Putting it on a `PATH` the child process
+/// is given explicitly makes "Forge probed this binary" and "Forge
+/// executed this binary" two separately observable facts, independent of
+/// whatever the host happens to have installed. The shebang is an absolute
+/// interpreter path on purpose: the stub directory is the *whole* `PATH`
+/// in these tests, so `/usr/bin/env bash` would not resolve and a spawned
+/// stub would fail to start instead of recording its invocation.
+fn write_invocation_stub(dir: &Path, name: &str, marker: &Path) {
+    fs::create_dir_all(dir).unwrap();
+    let path = dir.join(name);
+    fs::write(
+        &path,
+        format!("#!/bin/bash\nprintf 'ran\\n' >> '{}'\n", marker.display()),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 #[test]
 fn start_records_session_with_provider_and_project_association() {
     let tmp = tempfile::tempdir().unwrap();
@@ -91,13 +114,16 @@ fn start_records_session_with_provider_and_project_association() {
     assert_eq!(value["transition"]["project_id"], "agent-start");
     assert_eq!(value["transition"]["provider"], "codex");
     assert_eq!(value["transition"]["requested"], "start");
-    // State is either `active` (when codex is on PATH) or absent
-    // on a `agent-unavailable` error. The contract is honest
-    // about which one applies; in both cases the session id and
-    // provider are recorded.
+    // The state is either `unsupported` (the bundled adapter has no
+    // backing runtime in this build, with or without the binary) or
+    // absent on a `agent-unavailable` error when the binary is not on
+    // PATH at all. It is NEVER `active`: this build starts no process
+    // for `codex`, so no observation can support that claim. The
+    // contract is honest about which of the two applies; in both cases
+    // the session id and provider are recorded.
     let state = value["transition"]["state"].as_str();
     if let Some(s) = state {
-        assert!(s == "active" || s == "unsupported", "state={s}");
+        assert_eq!(s, "unsupported", "state={s}");
     }
     let files = value["transition"]["files_written"].as_array().unwrap();
     let mut has_session = false;
@@ -112,6 +138,153 @@ fn start_records_session_with_provider_and_project_association() {
         }
     }
     assert!(has_session && has_log, "files={:?}", files);
+}
+
+#[test]
+fn start_with_the_provider_binary_on_path_reports_unsupported_and_never_runs_it() {
+    // The defect, proven end to end: `command_on_path("codex")` is true,
+    // and the old code answered `active` on the strength of that alone.
+    // The stub below appends a line to a marker file every time it is
+    // executed, so the assertion can show Forge recorded an honest state
+    // *and* started nothing.
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_rust_project(&proj, "agent-start-stub");
+    let bin_dir = tmp.path().join("stub-path");
+    let marker = tmp.path().join("codex-invocations");
+    write_invocation_stub(&bin_dir, "codex", &marker);
+
+    for (provider, session) in [("codex", "sess-codex"), ("opencode", "sess-oc")] {
+        write_invocation_stub(&bin_dir, provider, &marker);
+        let mut cmd = clean_cmd();
+        cmd.arg("--registry").arg(&db);
+        cmd.arg("--format").arg("json");
+        cmd.env("PATH", &bin_dir);
+        cmd.args([
+            "agent",
+            "start",
+            proj.to_str().unwrap(),
+            "--session",
+            session,
+            "--provider",
+            provider,
+        ]);
+        let out = cmd.output().expect("run forge json");
+        let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|err| {
+            panic!(
+                "invalid json: {err}; stdout={} stderr={}",
+                lossy(&out.stdout),
+                lossy(&out.stderr)
+            )
+        });
+        assert_eq!(value["transition"]["state"], "unsupported", "{provider}");
+        assert_eq!(value["transition"]["provider"], provider);
+        let evidence = value["transition"]["evidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            evidence.iter().any(|e| e.contains("(present on PATH)")),
+            "the PATH probe result must be evidence: {evidence:?}"
+        );
+        assert!(
+            evidence
+                .iter()
+                .any(|e| e.contains("spawns no process for the bundled")),
+            "the reason must say nothing was started: {evidence:?}"
+        );
+        let next_step = value["transition"]["next_step"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            next_step.contains("--provider ariadex"),
+            "recovery guidance must name the provider with a real runtime: {next_step}"
+        );
+        // The recorded session says the same thing.
+        let recorded =
+            fs::read_to_string(proj.join(format!(".forge/agents/{session}/session.json")))
+                .expect("session file");
+        assert!(
+            recorded.contains("\"state\": \"unsupported\""),
+            "{recorded}"
+        );
+        // Nothing else is on this PATH, so if Forge had executed the
+        // provider the marker would exist by now.
+        assert!(
+            !marker.exists(),
+            "forge must not run the {provider} binary it only probed: {}",
+            lossy(&fs::read(&marker).unwrap_or_default())
+        );
+        // Positive control: the stub is genuinely spawnable on this PATH,
+        // so the absence above is Forge's choice and not a fixture that
+        // could never have run.
+        let control = Command::new(bin_dir.join(provider))
+            .status()
+            .expect("spawn the control stub");
+        assert!(control.success(), "the control stub must run");
+        assert!(
+            marker.exists(),
+            "the control invocation must be recorded, or the assertion above is vacuous"
+        );
+        fs::remove_file(&marker).unwrap();
+    }
+}
+
+#[test]
+fn restart_preserves_the_prior_record_without_claiming_active() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_rust_project(&proj, "agent-restart");
+
+    let session_path = proj.join(".forge/agents/sess-restart/session.json");
+    fs::create_dir_all(session_path.parent().unwrap()).unwrap();
+    let now = chrono::Utc::now().to_rfc3339();
+    let body = format!(
+        r#"{{"contract":"0.1.0","session_id":"sess-restart","project_id":"agent-restart","project_path":"{}","provider":"codex","spec_id":"spec-restart-abcdef","state":"active","started_at":"{}","last_transition_at":"{}","transitions":[]}}"#,
+        proj.display(),
+        now,
+        now
+    );
+    fs::write(&session_path, body).unwrap();
+
+    let out = run_json(
+        &db,
+        &[
+            "agent",
+            "restart",
+            proj.to_str().unwrap(),
+            "--session",
+            "sess-restart",
+        ],
+    );
+    // The recorded state was `active`; a restart of the record is not a
+    // restart of a process, so Forge reports the honest state instead of
+    // manufacturing a fresh `active`.
+    assert_eq!(out["transition"]["state"], "unsupported");
+    assert_eq!(out["transition"]["session_id"], "sess-restart");
+    assert_eq!(
+        out["transition"]["spec_id"], "spec-restart-abcdef",
+        "spec binding must survive restart"
+    );
+    // The prior record is preserved: the transition log keeps the line
+    // for this restart, so the timeline stays auditable.
+    let log = fs::read_to_string(proj.join(".forge/agents/sess-restart/transitions.log"))
+        .expect("transitions log");
+    assert!(
+        log.contains("restart sess-restart state=unsupported"),
+        "{log}"
+    );
+    // The persisted record carries the same honest state, so `status`
+    // and `list` cannot re-render the stale `active`.
+    let recorded = fs::read_to_string(&session_path).unwrap();
+    assert!(
+        recorded.contains("\"state\": \"unsupported\""),
+        "{recorded}"
+    );
 }
 
 #[test]
@@ -186,42 +359,6 @@ fn takeover_returns_unsupported_state_with_explicit_evidence() {
     assert!(evidence
         .iter()
         .any(|e| e.as_str().unwrap().contains("takeover primitive")));
-}
-
-#[test]
-fn restart_preserves_prior_state_and_records_active() {
-    let tmp = tempfile::tempdir().unwrap();
-    let db = tmp.path().join("registry.db");
-    let proj = tmp.path().join("proj");
-    write_rust_project(&proj, "agent-restart");
-
-    let session_path = proj.join(".forge/agents/sess-restart/session.json");
-    fs::create_dir_all(session_path.parent().unwrap()).unwrap();
-    let now = chrono::Utc::now().to_rfc3339();
-    let body = format!(
-        r#"{{"contract":"0.1.0","session_id":"sess-restart","project_id":"agent-restart","project_path":"{}","provider":"codex","spec_id":"spec-restart-abcdef","state":"active","started_at":"{}","last_transition_at":"{}","transitions":[]}}"#,
-        proj.display(),
-        now,
-        now
-    );
-    fs::write(&session_path, body).unwrap();
-
-    let out = run_json(
-        &db,
-        &[
-            "agent",
-            "restart",
-            proj.to_str().unwrap(),
-            "--session",
-            "sess-restart",
-        ],
-    );
-    assert_eq!(out["transition"]["state"], "active");
-    assert_eq!(out["transition"]["session_id"], "sess-restart");
-    assert_eq!(
-        out["transition"]["spec_id"], "spec-restart-abcdef",
-        "spec binding must survive restart"
-    );
 }
 
 #[test]

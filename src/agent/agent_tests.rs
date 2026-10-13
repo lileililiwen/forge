@@ -42,38 +42,221 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn start_records_state_for_present_or_missing_provider() {
+    fn start_on_a_bundled_provider_never_claims_active() {
+        // The defect: `start_or_resume` used to answer `Active` from a
+        // `PATH` probe alone — it spawned nothing, so a session could
+        // report `active` having never run. This build starts no
+        // process for `opencode`/`codex`, so the honest answer is
+        // `unsupported` with the probe result and the reason recorded.
+        for provider in [AgentProvider::Codex, AgentProvider::Opencode] {
+            let tmp = TempDir::new().unwrap();
+            write_manifest(tmp.path(), "bundled-start");
+            let session = new_session(
+                tmp.path(),
+                "sess-1",
+                provider,
+                "",
+                DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+            )
+            .unwrap();
+            // Only run the present-binary arm where the binary exists;
+            // the absent-binary arm is a typed refusal, asserted below.
+            let binary_present = which_present(provider.binary());
+            for transition in [
+                SessionTransition::Start,
+                SessionTransition::Resume,
+                SessionTransition::NewSession,
+            ] {
+                match apply_transition(
+                    session.clone(),
+                    transition,
+                    DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
+                ) {
+                    Ok(outcome) => {
+                        assert!(binary_present, "{} {transition:?}", provider.label());
+                        assert_eq!(
+                            outcome.state,
+                            SessionState::Unsupported,
+                            "{} {:?} must never claim active",
+                            provider.label(),
+                            transition
+                        );
+                        assert_ne!(outcome.state, SessionState::Active);
+                        assert!(outcome
+                            .evidence
+                            .iter()
+                            .any(|e| e.contains(&format!("provider: {}", provider.label()))));
+                        assert!(outcome
+                            .evidence
+                            .iter()
+                            .any(|e| e.contains("spawns no process for the bundled")));
+                        assert!(outcome
+                            .evidence
+                            .iter()
+                            .any(|e| e.contains("(present on PATH)")));
+                        assert!(
+                            outcome.note.contains("is recorded as `unsupported`"),
+                            "note={}",
+                            outcome.note
+                        );
+                        let next = outcome.next_step.expect("recovery guidance");
+                        assert!(next.contains("--provider ariadex"), "next_step={next}");
+                    }
+                    Err(err) => {
+                        assert!(!binary_present, "{} {transition:?}", provider.label());
+                        assert_eq!(err.code(), "agent-unavailable");
+                        assert!(
+                            err.to_string().contains("no runtime adapter"),
+                            "the refusal must say installing the binary is not the fix: {err}"
+                        );
+                        // The bundled vocabulary stays bundled: this
+                        // refusal names the bundled provider only.
+                        assert!(
+                            !err.to_string().contains("ariadex"),
+                            "bundled failure must not mention ariadex: {err}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restart_on_a_bundled_provider_never_claims_active() {
         let tmp = TempDir::new().unwrap();
-        write_manifest(tmp.path(), "demo");
-        let session = new_session(
+        write_manifest(tmp.path(), "bundled-restart");
+        // Every non-terminal prior state is restartable and every one of
+        // them must land on `unsupported`, not a manufactured `active`.
+        for prior in [
+            SessionState::Idle,
+            SessionState::Active,
+            SessionState::Paused,
+            SessionState::Disconnected,
+            SessionState::Unsupported,
+        ] {
+            let now = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
+            let mut session = new_session(
+                tmp.path(),
+                "sess-restart",
+                AgentProvider::Codex,
+                "spec-restart-abcdef",
+                now,
+            )
+            .unwrap();
+            session.state = prior;
+            let outcome = apply_transition(
+                session,
+                SessionTransition::Restart,
+                DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(outcome.state, SessionState::Unsupported, "prior={prior:?}");
+            assert_eq!(outcome.session.transitions.len(), 1);
+            // The record survives the restart even though nothing ran.
+            assert_eq!(outcome.session.spec_id, "spec-restart-abcdef");
+            assert_eq!(outcome.session.session_id, "sess-restart");
+            assert!(outcome
+                .evidence
+                .iter()
+                .any(|e| e == &format!("prior_state: {}", prior.label())));
+        }
+        // `stopped` is terminal by contract and must still refuse.
+        let now = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
+        let mut session =
+            new_session(tmp.path(), "sess-dead", AgentProvider::Codex, "", now).unwrap();
+        session.state = SessionState::Stopped;
+        let err = apply_transition(
+            session,
+            SessionTransition::Restart,
+            DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "agent-unavailable");
+        assert!(err.to_string().contains("non-terminal"), "{err}");
+    }
+
+    #[test]
+    fn no_transition_reaches_active_without_a_process_or_a_live_report() {
+        // The invariant, stated as a matrix: `Active` has exactly two
+        // witnesses in this module — a real `Command::spawn` or a live
+        // status document. No bundled provider × transition pair has
+        // either, so no bundled pair can reach `Active`. Every operation
+        // still answers (exposed), it just answers honestly.
+        let tmp = TempDir::new().unwrap();
+        write_manifest(tmp.path(), "matrix");
+        let transitions = [
+            SessionTransition::Start,
+            SessionTransition::Pause,
+            SessionTransition::Takeover,
+            SessionTransition::Resume,
+            SessionTransition::Restart,
+            SessionTransition::NewSession,
+        ];
+        for provider in [AgentProvider::Codex, AgentProvider::Opencode] {
+            assert!(!provider.is_supervised(), "{}", provider.label());
+            for transition in transitions {
+                let session = new_session(
+                    tmp.path(),
+                    "sess-matrix",
+                    provider,
+                    "",
+                    DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+                )
+                .unwrap();
+                match apply_transition(
+                    session,
+                    transition,
+                    DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
+                ) {
+                    Ok(outcome) => {
+                        assert_ne!(
+                            outcome.state,
+                            SessionState::Active,
+                            "{} {:?} reached active without a process or a live report",
+                            provider.label(),
+                            transition
+                        );
+                        assert_eq!(outcome.state, SessionState::Unsupported);
+                        assert!(!outcome.evidence.is_empty(), "evidence must say why");
+                        assert!(outcome.note.contains("unsupported"), "{}", outcome.note);
+                        assert!(outcome.next_step.is_some());
+                        assert!(outcome.session.backing.is_none());
+                    }
+                    // The typed refusal path is honest too: it reports no
+                    // state at all rather than a fabricated one.
+                    Err(err) => assert_eq!(err.code(), "agent-unavailable"),
+                }
+            }
+        }
+        // The supervised provider is the only one whose lifecycle is
+        // delegated, and it is untouched: with no runtime installed it
+        // refuses with the resolution attempts rather than answering.
+        let ariadex = new_session(
             tmp.path(),
-            "sess-1",
-            AgentProvider::Codex,
+            "sess-ariadex",
+            AgentProvider::Ariadex,
             "",
             DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
         )
         .unwrap();
-        // The test environment may or may not include a `codex`
-        // binary on PATH; the contract guarantees that the
-        // transition either succeeds with `active` evidence or
-        // fails with `agent-unavailable`, never with a simulated
-        // pause/takeover state.
-        match apply_transition(
-            session,
+        assert!(ariadex.provider.is_supervised());
+        if let Err(err) = apply_transition(
+            ariadex,
             SessionTransition::Start,
             DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
         ) {
-            Ok(outcome) => {
-                assert_eq!(outcome.state, SessionState::Active);
-                assert!(outcome
-                    .evidence
-                    .iter()
-                    .any(|e| e.contains("provider: codex")));
-            }
-            Err(err) => {
-                assert_eq!(err.code(), "agent-unavailable");
-            }
+            assert_eq!(err.code(), "agent-unavailable");
+            assert!(err.to_string().contains("ariadex"), "{err}");
         }
+    }
+
+    /// Whether `name` is on `PATH`, so a test can pick the branch the
+    /// host actually supports instead of asserting both at once.
+    fn which_present(name: &str) -> bool {
+        let probe_paths: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+            .map(|value| std::env::split_paths(&value).collect())
+            .unwrap_or_default();
+        probe_paths.iter().any(|dir| dir.join(name).is_file())
     }
 
     #[test]
@@ -108,7 +291,11 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn restart_preserves_prior_state_and_records_active() {
+    fn restart_preserves_the_prior_record_without_claiming_active() {
+        // This test used to assert `SessionState::Active` from a
+        // state check alone — it encoded the defect. A restart of a
+        // Forge-owned record is not a restart of a process, so the
+        // record is preserved and the state is honest.
         let tmp = TempDir::new().unwrap();
         write_manifest(tmp.path(), "restart-app");
         let now = DateTime::<Utc>::from_timestamp(0, 0).unwrap();
@@ -127,7 +314,7 @@ pub(super) mod tests {
             DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
         )
         .unwrap();
-        assert_eq!(outcome.state, SessionState::Active);
+        assert_eq!(outcome.state, SessionState::Unsupported);
         assert_eq!(outcome.session.transitions.len(), 1);
         assert_eq!(outcome.session.spec_id, "spec-restart-abcdef");
     }

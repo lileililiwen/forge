@@ -207,7 +207,7 @@ fn agent_session_status(
                     let live_note = if session.provider.is_supervised() {
                         "live runtime state is a CLI observation (`forge agent status`); the browser renders the recorded session file."
                     } else {
-                        "recorded session state is the live surface for this provider; no runtime probe exists."
+                        "recorded session state is the only surface for this provider; no runtime probe exists and no process backs this session."
                     };
                     let view = json!({
                         "session_id": session.session_id,

@@ -100,13 +100,16 @@ pub fn new_session(
 /// session; callers are expected to persist the returned session.
 ///
 /// Pre-flight: the requested transition must be available on the
-/// session's provider. Bundled providers: `pause`/`takeover` are
-/// not available on the bundled adapters, so they always return
+/// session's provider. Bundled providers: no transition is
+/// available, because this build starts no process for them —
+/// `start`/`resume`/`new_session`/`restart` used to report
+/// `Active` from a `PATH` probe alone, and they now report
 /// `SessionState::Unsupported` with explicit evidence and a
-/// recovery note. This is the change-specific risk in the
-/// design: providers differ in pause and takeover support, and
-/// the router returns an explicit unsupported state rather than
-/// simulating success. Supervised providers (ariadex): every
+/// recovery note, exactly as `pause`/`takeover` always have.
+/// `Active` has exactly two witnesses in this module: a real
+/// `Command::spawn` (`invoke_runtime`) or a live status document
+/// (`map_ariadex_status`). The bundled path has neither, so it
+/// never claims one. Supervised providers (ariadex): every
 /// transition is delegated to the runtime's real verb and the
 /// resulting state is taken from `ariadex status` only — an
 /// unknown report maps to `disconnected`, never to `active`.
@@ -178,6 +181,12 @@ pub fn apply_transition(
     })
 }
 
+/// Serve `start`, `resume` and `new_session` for a bundled adapter.
+/// The `PATH` probe is a real observation and is kept as evidence,
+/// but it is an *availability* signal, not a session: this build
+/// spawns no `opencode`/`codex` process, so nothing can confirm an
+/// `active` session and none is claimed. The honest answer is the
+/// existing `unsupported()` outcome.
 fn start_or_resume(
     session: &AgentSession,
     transition: SessionTransition,
@@ -187,53 +196,53 @@ fn start_or_resume(
     if !available {
         return Err(ForgeError::AgentUnavailable {
             reason: format!(
-                "binary `{}` is not present on PATH; install the {} provider or rerun on a host that has it",
-                binary,
+                "binary `{binary}` is not present on PATH; this build exposes no runtime adapter for the {} provider, so installing it would not enable a {} session",
+                session.provider.label(),
                 session.provider.label()
             ),
         });
     }
-    let evidence = vec![
-        format!("provider: {}", session.provider.label()),
-        format!("binary: {}", binary),
-        format!("transition: {}", transition.label()),
-    ];
-    let note = format!(
-        "{} recorded for session `{}`; provider `{}` is present and the recorded session is the source of truth",
-        transition.label(),
-        session.session_id,
-        session.provider.label()
-    );
-    let next_step = next_step_for(session);
-    Ok((SessionState::Active, evidence, note, next_step))
+    let probe = format!("binary: {binary} (present on PATH)");
+    Ok(bundled_unsupported(
+        session,
+        transition,
+        &format!(
+            "forge spawns no process for the bundled `{}` adapter in this build; the binary is an availability signal, not a session, so no `active` state is claimed",
+            session.provider.label()
+        ),
+        vec![probe],
+    ))
 }
 
+/// Serve `restart` for a bundled adapter. The non-terminal guard is
+/// kept (a `Stopped` session is terminal by contract and must still
+/// refuse), widened to the five non-terminal states because a
+/// bundled session's steady state is now `unsupported` — the old
+/// three-state guard would have made `start` → `restart` a dead end.
+/// A restart of a record is not a restart of a process, so it cannot
+/// claim `active`.
 fn restart(
     session: &AgentSession,
 ) -> Result<(SessionState, Vec<String>, String, Option<String>), ForgeError> {
-    if !matches!(
-        session.state,
-        SessionState::Active | SessionState::Paused | SessionState::Idle
-    ) {
+    if session.state == SessionState::Stopped {
         return Err(ForgeError::AgentUnavailable {
             reason: format!(
-                "session `{}` is in state `{}`; restart requires `idle`/`active`/`paused`",
-                session.session_id,
-                session.state.label()
+                "session `{}` is in state `stopped`; restart requires a non-terminal session \
+                 (`idle`/`active`/`paused`/`disconnected`/`unsupported`)",
+                session.session_id
             ),
         });
     }
-    let evidence = vec![
-        format!("provider: {}", session.provider.label()),
-        format!("prior_state: {}", session.state.label()),
-        "restart: prior transitions preserved, session id stable".to_string(),
-    ];
-    let note = format!(
-        "restart recorded for session `{}`; prior transitions are preserved and a fresh `active` state is set",
-        session.session_id
-    );
-    let next_step = next_step_for(session);
-    Ok((SessionState::Active, evidence, note, next_step))
+    let prior = format!("prior_state: {}", session.state.label());
+    Ok(bundled_unsupported(
+        session,
+        SessionTransition::Restart,
+        &format!(
+            "forge spawns no process for the bundled `{}` adapter in this build, so a restart of the record is not a restart of a runtime; prior transitions are preserved and the session id is stable",
+            session.provider.label()
+        ),
+        vec![prior],
+    ))
 }
 
 fn unsupported(
@@ -247,7 +256,7 @@ fn unsupported(
         format!("detail: {detail}"),
     ];
     let note = format!(
-        "transition `{}` is unsupported on provider `{}`; session `{}` stays in state `{}`",
+        "transition `{}` is unsupported on provider `{}`; session `{}` was `{}` and is recorded as `unsupported`",
         transition.label(),
         session.provider.label(),
         session.session_id,
@@ -261,15 +270,26 @@ fn unsupported(
     )
 }
 
-fn next_step_for(session: &AgentSession) -> Option<String> {
-    if session.spec_id.is_empty() {
-        Some("run a spec with `forge spec run <spec-id> --session <session-id>`".to_string())
-    } else {
-        Some(format!(
-            "run the bound spec with `forge spec run {} --session {}`",
-            session.spec_id, session.session_id
-        ))
-    }
+/// The bundled adapter's honest answer: `unsupported()`'s state,
+/// evidence and note, plus the caller's observation lines spliced
+/// in after the standard `provider:`/`transition:` pair and a next
+/// step that names the provider which does expose a backing runtime.
+/// One helper so `start`/`resume`/`new_session`/`restart` cannot drift
+/// apart in shape.
+fn bundled_unsupported(
+    session: &AgentSession,
+    transition: SessionTransition,
+    detail: &str,
+    observed: Vec<String>,
+) -> (SessionState, Vec<String>, String, Option<String>) {
+    let (state, mut evidence, note, next_step) = unsupported(session, transition, detail);
+    evidence.splice(2..2, observed);
+    let guidance = next_step.unwrap_or_default();
+    let next_step = Some(format!(
+        "{guidance}; `forge agent start --provider {}` is the provider whose session state comes from a real runtime",
+        AgentProvider::Ariadex.label()
+    ));
+    (state, evidence, note, next_step)
 }
 
 /// Redact and char-bound one captured runtime-output fragment

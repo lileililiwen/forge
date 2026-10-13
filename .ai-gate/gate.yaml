@@ -17,14 +17,16 @@ blocking:
 
 # Per-check execution deadlines. Unlisted checks take the runtime default
 # (60s). `tests` and `declared-verification` both bind `cargo test
-# --workspace`, which measures ~289s warm on this machine and considerably
-# more on a cold dependency build. The default timed both out and surfaced
-# as REVIEW_REQUIRED — a claim about the clock, not about the code.
-# Note these two checks duplicate the same command, so the gate runs the
-# workspace suite twice; the deadline is sized for one run.
+# --workspace`, which measures ~2469s warm on this machine — of which ~2220s
+# is the single `rust_scaffold_builds_and_tests_with_native_toolchain` test,
+# which compiles and tests a freshly generated Rust project. The default timed
+# both out and surfaced as REVIEW_REQUIRED — a claim about the clock, not
+# about the code.
+# Note these two checks duplicate the same command, so one gate run executes
+# the workspace suite twice (~82 min); the deadline is sized for one run.
 timeouts:
-  tests: 1800000
-  declared-verification: 1800000
+  tests: 3000000
+  declared-verification: 3000000
 
 commands:
   # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.

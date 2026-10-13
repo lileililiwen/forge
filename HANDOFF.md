@@ -2,6 +2,75 @@
 
 ## Current state
 
+### Seven stale test oracles repaired (2026-10-13)
+
+No product code changed: `git diff -- src/ frontend/` is empty and
+`frontend/app.js:4313` keeps its `caret.innerHTML`. Seven triaged
+category-B failures (test drift) were brought back in line with
+already-shipped, already-specified behavior. No OpenSpec change: every
+repaired assertion now states a requirement a canonical spec already
+declares (`portal-web-ui`, `forge-web-project-fleet`,
+`forge-web-command-catalog`, `forge-admin-login`,
+`web-project-catalog-browser`, `scaffold-prewires-shared-layer`,
+`forge-web-workspace-onboarding`). Nothing new was authorized, so there
+is no spec delta to promote and no change to archive.
+
+1. `forge_web_project_workbench_contract` /
+   `forge_web_project_status_contract` forbade `innerHTML` in
+   `&app[workbench_start..]` (marker to end of file). The region is now
+   bounded on both ends (workbench marker → `// ---- Portfolio
+   controls`), and `innerHTML` is permitted only as the exact authorized
+   literal `caret.innerHTML = '<svg …M9 18l6-6-6-6…/></svg>';`
+   (`portal-web-ui`: icons are inline SVG instead of a unicode glyph;
+   `forge_web_navigation_contract` requires the literal
+   `caret.innerHTML`). Mutation-checked: an interpolated
+   `` evil.innerHTML = `<p>${command.summary}</p>` `` fails both.
+2. `workspace_metadata_contract` `PRE_RELEASE_DIGESTS`: `node-app`
+   → `d4f41ecb…`, `rs-app` → `f6ce762c…`. Cause is `ab9b2cf`
+   (`resync-ui-token-kit`, kit 0.2.0) resyncing three `kits/tokens/`
+   files; `.platform/` is scoped to `react-web`/`nextjs-web` by
+   `scaffold-prewires-shared-layer`, so exactly those two profiles moved
+   and `net-app`, `mbl-app`, `py-app`, `rs-web-app` are unchanged. The
+   opt-out assertions (no declaration, no receipt, no `.forge`) are
+   untouched and still pass.
+3. `project_query_surface_contract`: the two 401 assertions sent no
+   `Origin`, so the exact-origin check answered first with 403
+   `admin-origin-rejected` (`47b86b1` + `src/api/handlers_core.rs:50`).
+   Requests now present a pinned `ADMIN_ORIGIN`
+   (`FORGE_FRONTEND_ORIGIN` set on the child), so the suite exercises the
+   session gate it was written for; a hostile origin is asserted as
+   403 in the same test.
+4. `portal_feedback_session_contract`: container count 7 → 10, so the
+   `with_role == containers` check is reachable again.
+5. `forge_web_workspace_onboarding_browser`:
+   `workspace-onboarding-check.mjs` ordered panels by
+   `getBoundingClientRect().top` of `commands-title`, deleted in
+   `fb3feb5`, on panels that are all `hidden` (`d34c92d`). It now
+   measures document position, requires every routed panel to exist and
+   to resolve its `aria-labelledby`, and requires the nav `data-route`
+   order to match the panel order; onboarding now runs in the
+   `/management` route that owns it, and the "no reload" claim is proved
+   by a `window` marker across the route change. Mutation-checked both
+   new order assertions.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test --test forge_web_project_workbench_contract` | **11 passed / 0 failed** |
+| `cargo test --test forge_web_project_status_contract` | **10 passed / 0 failed** |
+| `cargo test --test workspace_metadata_contract` | **12 passed / 0 failed** |
+| `cargo test --test project_query_surface_contract` | **13 passed / 0 failed** |
+| `cargo test --test portal_feedback_session_contract` | **5 passed / 0 failed** |
+| `cargo test --test forge_web_workspace_onboarding_browser` | **1 passed / 0 failed** (`VERIFIED` through sign-in → order → discover → preview → apply → fleet) |
+| `cargo test --test forge_web_navigation_contract` | **9 passed / 0 failed** (still requires `caret.innerHTML` in `app.js`) |
+| `cargo test --test forge_web_project_delivery_browser` ×3 | **1 passed / 0 failed** each run |
+| `cargo test --workspace --no-fail-fast` | **145 suites ok**; the only remaining failures are `portfolio_ui_contract`'s 20, handled separately and untouched here (pre-existing; its remediation stays with that file's own review) |
+| `cargo fmt --all -- --check` | clean for every touched file; pre-existing drift in `tests/web_assurance_browser_contract.rs` and `src/gate/rehearsal_tests.rs` left alone |
+| `node --check tests/browser/workspace-onboarding-check.mjs` | clean |
+| `node scripts/check-openspec-change-names.mjs` | PASS (no active changes to select) |
+| `git diff --check` | clean |
+
 ### command-catalog-capability-group delivered and archived (2026-10-12)
 
 `command-catalog-capability-group` closes the last known blocker on Forge's

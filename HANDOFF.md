@@ -2,6 +2,115 @@
 
 ## Current state
 
+### `portfolio_ui_contract` repointed at the surviving portfolio surface (2026-10-13)
+
+The last stale target is closed. No product code changed:
+`git diff -- src/ frontend/` is empty. `7d2df41` deleted
+`src/api/ui/` — and with it `GET /ui`, `GET /ui/projects/{id}` and
+`POST /ui/projects/{id}/portfolio` — but that commit removed three
+sibling `/ui` test files and missed this one, so its 20 tests had been
+answering `404 route-not-found` ever since. No OpenSpec change: every
+repaired assertion now states a requirement a canonical spec already
+declares, and nothing new is authorized, so there is no spec delta to
+promote and nothing to archive.
+
+The capability never moved out of the product — it moved from the
+deleted HTML portal to `forge-web-portfolio-controls/0.1.0` under
+`/v1/admin/portfolio` (the routes `frontend/app.js` calls) plus the SPA
+portfolio table at `frontend/index.html:434`. Every test now drives
+`forge::api::handle` against the route that answers today:
+
+- list/filter: `GET /v1/admin/portfolio` (`tag`/`lifecycle`/
+  `confidence`, invalid filter is `400 portfolio-invalid`, empty match
+  is an honest empty list with the filter echoed);
+- detail: `GET /v1/admin/portfolio/{id}` plus the `tags`/`relations`/
+  `reviews`/`goals`/`evidence` sub-resources;
+- writes: `POST /v1/admin/portfolio/{id}/{tags,reviews,evidence}` and
+  `…/tags/remove`, `…/evidence/import`, each confirm-gated.
+
+Three HTML-rendering tests were split rather than deleted: the API
+half asserts the filter/row/column data on the live route, and the
+frontend half asserts the shipped SPA markup that renders it
+(`Lifecycle | Confidence | Tags | Evidence`, the empty notice, the
+detail reader's Lifecycle/Confidence/Next action/Blocker rows, the
+relations row, the review list). No HTML portal was reintroduced.
+
+The three authorization tests are preserved and ported to the three
+branches the surviving admin gate actually runs, in order
+(`src/api/admin/deploy.rs:65` exact origin → JSON content type →
+`src/api/admin/gateway.rs:456` session cookie):
+
+| Test | Boundary | Asserted | Mutation evidence |
+|---|---|---|---|
+| `a_portfolio_post_without_an_administrator_session_persists_no_change` | no `forge_admin_session` cookie | `401 api-unauthorized` | `guarded` made unconditional → **200**, test red |
+| `a_cross_origin_portfolio_post_persists_no_change` | hostile `Origin`, valid session | `403 admin-origin-rejected` | `allowed_origin` → `true` → **200**, test red |
+| `a_form_encoded_portfolio_post_persists_no_change` | `application/x-www-form-urlencoded` body, valid session, body carrying a complete confirmed mutation | `415 admin-content-type-required` | `is_json` gate removed → **409**, test red |
+
+Each also calls `assert_no_portfolio_state`, so a refusal is proven
+inert and not merely refused. The third is the surviving replacement for
+the deleted form-token double-submit: the only thing a cross-site HTML
+form can send is a form-encoded body, and the route refuses it before
+any handler runs.
+
+Two names changed because the old names asserted what no longer exists
+(`bearer_token` → the admin gate is cookie-only; `form token` → there
+is no form). Two tests changed scope, deliberately:
+
+- `the_existing_ui_routes_still_answer_without_portfolio_state` → its
+  premise is **void by design**: the legacy `/ui` portal is gone and
+  `portal-spa-convergence` names the SPA as the single interactive
+  surface. It is replaced by
+  `portfolio_reads_answer_without_portfolio_state_and_no_legacy_ui_portal_answers`,
+  which keeps the half that still holds (both portfolio reads answer
+  `200` for a project with no portfolio state, the SPA owns
+  `/portfolio`) and pins `GET /ui*` as an honest `404 route-not-found`
+  so no second portal creeps back.
+
+**Category-A finding, reported not worked around.** The old
+`a_browser_portfolio_write_journals_one_portfolio_ui_row` asserted one
+`portfolio.ui` operation-journal row per browser portfolio write. That
+guarantee came from `forge-web-human-dashboard`, the spec `7d2df41`
+deleted along with the portal, and **no surviving canonical spec
+requires a journal row for a portfolio metadata write**;
+`write_item` (`src/api/portfolio_writes.rs:37`) journals none. The test
+was not deleted and no new expectation was invented: it is now
+`a_browser_portfolio_write_is_recorded_without_a_journal_or_repository_write`,
+asserting the half that is still spec-backed — the edit is recorded in
+the portfolio store and carries `actor`/`recorded_at`, it writes **no**
+operation row (in particular no `publish` row), and it touches no file
+in the project directory (`portfolio-metadata-and-review` — "no surface
+edits repository files or provider records"). Whether an operations
+journal entry per browser portfolio write should be required again is a
+product decision that needs its own OpenSpec change; it is recorded
+here rather than invented in a test.
+
+Secondary observation, not a blocker: the SPA ships no portfolio filter
+control (`frontend/app.js:4889` reads `/v1/admin/portfolio` with no
+query), so the operator-facing filter UI exists on the route but not in
+the page. The spec scenario "Filter by tag and lifecycle" is satisfied
+by the typed query the route documents and this file now pins it there.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test --test portfolio_ui_contract` | **20 passed / 0 failed** |
+| `cargo test --workspace --no-fail-fast` | **147 suites, 2663 passed / 0 failed** (the empty remainder) |
+| `cargo test --test forge_web_navigation_contract` | **9 passed / 0 failed** (no regression) |
+| `cargo test --test forge_web_portfolio_controls_contract` | **16 passed / 0 failed** (sibling portfolio contract, no regression) |
+| `cargo test --test forge_web_project_workbench_contract` | **11 passed / 0 failed** |
+| `cargo test --test forge_web_project_status_contract` | **10 passed / 0 failed** |
+| `cargo test --test workspace_metadata_contract` | **12 passed / 0 failed** |
+| `cargo test --test project_query_surface_contract` | **13 passed / 0 failed** |
+| `cargo test --test portal_feedback_session_contract` | **5 passed / 0 failed** |
+| `cargo test --test forge_web_workspace_onboarding_browser` | **1 passed / 0 failed** |
+| `cargo clippy --test portfolio_ui_contract` | clean |
+| `cargo fmt -- --check tests/portfolio_ui_contract.rs` | clean (pre-existing drift in `src/gate/rehearsal_tests.rs` left alone) |
+| `node scripts/check-openspec-change-names.mjs` | PASS (no active changes to select) |
+| `openspec validate --all --strict --no-interactive` | **103 passed / 0 failed** |
+| `git diff --check` | clean |
+| `git diff -- src/ frontend/` | **empty** |
+
 ### Seven stale test oracles repaired (2026-10-13)
 
 No product code changed: `git diff -- src/ frontend/` is empty and
@@ -65,7 +174,7 @@ Evidence:
 | `cargo test --test forge_web_workspace_onboarding_browser` | **1 passed / 0 failed** (`VERIFIED` through sign-in → order → discover → preview → apply → fleet) |
 | `cargo test --test forge_web_navigation_contract` | **9 passed / 0 failed** (still requires `caret.innerHTML` in `app.js`) |
 | `cargo test --test forge_web_project_delivery_browser` ×3 | **1 passed / 0 failed** each run |
-| `cargo test --workspace --no-fail-fast` | **145 suites ok**; the only remaining failures are `portfolio_ui_contract`'s 20, handled separately and untouched here (pre-existing; its remediation stays with that file's own review) |
+| `cargo test --workspace --no-fail-fast` | **145 suites ok**; the only remaining failures were `portfolio_ui_contract`'s 20, handled separately and untouched here (pre-existing; now repaired — see the entry above this one) |
 | `cargo fmt --all -- --check` | clean for every touched file; pre-existing drift in `tests/web_assurance_browser_contract.rs` and `src/gate/rehearsal_tests.rs` left alone |
 | `node --check tests/browser/workspace-onboarding-check.mjs` | clean |
 | `node scripts/check-openspec-change-names.mjs` | PASS (no active changes to select) |
@@ -803,7 +912,7 @@ Evidence:
 | `cargo test --lib` | **1213 passed / 0 failed** (incl. catalog `234` count + web-route pins) |
 | `cargo test --test forge_web_command_catalog_contract` | **7 passed + 2 pre-existing failures** (graduation/remediate web-id gap, byte-identical on pristine tree via `git stash -u` rerun; portfolio pins updated and green) |
 | `cargo test --test forge_web_project_workbench_contract` | **10 passed + 1 pre-existing failure** (`innerHTML` pin, same test as prior entries) |
-| `cargo test --test portfolio_ui_contract` | **0/20 pre-existing failure** (legacy form-post surface, byte-identical on pristine tree via `git stash -u` rerun) |
+| `cargo test --test portfolio_ui_contract` | **0/20 pre-existing failure** (legacy form-post surface, byte-identical on pristine tree via `git stash -u` rerun; since repointed at `/v1/admin/portfolio` — see the current-state entry) |
 | `cargo test --test portal_ui_contract` / `forge_web_navigation_contract` / `web_command_reference_browser_contract` / `forge_web_maintainer_surface_contract` | **21 / 9 / 6 / 5 passed** |
 | `node scripts/check-openspec-change-names.mjs` | PASS |
 | `openspec validate --all --strict --no-interactive` | **96 passed / 0 failed** pre- and post-archive |
@@ -1355,6 +1464,11 @@ Pre-existing failures unrelated to this change (recorded, not fixed):
 - `portfolio_ui_contract` 20 failures (asserts `/ui/` routes deleted by
   archived remove-api-ui; zero batch touches, zero routes at committed HEAD).
   Remediation: delete or rewrite the stale file against the JSON API.
+  **Resolved 2026-10-13**: rewritten against `/v1/admin/portfolio`; 20/20
+  green, product code untouched. The one requirement it used to guard that
+  no surviving spec still declares — a `portfolio.ui` operations-journal row
+  per browser portfolio write — is recorded as a category-A finding in the
+  current-state entry, not asserted.
 - `project_query_surface_contract` 2 failures (403-vs-401: no-bearer catalog
   requests hit the maintainer-platform cookie-path origin check; logic
   byte-identical at committed HEAD). Remediation: send the configured origin

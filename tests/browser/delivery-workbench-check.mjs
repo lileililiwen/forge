@@ -81,6 +81,20 @@ try {
   await page.getByRole('button', { name: /sign in to your workspace/i }).click();
   await page.waitForURL('**/index.html', { timeout: 30000 });
 
+  // Sign-in returns to the projects route, and the workbench is its own
+  // route (`/workbench`): the dashboard shell shows exactly one view, so
+  // `#workbench-project` stays inside a hidden section until the operator
+  // navigates there. Click the sidebar's Workbench link the way an operator
+  // does — the app intercepts it and swaps the view in place — then wait for
+  // the route to be shown and for the fleet to fill the selector's options.
+  await page.getByRole('link', { name: 'Workbench', exact: true }).click();
+  await page.waitForURL('**/workbench', { timeout: 30000 });
+  await page.locator('#workbench:not([hidden])').waitFor({ timeout: 30000 });
+  await page
+    .locator(`#workbench-project option[value="${projectId}"]`)
+    .first()
+    .waitFor({ state: 'attached', timeout: 30000 });
+
   await page.locator('#workbench-project').selectOption(projectId);
   await page.getByRole('button', { name: 'Open project' }).click();
   const delivery = page.locator('#wb-delivery');
@@ -92,13 +106,44 @@ try {
 
   const card = (name) =>
     page.locator('.wb-action-card', { hasText: `forge delivery ${name}` }).first();
-  const previewAndRun = async (name, fill) => {
+  // Every catalog action is a collapsed disclosure: the header row carries the
+  // `forge ...` invocation and opens the form on click, and opening one action
+  // closes the others. The harness therefore opens each action the way an
+  // operator does and waits for the body to be exposed. Opening is idempotent:
+  // an already-open card is left alone rather than toggled shut, because the
+  // stage/promote pre-fill checks read the inputs of a card they open first.
+  const openAction = async (name) => {
     const action = card(name);
-    await action.getByRole('heading').waitFor({ timeout: 30000 });
+    const head = action.locator('.wb-action-head');
+    await head.waitFor({ timeout: 30000 });
+    if ((await action.locator('.wb-action-body:not([hidden])').count()) === 0) {
+      await head.click();
+    }
+    await action.locator('.wb-action-body:not([hidden])').waitFor({ timeout: 30000 });
+    return action;
+  };
+  // A catalog parameter's visible label is its humanised name (`PARAM_LABELS`
+  // first, else underscores replaced and the first letter capitalised) with a
+  // ` *` marker when required. Build the same shape so the harness keeps
+  // asserting through `getByLabel` — that the input is tied to a visible label
+  // naming it — instead of addressing an internal id.
+  const paramLabel = (param) => new RegExp(`^${param.replace(/_/g, ' ')}`, 'i');
+  const previewAndRun = async (name, fill) => {
+    const action = await openAction(name);
     if (fill) await fill(action);
     await action.getByRole('button', { name: new RegExp(`^preview ${name}$`, 'i') }).click();
     await action.getByRole('checkbox').check();
     await action.getByRole('button', { name: 'Run confirmed action' }).click();
+    // The card reports completion only after the workbench has reloaded the
+    // project and rebuilt the action list, which is what carries a staged
+    // confirmation into the next card's pre-filled input. Wait for that
+    // completion, not just the phase card, so the following read observes the
+    // rebuilt controls rather than the ones the run replaced. The rebuild
+    // leaves the list collapsed, so the marker is attached rather than
+    // visible — `show()` writes it onto the live card only after the reload.
+    await action
+      .getByText(/recorded in the project journal/i)
+      .waitFor({ state: 'attached', timeout: 30000 });
     note(`${name} confirmed`);
   };
 
@@ -110,8 +155,7 @@ try {
   }
   // Staged confirmations arrive pre-filled from delivery status: the stage
   // input must already hold the op id from `next.confirm_operation_id`.
-  const stageAction = card('stage');
-  await stageAction.getByRole('heading').waitFor({ timeout: 30000 });
+  const stageAction = await openAction('stage');
   const expectedOp = await page.evaluate(async (pid) => {
     const base = (window.FORGE_API_BASE || '').replace(/\/$/, '');
     const res = await fetch(`${base}/v1/admin/projects/${encodeURIComponent(pid)}/delivery/status`, {
@@ -125,7 +169,7 @@ try {
   if (expectedOp === null || expectedOp === undefined || String(expectedOp) === '') {
     fail('delivery status did not carry a staged confirm_operation_id');
   }
-  const stageValue = await stageAction.getByLabel(/confirm_operation_id \(required\)/i).inputValue();
+  const stageValue = await stageAction.getByLabel(paramLabel('confirm_operation_id')).inputValue();
   if (stageValue !== String(expectedOp)) {
     fail(`stage confirmation was not pre-filled from status: input=${stageValue} expected=${expectedOp}`);
   }
@@ -139,8 +183,7 @@ try {
   }
   // The promote input must already hold the revision from
   // `next.confirm_revision`.
-  const promoteAction = card('promote');
-  await promoteAction.getByRole('heading').waitFor({ timeout: 30000 });
+  const promoteAction = await openAction('promote');
   const expectedRevision = await page.evaluate(async (pid) => {
     const base = (window.FORGE_API_BASE || '').replace(/\/$/, '');
     const res = await fetch(`${base}/v1/admin/projects/${encodeURIComponent(pid)}/delivery/status`, {
@@ -154,7 +197,7 @@ try {
   if (!expectedRevision) {
     fail('delivery status did not carry a staged confirm_revision');
   }
-  const promoteValue = await promoteAction.getByLabel(/confirm_revision \(required\)/i).inputValue();
+  const promoteValue = await promoteAction.getByLabel(paramLabel('confirm_revision')).inputValue();
   if (promoteValue !== String(expectedRevision)) {
     fail('promote confirmation was not pre-filled from status');
   }
@@ -166,10 +209,9 @@ try {
   // The final mutation is keyboard-driven: fill the two typed fields, focus
   // the preview control, activate it with Enter, tick confirmation with
   // Space, then activate the confirmed run with Enter.
-  const hermora = card('hermora-retry');
-  await hermora.getByRole('heading').waitFor({ timeout: 30000 });
-  await hermora.getByLabel(/deployment_url \(required\)/i).fill(deploymentUrl);
-  await hermora.getByLabel(/secret_ref \(required\)/i).fill(secretRef);
+  const hermora = await openAction('hermora-retry');
+  await hermora.getByLabel(paramLabel('deployment_url')).fill(deploymentUrl);
+  await hermora.getByLabel(paramLabel('secret_ref')).fill(secretRef);
   const hermoraPreview = hermora.getByRole('button', { name: /^preview hermora-retry$/i });
   await hermoraPreview.focus();
   await page.keyboard.press('Enter');

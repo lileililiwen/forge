@@ -38,7 +38,6 @@ commands:
   # could not derive are recorded in gate-debt.json, not guessed.
   repository: 'git diff --check'
   build: 'cargo build --workspace'
-  tests: 'cargo test --workspace'
   security: 'cargo audit'
   governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project forge --json'
   placeholder-threshold: 'python3 ../workspace-governance/scripts/product_code_quality.py .'

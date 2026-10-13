@@ -17,14 +17,11 @@ blocking:
   - REVIEW_REQUIRED
 
 # Per-check execution deadlines. Unlisted checks take the runtime default
-# (60s). The two are deliberately different:
-#   declared-verification — the CI fast suite; ~250s.
-#   tests — the full workspace suite bound by bind_gate_commands.py, which
-#     has no per-repo skip hook, so it still includes
-#     `rust_scaffold_builds_and_tests_with_native_toolchain` (~2220s, which
-#     compiles and tests a freshly generated Rust project).
+# (60s). Both test-bearing checks run the same fast suite (~190s), declared
+# through `.project.json verification.command` and `scripts/check-tests.sh`
+# respectively, so both get the same 600000ms deadline.
 timeouts:
-  tests: 3000000
+  tests: 600000
   declared-verification: 600000
 
 commands:
@@ -46,3 +43,12 @@ commands:
   # A verifier that no gate runs does not gate (ruling D18). Re-run the
   # generator to update it; do not hand-edit.
   declared-verification: 'cargo test --workspace -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent'
+  # Operator binding, not generated. bind_gate_commands.py derives
+  # `cargo test --workspace` for a Rust workspace and never consults
+  # scripts/check-tests.* for a shape concern, so this entry is written here
+  # and the generator preserves it as operator intent — the same arrangement
+  # careBridge and openpanel use. scripts/check-tests.sh runs the fast suite
+  # CI's `test` job runs; the three native-scaffold tests it skips stay covered
+  # by CI's dedicated `native-scaffold` job. Without this binding one Gate run
+  # executed a 2220s generated-project build and cost ~46 minutes.
+  tests: 'scripts/check-tests.sh'

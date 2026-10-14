@@ -414,6 +414,16 @@ pub(super) const WEB_ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT: &str =
 pub(super) const WEB_ROUTE_ADMIN_SHIPPING_PLUGINS: &str =
     super::super::admin::ROUTE_ADMIN_SHIPPING_PLUGINS;
 
+/// Web surface for the gate evidence envelope (`forge-web-gate-controls`).
+/// Two session-gated admin routes — read-only status, and explicit
+/// re-run — that wrap the existing `forge::gate` Core path the CLI
+/// uses. The handlers live in `src/api/admin/gate.rs`; the runtime
+/// boundary is preserved and the wire never fabricates `passed` from
+/// a missing runtime answer.
+pub(super) const WEB_ROUTE_ADMIN_GATE_STATUS: &str =
+    super::super::admin::ROUTE_ADMIN_GATE_STATUS;
+pub(super) const WEB_ROUTE_ADMIN_GATE_RUN: &str = super::super::admin::ROUTE_ADMIN_GATE_RUN;
+
 /// Routes a `web` row may honestly point at today. A row naming any other
 /// route is a catalog bug and is reported by [`problems`].
 pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
@@ -537,6 +547,8 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_EVIDENCE_MATRIX,
     WEB_ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT,
     WEB_ROUTE_ADMIN_SHIPPING_PLUGINS,
+    WEB_ROUTE_ADMIN_GATE_STATUS,
+    WEB_ROUTE_ADMIN_GATE_RUN,
 ];
 
 /// Plain-language reasons shared by rows in the same family. Each one names

@@ -262,3 +262,18 @@ pub const ROUTE_ADMIN_EVIDENCE_MATRIX: &str = "GET /v1/admin/providers/matrix";
 pub const ROUTE_ADMIN_EVIDENCE_PROVIDER_INSPECT: &str = "GET /v1/admin/providers/{provider}";
 
 pub const ROUTE_ADMIN_SHIPPING_PLUGINS: &str = "GET /v1/admin/projects/{id}/plugins";
+
+/// Web surface for the gate evidence envelope (`forge-web-gate-controls`).
+/// Two session-gated admin routes that wrap the existing `forge::gate`
+/// Core path the CLI uses, so a sibling operator can read the current
+/// cached gate status and ask Forge to re-run the gate and journal a
+/// fresh evidence record from the browser. The status GET is
+/// read-only; the run POST delegates to `forge::gate::run_gate` (the
+/// same path `forge gate {id}` uses), persists via
+/// `forge::gate::save_evidence`, and journals through the same
+/// `registry.record_operation("gate", id, verdict, summary)` call the
+/// CLI uses. The handler never fabricates `passed` from a missing
+/// runtime answer; unresolvable / timeout / unparseable is rendered
+/// exactly the way the doctor's `gate-evidence` finding renders it.
+pub const ROUTE_ADMIN_GATE_STATUS: &str = "GET /v1/admin/projects/{id}/gate/status";
+pub const ROUTE_ADMIN_GATE_RUN: &str = "POST /v1/admin/projects/{id}/gate/run";

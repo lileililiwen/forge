@@ -384,6 +384,31 @@ pub enum Route {
     AdminProjectHealthRefresh {
         id: String,
     },
+    /// `GET /v1/admin/projects/{id}/gate/status` — read-only workbench
+    /// surface for the persisted `GateEvidence` envelope
+    /// (`forge-web-gate-controls`). Reuses the same
+    /// `forge::gate::load_latest_evidence` + `evidence_freshness` path
+    /// the CLI uses for `forge gate status`; the wire envelope carries
+    /// the same `aggregate`, the same per-check states, the same short
+    /// revision and the same `freshness` for the same project on the
+    /// same revision. Session-gated; the root is resolved server-side
+    /// from a validated id; no write, no journal row.
+    AdminProjectGateStatus {
+        id: String,
+    },
+    /// `POST /v1/admin/projects/{id}/gate/run` — explicit on-demand
+    /// re-run of the gate runtime for a managed project
+    /// (`forge-web-gate-controls`). Reuses the same
+    /// `forge::gate::run_gate` + `save_evidence` + journal-row call
+    /// the CLI uses for `forge gate {id}`. The aggregate and per-check
+    /// states are taken from what the runtime actually said; the
+    /// handler never fabricates `passed` from a missing or
+    /// unparseable runtime answer, and unresolvable / timeout /
+    /// unparseable / rehearsal-on-real-run leaves the persisted
+    /// evidence byte-identical.
+    AdminProjectGateRun {
+        id: String,
+    },
     /// `GET /v1/admin/projects/{id}/plan` — side-effect-free upgrade plan
     /// plus the digest a later confirmation must echo.
     AdminProjectPlan {

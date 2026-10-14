@@ -579,6 +579,8 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectClassifyReject { .. }
         | Route::AdminProjectClassifyApply { .. }
         | Route::AdminProjectHealthRefresh { .. }
+        | Route::AdminProjectGateStatus { .. }
+        | Route::AdminProjectGateRun { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -768,6 +770,8 @@ pub fn handle(
             | Route::AdminProjectClassifyReject { .. }
             | Route::AdminProjectClassifyApply { .. }
             | Route::AdminProjectHealthRefresh { .. }
+            | Route::AdminProjectGateStatus { .. }
+            | Route::AdminProjectGateRun { .. }
             | Route::AdminProjectPlan { .. }
             | Route::AdminProjectApply { .. }
             | Route::AdminProjectFeature { .. }
@@ -925,6 +929,8 @@ pub fn handle(
         | Route::AdminProjectClassifyReject { .. }
         | Route::AdminProjectClassifyApply { .. }
         | Route::AdminProjectHealthRefresh { .. }
+        | Route::AdminProjectGateStatus { .. }
+        | Route::AdminProjectGateRun { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }

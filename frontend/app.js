@@ -2233,6 +2233,137 @@
     refreshLifecycleSeries();
   }
 
+  // Workbench gate status (forge-web-gate-controls). Reads the parsed
+  // GateEvidence envelope from GET /v1/admin/projects/{id}/gate/status
+  // and renders aggregate + freshness + short revision + summary, the
+  // same labels the doctor's gate-evidence finding uses. The Re-run
+  // button posts to the sibling /gate/run route and re-renders this
+  // sub-row from the response. The runtime is external; the wire
+  // never fabricates a passed state from a missing response —
+  // unavailable is rendered as the same `Unavailable` label the
+  // doctor renders, never `Passed`.
+  const GATE_AGGREGATE_LABELS = {
+    passed: "Passed",
+    blocked: "Blocked",
+    failed: "Failed",
+    unknown: "Unknown",
+  };
+  const GATE_FRESHNESS_LABELS = {
+    fresh: "Fresh",
+    stale: "Stale",
+    absent: "Absent",
+  };
+  const GATE_STATE_BADGE = {
+    passed: "state-done",
+    blocked: "state-failed",
+    failed: "state-failed",
+    unknown: "state-observed",
+  };
+
+  function gateBadge(state) {
+    return GATE_STATE_BADGE[state] || "state-observed";
+  }
+
+  function renderGateStatus(envelope) {
+    const box = document.getElementById("wb-gate-status");
+    if (!box) return;
+    box.replaceChildren();
+    const summary = (envelope && envelope.summary) || "";
+    const gate = envelope && envelope.gate;
+    if (!gate) {
+      const head = document.createElement("div"); head.className = "wb-health-state";
+      const dot = document.createElement("span"); dot.className = "state-dot state-observed"; dot.setAttribute("aria-hidden", "true");
+      const text = document.createElement("strong"); text.textContent = "Unverified";
+      head.append(dot, text);
+      box.append(head);
+      const note = document.createElement("p"); note.className = "muted";
+      note.textContent = (envelope && envelope.detail) || summary || "The gate has never run for this project; unverified is not a pass.";
+      box.append(note);
+      return;
+    }
+    const aggregate = gate.aggregate || "unknown";
+    const freshness = gate.freshness || "absent";
+    const head = document.createElement("div"); head.className = "wb-health-state";
+    const dot = document.createElement("span"); dot.className = `state-dot ${gateBadge(aggregate)}`; dot.setAttribute("aria-hidden", "true");
+    const text = document.createElement("strong"); text.textContent = GATE_AGGREGATE_LABELS[aggregate] || aggregate;
+    head.append(dot, text);
+    box.append(head);
+    const facts = document.createElement("dl"); facts.className = "detail-list";
+    function addFact(term, value) {
+      const name = document.createElement("dt"); name.textContent = term;
+      const detail = document.createElement("dd"); detail.textContent = value || "—";
+      facts.append(name, detail);
+    }
+    addFact("Aggregate", GATE_AGGREGATE_LABELS[aggregate] || aggregate);
+    addFact("Freshness", GATE_FRESHNESS_LABELS[freshness] || freshness);
+    addFact("Runtime", gate.runtime ? `${gate.runtime}${gate.runtime_version ? " (" + gate.runtime_version + ")" : ""}` : "—");
+    addFact("Revision", gate.revision || (freshness === "absent" ? "unbound" : "—"));
+    addFact("Observed at", gate.observed_at || "—");
+    box.append(facts);
+    if (summary) {
+      const p = document.createElement("p"); p.className = "muted"; p.textContent = summary;
+      box.append(p);
+    }
+    if (Array.isArray(gate.checks) && gate.checks.length) {
+      const ul = document.createElement("ul"); ul.className = "wb-findings";
+      for (const check of gate.checks) {
+        const li = document.createElement("li");
+        const label = `${check.id || "check"} — ${check.state || "unknown"}`;
+        const text = check.note ? `${label}: ${check.note}` : label;
+        li.append(el("span", null, text));
+        ul.append(li);
+      }
+      box.append(ul);
+    }
+  }
+
+  async function loadGateStatus(id) {
+    const box = document.getElementById("wb-gate-status");
+    if (!box) return;
+    if (!id) { box.replaceChildren(); const p = document.createElement("p"); p.className = "muted"; p.textContent = "Open a project to read its gate status."; box.append(p); return; }
+    let envelope;
+    try {
+      envelope = await request(`/v1/admin/projects/${encodeURIComponent(id)}/gate/status`, { headers: { Accept: "application/json" } });
+    } catch (err) {
+      box.replaceChildren();
+      const note = document.createElement("p"); note.className = "muted";
+      note.textContent = (err && err.message) ? err.message : "The gate status is unavailable right now.";
+      box.append(note);
+      return;
+    }
+    if (workbench.id !== id) return;
+    renderGateStatus(envelope);
+  }
+
+  async function runGate(id) {
+    if (!id) return;
+    const button = document.getElementById("wb-gate-rerun");
+    if (button) { button.disabled = true; button.textContent = "Re-running gate…"; }
+    clearWorkbenchNotice();
+    let result;
+    try {
+      result = await requestStatus(`/v1/admin/projects/${encodeURIComponent(id)}/gate/run`, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch (err) {
+      if (button) { button.disabled = false; button.textContent = "Re-run gate"; }
+      showWorkbenchNotice((err && err.message) ? err.message : "The gate re-run could not be started. The prior gate state is kept.");
+      return;
+    }
+    if (button) { button.disabled = false; button.textContent = "Re-run gate"; }
+    if (!result.ok) {
+      const message = result.body && result.body.error && result.body.error.message
+        ? result.body.error.message
+        : "The gate re-run could not complete. The prior gate state is kept.";
+      showWorkbenchNotice(message);
+      return;
+    }
+    if (workbench.id === id) renderGateStatus((result.body && result.body.envelope) || { summary: "done" });
+    showWorkbenchNotice((result.body && result.body.summary) || "Gate re-run complete.");
+  }
+
   // The read-only project status projection: one overall state plus its
   // doctor/check/readiness sub-checks. Rendered as text only; the server
   // never returns an absolute path or raw finding detail.
@@ -3339,6 +3470,11 @@
     refreshLifecycleSeries();
     loadProjectStatus(id);
     loadProjectDelivery(id);
+    loadGateStatus(id);
+    const gateButton = document.getElementById("wb-gate-rerun");
+    if (gateButton) {
+      gateButton.onclick = () => { runGate(workbench.id); };
+    }
     renderOperations(data.operations || []);
     populateFeatures(data.manifest || {});
     renderProjectActions();

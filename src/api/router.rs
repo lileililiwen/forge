@@ -641,7 +641,7 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectAgents { .. }
         | Route::AdminProjectIdentityConfig { .. }
         | Route::AdminProjectIdentitySessions { .. } | Route::AdminCreation { .. }
-        | Route::AdminOptions => None,
+        | Route::AdminIdentityChangePassword | Route::AdminOptions => None,
         Route::ListProjects
         | Route::InspectProject { .. }
         | Route::Doctor { .. }
@@ -831,6 +831,7 @@ pub fn handle(
             | Route::AdminCatalogInspect { .. }
             | Route::AdminFleetInspect { .. }
             | Route::AdminCreation { .. }
+            | Route::AdminIdentityChangePassword
     ) {
         return super::admin::handle(config, db_path, request, &route);
     }
@@ -986,7 +987,7 @@ pub fn handle(
         | Route::AdminProjectAgents { .. }
         | Route::AdminProjectIdentityConfig { .. }
         | Route::AdminCreation { .. }
-        | Route::AdminProjectIdentitySessions { .. } => not_found(),
+        | Route::AdminIdentityChangePassword | Route::AdminProjectIdentitySessions { .. } => not_found(),
     }
 }
 

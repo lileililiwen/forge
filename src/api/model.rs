@@ -526,6 +526,15 @@ pub enum Route {
         id: String,
         session: Option<String>,
     },
+    /// `POST /v1/admin/identity/change-password` — the
+    /// `forge identity change-password` CLI verb exposed as a
+    /// session-gated admin route for the topbar `Change password`
+    /// control. The handler re-verifies the current password by
+    /// re-using the sign-in credential check, then delegates the
+    /// Argon2id hash update + the `revoke_all_sessions_in` cascade
+    /// to `forge::identity::global::change_password`. No CLI /
+    /// Core change; no schema change.
+    AdminIdentityChangePassword,
     /// `GET /v1/admin/projects/{id}/publish/plan` — the read-only provider
     /// publish plan, exposed as a session-gated admin route that resolves the
     /// provider id, the provider configuration and the committed git revision

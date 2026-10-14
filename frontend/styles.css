@@ -359,3 +359,19 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
  * with 44px targets, wrapped payload strings. Additive only; earlier
  * rules untouched. */
 #shipping-reads-title{font-size:var(--text-md)}
+/* Forge administrator password rotation dialog
+ * (forge-portal-identity-rotation). Native <dialog> modal reachable
+ * from the topbar; reuses the field/field-label/field-hint/field-error
+ * and .wb-confirm tokens already shipped, so the only new pieces are
+ * the topbar action group, the dialog surface, and a few
+ * dialog-specific layout primitives. Additive only; earlier rules
+ * untouched. */
+.topbar-actions{display:flex;align-items:center;gap:10px}
+.icp-dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:24px clamp(20px,4vw,28px);max-width:min(520px,92vw);box-shadow:var(--shadow)}
+.icp-dialog::backdrop{background:rgba(4,5,9,.66)}
+.icp-form{display:grid;gap:12px}
+.icp-title{margin:0;font-size:18px;letter-spacing:-.02em}
+.icp-intro{margin:0}
+.icp-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:4px}
+.icp-dialog .field input[type=password]{height:42px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--raise);color:var(--ink);font-size:13px}
+.icp-dialog .field input[type=password]:focus{border-color:var(--accent);outline:2px solid var(--focus);outline-offset:1px}

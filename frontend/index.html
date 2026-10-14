@@ -23,8 +23,28 @@
       <main id="main-content" class="main-area" tabindex="-1">
         <header class="topbar">
           <p>Workspace <span aria-hidden="true">/</span> <strong id="topbar-crumb">All projects</strong></p>
-          <button id="sign-out" class="button button-quiet" type="button">Sign out</button>
+          <div class="topbar-actions">
+            <button id="identity-change-password" class="button button-quiet" type="button" aria-haspopup="dialog" aria-controls="identity-change-password-dialog">Change password</button>
+            <button id="sign-out" class="button button-quiet" type="button">Sign out</button>
+          </div>
         </header>
+        <dialog id="identity-change-password-dialog" class="icp-dialog" aria-labelledby="identity-change-password-title" aria-describedby="identity-change-password-intro">
+          <form id="identity-change-password-form" class="icp-form" method="dialog" novalidate>
+            <h2 id="identity-change-password-title" class="icp-title">Change Forge administrator password</h2>
+            <p id="identity-change-password-intro" class="muted icp-intro">Rotating the password revokes every active browser session, including this one. After the rotation you will be asked to sign in again with the new password.</p>
+            <div id="identity-change-password-error-summary" class="error-summary" tabindex="-1" hidden></div>
+            <p class="field-hint">Fields marked <span class="required-mark" aria-hidden="true">*</span> are required.</p>
+            <label class="field" for="identity-change-password-current"><span class="field-label">Current password <span class="required-mark" aria-hidden="true">*</span></span><div class="password-wrap"><input id="identity-change-password-current" name="current" type="password" autocomplete="current-password" required aria-describedby="identity-change-password-current-hint identity-change-password-current-error"><button id="identity-change-password-current-toggle" class="button-quiet password-toggle" type="button" aria-pressed="false" aria-controls="identity-change-password-current">Show</button></div><span class="field-hint" id="identity-change-password-current-hint">The password you are signed in with right now.</span><span class="field-error" id="identity-change-password-current-error" hidden></span></label>
+            <label class="field" for="identity-change-password-new"><span class="field-label">New password <span class="required-mark" aria-hidden="true">*</span></span><div class="password-wrap"><input id="identity-change-password-new" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required aria-describedby="identity-change-password-new-hint identity-change-password-new-error"><button id="identity-change-password-new-toggle" class="button-quiet password-toggle" type="button" aria-pressed="false" aria-controls="identity-change-password-new">Show</button></div><span class="field-hint" id="identity-change-password-new-hint">12 to 1024 characters. The browser never stores it.</span><span class="field-error" id="identity-change-password-new-error" hidden></span></label>
+            <label class="field" for="identity-change-password-confirm"><span class="field-label">Confirm new password <span class="required-mark" aria-hidden="true">*</span></span><div class="password-wrap"><input id="identity-change-password-confirm" name="confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required aria-describedby="identity-change-password-confirm-hint identity-change-password-confirm-error"><button id="identity-change-password-confirm-toggle" class="button-quiet password-toggle" type="button" aria-pressed="false" aria-controls="identity-change-password-confirm">Show</button></div><span class="field-hint" id="identity-change-password-confirm-hint">Re-type the new password exactly.</span><span class="field-error" id="identity-change-password-confirm-error" hidden></span></label>
+            <label class="wb-confirm"><input id="identity-change-password-confirm-tick" type="checkbox"> I confirm rotating the Forge administrator password and revoking every active browser session.</label>
+            <div class="icp-actions">
+              <button id="identity-change-password-cancel" class="button button-quiet" type="button">Cancel</button>
+              <button id="identity-change-password-submit" class="button button-primary" type="submit" disabled>Rotate password</button>
+            </div>
+            <p id="identity-change-password-result" class="wb-plan-result" role="status" hidden></p>
+          </form>
+        </dialog>
         <section class="content-wrap" aria-labelledby="page-title">
           <div id="view-projects" role="region" aria-label="All projects">
           <div class="page-heading">

@@ -173,6 +173,18 @@ pub const ROUTE_ADMIN_IDENTITY_SESSIONS: &str = "GET /v1/admin/projects/{id}/ide
 pub const ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
     "GET /v1/admin/projects/{id}/identity/sessions/{session_id}";
 
+/// Forge-administrator password rotation
+/// (`forge-portal-identity-rotation`, topbar `Change password` UI).
+/// One session-gated POST that mirrors the
+/// `forge identity change-password` CLI verb: it re-verifies the
+/// current password against the registered administrator, then
+/// delegates the Argon2id hash update + the `revoke_all_sessions_in`
+/// cascade to the same Core function the CLI calls. Exported so the
+/// command catalog names the exact path the router registers,
+/// keeping the two in lockstep.
+pub const ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD: &str =
+    "POST /v1/admin/identity/change-password";
+
 /// Read-only creation-catalog browser (`web-creation-catalog-browser`,
 /// audit gap 6). All twenty routes are session-gated GETs reusing the
 /// existing Core creation registries — no write, no provider, no

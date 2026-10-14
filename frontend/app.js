@@ -6397,6 +6397,7 @@
       catch (_) { showDashboardError("Sign out failed. Check the API connection and try again."); button.disabled = false; return; }
       window.location.replace("login.html");
     });
+    initChangePasswordDialog();
   }
 
   function showDashboardError(message) {
@@ -6407,6 +6408,215 @@
     clearFleetBusy();
     const skeleton = document.getElementById("project-rows");
     if (skeleton) skeleton.replaceChildren();
+  }
+
+  // Topbar "Change password" dialog (forge-portal-identity-rotation).
+  // The handler delegates the Argon2id hash update and the
+  // session-revocation cascade to the same Core function the CLI uses
+  // (`forge::identity::global::change_password`); the browser only adds
+  // the typed JSON envelope, a confirm-tick guard, and the post-rotation
+  // sign-out so the operator re-authenticates with the new credential.
+  // No `innerHTML`, no `eval`, no inline script, no shell, no path
+  // interpolation; every refusal is surfaced through the same
+  // per-field + summary pattern the login form uses.
+  const ICP_FIELD_ERRORS = {
+    "identity-change-password-current": "identity-change-password-current-error",
+    "identity-change-password-new": "identity-change-password-new-error",
+    "identity-change-password-confirm": "identity-change-password-confirm-error",
+  };
+  const ICP_FIELD_HINTS = {
+    "identity-change-password-current": "identity-change-password-current-hint",
+    "identity-change-password-new": "identity-change-password-new-hint",
+    "identity-change-password-confirm": "identity-change-password-confirm-hint",
+  };
+  function icpClearAllErrors() {
+    for (const [field, errorId] of Object.entries(ICP_FIELD_ERRORS)) clearFieldError(field, errorId);
+    clearErrorSummary("identity-change-password-error-summary");
+    const result = document.getElementById("identity-change-password-result");
+    if (result) { result.textContent = ""; result.hidden = true; setResultRole(result, false); }
+  }
+  function icpSetSubmitEnabled() {
+    const current = document.getElementById("identity-change-password-current");
+    const next = document.getElementById("identity-change-password-new");
+    const confirm = document.getElementById("identity-change-password-confirm");
+    const tick = document.getElementById("identity-change-password-confirm-tick");
+    const submit = document.getElementById("identity-change-password-submit");
+    if (!current || !next || !confirm || !tick || !submit) return;
+    const ok = current.value.length > 0
+      && next.value.length >= 12 && next.value.length <= 1024
+      && confirm.value.length > 0
+      && next.value === confirm.value
+      && tick.checked;
+    submit.disabled = !ok;
+  }
+  function icpBindPasswordToggle(inputId, buttonId) {
+    const button = document.getElementById(buttonId);
+    const input = document.getElementById(inputId);
+    if (!button || !input) return;
+    button.addEventListener("click", () => {
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      button.textContent = show ? "Hide" : "Show";
+      button.setAttribute("aria-pressed", String(show));
+    });
+  }
+  function icpClose() {
+    const dialog = document.getElementById("identity-change-password-dialog");
+    if (dialog && dialog.open) dialog.close();
+  }
+  function icpReset() {
+    const current = document.getElementById("identity-change-password-current");
+    const next = document.getElementById("identity-change-password-new");
+    const confirm = document.getElementById("identity-change-password-confirm");
+    const tick = document.getElementById("identity-change-password-confirm-tick");
+    if (current) current.value = "";
+    if (next) next.value = "";
+    if (confirm) confirm.value = "";
+    if (tick) tick.checked = false;
+    icpClearAllErrors();
+    icpSetSubmitEnabled();
+  }
+  function icpRenderRefusal(code, message) {
+    const items = [];
+    let focusField = null;
+    if (code === "admin-current-password-incorrect") {
+      const msg = "Current password is incorrect.";
+      setFieldError("identity-change-password-current", "identity-change-password-current-error", msg);
+      items.push({ fieldId: "identity-change-password-current", label: "Current password", message: msg });
+      focusField = "identity-change-password-current";
+    } else if (code === "admin-password-too-weak") {
+      const msg = message || "New password must contain 12 to 1024 characters.";
+      setFieldError("identity-change-password-new", "identity-change-password-new-error", msg);
+      items.push({ fieldId: "identity-change-password-new", label: "New password", message: msg });
+      focusField = "identity-change-password-new";
+    } else if (code === "admin-password-confirmation-mismatch") {
+      const msg = "New password and confirmation do not match.";
+      setFieldError("identity-change-password-confirm", "identity-change-password-confirm-error", msg);
+      items.push({ fieldId: "identity-change-password-confirm", label: "Confirm new password", message: msg });
+      focusField = "identity-change-password-confirm";
+    } else if (code === "admin-identity-not-configured") {
+      const msg = "No Forge administrator is configured; rotation needs a configured registry.";
+      items.push({ label: "Forge administrator", message: msg });
+    } else {
+      items.push({ label: "Rotation", message: message || "Forge could not rotate the password." });
+    }
+    renderErrorSummary("identity-change-password-error-summary", "There is a problem rotating the password", items);
+    // Re-enable the submit so the operator can correct and retry.
+    icpSetSubmitEnabled();
+    if (focusField) {
+      const node = document.getElementById(focusField);
+      if (node) node.focus();
+    }
+  }
+  async function icpVerifyCurrent(current) {
+    // Reuse the sign-in shape so the typed refusal codes are identical:
+    // a wrong current password answers the same `api-unauthorized` text
+    // the login form would show, and the operator's own session stays
+    // untouched. The subsequent server-side handler still verifies the
+    // current password independently, so a forged `current` here is
+    // never trusted.
+    const res = await fetch(endpoint("/v1/admin/session"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email: "__icp_probe__", password: current }),
+    });
+    // The probe deliberately sends a never-valid email; an
+    // `api-unauthorized` answers "credentials wrong or session gone"
+    // for both wrong-email and wrong-password, which is exactly the
+    // signal we need to refuse the rotation inline. A `2xx` is
+    // impossible because the email is not registered.
+    if (res.status === 401) return false;
+    // Anything else (5xx, network) we treat as inconclusive and let
+    // the server-side handler decide; the operator sees no inline
+    // error and the submit proceeds.
+    return null;
+  }
+  function initChangePasswordDialog() {
+    const open = document.getElementById("identity-change-password");
+    const dialog = document.getElementById("identity-change-password-dialog");
+    const form = document.getElementById("identity-change-password-form");
+    if (!open || !dialog || !form) return;
+    open.addEventListener("click", () => {
+      icpReset();
+      icpSetSubmitEnabled();
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      const first = document.getElementById("identity-change-password-current");
+      if (first) first.focus();
+    });
+    const cancel = document.getElementById("identity-change-password-cancel");
+    if (cancel) cancel.addEventListener("click", () => icpClose());
+    dialog.addEventListener("cancel", () => icpReset());
+    dialog.addEventListener("close", () => icpReset());
+    icpBindPasswordToggle("identity-change-password-current", "identity-change-password-current-toggle");
+    icpBindPasswordToggle("identity-change-password-new", "identity-change-password-new-toggle");
+    icpBindPasswordToggle("identity-change-password-confirm", "identity-change-password-confirm-toggle");
+    for (const id of ["identity-change-password-current", "identity-change-password-new", "identity-change-password-confirm"]) {
+      const node = document.getElementById(id);
+      if (node) {
+        node.addEventListener("input", () => {
+          clearFieldError(id, ICP_FIELD_ERRORS[id]);
+          clearErrorSummary("identity-change-password-error-summary");
+          icpSetSubmitEnabled();
+        });
+      }
+    }
+    const tick = document.getElementById("identity-change-password-confirm-tick");
+    if (tick) tick.addEventListener("change", () => {
+      clearErrorSummary("identity-change-password-error-summary");
+      icpSetSubmitEnabled();
+    });
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (form.elements["current"].value !== form.elements["password"].value || form.elements["password"].value === "" || form.elements["password"].value.length < 12 || form.elements["password"].value.length > 1024 || form.elements["password"].value !== form.elements["confirm"].value || !tick.checked) return;
+      const submit = document.getElementById("identity-change-password-submit");
+      const cancelBtn = document.getElementById("identity-change-password-cancel");
+      submit.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      icpClearAllErrors();
+      const result = document.getElementById("identity-change-password-result");
+      const current = form.elements["current"].value;
+      const password = form.elements["password"].value;
+      const confirm = form.elements["confirm"].value;
+      // The browser never persists any of the three fields; they are
+      // scoped to the submit closure and reset on close.
+      const probe = await icpVerifyCurrent(current);
+      if (probe === false) {
+        icpRenderRefusal("admin-current-password-incorrect");
+        submit.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        return;
+      }
+      try {
+        await request("/v1/admin/identity/change-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ current, password, confirm }),
+        });
+      } catch (err) {
+        const body = err && err.message ? err.message : "Forge could not rotate the password.";
+        // The session may have ended (401) — let the existing redirect
+        // take the operator back to the sign-in page.
+        if (err && err.status === 401) return;
+        const code = err && err.code ? err.code : null;
+        icpRenderRefusal(code, body);
+        submit.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        return;
+      }
+      // The Core call revokes every session, including this one, so the
+      // operator's own session is now invalid. Render the success
+      // message, sign out the local cookie, and redirect to sign-in.
+      if (result) {
+        result.textContent = "Password updated. Every other browser session has been revoked. Sign in again with your new password.";
+        result.hidden = false;
+        setResultRole(result, false);
+      }
+      try { await request("/v1/admin/session", { method: "DELETE", headers: { Accept: "application/json" } }); } catch (_) { /* session already gone */ }
+      const here = window.location.pathname + window.location.search;
+      window.location.replace(`login.html?next=${encodeURIComponent(here)}`);
+    });
   }
 
   if (page === "login") loginPage();

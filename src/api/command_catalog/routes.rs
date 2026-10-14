@@ -301,6 +301,15 @@ pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSIONS: &str =
 pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
     super::super::admin::ROUTE_ADMIN_IDENTITY_SESSION_INSPECT;
 
+/// Forge-administrator password rotation
+/// (`forge-portal-identity-rotation`). The topbar `Change password`
+/// control's only session-gated admin route, mirroring the
+/// `forge identity change-password` CLI verb. References the admin
+/// module's own route constant so the catalog and the live endpoint
+/// can never name different paths.
+pub(super) const WEB_ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD: &str =
+    super::super::admin::ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD;
+
 /// Creation-catalog read-only typed routes
 /// (`web-creation-catalog-browser`). These reference the admin
 /// module's own route constants so the catalog and the live endpoints
@@ -485,6 +494,7 @@ pub(super) const IMPLEMENTED_WEB_ROUTES: &[&str] = &[
     WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
     WEB_ROUTE_ADMIN_IDENTITY_SESSIONS,
     WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
+    WEB_ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD,
     WEB_ROUTE_ADMIN_CREATION_PROFILES,
     WEB_ROUTE_ADMIN_CREATION_PROFILE,
     WEB_ROUTE_ADMIN_CREATION_PROFILE_RESOLVE,

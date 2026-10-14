@@ -11,10 +11,10 @@ use super::routes::{
     WEB_ROUTE_ADMIN_AGENT_LIST, WEB_ROUTE_ADMIN_AGENT_STATUS, WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
     WEB_ROUTE_ADMIN_DELIVERY_HERMORA_RETRY, WEB_ROUTE_ADMIN_DELIVERY_PREFLIGHT,
     WEB_ROUTE_ADMIN_DELIVERY_PROMOTE, WEB_ROUTE_ADMIN_DELIVERY_STAGE,
-    WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_IDENTITY_CONFIG,
-    WEB_ROUTE_ADMIN_IDENTITY_SESSIONS, WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT,
-    WEB_ROUTE_ADMIN_STUDIO_PREVIEW, WEB_ROUTE_ADMIN_STUDIO_REFINE,
-    WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
+    WEB_ROUTE_ADMIN_DELIVERY_STATUS, WEB_ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD,
+    WEB_ROUTE_ADMIN_IDENTITY_CONFIG, WEB_ROUTE_ADMIN_IDENTITY_SESSIONS,
+    WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT, WEB_ROUTE_ADMIN_STUDIO_PREVIEW,
+    WEB_ROUTE_ADMIN_STUDIO_REFINE, WEB_ROUTE_ADMIN_STUDIO_SPEC_SAVE,
 };
 
 impl CatalogBuilder {
@@ -182,15 +182,15 @@ impl CatalogBuilder {
             REASON_TTY_HIDDEN,
             none,
         );
-        self.cli_only(
+        self.web_at(
             Some("identity"),
             "change-password",
-            "Replace the Forge-wide administrator password without changing the email; revokes every active browser session (new password read without terminal echo, or from stdin with `--password-stdin`).",
+            "Replace the Forge-wide administrator password without changing the email; revokes every active browser session (the browser posts the new password as JSON; the CLI reads it from the terminal without echo or from stdin with `--password-stdin`).",
             Identity,
             Forge,
             SessionAdmin,
-            REASON_TTY_HIDDEN,
-            none,
+            WEB_ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD,
+            caps_local,
         );
         self.cli_only(
             Some("identity"),

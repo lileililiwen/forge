@@ -290,6 +290,9 @@ pub(in crate::api) fn handle(
         Route::AdminProjectIdentitySessions { id, session } => {
             super::agent_identity::identity_sessions(config, db_path, request, id, session)
         }
+        Route::AdminIdentityChangePassword => {
+            super::identity::change_password(config, db_path, request)
+        }
         Route::AdminCreation {
             registry,
             item,

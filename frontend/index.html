@@ -22,7 +22,15 @@
       </aside>
       <main id="main-content" class="main-area" tabindex="-1">
         <header class="topbar">
-          <p>Workspace <span aria-hidden="true">/</span> <strong id="topbar-crumb">All projects</strong></p>
+          <div class="topbar-left">
+            <p>Workspace <span aria-hidden="true">/</span> <strong id="topbar-crumb">All projects</strong></p>
+            <div class="ws-summary" id="ws-summary" role="status" aria-live="polite" aria-label="Workspace status summary" hidden>
+              <span class="ws-summary-chip"><span class="ws-summary-count" id="ws-registered">—</span> registered</span>
+              <span class="ws-summary-chip"><span class="ws-summary-count" id="ws-onboardable">—</span> onboardable</span>
+              <span class="ws-summary-chip ws-summary-sync"><span class="ws-summary-count" id="ws-last-sync">—</span></span>
+            </div>
+            <span class="ws-summary-empty badge badge-unconfigured" id="ws-summary-empty" hidden>Workspace not configured</span>
+          </div>
           <div class="topbar-actions">
             <button id="identity-change-password" class="button button-quiet" type="button" aria-haspopup="dialog" aria-controls="identity-change-password-dialog">Change password</button>
             <button id="sign-out" class="button button-quiet" type="button">Sign out</button>

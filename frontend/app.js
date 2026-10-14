@@ -4182,6 +4182,87 @@
     hint.append(link);
   }
 
+  // ---- Topbar workspace status summary (forge-web-workspace-status-summary) ----
+  //
+  // Read-only mirror of `forge workspace status` in the portal topbar. It
+  // aggregates the *existing* `GET /v1/admin/workspace/candidates` route the
+  // onboarding panel already consumes — no new API surface, no Core change.
+  // `selectable` is the same predicate `renderWsFleetHint` uses, so the
+  // summary and the bulk table can never disagree. `state === "registered"`
+  // is the authoritative sibling-registration mark from the candidate route.
+  const WS_SYNC_STALE_MS = 10 * 60 * 1000; // idle longer than this => stale
+  let wsSummaryLoadedAt = null;
+
+  // Pure aggregation over the candidate envelope. Kept side-effect free so the
+  // contract test can assert the counting without a browser or network.
+  function aggregateWorkspaceSummary(candidates) {
+    const list = Array.isArray(candidates) ? candidates : [];
+    let registered = 0;
+    let onboardable = 0;
+    for (const candidate of list) {
+      if (!candidate || typeof candidate !== "object") continue;
+      if (candidate.state === "registered") registered += 1;
+      if (candidate.selectable === true) onboardable += 1;
+    }
+    return { registered, onboardable, total: list.length };
+  }
+
+  function wsRenderSyncLabel() {
+    const el = document.getElementById("ws-last-sync");
+    if (!el) return;
+    if (wsSummaryLoadedAt == null) {
+      el.textContent = "—";
+      el.className = "ws-summary-count";
+      return;
+    }
+    const ageMs = Date.now() - wsSummaryLoadedAt;
+    if (ageMs > WS_SYNC_STALE_MS) {
+      el.textContent = "stale";
+      el.className = "ws-summary-count ws-summary-stale";
+    } else {
+      const mins = Math.max(1, Math.round(ageMs / 60000));
+      el.textContent = `synced ${mins}m ago`;
+      el.className = "ws-summary-count";
+    }
+  }
+
+  async function loadWorkspaceSummary() {
+    const summary = document.getElementById("ws-summary");
+    const empty = document.getElementById("ws-summary-empty");
+    const regEl = document.getElementById("ws-registered");
+    const onbEl = document.getElementById("ws-onboardable");
+    if (!summary || !empty || !regEl || !onbEl) return;
+    let data;
+    try {
+      data = await request("/v1/admin/workspace/candidates?limit=1000", {
+        headers: { Accept: "application/json" },
+      });
+    } catch (err) {
+      // 409 => FORGE_ADMIN_PROJECTS_ROOT unset. The route already refuses with
+      // a typed `admin-prerequisite`; show the honest empty chip, never a
+      // fabricated count. Other failures simply hide the counters.
+      if (err && err.status === 409) {
+        summary.hidden = true;
+        regEl.textContent = "—";
+        onbEl.textContent = "—";
+        empty.hidden = false;
+        wsSummaryLoadedAt = null;
+        wsRenderSyncLabel();
+        return;
+      }
+      summary.hidden = true;
+      empty.hidden = true;
+      return;
+    }
+    const agg = aggregateWorkspaceSummary(data.candidates);
+    regEl.textContent = String(agg.registered);
+    onbEl.textContent = String(agg.onboardable);
+    wsSummaryLoadedAt = Date.now();
+    wsRenderSyncLabel();
+    empty.hidden = true;
+    summary.hidden = false;
+  }
+
   async function wsDiscover() {
     wsClear();
     ws.digests = null; ws.payload = null;
@@ -6675,6 +6756,7 @@
       initDelivery(projects);
       initWorkspaceOnboarding();
       wsDiscover();
+      loadWorkspaceSummary();
       const refresh = () => { fleetPage = 1; renderProjects(window.__forgeProjects || projects); };
       document.getElementById("project-search").addEventListener("input", refresh);
       document.getElementById("source-filter").addEventListener("change", refresh);

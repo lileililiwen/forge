@@ -1,5 +1,7 @@
 # Forge handoff
 
+current_spec: forge-contract-defect-remediation
+
 ## Current state
 
 ### `agent-provider-honest-state` delivered and archived (2026-10-13)

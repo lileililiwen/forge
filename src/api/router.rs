@@ -535,7 +535,7 @@ fn method_not_allowed() -> ApiResponse {
     )
 }
 
-fn not_found() -> ApiResponse {
+pub(super) fn not_found() -> ApiResponse {
     ApiResponse::json(
         404,
         serde_json::json!({
@@ -562,147 +562,14 @@ pub(super) fn bad_request(reason: &str) -> ApiResponse {
 }
 
 /// Decide whether the request requires a session and, if
-/// so, what permission is needed for the action.
+/// so, what permission is needed for the action. The classification
+/// table lives in `src/api/router_classify.rs`
+/// (`forge-api-router-table-driven`) so adding a new `Route` variant
+/// is one arm in that module instead of three cross-cutting arms
+/// here. This wrapper preserves the `pub(super)` symbol for the
+/// existing `handlers_core` and `api_tests` callers.
 pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
-    match route {
-        Route::Healthz | Route::GetOperation { .. } | Route::GitHubPush => None,
-        Route::AdminSessionGet
-        | Route::AdminSessionPost
-        | Route::AdminSessionDelete
-        | Route::AdminProjects
-        | Route::AdminCommands
-        | Route::AdminFleetStatus
-        | Route::AdminProjectDetail { .. }
-        | Route::AdminProjectStatus { .. }
-        | Route::AdminProjectMaintain { .. }
-        | Route::AdminProjectClassifyApprove { .. }
-        | Route::AdminProjectClassifyReject { .. }
-        | Route::AdminProjectClassifyApply { .. }
-        | Route::AdminProjectHealthRefresh { .. }
-        | Route::AdminProjectGateStatus { .. }
-        | Route::AdminProjectGateRun { .. }
-        | Route::AdminProjectPlan { .. }
-        | Route::AdminProjectApply { .. }
-        | Route::AdminProjectFeature { .. }
-        | Route::AdminProjectSpec { .. }
-        | Route::AdminProjectFeatureRemove { .. }
-        | Route::AdminProjectFeatureUpgrade { .. }
-        | Route::AdminProjectSpecApply { .. }
-        | Route::AdminProjectDeployPlan { .. }
-        | Route::AdminProjectDeploy { .. }
-        | Route::AdminProjectReleasePlan { .. }
-        | Route::AdminProjectRelease { .. }
-        | Route::AdminProjectReleaseHistory { .. }
-        | Route::AdminProjectReleaseInspect { .. }
-        | Route::AdminProjectDeployHistory { .. }
-        | Route::AdminProjectDeployInspect { .. }
-        | Route::AdminProjectDeployStatus { .. }
-        | Route::AdminProjectPublishPlan { .. }
-        | Route::AdminProjectPublish { .. }
-        | Route::AdminProjectDeliveryStatus { .. }
-        | Route::AdminProjectDeliveryPreflight { .. }
-        | Route::AdminProjectDeliveryStage { .. }
-        | Route::AdminProjectDeliveryPromote { .. }
-        | Route::AdminProjectDeliveryHermoraRetry { .. }
-        | Route::AdminProjectNew
-        | Route::AdminProjectImport
-        | Route::AdminProjectRegister
-        | Route::AdminWorkspaceCandidates
-        | Route::AdminWorkspaceOnboard
-        | Route::AdminPortfolioList
-        | Route::AdminPortfolioEvidence
-        | Route::AdminPortfolioProject { .. }
-        | Route::AdminPortfolioRead { .. }
-        | Route::AdminPortfolioWrite { .. }
-        | Route::AdminPortfolioTagRemove { .. }
-        | Route::AdminPortfolioRelationRemove { .. }
-        | Route::AdminPortfolioEvidenceImport { .. }
-        | Route::AdminDelivery
-        | Route::AdminDeliveryPreview
-        | Route::AdminDeliveryOperation { .. }
-        | Route::AdminDeliveryAllowlist { .. }
-        | Route::AdminDeliveryAllowlistRemove { .. }
-        | Route::AdminDeliveryApprove
-        | Route::AdminDeliveryPublish
-        | Route::AdminDeliveryReconcile
-        | Route::AdminGraduationPreview
-        | Route::AdminGraduationImport
-        | Route::AdminProjectIntentResolve { .. }
-        | Route::AdminProjectIntentApply { .. }
-        | Route::AdminProjectRemediatePlan { .. }
-        | Route::AdminProjectRemediateApply { .. }
-        | Route::AdminProjectDeliveryNextIdea { .. }
-            | Route::AdminProjectStudioSpecSave { .. }
-            | Route::AdminProjectStudioRefine { .. }
-        | Route::AdminCatalog
-        | Route::AdminCatalogTags
-        | Route::AdminCatalogLanguages
-        | Route::AdminCatalogGaps
-        | Route::AdminCatalogInspect { .. }
-        | Route::AdminFleetInspect { .. }
-        | Route::AdminProjectAgents { .. }
-        | Route::AdminProjectIdentityConfig { .. }
-        | Route::AdminProjectIdentitySessions { .. } | Route::AdminCreation { .. }
-        | Route::AdminIdentityChangePassword | Route::AdminOptions => None,
-        Route::ListProjects
-        | Route::InspectProject { .. }
-        | Route::Doctor { .. }
-        | Route::Governance { .. } => None,
-        Route::PortfolioProject { .. } => None,
-        Route::CreateProject
-        | Route::AddFeature { .. }
-        | Route::UpgradeProject { .. }
-        | Route::GenerateSpec { .. }
-        | Route::AgentTransition { .. }
-        | Route::PortfolioTag { .. }
-        | Route::PortfolioRelation { .. }
-        | Route::PortfolioReview { .. }
-        | Route::PortfolioEvidence { .. }
-        | Route::ApplyDeployment { .. }
-        // Every share route, preview included, demands admin:access:
-        // previewing the candidate manifest reveals which projects an
-        // operator considers publishable, which is itself private.
-        | Route::GetShare { .. }
-        | Route::SetShare { .. }
-        | Route::RemoveShare { .. }
-        | Route::SharePreview
-        | Route::ShareApprove
-        | Route::SharePublish
-        | Route::ShareReconcile
-        | Route::ShareAudit => Some("admin:access"),
-        // Every interest route, the reads included, demands
-        // admin:access: what an operator learns about which projects
-        // draw interest, and which of them are drawing none, is the
-        // private half of a portfolio decision.
-        | Route::GetInterest { .. }
-        | Route::ImportInterest { .. }
-        | Route::InterestCompare
-        | Route::InterestTrend
-        | Route::InterestAudit
-        | Route::InterestReadiness => Some("admin:access"),
-        // Catalog query is a read-only fleet projection; same
-        // authorization posture as `Route::ListProjects` and the
-        // project detail page (any session, no extra permission).
-        | Route::CatalogQuery { .. } => None,
-        // Delivery routes are admin-gated: preflight / stage / promote
-        // trigger provider invocations, and the status projection
-        // surfaces the same private data the per-project journal
-        // shows. The reads are deliberately as restricted as the writes.
-        | Route::DeliveryStatus { .. }
-        | Route::DeliveryPreflight { .. }
-        | Route::DeliveryStage { .. }
-        | Route::DeliveryPromote { .. }
-        | Route::DeliveryHermoraRetry { .. } => Some("admin:access"),
-        // Studio routes are project-scoped: a session for the
-        // matching project can read the spec/preview state and
-        // submit a refinement. The reads are deliberately as
-        // restricted as the writes.
-        | Route::StudioSpec { .. }
-        | Route::StudioSpecSave { .. }
-        | Route::StudioPreviewGet { .. }
-        | Route::StudioPreviewPost { .. }
-        | Route::StudioRefine { .. } => None,
-    }
+    super::router_classify::required_permission(route)
 }
 
 /// Decide whether the route is a mutating call. Mutating
@@ -755,88 +622,14 @@ pub fn handle(
         return super::admin::handle_preflight(config, request);
     }
 
-    if matches!(
-        route,
-        Route::AdminSessionGet
-            | Route::AdminSessionPost
-            | Route::AdminSessionDelete
-            | Route::AdminProjects
-            | Route::AdminCommands
-            | Route::AdminFleetStatus
-            | Route::AdminProjectDetail { .. }
-            | Route::AdminProjectStatus { .. }
-            | Route::AdminProjectMaintain { .. }
-            | Route::AdminProjectClassifyApprove { .. }
-            | Route::AdminProjectClassifyReject { .. }
-            | Route::AdminProjectClassifyApply { .. }
-            | Route::AdminProjectHealthRefresh { .. }
-            | Route::AdminProjectGateStatus { .. }
-            | Route::AdminProjectGateRun { .. }
-            | Route::AdminProjectPlan { .. }
-            | Route::AdminProjectApply { .. }
-            | Route::AdminProjectFeature { .. }
-            | Route::AdminProjectSpec { .. }
-            | Route::AdminProjectFeatureRemove { .. }
-            | Route::AdminProjectFeatureUpgrade { .. }
-            | Route::AdminProjectSpecApply { .. }
-            | Route::AdminProjectDeployPlan { .. }
-            | Route::AdminProjectDeploy { .. }
-            | Route::AdminProjectReleasePlan { .. }
-            | Route::AdminProjectRelease { .. }
-            | Route::AdminProjectReleaseHistory { .. }
-            | Route::AdminProjectReleaseInspect { .. }
-            | Route::AdminProjectDeployHistory { .. }
-            | Route::AdminProjectDeployInspect { .. }
-            | Route::AdminProjectDeployStatus { .. }
-            | Route::AdminProjectAgents { .. }
-            | Route::AdminProjectIdentityConfig { .. }
-            | Route::AdminProjectIdentitySessions { .. }
-            | Route::AdminProjectPublishPlan { .. }
-            | Route::AdminProjectPublish { .. }
-            | Route::AdminProjectDeliveryStatus { .. }
-            | Route::AdminProjectDeliveryPreflight { .. }
-            | Route::AdminProjectDeliveryStage { .. }
-            | Route::AdminProjectDeliveryPromote { .. }
-            | Route::AdminProjectDeliveryHermoraRetry { .. }
-            | Route::AdminProjectNew
-            | Route::AdminProjectImport
-            | Route::AdminProjectRegister
-            | Route::AdminWorkspaceCandidates
-            | Route::AdminWorkspaceOnboard
-            | Route::AdminPortfolioList
-            | Route::AdminPortfolioEvidence
-            | Route::AdminPortfolioProject { .. }
-            | Route::AdminPortfolioRead { .. }
-            | Route::AdminPortfolioWrite { .. }
-            | Route::AdminPortfolioTagRemove { .. }
-            | Route::AdminPortfolioRelationRemove { .. }
-            | Route::AdminPortfolioEvidenceImport { .. }
-            | Route::AdminDelivery
-            | Route::AdminDeliveryPreview
-            | Route::AdminDeliveryOperation { .. }
-            | Route::AdminDeliveryAllowlist { .. }
-            | Route::AdminDeliveryAllowlistRemove { .. }
-            | Route::AdminDeliveryApprove
-            | Route::AdminDeliveryPublish
-            | Route::AdminDeliveryReconcile
-            | Route::AdminGraduationPreview
-            | Route::AdminGraduationImport
-            | Route::AdminProjectIntentResolve { .. }
-            | Route::AdminProjectIntentApply { .. }
-            | Route::AdminProjectRemediatePlan { .. }
-            | Route::AdminProjectRemediateApply { .. }
-            | Route::AdminProjectDeliveryNextIdea { .. }
-            | Route::AdminProjectStudioSpecSave { .. }
-            | Route::AdminProjectStudioRefine { .. }
-            | Route::AdminCatalog
-            | Route::AdminCatalogTags
-            | Route::AdminCatalogLanguages
-            | Route::AdminCatalogGaps
-            | Route::AdminCatalogInspect { .. }
-            | Route::AdminFleetInspect { .. }
-            | Route::AdminCreation { .. }
-            | Route::AdminIdentityChangePassword
-    ) {
+    // The admin short-circuit classification lives in
+    // `src/api/router_classify.rs` (`forge-api-router-table-driven`):
+    // every `Route::Admin*` variant except `Route::AdminOptions`
+    // (handled above by the CORS preflight) is dispatched to
+    // `super::admin::handle` here. Adding a new admin variant is
+    // one arm in `is_admin_dispatch` instead of three cross-cutting
+    // arms in this file.
+    if super::router_classify::is_admin_dispatch(&route) {
         return super::admin::handle(config, db_path, request, &route);
     }
 
@@ -863,6 +656,13 @@ pub fn handle(
                     .unwrap_or_default(),
             }),
         ),
+        // The admin session/auth variants are short-circuited by the
+        // pre-dispatch above (`is_admin_dispatch` returns `true` for
+        // them), so this arm is unreachable in practice. The
+        // exhaustive match keeps the variant in the dispatch so a
+        // future compile error points at the missed arm if the
+        // `is_admin_dispatch` table and the inner dispatch drift
+        // apart.
         Route::AdminSessionGet
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
@@ -917,83 +717,14 @@ pub fn handle(
         Route::StudioRefine { id } => handle_studio_refine(db_path, request, &id, now),
         // The workbench admin routes are dispatched by the `admin::handle`
         // short-circuit above (after the global-session gate and exact-origin
-        // CORS check), so these arms are unreachable in practice. They exist
-        // for exhaustiveness and answer `404` rather than a bearer-scoped
-        // handler, since a request that reached here did not go through the
-        // admin session gate and must not be served workbench data.
-        Route::AdminFleetStatus
-        | Route::AdminProjectDetail { .. }
-        | Route::AdminProjectStatus { .. }
-        | Route::AdminProjectMaintain { .. }
-        | Route::AdminProjectClassifyApprove { .. }
-        | Route::AdminProjectClassifyReject { .. }
-        | Route::AdminProjectClassifyApply { .. }
-        | Route::AdminProjectHealthRefresh { .. }
-        | Route::AdminProjectGateStatus { .. }
-        | Route::AdminProjectGateRun { .. }
-        | Route::AdminProjectPlan { .. }
-        | Route::AdminProjectApply { .. }
-        | Route::AdminProjectFeature { .. }
-        | Route::AdminProjectSpec { .. }
-        | Route::AdminProjectFeatureRemove { .. }
-        | Route::AdminProjectFeatureUpgrade { .. }
-        | Route::AdminProjectSpecApply { .. }
-        | Route::AdminProjectDeployPlan { .. }
-        | Route::AdminProjectDeploy { .. }
-        | Route::AdminProjectReleasePlan { .. }
-        | Route::AdminProjectRelease { .. }
-        | Route::AdminProjectReleaseHistory { .. }
-        | Route::AdminProjectReleaseInspect { .. }
-        | Route::AdminProjectDeployHistory { .. }
-        | Route::AdminProjectDeployInspect { .. }
-        | Route::AdminProjectDeployStatus { .. }
-        | Route::AdminProjectPublishPlan { .. }
-        | Route::AdminProjectPublish { .. }
-        | Route::AdminProjectDeliveryStatus { .. }
-        | Route::AdminProjectDeliveryPreflight { .. }
-        | Route::AdminProjectDeliveryStage { .. }
-        | Route::AdminProjectDeliveryPromote { .. }
-        | Route::AdminProjectDeliveryHermoraRetry { .. }
-        | Route::AdminProjectNew
-        | Route::AdminProjectImport
-        | Route::AdminProjectRegister
-        | Route::AdminWorkspaceCandidates
-        | Route::AdminWorkspaceOnboard
-        | Route::AdminPortfolioList
-        | Route::AdminPortfolioEvidence
-        | Route::AdminPortfolioProject { .. }
-        | Route::AdminPortfolioRead { .. }
-        | Route::AdminPortfolioWrite { .. }
-        | Route::AdminPortfolioTagRemove { .. }
-        | Route::AdminPortfolioRelationRemove { .. }
-        | Route::AdminPortfolioEvidenceImport { .. }
-        | Route::AdminDelivery
-        | Route::AdminDeliveryPreview
-        | Route::AdminDeliveryOperation { .. }
-        | Route::AdminDeliveryAllowlist { .. }
-        | Route::AdminDeliveryAllowlistRemove { .. }
-        | Route::AdminDeliveryApprove
-        | Route::AdminDeliveryPublish
-        | Route::AdminDeliveryReconcile
-        | Route::AdminGraduationPreview
-        | Route::AdminGraduationImport
-        | Route::AdminProjectIntentResolve { .. }
-        | Route::AdminProjectIntentApply { .. }
-        | Route::AdminProjectRemediatePlan { .. }
-        | Route::AdminProjectRemediateApply { .. }
-        | Route::AdminProjectDeliveryNextIdea { .. }
-        | Route::AdminProjectStudioSpecSave { .. }
-        | Route::AdminProjectStudioRefine { .. }
-        | Route::AdminCatalog
-        | Route::AdminCatalogTags
-        | Route::AdminCatalogLanguages
-        | Route::AdminCatalogGaps
-        | Route::AdminCatalogInspect { .. }
-        | Route::AdminFleetInspect { .. }
-        | Route::AdminProjectAgents { .. }
-        | Route::AdminProjectIdentityConfig { .. }
-        | Route::AdminCreation { .. }
-        | Route::AdminIdentityChangePassword | Route::AdminProjectIdentitySessions { .. } => not_found(),
+        // CORS check), so this arm is unreachable in practice. It exists
+        // for exhaustiveness: any admin route that reaches here did not go
+        // through the admin session gate and must not be served workbench
+        // data. The classification lives in
+        // `src/api/router_classify.rs` (`forge-api-router-table-driven`) so
+        // adding a new admin variant is one arm in that module instead of
+        // a long fallthrough here.
+        route => super::router_classify::admin_fallthrough(&route),
     }
 }
 

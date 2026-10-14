@@ -123,6 +123,7 @@ mod portfolio;
 /// [`workspace`](self::workspace) build on.
 mod project_management;
 pub mod router;
+pub(super) mod router_classify;
 pub mod server;
 /// Typed, session-gated read-only status projection (`forge-project-status/
 /// 0.1.0`) backing `GET /v1/admin/projects/{id}/status` and

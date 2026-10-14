@@ -90,7 +90,10 @@ fn login_token(config: &ApiConfig, db: &Path) -> String {
         .as_bytes()
         .to_vec();
     let response = handle(config, db, &login, Utc::now());
-    assert_eq!(response.status, 200, "login must succeed for the fixture operator");
+    assert_eq!(
+        response.status, 200,
+        "login must succeed for the fixture operator"
+    );
     response
         .headers
         .get("set-cookie")
@@ -191,7 +194,9 @@ fn candidate_response_exposes_state_and_selectable_for_aggregation() {
         "authenticated candidate read with a configured root is 200"
     );
     let body = body_json(&response);
-    let candidates = body["candidates"].as_array().expect("candidates is an array");
+    let candidates = body["candidates"]
+        .as_array()
+        .expect("candidates is an array");
     assert!(
         candidates.len() >= 2,
         "the configured root exposes its immediate child directories"
@@ -214,7 +219,13 @@ fn candidate_response_exposes_state_and_selectable_for_aggregation() {
         }
     }
     // Pure aggregation over the real response — pins the contract the UI reads.
-    assert_eq!(registered + onboardable, registered.saturating_add(onboardable));
+    assert_eq!(
+        registered + onboardable,
+        registered.saturating_add(onboardable)
+    );
     // The total is reported alongside so the UI can show the full sibling set.
-    assert!(body["total"].as_u64().is_some(), "response reports total siblings");
+    assert!(
+        body["total"].as_u64().is_some(),
+        "response reports total siblings"
+    );
 }

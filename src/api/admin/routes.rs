@@ -182,8 +182,7 @@ pub const ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
 /// cascade to the same Core function the CLI calls. Exported so the
 /// command catalog names the exact path the router registers,
 /// keeping the two in lockstep.
-pub const ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD: &str =
-    "POST /v1/admin/identity/change-password";
+pub const ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD: &str = "POST /v1/admin/identity/change-password";
 
 /// Read-only creation-catalog browser (`web-creation-catalog-browser`,
 /// audit gap 6). All twenty routes are session-gated GETs reusing the

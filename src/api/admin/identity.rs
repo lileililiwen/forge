@@ -100,7 +100,11 @@ fn parse_change_password_body(body: &[u8]) -> Result<ChangePasswordBody, ApiResp
             ))
         }
     };
-    Ok(ChangePasswordBody { current, password, confirm })
+    Ok(ChangePasswordBody {
+        current,
+        password,
+        confirm,
+    })
 }
 
 /// Map the typed Core `String` error into the wire envelope. Core
@@ -154,17 +158,19 @@ pub(in crate::api) fn change_password(
     cors(
         config,
         request,
-        guarded(db_path, request, |_| change_password_inner(config, db_path, request)),
+        guarded(db_path, request, |_| {
+            change_password_inner(config, db_path, request)
+        }),
     )
 }
 
-fn change_password_inner(
-    _config: &ApiConfig,
-    db_path: &Path,
-    request: &ApiRequest,
-) -> ApiResponse {
+fn change_password_inner(_config: &ApiConfig, db_path: &Path, request: &ApiRequest) -> ApiResponse {
     if request.body.len() > 8192 {
-        return error(413, "admin-request-too-large", "change-password request is too large");
+        return error(
+            413,
+            "admin-request-too-large",
+            "change-password request is too large",
+        );
     }
     if !is_json(request) {
         return error(
@@ -186,7 +192,13 @@ fn change_password_inner(
     }
     let configured = match crate::identity::global::is_configured(db_path) {
         Ok(value) => value,
-        Err(_) => return error(500, "admin-password-rotation-failed", "registry is unavailable"),
+        Err(_) => {
+            return error(
+                500,
+                "admin-password-rotation-failed",
+                "registry is unavailable",
+            )
+        }
     };
     if !configured {
         return error(
@@ -197,7 +209,13 @@ fn change_password_inner(
     }
     let email = match crate::identity::global::email(db_path) {
         Ok(Some(value)) => value,
-        _ => return error(500, "admin-password-rotation-failed", "registered administrator email is unreadable"),
+        _ => {
+            return error(
+                500,
+                "admin-password-rotation-failed",
+                "registered administrator email is unreadable",
+            )
+        }
     };
     // Verify the supplied `current` password by re-running the
     // sign-in credential check against the registered email. The
@@ -207,7 +225,11 @@ fn change_password_inner(
     match crate::identity::global::authenticate(db_path, &email, &body.current) {
         Ok(Some(_)) => {
             if let Err(_) = crate::identity::global::revoke_all_sessions(db_path) {
-                return error(500, "admin-password-rotation-failed", "could not revoke probe session");
+                return error(
+                    500,
+                    "admin-password-rotation-failed",
+                    "could not revoke probe session",
+                );
             }
         }
         Ok(None) => {
@@ -217,7 +239,13 @@ fn change_password_inner(
                 "current password is incorrect",
             );
         }
-        Err(_) => return error(500, "admin-password-rotation-failed", "current password probe failed"),
+        Err(_) => {
+            return error(
+                500,
+                "admin-password-rotation-failed",
+                "current password probe failed",
+            )
+        }
     }
     // Delegate the Argon2id hash update + the
     // `revoke_all_sessions_in` cascade to the same Core function

@@ -124,8 +124,7 @@ pub(in crate::api) fn gate_status(
             match crate::gate::load_latest_evidence(&project_dir) {
                 Ok(Some(evidence)) => {
                     let current = crate::gate::capture_revision(&project_dir);
-                    let freshness =
-                        crate::gate::evidence_freshness(&evidence, current.as_deref());
+                    let freshness = crate::gate::evidence_freshness(&evidence, current.as_deref());
                     let summary = crate::gate::evidence_summary(&evidence);
                     let secrets = [project_dir.display().to_string()];
                     ApiResponse::json(
@@ -227,14 +226,13 @@ pub(in crate::api) fn gate_run(
                             return typed_gate_error(&project_dir, &err);
                         }
                     };
-                    let verdict = crate::gate::journal_verdict(&crate::gate::GateOutcome::Evidence(
-                        evidence.clone(),
-                    ));
+                    let verdict = crate::gate::journal_verdict(
+                        &crate::gate::GateOutcome::Evidence(evidence.clone()),
+                    );
                     let summary = crate::gate::evidence_summary(&evidence);
                     let _ = registry.record_operation("gate", id, verdict, &summary);
                     let current = crate::gate::capture_revision(&project_dir);
-                    let freshness =
-                        crate::gate::evidence_freshness(&evidence, current.as_deref());
+                    let freshness = crate::gate::evidence_freshness(&evidence, current.as_deref());
                     let secrets = [project_dir.display().to_string()];
                     ApiResponse::json(
                         200,

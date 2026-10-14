@@ -307,7 +307,7 @@ pub(super) const WEB_ROUTE_ADMIN_IDENTITY_SESSION_INSPECT: &str =
 /// `forge identity change-password` CLI verb. References the admin
 /// module's own route constant so the catalog and the live endpoint
 /// can never name different paths.
-pub(super) const WEB_ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD: &str =
+pub const WEB_ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD: &str =
     super::super::admin::ROUTE_ADMIN_IDENTITY_CHANGE_PASSWORD;
 
 /// Creation-catalog read-only typed routes
@@ -420,8 +420,7 @@ pub(super) const WEB_ROUTE_ADMIN_SHIPPING_PLUGINS: &str =
 /// uses. The handlers live in `src/api/admin/gate.rs`; the runtime
 /// boundary is preserved and the wire never fabricates `passed` from
 /// a missing runtime answer.
-pub(super) const WEB_ROUTE_ADMIN_GATE_STATUS: &str =
-    super::super::admin::ROUTE_ADMIN_GATE_STATUS;
+pub(super) const WEB_ROUTE_ADMIN_GATE_STATUS: &str = super::super::admin::ROUTE_ADMIN_GATE_STATUS;
 pub(super) const WEB_ROUTE_ADMIN_GATE_RUN: &str = super::super::admin::ROUTE_ADMIN_GATE_RUN;
 
 /// Routes a `web` row may honestly point at today. A row naming any other

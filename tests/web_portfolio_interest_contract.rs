@@ -365,10 +365,7 @@ fn frontend_interest_card_is_wired_without_banned_sinks_or_write_button() {
         "id=\"portfolio-interest-metric\"",
         "id=\"portfolio-interest-limit\"",
     ] {
-        assert!(
-            index.contains(marker),
-            "interest markup missing: {marker}"
-        );
+        assert!(index.contains(marker), "interest markup missing: {marker}");
     }
     assert!(
         !index.contains("portfolio-interest-import"),

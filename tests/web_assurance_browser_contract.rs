@@ -112,7 +112,9 @@ fn fixture() -> (tempfile::TempDir, PathBuf, ApiConfig) {
 fn project_dir(tmp: &tempfile::TempDir, db: &Path, id: &str) -> PathBuf {
     let registry = Registry::open(db).unwrap();
     let record = registry.inspect(id).unwrap();
-    assert!(record.path.starts_with(tmp.path().to_string_lossy().as_ref()));
+    assert!(record
+        .path
+        .starts_with(tmp.path().to_string_lossy().as_ref()));
     PathBuf::from(&record.path)
 }
 
@@ -195,7 +197,10 @@ fn browser_section_lives_on_the_projects_view() {
     ] {
         assert!(app.contains(fragment), "app.js never calls {fragment}");
     }
-    assert!(css.contains("#assurance-browser"), "styles lack the assurance block");
+    assert!(
+        css.contains("#assurance-browser"),
+        "styles lack the assurance block"
+    );
     let start = app
         .find("Assurance browser")
         .expect("assurance block ships");
@@ -250,11 +255,18 @@ fn contract_list_and_inspect_match_the_cli() {
     let list = get(&config, &db, &token, "/v1/admin/contracts", None);
     assert_eq!(list.status, 200);
     let body = body_json(&list);
-    assert!(body.pointer("/contracts").and_then(Value::as_array).is_some());
+    assert!(body
+        .pointer("/contracts")
+        .and_then(Value::as_array)
+        .is_some());
     assert!(body.pointer("/manifest").is_some());
     let cli_count = forge::contract::CONTRACTS.len();
     assert_eq!(
-        body.pointer("/contracts").unwrap().as_array().unwrap().len(),
+        body.pointer("/contracts")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
         cli_count
     );
     let inspect = get(
@@ -279,7 +291,12 @@ fn spec_list_inspect_and_route_are_read_only() {
     let list = get(&config, &db, &token, "/v1/admin/projects/alpha/specs", None);
     assert_eq!(list.status, 200);
     assert_eq!(
-        body_json(&list).pointer("/specs").unwrap().as_array().unwrap().len(),
+        body_json(&list)
+            .pointer("/specs")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
         0
     );
     let unknown = get(
@@ -336,7 +353,10 @@ fn remediate_scan_and_diff_rebuild_server_side() {
         "/v1/admin/projects/alpha/remediate/diff",
         Some("finding=gaps.ci.alpha.ci"),
     );
-    assert_eq!(packless.status, 400, "diff without a pack is a typed refusal");
+    assert_eq!(
+        packless.status, 400,
+        "diff without a pack is a typed refusal"
+    );
     assert_eq!(error_code(&packless), "remediation-invalid");
     let packs = forge::standard::all_packs();
     assert!(!packs.is_empty());
@@ -363,7 +383,12 @@ fn describe_and_classify_lists_and_shows_agree() {
         let list = get(&config, &db, &token, list_path, None);
         assert_eq!(list.status, 200, "{list_path} must be 200");
         assert_eq!(
-            body_json(&list).pointer("/proposals").unwrap().as_array().unwrap().len(),
+            body_json(&list)
+                .pointer("/proposals")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
             0
         );
     }
@@ -400,7 +425,9 @@ fn contract_emit_is_read_only_with_honest_gaps() {
     let readiness_body = body_json(&readiness);
     assert!(
         readiness_body.pointer("/envelope").is_some()
-            || readiness_body.pointer("/unavailable").unwrap_or(&Value::Bool(false))
+            || readiness_body
+                .pointer("/unavailable")
+                .unwrap_or(&Value::Bool(false))
                 == &Value::Bool(true),
         "readiness emit must be an envelope or an honest gap"
     );
@@ -439,10 +466,22 @@ fn governance_reads_never_run_or_persist() {
     let (tmp, db, config) = fixture();
     let token = login_token(&config, &db);
     let before = journal_len(&db);
-    let list = get(&config, &db, &token, "/v1/admin/projects/alpha/governance", None);
+    let list = get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/projects/alpha/governance",
+        None,
+    );
     assert_eq!(list.status, 200);
     assert!(
-        body_json(&list).pointer("/providers").unwrap().as_array().unwrap().len() >= 1
+        body_json(&list)
+            .pointer("/providers")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len()
+            >= 1
     );
     let status = get(
         &config,
@@ -461,7 +500,11 @@ fn governance_reads_never_run_or_persist() {
         None,
     );
     assert_eq!(inspect.status, 200);
-    assert_eq!(journal_len(&db), before, "governance reads must not journal");
+    assert_eq!(
+        journal_len(&db),
+        before,
+        "governance reads must not journal"
+    );
     let dir = project_dir(&tmp, &db, "alpha");
     fs::create_dir_all(dir.join(".forge")).unwrap();
     fs::write(
@@ -479,13 +522,16 @@ fn governance_reads_never_run_or_persist() {
     assert_eq!(blocked.status, 200);
     let body = body_json(&blocked);
     assert_eq!(body.pointer("/unavailable").unwrap(), &Value::Bool(true));
-    assert!(
-        body.pointer("/reason")
-            .and_then(Value::as_str)
-            .unwrap()
-            .contains("acme-governance")
+    assert!(body
+        .pointer("/reason")
+        .and_then(Value::as_str)
+        .unwrap()
+        .contains("acme-governance"));
+    assert_eq!(
+        journal_len(&db),
+        before,
+        "external governance must not persist"
     );
-    assert_eq!(journal_len(&db), before, "external governance must not persist");
 }
 
 #[test]
@@ -543,7 +589,9 @@ fn studio_preview_reads_without_spawning() {
     assert_eq!(preview.status, 200);
     let body = body_json(&preview);
     assert_eq!(
-        body.pointer("/preview/state").and_then(Value::as_str).unwrap(),
+        body.pointer("/preview/state")
+            .and_then(Value::as_str)
+            .unwrap(),
         "none"
     );
     assert_eq!(journal_len(&db), before, "preview reads must not journal");
@@ -591,8 +639,14 @@ fn assurance_catalog_rows_are_web_with_typed_routes() {
         .filter(|row| row.pointer("/availability").and_then(Value::as_str) == Some("web"))
         .map(|row| {
             (
-                row.pointer("/id").and_then(Value::as_str).unwrap().to_string(),
-                row.pointer("/route").and_then(Value::as_str).unwrap().to_string(),
+                row.pointer("/id")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string(),
+                row.pointer("/route")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string(),
             )
         })
         .collect();
@@ -600,21 +654,36 @@ fn assurance_catalog_rows_are_web_with_typed_routes() {
         ("spec.list", "GET /v1/admin/projects/{id}/specs"),
         ("spec.inspect", "GET /v1/admin/projects/{id}/specs/{spec}"),
         ("spec.route", "GET /v1/admin/projects/{id}/spec/route"),
-        ("remediate.scan", "GET /v1/admin/projects/{id}/remediate/scan"),
-        ("remediate.diff", "GET /v1/admin/projects/{id}/remediate/diff"),
-        ("describe.list", "GET /v1/admin/projects/{id}/describe/proposals"),
+        (
+            "remediate.scan",
+            "GET /v1/admin/projects/{id}/remediate/scan",
+        ),
+        (
+            "remediate.diff",
+            "GET /v1/admin/projects/{id}/remediate/diff",
+        ),
+        (
+            "describe.list",
+            "GET /v1/admin/projects/{id}/describe/proposals",
+        ),
         (
             "describe.show",
             "GET /v1/admin/projects/{id}/describe/proposals/{proposal}",
         ),
-        ("classify.list", "GET /v1/admin/projects/{id}/classify/proposals"),
+        (
+            "classify.list",
+            "GET /v1/admin/projects/{id}/classify/proposals",
+        ),
         (
             "classify.show",
             "GET /v1/admin/projects/{id}/classify/proposals/{proposal}",
         ),
         ("contract.list", "GET /v1/admin/contracts"),
         ("contract.inspect", "GET /v1/admin/contracts/{family}"),
-        ("contract.emit", "GET /v1/admin/projects/{id}/contracts/emit"),
+        (
+            "contract.emit",
+            "GET /v1/admin/projects/{id}/contracts/emit",
+        ),
         ("governance.list", "GET /v1/admin/projects/{id}/governance"),
         (
             "governance.status",
@@ -624,17 +693,33 @@ fn assurance_catalog_rows_are_web_with_typed_routes() {
             "governance.inspect",
             "GET /v1/admin/projects/{id}/governance/inspect",
         ),
-        ("analytics.metrics", "GET /v1/admin/projects/{id}/analytics/metrics"),
-        ("studio.preview", "GET /v1/admin/projects/{id}/studio/preview"),
+        (
+            "analytics.metrics",
+            "GET /v1/admin/projects/{id}/analytics/metrics",
+        ),
+        (
+            "studio.preview",
+            "GET /v1/admin/projects/{id}/studio/preview",
+        ),
     ] {
-        assert_eq!(web.get(id).map(String::as_str), Some(route), "{id} must be web at {route}");
+        assert_eq!(
+            web.get(id).map(String::as_str),
+            Some(route),
+            "{id} must be web at {route}"
+        );
     }
     let neben: BTreeMap<String, String> = commands
         .iter()
         .map(|row| {
             (
-                row.pointer("/id").and_then(Value::as_str).unwrap().to_string(),
-                row.pointer("/availability").and_then(Value::as_str).unwrap().to_string(),
+                row.pointer("/id")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string(),
+                row.pointer("/availability")
+                    .and_then(Value::as_str)
+                    .unwrap()
+                    .to_string(),
             )
         })
         .collect();

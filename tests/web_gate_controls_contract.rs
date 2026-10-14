@@ -191,12 +191,7 @@ fn gate_block_adds_no_write_no_shell_and_no_html_interpretation() {
 fn gate_status_get_renders_unverified_when_no_evidence_persists() {
     let (_tmp, db, config) = fixture();
     let token = login_token(&config, &db);
-    let response = get(
-        &config,
-        &db,
-        &token,
-        "/v1/admin/projects/alpha/gate/status",
-    );
+    let response = get(&config, &db, &token, "/v1/admin/projects/alpha/gate/status");
     assert_eq!(response.status, 200);
     let body = body_json(&response);
     // The wire carries the gate envelope contract + an absent envelope
@@ -265,7 +260,9 @@ fn gate_run_post_refuses_to_fabricate_pass_when_runtime_unavailable() {
     // never honest is a 200 with `aggregate: passed` for a project
     // that has no persisted evidence.
     if status == 200 {
-        let aggregate = body["envelope"]["gate"]["aggregate"].as_str().unwrap_or_default();
+        let aggregate = body["envelope"]["gate"]["aggregate"]
+            .as_str()
+            .unwrap_or_default();
         let persisted = body["persisted"].as_str();
         // A successful 200 must carry a real persisted evidence path
         // (the sibling actually ran and saved) — an absent persisted
@@ -303,8 +300,10 @@ fn gate_run_post_returns_415_for_non_json_body() {
     // Deliberately no `Content-Type: application/json` header and a
     // form-encoded body — the same posture that returns 415 in the
     // existing admin routes (e.g. `AdminProjectApply`).
-    req.headers
-        .insert("content-type".to_string(), "application/x-www-form-urlencoded".to_string());
+    req.headers.insert(
+        "content-type".to_string(),
+        "application/x-www-form-urlencoded".to_string(),
+    );
     req.body = b"action=run".to_vec();
     let response = handle(&config, &db, &req, Utc::now());
     assert_eq!(response.status, 415);

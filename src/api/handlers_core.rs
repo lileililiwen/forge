@@ -180,7 +180,13 @@ pub(super) fn authorize(
         | Route::AdminCatalogInspect { .. }
         | Route::AdminFleetInspect { .. }
         | Route::AdminCreation { .. }
-        | Route::AdminOptions => Ok(String::new()),
+        | Route::AdminOptions
+        | Route::AdminIdentityChangePassword
+        | Route::AdminProjectGateStatus { .. }
+        | Route::AdminProjectGateRun { .. }
+        | Route::AdminPortfolioInterestList { .. }
+        | Route::AdminPortfolioInterestShow { .. }
+        | Route::AdminPortfolioInterestTrend { .. } => Ok(String::new()),
         Route::GetOperation { .. } => {
             // Operation lookups are read-only; the session
             // is looked up against the registry's known

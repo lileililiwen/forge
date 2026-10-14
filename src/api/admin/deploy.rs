@@ -14,11 +14,14 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+use super::gate::{gate_run, gate_status};
 use super::gateway::{
     allowed_origin, commands, cors, delivery_status, delivery_write, error, guarded, is_json,
     parse_feature_query, project_delivery_write, projects, scrub_json, scrub_response, scrub_text,
     session_state, sign_in, sign_out,
 };
+use super::identity::change_password as identity_change_password;
+use super::interest::{handle_interest_trend as interest_trend, interest_list, interest_show};
 use super::model::{Authoring, DeliveryAction};
 use super::publish::{publish_plan, publish_write};
 use super::release::{release_plan, release_write};
@@ -95,6 +98,8 @@ pub(in crate::api) fn handle(
         Route::AdminProjectHealthRefresh { id } => guarded(db_path, request, |_| {
             super::super::workbench::refresh_health(db_path, id)
         }),
+        Route::AdminProjectGateStatus { id } => gate_status(config, db_path, request, id),
+        Route::AdminProjectGateRun { id } => gate_run(config, db_path, request, id),
         Route::AdminProjectClassifyApprove { id } => {
             classify_decide(config, db_path, request, id, true)
         }
@@ -219,15 +224,9 @@ pub(in crate::api) fn handle(
                 super::super::portfolio::import_evidence(db_path, id, &body)
             })
         }
-        Route::AdminPortfolioInterestList { id } => {
-            super::interest::interest_list(config, db_path, request, id)
-        }
-        Route::AdminPortfolioInterestShow { id } => {
-            super::interest::interest_show(config, db_path, request, id)
-        }
-        Route::AdminPortfolioInterestTrend { id } => {
-            super::interest::interest_trend(config, db_path, request, id)
-        }
+        Route::AdminPortfolioInterestList { id } => interest_list(config, db_path, request, id),
+        Route::AdminPortfolioInterestShow { id } => interest_show(config, db_path, request, id),
+        Route::AdminPortfolioInterestTrend { id } => interest_trend(config, db_path, request, id),
         Route::AdminDelivery => guarded(db_path, request, |_| {
             super::super::delivery::overview(db_path)
         }),
@@ -299,9 +298,7 @@ pub(in crate::api) fn handle(
         Route::AdminProjectIdentitySessions { id, session } => {
             super::agent_identity::identity_sessions(config, db_path, request, id, session)
         }
-        Route::AdminIdentityChangePassword => {
-            super::identity::change_password(config, db_path, request)
-        }
+        Route::AdminIdentityChangePassword => identity_change_password(config, db_path, request),
         Route::AdminCreation {
             registry,
             item,

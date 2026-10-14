@@ -78,10 +78,7 @@ fn login_token(config: &ApiConfig, db: &Path) -> String {
     let mut login = request("POST", "/v1/admin/session", &config.frontend_origin);
     login = json_body(
         login,
-        format!(
-            r#"{{"email":"operator@example.test","password":"{PASSWORD}"}}"#
-        )
-        .as_bytes(),
+        format!(r#"{{"email":"operator@example.test","password":"{PASSWORD}"}}"#).as_bytes(),
     );
     let response = handle(config, db, &login, Utc::now());
     assert_eq!(response.status, 200);
@@ -102,11 +99,7 @@ fn body_json(response: &ApiResponse) -> Value {
     serde_json::from_slice(&response.body).expect("admin routes are JSON-only")
 }
 
-fn post(
-    config: &ApiConfig,
-    db: &Path,
-    req: ApiRequest,
-) -> ApiResponse {
+fn post(config: &ApiConfig, db: &Path, req: ApiRequest) -> ApiResponse {
     handle(config, db, &req, Utc::now())
 }
 
@@ -178,12 +171,7 @@ fn change_password_uses_no_forbidden_sink_and_only_the_named_route() {
     let end = js.find(end_marker).expect("login dispatch ships");
     assert!(start < end);
     let block = &js[start..end];
-    for banned in [
-        "innerHTML",
-        "eval(",
-        "Function(",
-        "XMLHttpRequest",
-    ] {
+    for banned in ["innerHTML", "eval(", "Function(", "XMLHttpRequest"] {
         assert!(
             !block.contains(banned),
             "change-password block must not contain `{banned}`"
@@ -230,7 +218,11 @@ fn anonymous_change_password_is_rejected_before_any_core_call() {
     let db = tmp.path().join("registry.db");
     let config = ApiConfig::default();
     forge::identity::global::setup(&db, "operator@example.test", PASSWORD).unwrap();
-    let req = request("POST", "/v1/admin/identity/change-password", &config.frontend_origin);
+    let req = request(
+        "POST",
+        "/v1/admin/identity/change-password",
+        &config.frontend_origin,
+    );
     let response = post(&config, &db, req);
     assert_eq!(response.status, 401);
     let body = body_json(&response);
@@ -296,10 +288,8 @@ fn weak_password_is_refused_and_does_not_mutate_the_registry() {
     req = with_cookie(req, &token);
     req = json_body(
         req,
-        format!(
-            r#"{{"current":"{PASSWORD}","password":"{TOO_SHORT}","confirm":"{TOO_SHORT}"}}"#
-        )
-        .as_bytes(),
+        format!(r#"{{"current":"{PASSWORD}","password":"{TOO_SHORT}","confirm":"{TOO_SHORT}"}}"#)
+            .as_bytes(),
     );
     let response = post(&config, &db, req);
     assert_eq!(response.status, 400);
@@ -341,7 +331,10 @@ fn confirmation_mismatch_is_refused_and_does_not_mutate_the_registry() {
     let response = post(&config, &db, req);
     assert_eq!(response.status, 400);
     let body = body_json(&response);
-    assert_eq!(body["error"]["code"], "admin-password-confirmation-mismatch");
+    assert_eq!(
+        body["error"]["code"],
+        "admin-password-confirmation-mismatch"
+    );
     // Mutation-guard: the original password still authenticates and the
     // pre-rotation session is still valid.
     assert_eq!(hash_before(&db), hash_before_value);
@@ -424,7 +417,10 @@ fn success_rotates_the_hash_and_revokes_every_pre_rotation_session() {
     let token = login_token(&config, &db);
     let hash_before_value = hash_before(&db);
     let sessions_before_value = active_session_count(&db);
-    assert!(sessions_before_value >= 1, "the login token minted a session");
+    assert!(
+        sessions_before_value >= 1,
+        "the login token minted a session"
+    );
 
     let mut req = request(
         "POST",

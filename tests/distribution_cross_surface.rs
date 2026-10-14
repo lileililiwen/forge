@@ -422,7 +422,10 @@ fn agent_session_does_not_block_mirror_or_vice_versa() {
         ],
     );
     let state = status["state"].as_str().unwrap();
-    assert_eq!(state, state_before, "forge mirror must not change agent session state");
+    assert_eq!(
+        state, state_before,
+        "forge mirror must not change agent session state"
+    );
     // List sessions to ensure the session is still
     // discoverable after the mirror run.
     let list = run_json(&db, &["agent", "list", proj.to_str().unwrap()]);

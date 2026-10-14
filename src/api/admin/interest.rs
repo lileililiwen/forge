@@ -22,8 +22,8 @@ use serde_json::{json, Value};
 
 use super::super::{ApiConfig, ApiRequest, ApiResponse, Route};
 use crate::portfolio::interest::{
-    freshness_label, InterestMetric, INTEREST_CONTRACT_VERSION, MAX_TREND_POINTS,
-    DEFAULT_STALE_AFTER_DAYS,
+    freshness_label, InterestMetric, DEFAULT_STALE_AFTER_DAYS, INTEREST_CONTRACT_VERSION,
+    MAX_TREND_POINTS,
 };
 use crate::portfolio::interest_report::{interest_trend, project_interest, ProjectInterest};
 use crate::registry::Registry;
@@ -74,7 +74,11 @@ fn stale_label(measured: bool, stale_snapshots: usize) -> &'static str {
 /// Project a `ProjectInterest` to JSON, injecting a per-snapshot
 /// `freshness` label computed at read time so the browser never
 /// re-derives staleness with divergent logic.
-fn project_to_value(projection: &ProjectInterest, now: DateTime<Utc>, stale_after_days: i64) -> Value {
+fn project_to_value(
+    projection: &ProjectInterest,
+    now: DateTime<Utc>,
+    stale_after_days: i64,
+) -> Value {
     let snapshots: Vec<Value> = projection
         .snapshots
         .iter()
@@ -208,7 +212,7 @@ pub(in crate::api) fn interest_show(
 /// `GET /v1/admin/portfolio/{id}/interest/trend?metric=&limit=&stale_after_days=`
 /// — one metric's windowed history; each point already carries its
 /// `freshness`.
-pub(in crate::api) fn interest_trend(
+pub(in crate::api) fn handle_interest_trend(
     config: &ApiConfig,
     db_path: &Path,
     request: &ApiRequest,
@@ -268,9 +272,7 @@ pub(in crate::api) fn interest_trend(
             };
             let metric = match InterestMetric::parse(raw.trim()) {
                 Ok(metric) => metric,
-                Err(reason) => {
-                    return error(400, "admin-invalid-interest-metric", &reason)
-                }
+                Err(reason) => return error(400, "admin-invalid-interest-metric", &reason),
             };
             if limit == 0 || limit > MAX_TREND_POINTS {
                 return error(

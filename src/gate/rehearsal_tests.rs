@@ -325,11 +325,8 @@ pub(super) mod tests {
             assert!(mapped.rule_pack_version.is_some(), "{name} rule pack");
         }
         // The pass capture keeps its exact row vocabulary.
-        let pass = parse_gate_document(
-            &fixture("gate-status-pass.json"),
-            project_dir().path(),
-        )
-        .expect("status shape");
+        let pass = parse_gate_document(&fixture("gate-status-pass.json"), project_dir().path())
+            .expect("status shape");
         assert_eq!(pass.checks.len(), 1);
         assert_eq!(pass.checks[0].id, "docs");
         assert_eq!(pass.checks[0].state, GateCheckState::Pass);
@@ -342,11 +339,8 @@ pub(super) mod tests {
         // And the rehearsal is not a status document in the other
         // direction: no `blocked` bit, no `results` rows.
         assert!(
-            parse_gate_document(
-                &fixture("gate-rehearsal-plan.json"),
-                project_dir().path()
-            )
-            .is_none(),
+            parse_gate_document(&fixture("gate-rehearsal-plan.json"), project_dir().path())
+                .is_none(),
             "a rehearsal must never normalise into evidence"
         );
     }

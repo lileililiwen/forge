@@ -8,6 +8,7 @@ pub mod gate;
 pub mod gateway;
 pub mod history;
 pub mod identity;
+pub mod interest;
 pub mod model;
 pub mod publish;
 pub mod release;
@@ -36,4 +37,5 @@ pub(in crate::api) fn route_beside(method: &str, segments: &[&str]) -> Option<Ro
         .or_else(|| shipping_reads::route_shipping_reads(method, segments))
         .or_else(|| assurance::route_assurance(method, segments))
         .or_else(|| gate::route_gate(method, segments))
+        .or_else(|| interest::route_interest(method, segments))
 }

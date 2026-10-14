@@ -696,6 +696,24 @@ pub enum Route {
     AdminPortfolioEvidenceImport {
         id: String,
     },
+    /// `GET /v1/admin/portfolio/{id}/interest/list` — per-project interest
+    /// snapshot list with per-window stale labels (`forge-web-portfolio-
+    /// interest`). Session-gated read; no write.
+    AdminPortfolioInterestList {
+        id: String,
+    },
+    /// `GET /v1/admin/portfolio/{id}/interest/show` — the whole interest
+    /// projection for one project, including its recorded refusals
+    /// (`forge-web-portfolio-interest`). Session-gated read; no write.
+    AdminPortfolioInterestShow {
+        id: String,
+    },
+    /// `GET /v1/admin/portfolio/{id}/interest/trend` — one metric's
+    /// windowed history with per-window freshness
+    /// (`forge-web-portfolio-interest`). Session-gated read; no write.
+    AdminPortfolioInterestTrend {
+        id: String,
+    },
     /// `GET /v1/admin/delivery` — the delivery overview: share allowlist,
     /// manifest preview digest, approval/publication trail, unreconciled
     /// attempts and non-live provider state

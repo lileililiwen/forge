@@ -95,6 +95,9 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminPortfolioTagRemove { .. }
         | Route::AdminPortfolioRelationRemove { .. }
         | Route::AdminPortfolioEvidenceImport { .. }
+        | Route::AdminPortfolioInterestList { .. }
+        | Route::AdminPortfolioInterestShow { .. }
+        | Route::AdminPortfolioInterestTrend { .. }
         | Route::AdminDelivery
         | Route::AdminDeliveryPreview
         | Route::AdminDeliveryOperation { .. }
@@ -257,6 +260,9 @@ pub(super) fn is_admin_dispatch(route: &Route) -> bool {
         | Route::AdminPortfolioTagRemove { .. }
         | Route::AdminPortfolioRelationRemove { .. }
         | Route::AdminPortfolioEvidenceImport { .. }
+        | Route::AdminPortfolioInterestList { .. }
+        | Route::AdminPortfolioInterestShow { .. }
+        | Route::AdminPortfolioInterestTrend { .. }
         | Route::AdminDelivery
         | Route::AdminDeliveryPreview
         | Route::AdminDeliveryOperation { .. }
@@ -392,6 +398,9 @@ pub(super) fn is_admin_route(route: &Route) -> bool {
         | Route::AdminPortfolioTagRemove { .. }
         | Route::AdminPortfolioRelationRemove { .. }
         | Route::AdminPortfolioEvidenceImport { .. }
+        | Route::AdminPortfolioInterestList { .. }
+        | Route::AdminPortfolioInterestShow { .. }
+        | Route::AdminPortfolioInterestTrend { .. }
         | Route::AdminDelivery
         | Route::AdminDeliveryPreview
         | Route::AdminDeliveryOperation { .. }

@@ -5169,6 +5169,155 @@
     } catch (_) {
       renderPortfolioList("portfolio-evidence-list", [], "Evidence list unavailable; reload to retry.");
     }
+    // Interest reads are read-only and share the same project scoping; a
+    // failure here must never break the other portal lists.
+    try {
+      await portfolioInterestList(id);
+    } catch (_) {
+      /* surfaced inside the interest list result box */
+    }
+  }
+
+  // Interest reads are read-only. They surface `current` / `stale` /
+  // `no-evidence` exactly as the CLI reports them; refusals (findings)
+  // are rendered verbatim and the browser never synthesizes a value.
+  function interestFreshnessBadge(freshness) {
+    const fresh = freshness === "current" ? "current" : "stale";
+    const kind = fresh === "current" ? "fresh" : "stale";
+    return makeBadge(fresh, kind);
+  }
+
+  function interestStaleBadge(label) {
+    const kind = label === "current" ? "fresh" : label === "stale" ? "stale" : "unavailable";
+    const text = label === "no-evidence" ? "no evidence" : label;
+    return makeBadge(text, kind);
+  }
+
+  async function portfolioInterestList(idArg) {
+    const id = idArg || portfolioRequireProject();
+    const result = document.getElementById("portfolio-interest-list-result");
+    result.replaceChildren();
+    if (!id) return;
+    try {
+      const data = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/interest/list`, { headers: { Accept: "application/json" } });
+      const label = data.stale_label || "no-evidence";
+      const head = document.createElement("div");
+      head.className = "detail-row";
+      const dt = document.createElement("dt"); dt.textContent = "Staleness";
+      const dd = document.createElement("dd"); dd.append(interestStaleBadge(label));
+      head.append(dt, dd);
+      result.append(head);
+      result.append(detailRow("Project", data.project_id || id));
+      result.append(detailRow("Stale after (days)", data.stale_after_days));
+      result.append(detailRow("Stale snapshots", data.stale_snapshots));
+      const snapshots = data.snapshots || [];
+      result.append(detailRow("Snapshots", String(snapshots.length)));
+      result.append(detailRow("Contract", data.contract || "—"));
+      snapshots.forEach((s, i) => {
+        const row = document.createElement("div");
+        row.className = "detail-row";
+        const dt2 = document.createElement("dt");
+        dt2.textContent = `Snapshot ${i + 1} · ${s.source || "?"}`;
+        const dd2 = document.createElement("dd");
+        dd2.append(interestFreshnessBadge(s.freshness || "current"));
+        dd2.append(document.createTextNode(` ${s.window_start || ""}→${s.window_end || ""}`));
+        row.append(dt2, dd2);
+        result.append(row);
+      });
+      if (!idArg) showPortfolioNotice(`Interest snapshots for ${id} loaded; nothing was changed.`);
+    } catch (err) {
+      result.append(detailRow("Interest list", (err && err.message) || "The interest list could not be loaded."));
+      if (!idArg) showPortfolioError((err && err.message) || "The interest list could not be loaded; nothing was changed.");
+    }
+  }
+
+  async function portfolioInterestShow(idArg) {
+    const id = idArg || portfolioRequireProject();
+    const result = document.getElementById("portfolio-interest-show-result");
+    result.replaceChildren();
+    if (!id) return;
+    try {
+      const data = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/interest/show`, { headers: { Accept: "application/json" } });
+      const label = data.stale_label || "no-evidence";
+      const head = document.createElement("div");
+      head.className = "detail-row";
+      const dt = document.createElement("dt"); dt.textContent = "Staleness";
+      const dd = document.createElement("dd"); dd.append(interestStaleBadge(label));
+      head.append(dt, dd);
+      result.append(head);
+      const projection = data.projection || {};
+      result.append(detailRow("Project", data.project_id || id));
+      result.append(detailRow("Stale after (days)", data.stale_after_days));
+      result.append(detailRow("Snapshots", String((projection.snapshots || []).length)));
+      result.append(detailRow("Superseded snapshots", projection.superseded_snapshots));
+      result.append(detailRow("Contract", data.contract || "—"));
+      const findings = projection.findings || [];
+      result.append(detailRow("Refusals recorded", String(findings.length)));
+      findings.forEach((f, i) => {
+        const row = document.createElement("div");
+        row.className = "detail-row";
+        const dt2 = document.createElement("dt");
+        dt2.textContent = `Refusal ${i + 1} · ${f.code || "?"}`;
+        const dd2 = document.createElement("dd");
+        dd2.textContent = `${f.field || "?"} — ${f.detail || "recorded refusal"}`;
+        row.append(dt2, dd2);
+        result.append(row);
+      });
+      if (!idArg) showPortfolioNotice(`Interest projection for ${id} loaded; nothing was changed.`);
+    } catch (err) {
+      result.append(detailRow("Interest projection", (err && err.message) || "The interest projection could not be loaded."));
+      if (!idArg) showPortfolioError((err && err.message) || "The interest projection could not be loaded; nothing was changed.");
+    }
+  }
+
+  async function portfolioInterestTrend(idArg) {
+    const id = idArg || portfolioRequireProject();
+    const result = document.getElementById("portfolio-interest-trend-result");
+    result.replaceChildren();
+    if (!id) return;
+    const metric = document.getElementById("portfolio-interest-metric").value;
+    if (!metric) {
+      result.append(detailRow("Metric", "Choose an interest metric first."));
+      if (!idArg) {
+        showPortfolioError("Choose an interest metric first.");
+        setFieldError("portfolio-interest-metric", "portfolio-interest-metric-error", "Choose an interest metric first.");
+      }
+      return;
+    }
+    const limitRaw = document.getElementById("portfolio-interest-limit").value;
+    const limit = limitRaw ? parseInt(limitRaw, 10) : 12;
+    try {
+      const query = `metric=${encodeURIComponent(metric)}&limit=${encodeURIComponent(String(limit))}`;
+      const data = await request(`/v1/admin/portfolio/${encodeURIComponent(id)}/interest/trend?${query}`, { headers: { Accept: "application/json" } });
+      const trend = (data.interest || {}).trend || {};
+      const head = document.createElement("div");
+      head.className = "detail-row";
+      const dt = document.createElement("dt"); dt.textContent = "Metric";
+      const dd = document.createElement("dd"); dd.textContent = trend.metric || metric;
+      head.append(dt, dd);
+      result.append(head);
+      result.append(detailRow("Project", data.project_id || id));
+      result.append(detailRow("Unreported windows", trend.unreported_windows));
+      result.append(detailRow("Contract", data.contract || "—"));
+      const points = trend.points || [];
+      result.append(detailRow("Points", String(points.length)));
+      points.forEach((p, i) => {
+        const row = document.createElement("div");
+        row.className = "detail-row";
+        const dt2 = document.createElement("dt");
+        dt2.textContent = `Window ${i + 1}`;
+        const dd2 = document.createElement("dd");
+        dd2.append(interestFreshnessBadge(p.freshness || "current"));
+        dd2.append(document.createTextNode(` ${p.window_start || ""}→${p.window_end || ""}: ${(p.value ?? 0).toLocaleString()}`));
+        row.append(dt2, dd2);
+        result.append(row);
+      });
+      if (trend.note) result.append(detailRow("Note", trend.note));
+      if (!idArg) showPortfolioNotice(`Interest trend for ${id} loaded; nothing was changed.`);
+    } catch (err) {
+      result.append(detailRow("Interest trend", (err && err.message) || "The interest trend could not be loaded."));
+      if (!idArg) showPortfolioError((err && err.message) || "The interest trend could not be loaded; nothing was changed.");
+    }
   }
 
   async function portfolioAddTag() {
@@ -5563,6 +5712,13 @@
   const PORTFOLIO_RELATION_TYPES = ["depends-on", "duplicate-of", "shares-domain-with", "replaces", "consumes", "optional-provider"];
   const PORTFOLIO_GOAL_STATUSES = ["planned", "active", "done", "dropped"];
   const PORTFOLIO_EVIDENCE_STATUSES = ["observed", "stale", "unavailable", "invalid", "not-run"];
+  const PORTFOLIO_INTEREST_METRICS = [
+    "unique_visitors",
+    "completed_public_workflows",
+    "returning_visitors",
+    "outbound_cta_clicks",
+    "paid_interest_events",
+  ];
 
   function fillSelect(selectId, values) {
     const select = document.getElementById(selectId);
@@ -5586,6 +5742,7 @@
     fillSelect("portfolio-relation-remove-type", PORTFOLIO_RELATION_TYPES);
     fillSelect("portfolio-goal-status", PORTFOLIO_GOAL_STATUSES);
     fillSelect("portfolio-evidence-status", PORTFOLIO_EVIDENCE_STATUSES);
+    fillSelect("portfolio-interest-metric", PORTFOLIO_INTEREST_METRICS);
     document.getElementById("portfolio-project").addEventListener("change", (event) => {
       const id = event.target.value;
       if (id) portfolioRefreshLists(id);
@@ -5599,6 +5756,9 @@
     document.getElementById("portfolio-add-goal").addEventListener("click", portfolioAddGoal);
     document.getElementById("portfolio-link-goal").addEventListener("click", portfolioLinkGoal);
     document.getElementById("portfolio-import-evidence").addEventListener("click", portfolioImportEvidence);
+    document.getElementById("portfolio-interest-list").addEventListener("click", () => portfolioInterestList());
+    document.getElementById("portfolio-interest-show").addEventListener("click", () => portfolioInterestShow());
+    document.getElementById("portfolio-interest-trend").addEventListener("click", () => portfolioInterestTrend());
     document.getElementById("portfolio-refresh").addEventListener("click", loadPortfolio);
     loadPortfolio();
   }

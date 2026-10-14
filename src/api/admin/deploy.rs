@@ -219,6 +219,15 @@ pub(in crate::api) fn handle(
                 super::super::portfolio::import_evidence(db_path, id, &body)
             })
         }
+        Route::AdminPortfolioInterestList { id } => {
+            super::interest::interest_list(config, db_path, request, id)
+        }
+        Route::AdminPortfolioInterestShow { id } => {
+            super::interest::interest_show(config, db_path, request, id)
+        }
+        Route::AdminPortfolioInterestTrend { id } => {
+            super::interest::interest_trend(config, db_path, request, id)
+        }
         Route::AdminDelivery => guarded(db_path, request, |_| {
             super::super::delivery::overview(db_path)
         }),

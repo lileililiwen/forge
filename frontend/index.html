@@ -529,6 +529,22 @@
                 <button id="portfolio-import-evidence" class="button button-quiet" type="button">Import snapshot</button>
               </div>
             </section>
+            <section class="wb-card" aria-labelledby="portfolio-interest-title">
+              <div class="panel-heading"><div><h3 id="portfolio-interest-title">Portfolio interest</h3><p class="muted">Read-only interest reads for the selected project. Import stays CLI-only — no write button is shown. A window older than the stale bound reads as <code>stale</code>, exactly as the CLI reports it; refusals are shown, never synthesized.</p></div></div>
+              <div class="wb-plan-tools">
+                <button id="portfolio-interest-list" class="button button-quiet" type="button">List snapshots</button>
+                <button id="portfolio-interest-show" class="button button-quiet" type="button">Show projection</button>
+              </div>
+              <dl id="portfolio-interest-list-result" class="detail-list" role="status" aria-live="polite"></dl>
+              <dl id="portfolio-interest-show-result" class="detail-list" role="status" aria-live="polite"></dl>
+              <p class="wb-subtitle">Trend</p>
+              <div class="wb-plan-tools">
+                <label class="field" for="portfolio-interest-metric"><span class="field-label">Metric <span class="required-mark" aria-hidden="true">*</span></span><select id="portfolio-interest-metric" aria-describedby="portfolio-interest-metric-hint"><option value="">Choose a metric…</option></select><span class="field-hint" id="portfolio-interest-metric-hint">The interest metric to plot over its windows.</span></label>
+                <label class="field" for="portfolio-interest-limit"><span class="field-label">Windows</span><input id="portfolio-interest-limit" type="number" min="1" max="120" value="12"></label>
+                <button id="portfolio-interest-trend" class="button button-quiet" type="button">Show trend</button>
+              </div>
+              <dl id="portfolio-interest-trend-result" class="detail-list" role="status" aria-live="polite"></dl>
+            </section>
           </section>
           <section id="delivery" class="project-panel" aria-labelledby="delivery-title" hidden>
             <div class="panel-heading">

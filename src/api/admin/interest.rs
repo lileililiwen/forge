@@ -30,6 +30,35 @@ use crate::registry::Registry;
 
 use super::gateway::{cors, error, guarded, unavailable};
 
+/// Refuse an unmanaged project id before any Core read. Mirrors the
+/// `deploy_id_gate` contract used by the other admin project routes: a
+/// project that is not in the registry answers `404` with a typed
+/// `portfolio-unmanaged-project` envelope, carries `effect: "none"`, and
+/// never echoes the supplied id back to the caller.
+fn require_managed(db_path: &Path, id: &str) -> Result<(), ApiResponse> {
+    let managed = Registry::open(db_path)
+        .ok()
+        .and_then(|registry| registry.inspect(id).ok())
+        .is_some();
+    if managed {
+        Ok(())
+    } else {
+        Err(ApiResponse::json(
+            404,
+            json!({
+                "error": {
+                    "code": "portfolio-unmanaged-project",
+                    "message":
+                        "this project is not managed by this Forge registry; \
+                         register it from a terminal first, then try again.",
+                },
+                "effect": "none",
+                "contract": INTEREST_CONTRACT_VERSION,
+            }),
+        ))
+    }
+}
+
 /// Match the three read-only portfolio interest routes before the main
 /// table runs. The literals `interest/list`, `interest/show` and
 /// `interest/trend` never collide with the `{kind}` arm in `router.rs`
@@ -140,6 +169,9 @@ pub(in crate::api) fn interest_list(
         config,
         request,
         guarded(db_path, request, |_| {
+            if let Err(response) = require_managed(db_path, id) {
+                return response;
+            }
             let now = Utc::now();
             let registry = match Registry::open(db_path) {
                 Ok(registry) => registry,
@@ -183,6 +215,9 @@ pub(in crate::api) fn interest_show(
         config,
         request,
         guarded(db_path, request, |_| {
+            if let Err(response) = require_managed(db_path, id) {
+                return response;
+            }
             let now = Utc::now();
             let registry = match Registry::open(db_path) {
                 Ok(registry) => registry,
@@ -222,6 +257,9 @@ pub(in crate::api) fn handle_interest_trend(
         config,
         request,
         guarded(db_path, request, |_| {
+            if let Err(response) = require_managed(db_path, id) {
+                return response;
+            }
             let query = request.query.as_deref().unwrap_or_default();
             let mut metric_raw: Option<String> = None;
             let mut limit = 12usize;

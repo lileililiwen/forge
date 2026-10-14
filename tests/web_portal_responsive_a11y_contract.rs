@@ -51,7 +51,7 @@ fn reduced_motion_block_covers_rail_panels_cards() {
         );
     }
     assert!(
-        !css.contains("prefers-reduced-motion: reduce){"),
+        !css.contains("prefers-reduced-motion: reduce){}"),
         "reduced-motion block must not be an empty rule"
     );
 }

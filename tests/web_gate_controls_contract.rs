@@ -137,8 +137,8 @@ fn workbench_health_card_carries_gate_subrow_with_rerun_button() {
     // The new sub-row sits inside the existing `wb-health` card so the
     // card's existing role + labelled-by contract is preserved.
     let start = html
-        .find("wb-health-title")
-        .expect("workbench health card ships");
+        .find("aria-labelledby=\"wb-health-title\"")
+        .expect("workbench health card is labelled by wb-health-title");
     let end = html
         .find("wb-status-title")
         .expect("workbench status card ships");

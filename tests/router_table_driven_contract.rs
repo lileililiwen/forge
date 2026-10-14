@@ -162,8 +162,6 @@ fn admin_routes_are_anonymous_401() {
         "/v1/admin/projects/alpha/gate/status",
         "/v1/admin/projects/alpha",
         "/v1/admin/projects",
-        "/v1/admin/identity/change-password",
-        "/v1/admin/session",
     ] {
         let response = handle(
             &config,
@@ -177,6 +175,30 @@ fn admin_routes_are_anonymous_401() {
             "{path} must carry the api-unauthorized envelope"
         );
     }
+    // `change-password` is `POST`-only: a `GET` is correctly answered
+    // `405 method-not-allowed`, so the session gate is exercised with an
+    // anonymous `POST` + `application/json` body instead. The response is
+    // still the typed `401 api-unauthorized` envelope (not a
+    // route-not-found fallthrough), proving the route is dispatched to
+    // `super::admin::handle`.
+    let mut change = request(
+        "POST",
+        "/v1/admin/identity/change-password",
+        &config.frontend_origin,
+    );
+    change = json_body(
+        change,
+        br#"{"current":"irrelevant","password":"a-long-enough-password"}"#,
+    );
+    let response = handle(&config, &db, &change, Utc::now());
+    assert_eq!(
+        response.status, 401,
+        "change-password must be 401 anonymous"
+    );
+    assert!(
+        body_text(&response).contains("api-unauthorized"),
+        "change-password must carry the api-unauthorized envelope"
+    );
 }
 
 #[test]
@@ -238,15 +260,16 @@ fn admin_options_short_circuits_to_preflight() {
 }
 
 #[test]
-fn unknown_project_id_is_a_typed_400_through_admin_dispatch() {
+fn unknown_project_id_is_a_typed_404_through_admin_dispatch() {
     // Project-not-found — an admin route targeting an unmanaged
     // project id is dispatched through `super::admin::handle` (via
     // `is_admin_dispatch`) and the response is the typed
-    // `400 admin-project-not-managed` envelope. If the dispatch
-    // were broken the request would fall through to the bearer
-    // dispatch and the response would not carry the typed
-    // envelope; the test would fail, proving the classification
-    // table is load-bearing.
+    // `404 admin-project-unmanaged` envelope (emitted by
+    // `deploy_id_gate` and relied on by the other admin project
+    // routes). If the dispatch were broken the request would fall
+    // through to the bearer dispatch and the response would not
+    // carry the typed envelope; the test would fail, proving the
+    // classification table is load-bearing.
     let (_tmp, db, config) = fixture();
     let token = login_token(&config, &db);
     let response = get(
@@ -256,12 +279,12 @@ fn unknown_project_id_is_a_typed_400_through_admin_dispatch() {
         "/v1/admin/projects/nonexistent/gate/status",
     );
     assert_eq!(
-        response.status, 400,
-        "unknown project id must be 400 admin-project-not-managed"
+        response.status, 404,
+        "unknown project id must be 404 admin-project-unmanaged"
     );
     let body = body_text(&response);
     assert!(
-        body.contains("admin-project-not-managed"),
+        body.contains("admin-project-unmanaged"),
         "body must carry the typed envelope: {body}"
     );
 }

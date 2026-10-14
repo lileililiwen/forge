@@ -222,9 +222,16 @@ fn change_password_inner(_config: &ApiConfig, db_path: &Path, request: &ApiReque
     // probe mints a session when the password is right; revoke it
     // immediately so the only session left is the one the rotation
     // cascade invalidates next.
+    // Verify the supplied `current` password by re-running the
+    // sign-in credential check against the registered email. The
+    // probe mints a session when the password is right; capture its
+    // token so the only session we revoke on a failed rotation is the
+    // probe itself — the caller's session must survive a rejected
+    // (e.g. too-weak) new password. `change_password` revokes all
+    // sessions on success.
     match crate::identity::global::authenticate(db_path, &email, &body.current) {
-        Ok(Some(_)) => {
-            if let Err(_) = crate::identity::global::revoke_all_sessions(db_path) {
+        Ok(Some(token)) => {
+            if let Err(_) = crate::identity::global::revoke(db_path, &token) {
                 return error(
                     500,
                     "admin-password-rotation-failed",

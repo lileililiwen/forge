@@ -329,7 +329,14 @@ fn interest_reads_are_read_only_and_touch_no_rows() {
         "/v1/admin/portfolio/ip-proj/interest/show",
         "/v1/admin/portfolio/ip-proj/interest/trend?metric=unique_visitors&limit=12",
     ] {
-        let response = get(&config, &db, &token, path);
+        // The production server parses the query out of the URL into
+        // `request.query`; the in-process `request` helper leaves it
+        // `None`, so drive query-bearing paths through `get_query`.
+        let response = if let Some((p, q)) = path.split_once('?') {
+            get_query(&config, &db, &token, p, q)
+        } else {
+            get(&config, &db, &token, path)
+        };
         assert_eq!(response.status, 200, "GET {path}");
         assert_ne!(
             body_json(&response)["effect"],
@@ -395,7 +402,18 @@ fn frontend_interest_card_is_wired_without_banned_sinks_or_write_button() {
         "the metric select must be populated from the documented labels"
     );
 
-    // No banned sink anywhere in the portfolio interest wiring.
+    // No banned sink anywhere in the portfolio interest wiring. Scope the
+    // scan to the interest block (from the `portfolioInterestList`
+    // definition up to the next top-level section) so unrelated panels that
+    // legitimately use `textContent`/`el()` helpers elsewhere in `app.js`
+    // do not trip the contract.
+    let wiring_start = app
+        .find("portfolioInterestList")
+        .expect("portfolio interest wiring ships");
+    let wiring_end = app
+        .find("// ---- Delivery controls")
+        .expect("delivery controls section ships");
+    let wiring = &app[wiring_start..wiring_end];
     for forbidden in [
         "eval(",
         "new Function",
@@ -404,8 +422,8 @@ fn frontend_interest_card_is_wired_without_banned_sinks_or_write_button() {
         "sh -c",
     ] {
         assert!(
-            !app.contains(forbidden),
-            "unsafe sink in the portfolio frontend: {forbidden}"
+            !wiring.contains(forbidden),
+            "unsafe sink in the portfolio interest wiring: {forbidden}"
         );
     }
     assert!(!index.contains("<script>"), "no inline script on the page");

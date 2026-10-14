@@ -5466,4 +5466,4 @@ Evidence:
 | `forge gate --timeout-secs 600` | **blocked, 0 attributable** — pass: build, governance-quality, placeholder-threshold, product-code-boundary, repository, security, source-file-size (404/404 ≤1000); unresolved pre-existing: declared-verification + tests (`project-runtime` adapter exceeds its fixed 60s budget, identical signature to prior entries). Remediation: warm/point the adapter at the shared target cache or raise the per-check budget, then re-run. This change adds no new failure. |
 | `openspec archive web-shipping-provider-reads --yes` | archived as `2026-10-10-web-shipping-provider-reads`, no `--skip-specs`; canonical `web-shipping-provider-reads` +2; archiver-stamped TBD Purpose repaired source-backed before commit; post-archive validate **102 passed / 0 failed**, names PASS, governance PASS |
 
-current_spec: forge-web-portfolio-interest
+current_spec: forge-web-workspace-status-summary

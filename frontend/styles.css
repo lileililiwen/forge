@@ -375,3 +375,80 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
 .icp-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:4px}
 .icp-dialog .field input[type=password]{height:42px;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--raise);color:var(--ink);font-size:13px}
 .icp-dialog .field input[type=password]:focus{border-color:var(--accent);outline:2px solid var(--focus);outline-offset:1px}
+/* Slice 9 — responsive + reduced-motion hardening for the SPA
+ * control-plane portal (forge-portal-responsive-a11y). Adds the missing
+ * 720px breakpoint, reflows the 8-column workspace onboarding table to
+ * stacked cards, and explicitly disables transitions/animations on the
+ * lifecycle rail, panels and cards under prefers-reduced-motion. Pure
+ * CSS; app.js and index.html are untouched (the table labels come from
+ * column position via :nth-child, so no data-label is needed). Earlier
+ * tokens, the universal reduced-motion guard (line 23) and the slice-2
+ * >=44px minima are untouched. */
+/* Explicit reduced-motion guard for the named motion surfaces: rail,
+ * panels, cards, and the shared button/nav/action controls. Disables
+ * transition/animation only — never display/visibility — so function is
+ * fully preserved. */
+@media (prefers-reduced-motion: reduce){
+  .lifecycle-rail,
+  .project-panel,
+  .wb-card,
+  .summary-card,
+  .panel,
+  .nav-link,
+  .button,
+  .button-quiet,
+  .button-primary,
+  .wb-action-head,
+  .wb-action-caret{
+    transition:none!important;
+    animation:none!important;
+    scroll-behavior:auto!important;
+  }
+}
+/* 720px breakpoint. The sidebar already collapses to a reachable top row
+ * at <=860px (inherited) and summary/source cards already auto-fit, so
+ * the only layout work here is forcing the workbench grid single-column
+ * and reflowing the dense onboarding table. The <=560px rules keep
+ * authority over .summary-grid/.topbar, so they are not re-declared. */
+@media (max-width:720px){
+  .workbench-grid{grid-template-columns:1fr}
+  .panel-tools{flex-wrap:wrap}
+  /* 8-column Bulk Workspace onboarding table -> one stacked card per row.
+   * No column is removed; <thead> is visually hidden (clip) not deleted so
+   * assistive tech keeps column context. Labels are derived from column
+   * position so the JS-rendered <td>s need no data-label. */
+  #ws-table-wrap thead{
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+    overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+  }
+  #ws-table-wrap table,
+  #ws-table-wrap tbody,
+  #ws-table-wrap tr,
+  #ws-table-wrap td{display:block;width:100%}
+  #ws-table-wrap tr{
+    margin-bottom:12px;padding:4px 2px;border:1px solid var(--line);
+    border-radius:10px;background:var(--panel);
+  }
+  #ws-table-wrap tbody tr td{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;
+    border-bottom:1px solid var(--line);padding:9px 12px;text-align:right;
+  }
+  #ws-table-wrap tbody tr td:last-child{border-bottom:0}
+  #ws-table-wrap tbody td::before{
+    content:"";margin-right:auto;color:var(--muted);font-size:var(--text-sm);
+    font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+    text-align:left;white-space:nowrap;
+  }
+  #ws-table-wrap tbody td:nth-child(1)::before{content:"Onboard"}
+  #ws-table-wrap tbody td:nth-child(2)::before{content:"Directory"}
+  #ws-table-wrap tbody td:nth-child(3)::before{content:"Project id"}
+  #ws-table-wrap tbody td:nth-child(4)::before{content:"Action"}
+  #ws-table-wrap tbody td:nth-child(5)::before{content:"Profile signal"}
+  #ws-table-wrap tbody td:nth-child(6)::before{content:"State"}
+  #ws-table-wrap tbody td:nth-child(7)::before{content:"Id override"}
+  #ws-table-wrap tbody td:nth-child(8)::before{content:"Profile override"}
+  /* Keep the Onboard checkbox and the Id/Profile override inputs visible,
+   * focusable and >=44px so the reflow never hides a control. */
+  #ws-table-wrap input[type=checkbox]{flex:none;width:20px;height:20px}
+  #ws-table-wrap input[type=text]{flex:none;width:auto;min-width:120px;min-height:44px}
+}

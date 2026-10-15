@@ -2,8 +2,10 @@
 name = "forge"
 version = "0.1.0" # the one version source (agrees with CHANGELOG.md newest entry and `forge --version`; enforced by tests/artifact_baseline_contract.rs)
 edition = "2021"
-# MSRV derived from the binding requirement (OsStr::display in src/agent, stabilized 1.87.0); see docs/adr/0002-msrv-and-toolchain-floor.md.
-rust-version = "1.87"
+# MSRV floor: 1.88. `OsStr::display` (src/agent) stabilized in 1.87.0, but
+# the resolved dependency tree (darling, icu, serde_with, …) requires rustc
+# 1.88, so the real floor is 1.88. See docs/adr/0002-msrv-and-toolchain-floor.md.
+rust-version = "1.88"
 description = "Forge developer control plane: versioned project model, persistent registry and CLI foundation"
 license = "MIT"
 readme = "README.md"

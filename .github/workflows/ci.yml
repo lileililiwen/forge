@@ -73,7 +73,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Floor toolchain (ADR 0002, binding: OsStr::display)
+      - name: "Floor toolchain (ADR 0002, binding: OsStr::display)"
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.87

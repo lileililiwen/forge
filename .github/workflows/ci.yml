@@ -47,6 +47,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+        run: |
+          curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Fast test suite (native scaffold builds run in native-scaffold)
         run: cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1
 
@@ -130,6 +134,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+        run: |
+          curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -152,6 +160,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+        run: |
+          curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build Forge
         run: cargo build
       - name: Read-only surfaces (doctor, checker, fleet, providers)
@@ -188,6 +200,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+        run: |
+          curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build Forge
         run: cargo build
       - name: Real gate verdict (mirrors the runtime, including blocked)

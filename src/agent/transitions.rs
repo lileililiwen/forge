@@ -185,24 +185,27 @@ pub fn apply_transition(
 /// The `PATH` probe is a real observation and is kept as evidence,
 /// but it is an *availability* signal, not a session: this build
 /// spawns no `opencode`/`codex` process, so nothing can confirm an
-/// `active` session and none is claimed. The honest answer is the
-/// existing `unsupported()` outcome.
+/// `active` session and none is claimed. `codex`/`opencode` are
+/// dev tools, not runtime requirements for this build, so their
+/// absence from PATH is recorded as availability evidence — never
+/// turned into an error that would make `forge agent start
+/// --provider codex` fail on a machine that simply has not
+/// installed the dev tool. The honest answer is always the
+/// existing `unsupported()` outcome, with a PATH probe line that
+/// says `present on PATH` or `absent on PATH`.
 fn start_or_resume(
     session: &AgentSession,
     transition: SessionTransition,
 ) -> Result<(SessionState, Vec<String>, String, Option<String>), ForgeError> {
     let binary = session.provider.binary();
     let available = command_on_path(binary);
-    if !available {
-        return Err(ForgeError::AgentUnavailable {
-            reason: format!(
-                "binary `{binary}` is not present on PATH; this build exposes no runtime adapter for the {} provider, so installing it would not enable a {} session",
-                session.provider.label(),
-                session.provider.label()
-            ),
-        });
-    }
-    let probe = format!("binary: {binary} (present on PATH)");
+    let probe = if available {
+        format!("binary: {binary} (present on PATH)")
+    } else {
+        format!(
+            "binary: {binary} (absent on PATH; the bundled adapter is dev-tool-agnostic and does not require it)"
+        )
+    };
     Ok(bundled_unsupported(
         session,
         transition,

@@ -114,13 +114,12 @@ fn start_records_session_with_provider_and_project_association() {
     assert_eq!(value["transition"]["project_id"], "agent-start");
     assert_eq!(value["transition"]["provider"], "codex");
     assert_eq!(value["transition"]["requested"], "start");
-    // The state is either `unsupported` (the bundled adapter has no
-    // backing runtime in this build, with or without the binary) or
-    // absent on a `agent-unavailable` error when the binary is not on
-    // PATH at all. It is NEVER `active`: this build starts no process
-    // for `codex`, so no observation can support that claim. The
-    // contract is honest about which of the two applies; in both cases
-    // the session id and provider are recorded.
+    // The state is always `unsupported` (the bundled adapter has no
+    // backing runtime in this build, and `codex` is a dev tool the
+    // bundled adapter does not require on PATH). It is NEVER `active`:
+    // this build starts no process for `codex`, so no observation can
+    // support that claim. The session id and provider are recorded
+    // whether or not the dev tool is installed.
     let state = value["transition"]["state"].as_str();
     if let Some(s) = state {
         assert_eq!(s, "unsupported", "state={s}");

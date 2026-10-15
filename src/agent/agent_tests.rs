@@ -46,7 +46,12 @@ pub(super) mod tests {
         // `PATH` probe alone — it spawned nothing, so a session could
         // report `active` having never run. This build starts no
         // process for `opencode`/`codex`, so the honest answer is
-        // `unsupported` with the probe result and the reason recorded.
+        // always `unsupported`, whether or not the dev-tool binary is
+        // installed. `codex`/`opencode` are dev tools, not runtime
+        // requirements: their absence is recorded as availability
+        // evidence (`absent on PATH`), never turned into an error that
+        // would make `forge agent start --provider codex` fail on a
+        // machine that simply has not installed the dev tool.
         for provider in [AgentProvider::Codex, AgentProvider::Opencode] {
             let tmp = TempDir::new().unwrap();
             write_manifest(tmp.path(), "bundled-start");
@@ -58,64 +63,51 @@ pub(super) mod tests {
                 DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
             )
             .unwrap();
-            // Only run the present-binary arm where the binary exists;
-            // the absent-binary arm is a typed refusal, asserted below.
-            let binary_present = which_present(provider.binary());
             for transition in [
                 SessionTransition::Start,
                 SessionTransition::Resume,
                 SessionTransition::NewSession,
             ] {
-                match apply_transition(
+                let outcome = apply_transition(
                     session.clone(),
                     transition,
                     DateTime::<Utc>::from_timestamp(1, 0).unwrap(),
-                ) {
-                    Ok(outcome) => {
-                        assert!(binary_present, "{} {transition:?}", provider.label());
-                        assert_eq!(
-                            outcome.state,
-                            SessionState::Unsupported,
-                            "{} {:?} must never claim active",
-                            provider.label(),
-                            transition
-                        );
-                        assert_ne!(outcome.state, SessionState::Active);
-                        assert!(outcome
-                            .evidence
-                            .iter()
-                            .any(|e| e.contains(&format!("provider: {}", provider.label()))));
-                        assert!(outcome
-                            .evidence
-                            .iter()
-                            .any(|e| e.contains("spawns no process for the bundled")));
-                        assert!(outcome
-                            .evidence
-                            .iter()
-                            .any(|e| e.contains("(present on PATH)")));
-                        assert!(
-                            outcome.note.contains("is recorded as `unsupported`"),
-                            "note={}",
-                            outcome.note
-                        );
-                        let next = outcome.next_step.expect("recovery guidance");
-                        assert!(next.contains("--provider ariadex"), "next_step={next}");
-                    }
-                    Err(err) => {
-                        assert!(!binary_present, "{} {transition:?}", provider.label());
-                        assert_eq!(err.code(), "agent-unavailable");
-                        assert!(
-                            err.to_string().contains("no runtime adapter"),
-                            "the refusal must say installing the binary is not the fix: {err}"
-                        );
-                        // The bundled vocabulary stays bundled: this
-                        // refusal names the bundled provider only.
-                        assert!(
-                            !err.to_string().contains("ariadex"),
-                            "bundled failure must not mention ariadex: {err}"
-                        );
-                    }
-                }
+                )
+                .expect("bundled start must not require the dev-tool binary on PATH");
+                assert_eq!(
+                    outcome.state,
+                    SessionState::Unsupported,
+                    "{} {:?} must never claim active",
+                    provider.label(),
+                    transition
+                );
+                assert_ne!(outcome.state, SessionState::Active);
+                assert!(outcome
+                    .evidence
+                    .iter()
+                    .any(|e| e.contains(&format!("provider: {}", provider.label()))));
+                assert!(outcome
+                    .evidence
+                    .iter()
+                    .any(|e| e.contains("spawns no process for the bundled")));
+                // The PATH probe is recorded either way; the binary is a
+                // dev tool, so its absence is an availability note, not
+                // a refused transition.
+                assert!(
+                    outcome
+                        .evidence
+                        .iter()
+                        .any(|e| e.contains("present on PATH") || e.contains("absent on PATH")),
+                    "probe evidence missing: {:?}",
+                    outcome.evidence
+                );
+                assert!(
+                    outcome.note.contains("is recorded as `unsupported`"),
+                    "note={}",
+                    outcome.note
+                );
+                let next = outcome.next_step.expect("recovery guidance");
+                assert!(next.contains("--provider ariadex"), "next_step={next}");
             }
         }
     }
@@ -247,15 +239,6 @@ pub(super) mod tests {
             assert_eq!(err.code(), "agent-unavailable");
             assert!(err.to_string().contains("ariadex"), "{err}");
         }
-    }
-
-    /// Whether `name` is on `PATH`, so a test can pick the branch the
-    /// host actually supports instead of asserting both at once.
-    fn which_present(name: &str) -> bool {
-        let probe_paths: Vec<std::path::PathBuf> = std::env::var_os("PATH")
-            .map(|value| std::env::split_paths(&value).collect())
-            .unwrap_or_default();
-        probe_paths.iter().any(|dir| dir.join(name).is_file())
     }
 
     #[test]

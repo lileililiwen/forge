@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+      - name: Install driftwatchdog (forge check runtime)
         run: |
           curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -134,7 +134,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+      - name: Install driftwatchdog (forge check runtime)
         run: |
           curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -160,7 +160,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+      - name: Install driftwatchdog (forge check runtime)
         run: |
           curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -200,7 +200,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install driftwatchdog gate runtime (gate_runtime for forge check/gate)
+      - name: Install driftwatchdog (forge check runtime)
         run: |
           curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"

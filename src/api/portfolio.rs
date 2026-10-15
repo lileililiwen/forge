@@ -556,10 +556,8 @@ fn parse_portfolio_filter(
         let value = super::percent_decode(value);
         match key.trim() {
             "tag" => filter.tag = Some(value.trim().to_string()),
-            "lifecycle" => filter.lifecycle = Some(Lifecycle::parse(value.trim()).map_err(|r| r)?),
-            "confidence" => {
-                filter.confidence = Some(Confidence::parse(value.trim()).map_err(|r| r)?)
-            }
+            "lifecycle" => filter.lifecycle = Some(Lifecycle::parse(value.trim())?),
+            "confidence" => filter.confidence = Some(Confidence::parse(value.trim())?),
             other => {
                 return Err(format!(
                     "unknown portfolio filter `{other}`; expected tag, lifecycle or confidence"

@@ -123,6 +123,7 @@ fn body_json(response: &forge::api::ApiResponse) -> Value {
 /// One registered project: `compose`/`docker` marker files, an optional
 /// GitHub Actions workflow, and an optional installed feature (which the
 /// catalog projects as a tag).
+#[allow(clippy::too_many_arguments)]
 fn write_project(
     parent: &Path,
     id: &str,

@@ -634,6 +634,7 @@ exit 1
     path
 }
 
+#[allow(dead_code)]
 fn run_json(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> serde_json::Value {
     let out = run(db, args, gate_bin);
     serde_json::from_str(&lossy(&out.stdout)).expect("json")

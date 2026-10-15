@@ -7,12 +7,12 @@ pub(super) mod tests {
     use crate::mcp::constants::{JSONRPC_VERSION, MCP_CONTRACT_VERSION};
     use crate::mcp::methods::dispatch;
     use crate::mcp::model::{rpc_code, McpProtocolError, McpRequest, McpResponse, McpToolKind};
-    use crate::mcp::params::{validate_params, validate_project_id_strict};
+    use crate::mcp::params::validate_params;
     use crate::mcp::tools::{find_tool, tool_registry};
     use crate::mcp::transport::run_session;
     use crate::registry::Registry;
     use serde_json::Value;
-    use std::fs;
+
     use std::io::Cursor;
 
     fn request(method: &str, id: Value, params: Value) -> McpRequest {

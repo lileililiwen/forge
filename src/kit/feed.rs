@@ -326,11 +326,13 @@ pub fn render_feed_config(descriptor: &KitDescriptor) -> Result<Option<RenderedF
 /// source of truth. Not fetched: a checked-out sibling is read, nothing else.
 const SIBLING_MANIFEST: &str = "eng/package-manifest.json";
 
-/// Default sibling location, matching the convention the existing consumers'
-/// pack scripts already use. Overridable, and never required: a project must
-/// build from its committed feed regardless of where the sibling lives.
+/// Default sibling location, relative to this checkout so the build does not
+/// assume a machine-specific fleet path. Overridable via `FORGE_PLATFORM_LIBS`,
+/// and never required: a project must build from its committed feed regardless
+/// of where the sibling lives. Packing fails fast (clearly) when the sibling
+/// is absent.
 fn default_sibling_root() -> PathBuf {
-    PathBuf::from("/home/paul/code/dotnet-platform-libs")
+    PathBuf::from("../dotnet-platform-libs")
 }
 
 fn sibling_root(explicit: Option<&Path>) -> PathBuf {

@@ -97,9 +97,7 @@ pub(super) mod tests {
     use crate::core::ForgeError;
     use crate::planner::apply::{apply_plan, revalidate_plan, write_plan_receipt};
     use crate::planner::contract::{MAX_CAPABILITIES_PER_INTENT, MAX_UNRESOLVED_PER_PLAN};
-    use crate::planner::model::{
-        AssemblyPlan, Intent, IntentAction, IntentApplyOutcome, IntentConstraint, PlanStepKind,
-    };
+    use crate::planner::model::{Intent, IntentAction, IntentConstraint, PlanStepKind};
     use crate::planner::resolve::resolve_plan;
     use crate::planner::validate::{catalog_hash, validate_intent};
     use std::path::{Path, PathBuf};

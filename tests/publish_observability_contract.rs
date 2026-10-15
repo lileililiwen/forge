@@ -428,7 +428,7 @@ fn publish_persists_legacy_provider_without_phase_evidence() {
         "legacy.sh",
         &format!(
             "#!/bin/sh\nset -e\nlog=\"{log_str}\"\ncat > \"${{log}}.in\"\nreq=$(cat \"${{log}}.in\")\nprintf '%s\\n' \"$req\" >> \"$log\"\ncat <<JSON\n{{\n  \"contract\": \"forge-publish-provider/0.1.0\",\n  \"provider\": \"fixture\",\n  \"operation_id\": \"$(printf '%s' \"$req\" | sed -n 's/.*\"operation_id\":\"\\([^\"]*\\)\".*/\\1/p')\",\n  \"status\": \"done\",\n  \"health\": \"healthy\",\n  \"evidence\": [\"legacy provider emits no phase evidence\"],\n  \"recovery\": []\n}}\nJSON\n",
-            log_str = log.display().to_string(),
+            log_str = log.display(),
         ),
     );
     write_provider_config(

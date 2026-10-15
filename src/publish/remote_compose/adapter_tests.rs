@@ -10,7 +10,7 @@ pub(super) mod tests {
     };
     use crate::publish::{
         CommandResult, PublishAction, PublishAdapter, PublishRequest, RecordingTransport,
-        PUBLISH_DEPLOY_TIMEOUT, PUBLISH_SYNC_TIMEOUT, STATUS_DONE,
+        STATUS_DONE,
     };
     use std::path::Path;
 

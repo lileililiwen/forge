@@ -22,6 +22,7 @@ use super::projects::{as_output, open_registry};
 use super::publish::{cmd_publish_provider, validate_fleet_jobs};
 use crate::{Format, Output};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn cmd_publish_fleet(
     db_path: &Path,
     inventory: Option<std::path::PathBuf>,
@@ -345,7 +346,7 @@ pub(super) fn cmd_publish_fleet(
         let deploy_entries: Vec<forge::publish::inventory::InventoryFleetEntry> =
             deployable.iter().map(|(_, e)| e.clone()).collect();
         let phase_c_outcomes = run_fleet_concurrent(&deploy_entries, jobs, fail_fast, phase_c);
-        for ((index, _), outcome) in deployable.iter().zip(phase_c_outcomes.into_iter()) {
+        for ((index, _), outcome) in deployable.iter().zip(phase_c_outcomes) {
             let prog = &mut progress[*index];
             match outcome {
                 FleetEntryOutcome::Phased { reports, error } => {

@@ -180,7 +180,7 @@ fn preview_graduation(
             ),
             &payload,
         ),
-        &token,
+        token,
     );
     let response = handle_with_root(config, db, &req, Some(root));
     assert_eq!(

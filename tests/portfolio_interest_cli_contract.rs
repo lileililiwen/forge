@@ -211,7 +211,7 @@ fn every_refused_field_class_is_named_and_never_echoed() {
         assert!(!out.status.success(), "{field} unexpectedly succeeded");
         let stderr = support::share::lossy(&out.stderr);
         assert!(
-            stderr.contains(&format!("error[portfolio-interest-invalid]")),
+            stderr.contains(&"error[portfolio-interest-invalid]".to_string()),
             "{field}: {stderr}"
         );
         assert!(

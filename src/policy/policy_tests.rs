@@ -17,7 +17,7 @@ pub(super) mod tests {
     use chrono::{DateTime, Utc};
     use std::ffi::{OsStr, OsString};
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use tempfile::TempDir;
 

@@ -27,4 +27,5 @@ pub(super) const PLUGINS_CONTRACT: &str = "forge-plugins/0.1.0";
 pub const FLEET_MAX_JOBS: usize = 32;
 
 /// Default `--jobs` value: four concurrent per-project publishes.
+#[allow(dead_code)]
 pub const FLEET_DEFAULT_JOBS: usize = 4;

@@ -275,6 +275,7 @@ fn validate_cwd_project_id(id: &str) -> Result<(), ForgeError> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cmd_publish(
     db_path: &Path,
     command: Option<&PublishCommands>,
@@ -323,7 +324,7 @@ pub(crate) fn cmd_publish(
         }
     }
     let (project_dir, project_id) = discover_cwd_publish_target(cwd)?;
-    return publish_via_provider_dir(
+    publish_via_provider_dir(
         db_path,
         &project_dir,
         &project_id,
@@ -331,7 +332,7 @@ pub(crate) fn cmd_publish(
         revision,
         dry_run,
         format,
-    );
+    )
 }
 
 fn publish_via_provider_dir(
@@ -381,11 +382,9 @@ fn publish_via_provider_dir(
         queue_id: None,
     };
     let response = if dry_run {
-        serde_json::Value::from(serde_json::to_value(&request).map_err(|error| {
-            ForgeError::PublishInvalid {
-                reason: format!("cannot encode publish request: {error}"),
-            }
-        })?)
+        serde_json::to_value(&request).map_err(|error| ForgeError::PublishInvalid {
+            reason: format!("cannot encode publish request: {error}"),
+        })?
     } else {
         let response = invoke_provider(&entry, &request, project_dir)?;
         let registry = open_registry(db_path)?;
@@ -582,11 +581,9 @@ pub(super) fn cmd_publish_provider(
         queue_id: None,
     };
     let response = if dry_run {
-        serde_json::Value::from(serde_json::to_value(&request).map_err(|error| {
-            ForgeError::PublishInvalid {
-                reason: format!("cannot encode publish request: {error}"),
-            }
-        })?)
+        serde_json::to_value(&request).map_err(|error| ForgeError::PublishInvalid {
+            reason: format!("cannot encode publish request: {error}"),
+        })?
     } else {
         let response = invoke_provider(&entry, &request, &project_dir)?;
         let registry = open_registry(db_path)?;

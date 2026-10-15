@@ -222,6 +222,7 @@ pub struct EvidenceCounts {
 
 /// Outcome of one evidence-export consumption attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum EvidenceOutcome {
     /// A valid, attributed record persisted.
     Record(ReleaseEvidenceRecord),
@@ -416,9 +417,7 @@ pub fn consume_export(dir: &Path, project_id: &str, config: &GateConfig) -> Evid
 
         // Check for `blocked` (vocabulary misuse).
         if entry.state == "blocked" {
-            refusal_reasons.push(format!(
-                "state `blocked` is reserved for capability declarations and cannot appear in a release-evidence field"
-            ));
+            refusal_reasons.push("state `blocked` is reserved for capability declarations and cannot appear in a release-evidence field".to_string());
             fields.push(ReleaseEvidenceField {
                 name: entry.field.clone(),
                 state: ReleaseEvidenceState::Refused,
@@ -801,8 +800,8 @@ mod tests {
             ],
             ..export
         };
-        let json = serde_json::to_string(&bad_field).unwrap();
-        let tmp = temp_project();
+        let _json = serde_json::to_string(&bad_field).unwrap();
+        let _tmp = temp_project();
         // Simulate: check only the fields we have.
         let unknown = bad_field
             .fields
@@ -838,7 +837,7 @@ mod tests {
 
     #[test]
     fn verified_publication_requires_digest() {
-        let fields = vec![
+        let fields = [
             EvidenceFieldRaw {
                 field: "publication".to_string(),
                 state: "verified".to_string(),

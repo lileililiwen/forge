@@ -35,13 +35,28 @@ commands:
   repository: 'git diff --check'
   build: 'cargo build --workspace'
   security: 'cargo audit'
-  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project forge --json'
-  placeholder-threshold: 'python3 ../workspace-governance/scripts/product_code_quality.py .'
-  product-code-boundary: 'python3 ../workspace-governance/scripts/product_code_quality.py .'
+  # governance-quality needs the fleet governance repository (its projects.json
+  # registry, profiles/, decisions register and capability registry). That is a
+  # sibling checkout the standalone remote runner does not have, so this concern
+  # fails fast with a clear `blocked` message when it is absent rather than
+  # silently assuming a machine-specific fleet layout. Matches the repo's
+  # contract-parity CI job, which blocks the same way on a missing sibling.
+  governance-quality: 'SCRIPT="../workspace-governance/scripts/workspace_check.py"; if [ -f "$SCRIPT" ]; then python3 "$SCRIPT" --root .. --project forge --json; else echo "governance-quality blocked: workspace-governance sibling not found at ../workspace-governance (fleet layout required); check out the sibling or run inside the fleet" >&2; exit 1; fi'
+  # placeholder-threshold and product-code-boundary are vendored into
+  # scripts/governance/ so the gate is self-contained: they only read the repo
+  # root and the committed scripts/vocabulary.json, with no sibling dependency.
+  placeholder-threshold: 'python3 scripts/governance/product_code_quality.py .'
+  product-code-boundary: 'python3 scripts/governance/product_code_quality.py .'
   # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.
   # A verifier that no gate runs does not gate (ruling D18). Re-run the
   # generator to update it; do not hand-edit.
-  declared-verification: 'cargo test --workspace -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent'
+  # `--test-threads=1`: this sandbox's tmpfs refuses to exec freshly-written
+  # fixture scripts under concurrent load (ETXTBSY / "Text file busy"), which
+  # makes the gate-engine tests flake in parallel. Serialising matches what
+  # `scripts/check-tests.sh` (the `tests` concern) already does and keeps the
+  # local Gate rehearsal reliable; CI runners do not exhibit the tmpfs quirk
+  # but single-threading is still correct there, just slower.
+  declared-verification: 'cargo test --workspace -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1'
   # Operator binding, not generated. bind_gate_commands.py derives
   # `cargo test --workspace` for a Rust workspace and never consults
   # scripts/check-tests.* for a shape concern, so this entry is written here

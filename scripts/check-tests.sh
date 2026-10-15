@@ -17,6 +17,13 @@
 # evidence lives. Do not add or remove a skip without changing
 # `.github/workflows/ci.yml` in the same commit, or the two silently diverge
 # and the Gate stops being a local rehearsal of CI.
+#
+# `--test-threads=1`: this sandbox's tmpfs refuses to exec freshly-written
+# fixture scripts under concurrent load (ETXTBSY / "Text file busy"), which
+# makes the gate-engine tests flake. Serialising the suite is deterministic
+# and matches what CI's `test` job requires of the code; CI runners do not
+# exhibit the tmpfs quirk, but single-threading keeps the local Gate rehearsal
+# reliable.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -25,4 +32,5 @@ cargo test --workspace --all-targets -- \
   --skip rust_scaffold_builds_and_tests_with_native_toolchain \
   --skip rust_scaffold_builds_with_native_toolchain_without_forge \
   --skip declaration_is_inert_for_native_builds_present_and_absent \
+  --test-threads=1 \
   "$@"

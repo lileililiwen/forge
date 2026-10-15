@@ -277,9 +277,7 @@ fn pull_request_mode_is_the_default_and_does_not_need_a_confirm() {
     let tmp = tempfile::tempdir().unwrap();
     let bins = tmp.path().join("bins");
     fs::create_dir_all(&bins).unwrap();
-    let reply = format!(
-        r#"{{"mode":"pull-request","state":"current","artifact_id":"https://github.com/octocat/hello-world/pull/42","note":"opened"}}"#
-    );
+    let reply = r#"{"mode":"pull-request","state":"current","artifact_id":"https://github.com/octocat/hello-world/pull/42","note":"opened"}"#.to_string();
     write_stub(
         &bins,
         "forge-github-metadata-adapter",
@@ -319,9 +317,8 @@ fn direct_mode_refuses_without_an_explicit_confirmation() {
     let tmp = tempfile::tempdir().unwrap();
     let bins = tmp.path().join("bins");
     fs::create_dir_all(&bins).unwrap();
-    let reply = format!(
-        r#"{{"mode":"direct","state":"current","artifact_id":"deadbeef","note":"applied"}}"#
-    );
+    let reply = r#"{"mode":"direct","state":"current","artifact_id":"deadbeef","note":"applied"}"#
+        .to_string();
     write_stub(
         &bins,
         "forge-github-metadata-adapter",
@@ -361,9 +358,7 @@ fn direct_mode_refuses_when_the_adapter_does_not_echo_the_confirmation() {
     let bins = tmp.path().join("bins");
     fs::create_dir_all(&bins).unwrap();
     // The stub echoes a different confirmation, so the call is refused.
-    let reply = format!(
-        r#"{{"mode":"direct","state":"current","artifact_id":"deadbeef","note":"applied","confirmation":"not-the-token"}}"#
-    );
+    let reply = r#"{"mode":"direct","state":"current","artifact_id":"deadbeef","note":"applied","confirmation":"not-the-token"}"#.to_string();
     write_stub(
         &bins,
         "forge-github-metadata-adapter",
@@ -394,13 +389,12 @@ fn direct_mode_refuses_when_the_adapter_does_not_echo_the_confirmation() {
     let out = cmd.output().expect("run forge");
     let value: Value = serde_json::from_slice(&out.stdout).expect("json");
     let state = &value["outcome"]["state"];
-    assert_eq!(
+    assert!(
         state["unavailable"]["reason"]
             .as_str()
             .unwrap()
             .to_ascii_lowercase()
             .contains("confirmation"),
-        true,
         "{state}"
     );
     assert!(
@@ -417,9 +411,8 @@ fn an_unknown_proposed_field_is_github_invalid() {
     let tmp = tempfile::tempdir().unwrap();
     let bins = tmp.path().join("bins");
     fs::create_dir_all(&bins).unwrap();
-    let reply = format!(
-        r#"{{"mode":"pull-request","state":"current","artifact_id":"pr/1","note":"opened"}}"#
-    );
+    let reply = r#"{"mode":"pull-request","state":"current","artifact_id":"pr/1","note":"opened"}"#
+        .to_string();
     write_stub(
         &bins,
         "forge-github-metadata-adapter",

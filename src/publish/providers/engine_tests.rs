@@ -4,7 +4,7 @@
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::*;
+
     use crate::publish::providers::contract::{
         CONTAINER_IDENTITY_MAX, PHASE_STATUS_SUCCEEDED, PROGRESS_DETAIL_MAX,
         PUBLISH_PROVIDER_CONTRACT, QUEUE_ID_MAX,

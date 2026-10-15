@@ -44,10 +44,7 @@ fn release_gate(
     id: &str,
     raw_version: Option<&str>,
 ) -> Result<(PathBuf, Semver), ApiResponse> {
-    let project_dir = match deploy_id_gate(db_path, id) {
-        Ok(dir) => dir,
-        Err(response) => return Err(response),
-    };
+    let project_dir = deploy_id_gate(db_path, id)?;
     match parse_release_version(raw_version) {
         Ok(version) => Ok((project_dir, version)),
         Err(response) => Err(response),

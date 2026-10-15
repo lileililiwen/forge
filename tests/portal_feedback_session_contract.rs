@@ -27,14 +27,15 @@ fn result_containers_are_live_regions() {
     // Every static result container declares a polite live region in markup.
     // The count is the tripwire: it fails when a container loses its region and
     // when one is added without a role, so the role check below is never
-    // silently skipped. Ten is what `index.html` declares today — the seven of
-    // `ff91bca` (plan, apply, mgmt-preview, mgmt-apply, ws-preview, ws-apply,
+    // silently skipped. Eleven is what `index.html` declares today — the seven
+    // of `ff91bca` (plan, apply, mgmt-preview, mgmt-apply, ws-preview, ws-apply,
     // delivery-action) plus `github-action-result` (`216abe1`),
-    // `delivery-next-idea` (`c71805c`) and `idea-result` (`8e638ea`).
+    // `delivery-next-idea` (`c71805c`), `idea-result` (`8e638ea`) and
+    // `identity-change-password-result` (the identity password-rotation flow).
     let containers = html.matches("class=\"wb-plan-result\"").count();
     assert_eq!(
-        containers, 10,
-        "expected ten .wb-plan-result containers in index.html"
+        containers, 11,
+        "expected eleven .wb-plan-result containers in index.html"
     );
     let with_role = html
         .matches("class=\"wb-plan-result\" role=\"status\"")

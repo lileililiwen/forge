@@ -231,7 +231,7 @@ fn change_password_inner(_config: &ApiConfig, db_path: &Path, request: &ApiReque
     // sessions on success.
     match crate::identity::global::authenticate(db_path, &email, &body.current) {
         Ok(Some(token)) => {
-            if let Err(_) = crate::identity::global::revoke(db_path, &token) {
+            if crate::identity::global::revoke(db_path, &token).is_err() {
                 return error(
                     500,
                     "admin-password-rotation-failed",

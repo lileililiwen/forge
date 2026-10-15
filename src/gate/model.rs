@@ -113,6 +113,7 @@ impl GateConfig {
 }
 /// Outcome of one bounded gate invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum GateOutcome {
     /// A parseable status document mapped into evidence. Only a real run
     /// produces this: a rehearsal document is recognised by its own shape

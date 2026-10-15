@@ -478,7 +478,7 @@ pub(super) mod tests {
             .map(|row| row["name"].as_str().unwrap().to_string())
             .collect::<Vec<_>>();
         let mut sorted = names.clone();
-        sorted.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        sorted.sort_by_key(|a| a.to_lowercase());
         assert_eq!(names, sorted);
     }
 

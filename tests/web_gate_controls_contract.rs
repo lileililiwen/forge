@@ -117,6 +117,7 @@ fn get(config: &ApiConfig, db: &Path, token: &str, path: &str) -> ApiResponse {
     handle(config, db, &with_cookie(req, token), Utc::now())
 }
 
+#[allow(dead_code)]
 fn post(config: &ApiConfig, db: &Path, token: &str, path: &str, body: &[u8]) -> ApiResponse {
     let mut req = request("POST", path, &config.frontend_origin);
     req = json_body(with_cookie(req, token), body);
@@ -170,7 +171,7 @@ fn gate_block_adds_no_write_no_shell_and_no_html_interpretation() {
     let end = js
         .find("Project status projection")
         .or_else(|| js.find("Lifecycle series"))
-        .unwrap_or_else(|| js.len());
+        .unwrap_or(js.len());
     let block = &js[start..end.min(start + 4000)];
     for banned in ["innerHTML", "eval(", "Function(", "XMLHttpRequest"] {
         assert!(

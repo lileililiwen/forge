@@ -5,7 +5,6 @@
 use crate::core::manifest::CANONICAL_MANIFEST;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use std::fs;
 use std::path::Path;
 
 use super::constants::MAX_EVIDENCE_CHARS;

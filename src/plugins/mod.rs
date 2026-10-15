@@ -274,26 +274,26 @@ pub fn metadata_plugins<'a>(
 }
 
 /// Ready, enabled gate plugins in registry order, beside `metadata_plugins`.
-pub fn gate_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+pub fn gate_plugins(records: &[PluginRecord]) -> Vec<&PluginRecord> {
     plugins_of_kind(records, PluginKind::Gate)
 }
 
 /// Ready, enabled quality plugins in registry order.
-pub fn quality_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+pub fn quality_plugins(records: &[PluginRecord]) -> Vec<&PluginRecord> {
     plugins_of_kind(records, PluginKind::Quality)
 }
 
 /// Ready, enabled agent plugins in registry order.
-pub fn agent_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+pub fn agent_plugins(records: &[PluginRecord]) -> Vec<&PluginRecord> {
     plugins_of_kind(records, PluginKind::Agent)
 }
 
 /// Ready, enabled contract plugins in registry order.
-pub fn contract_plugins<'a>(records: &'a [PluginRecord]) -> Vec<&'a PluginRecord> {
+pub fn contract_plugins(records: &[PluginRecord]) -> Vec<&PluginRecord> {
     plugins_of_kind(records, PluginKind::Contract)
 }
 
-fn plugins_of_kind<'a>(records: &'a [PluginRecord], kind: PluginKind) -> Vec<&'a PluginRecord> {
+fn plugins_of_kind(records: &[PluginRecord], kind: PluginKind) -> Vec<&PluginRecord> {
     records
         .iter()
         .filter(|record| {
@@ -518,9 +518,9 @@ fn executable(command: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return std::fs::metadata(command)
+        std::fs::metadata(command)
             .map(|meta| meta.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {

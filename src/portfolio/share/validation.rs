@@ -8,9 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::portfolio::share::{
-    ShareSurface, ShareWrite, CREDENTIAL_QUERY_KEYS, EVIDENCE_KEYS, MAX_CATEGORY_CHARS,
-    MAX_EVIDENCE_KEYS, MAX_SUMMARY_CHARS, MAX_SURFACES, MAX_TITLE_CHARS, MAX_URL_CHARS,
-    PRIVATE_HOST_SUFFIXES, PRIVATE_PATH_SEGMENTS,
+    ShareWrite, CREDENTIAL_QUERY_KEYS, EVIDENCE_KEYS, MAX_CATEGORY_CHARS, MAX_EVIDENCE_KEYS,
+    MAX_SUMMARY_CHARS, MAX_SURFACES, MAX_TITLE_CHARS, MAX_URL_CHARS, PRIVATE_HOST_SUFFIXES,
+    PRIVATE_PATH_SEGMENTS,
 };
 
 /// Well-known credential prefixes. A value carrying one of these is
@@ -388,10 +388,60 @@ pub fn validate_status_evidence(raw: Option<&str>) -> Result<Option<String>, Str
         .map_err(|err| format!("status evidence could not be serialized: {err}"))
 }
 
+// Validate one share write end to end and return it normalized.
+/// Every field arrives unvalidated: the transports hand raw operator
+/// input straight to this gate.
+///
+/// The order matters: the URL and private-surface rules run before
+/// the text bounds, because a rejected private path is the finding an
+/// admin most needs to see, and the secret-shape check runs before
+/// anything is normalized so a credential never reaches a string the
+/// caller could log.
+pub fn validate_share(write: &ShareWrite) -> Result<ShareWrite, String> {
+    let source_url = validate_public_url("source_url", &write.source_url)?;
+    let demo_url = match &write.demo_url {
+        Some(value) => Some(validate_public_url("demo_url", value)?),
+        None => None,
+    };
+    if write.surfaces.len() > MAX_SURFACES {
+        return Err(format!(
+            "a share record may declare at most {MAX_SURFACES} public surfaces"
+        ));
+    }
+    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut surfaces = Vec::with_capacity(write.surfaces.len());
+    for surface in &write.surfaces {
+        let validated = surface.validate()?;
+        let key = (validated.label.clone(), validated.url.clone());
+        if !seen.insert(key) {
+            return Err(format!(
+                "public surface `{}` is declared more than once",
+                validated.label
+            ));
+        }
+        surfaces.push(validated);
+    }
+    // Deterministic ordering keeps the canonical manifest stable
+    // regardless of the order the surfaces were supplied in.
+    surfaces.sort_by(|a, b| (&a.label, &a.url).cmp(&(&b.label, &b.url)));
+    Ok(ShareWrite {
+        title: validate_public_text("title", &write.title, MAX_TITLE_CHARS, false)?,
+        summary: validate_public_text("summary", &write.summary, MAX_SUMMARY_CHARS, false)?,
+        category: validate_public_text("category", &write.category, MAX_CATEGORY_CHARS, false)?,
+        source_url,
+        demo_url,
+        visibility: write.visibility,
+        featured: write.featured,
+        showcase_status: write.showcase_status,
+        status_evidence: validate_status_evidence(write.status_evidence.as_deref())?,
+        surfaces,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::portfolio::share::{ShowcaseStatus, Visibility};
+    use crate::portfolio::share::{ShareSurface, ShowcaseStatus, Visibility};
 
     fn write() -> ShareWrite {
         ShareWrite {
@@ -559,54 +609,4 @@ mod tests {
         assert!(validate_status_evidence(Some(r#"{"state":"token=abcdef123456"}"#)).is_err());
         assert!(validate_status_evidence(None).expect("absent").is_none());
     }
-}
-
-// Validate one share write end to end and return it normalized.
-/// Every field arrives unvalidated: the transports hand raw operator
-/// input straight to this gate.
-///
-/// The order matters: the URL and private-surface rules run before
-/// the text bounds, because a rejected private path is the finding an
-/// admin most needs to see, and the secret-shape check runs before
-/// anything is normalized so a credential never reaches a string the
-/// caller could log.
-pub fn validate_share(write: &ShareWrite) -> Result<ShareWrite, String> {
-    let source_url = validate_public_url("source_url", &write.source_url)?;
-    let demo_url = match &write.demo_url {
-        Some(value) => Some(validate_public_url("demo_url", value)?),
-        None => None,
-    };
-    if write.surfaces.len() > MAX_SURFACES {
-        return Err(format!(
-            "a share record may declare at most {MAX_SURFACES} public surfaces"
-        ));
-    }
-    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
-    let mut surfaces = Vec::with_capacity(write.surfaces.len());
-    for surface in &write.surfaces {
-        let validated = surface.validate()?;
-        let key = (validated.label.clone(), validated.url.clone());
-        if !seen.insert(key) {
-            return Err(format!(
-                "public surface `{}` is declared more than once",
-                validated.label
-            ));
-        }
-        surfaces.push(validated);
-    }
-    // Deterministic ordering keeps the canonical manifest stable
-    // regardless of the order the surfaces were supplied in.
-    surfaces.sort_by(|a, b| (&a.label, &a.url).cmp(&(&b.label, &b.url)));
-    Ok(ShareWrite {
-        title: validate_public_text("title", &write.title, MAX_TITLE_CHARS, false)?,
-        summary: validate_public_text("summary", &write.summary, MAX_SUMMARY_CHARS, false)?,
-        category: validate_public_text("category", &write.category, MAX_CATEGORY_CHARS, false)?,
-        source_url,
-        demo_url,
-        visibility: write.visibility,
-        featured: write.featured,
-        showcase_status: write.showcase_status,
-        status_evidence: validate_status_evidence(write.status_evidence.as_deref())?,
-        surfaces,
-    })
 }

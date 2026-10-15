@@ -26,7 +26,6 @@ pub(super) mod tests {
     };
     use crate::registry::{ProjectRecord, Registry};
     use std::collections::BTreeMap;
-    use std::path::Path;
 
     fn sample_meta() -> Manifest {
         let raw = br#"

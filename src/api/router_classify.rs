@@ -334,6 +334,7 @@ pub(super) fn is_admin_dispatch(route: &Route) -> bool {
 /// fallthrough arm byte-for-byte. In practice the function is the
 /// exhaustiveness companion of [`is_admin_dispatch`] so the final
 /// match in `handle()` collapses to a single fallthrough arm.
+#[allow(dead_code)]
 pub(super) fn is_admin_route(route: &Route) -> bool {
     match route {
         Route::AdminSessionGet

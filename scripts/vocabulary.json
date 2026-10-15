@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "roles": [
+    "product",
+    "platform",
+    "tooling",
+    "governance",
+    "deployment",
+    "inventory"
+  ],
+  "stacks": [
+    "dotnet",
+    "rust",
+    "typescript",
+    "python",
+    "flutter",
+    "none"
+  ],
+  "profiles": [
+    "governance",
+    "product",
+    "typescript-product",
+    "python-product",
+    "rust-product",
+    "dotnet-product",
+    "typescript-monorepo",
+    "dotnet-library",
+    "dotnet-template",
+    "rust-platform",
+    "python-runtime",
+    "platform",
+    "tooling",
+    "deployment",
+    "inventory"
+  ],
+  "kinds": [
+    "product",
+    "typescript-product",
+    "python-product",
+    "rust-product",
+    "dotnet-product",
+    "typescript-monorepo",
+    "shared-library",
+    "tooling",
+    "platform",
+    "governance",
+    "deployment",
+    "inventory"
+  ],
+  "placeholder_markers": [
+    "todo",
+    "fixme",
+    "xxx",
+    "hack",
+    "unimplemented!",
+    "todo!"
+  ],
+  "secret_field_substrings": [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "apikey",
+    "api_key",
+    "api-key",
+    "credential",
+    "private_key",
+    "privatekey",
+    "private-key",
+    "bearer",
+    "session_ke",
+    "session_key"
+  ],
+  "standalone_statuses": [
+    "standalone",
+    "standalone-with-optional-integrations",
+    "library-dependent",
+    "workspace-dependent",
+    "service-dependent",
+    "blocked"
+  ],
+  "integration_required_states": [
+    "required",
+    "optional"
+  ],
+  "readme_claim_surfaces": [
+    "api",
+    "application-source",
+    "build",
+    "ci",
+    "deployment",
+    "migrations",
+    "mobile-client",
+    "production-evidence",
+    "provider-integration",
+    "repository-content",
+    "runtime",
+    "test",
+    "web-client"
+  ],
+  "readme_absence_phrases": [
+    "does not exist yet",
+    "documentation only",
+    "no ... exists",
+    "no application source",
+    "no source",
+    "nothing is implemented",
+    "not implemented",
+    "planning artifacts only",
+    "planning-only",
+    "remains to be built",
+    "specifications and documentation only"
+  ]
+}

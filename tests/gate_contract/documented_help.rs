@@ -106,7 +106,7 @@ fn dry_run_rehearsal_document_renders_the_plan_and_never_becomes_evidence() {
     // A rehearsal carries no verdict-shaped key at any depth: not in the
     // typed document, not in the envelope Forge renders around it.
     assert!(
-        forge::gate::verdict_like_keys(&rehearsal).is_empty(),
+        forge::gate::verdict_like_keys(rehearsal).is_empty(),
         "{rehearsal}"
     );
     assert!(forge::gate::verdict_like_keys(&value).is_empty(), "{value}");

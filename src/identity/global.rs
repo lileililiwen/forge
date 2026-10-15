@@ -223,7 +223,7 @@ fn revoke_all_sessions_in(db: &Connection) -> Result<(), String> {
 /// characters (`0/O`, `1/l/I`) so a pasted password stays reliable, and the
 /// default range always satisfies the [`setup`] minimum.
 pub fn generate_password(length: usize) -> Result<String, String> {
-    if length < 12 || length > 128 {
+    if !(12..=128).contains(&length) {
         return Err("password length must be between 12 and 128 characters".into());
     }
     const ALPHABET: &[u8] =

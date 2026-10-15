@@ -644,10 +644,7 @@ fn catalog_reports_deploy_plan_and_apply_as_web_with_an_execution_block() {
         .find(|row| row.id == "deploy.plan")
         .expect("missing catalog row deploy.plan");
     assert_eq!(plan.availability, "web", "deploy.plan should be web");
-    assert_eq!(
-        plan.route.as_deref(),
-        Some("GET /v1/admin/projects/{id}/deploy/plan")
-    );
+    assert_eq!(plan.route, Some("GET /v1/admin/projects/{id}/deploy/plan"));
     assert!(
         plan.execution.is_none(),
         "deploy.plan is a read route, no execution block"

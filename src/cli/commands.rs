@@ -190,6 +190,7 @@ pub(crate) enum PublishCommands {
 /// thread replays every journal row serially and renders all
 /// output so concurrent runs keep identical row shapes and queue
 /// id semantics (`fleet-live-rollout` D1).
+#[allow(dead_code)]
 pub(super) enum FleetEntryOutcome {
     Published {
         human: String,

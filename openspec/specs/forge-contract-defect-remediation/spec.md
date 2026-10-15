@@ -1,7 +1,13 @@
 # forge-contract-defect-remediation Specification
 
 ## Purpose
-TBD - created by archiving change forge-contract-defect-remediation. Update Purpose after archive.
+This specification remediates a set of contract defects in Forge's portal admin
+surface: the identity password-rotation handler, the portfolio interest read
+handlers, admin dispatch handling of unmanaged projects, POST-only admin route
+method and authorization enforcement, and the reduced-motion CSS block. Each fix
+restores the canonical wire envelope (status, error code, and `effect`) that the
+delivered quick-win changes assert, and the contract-test suite pins that
+envelope so the corrections stay production-verified.
 ## Requirements
 ### Requirement: Contract defect remediation
 

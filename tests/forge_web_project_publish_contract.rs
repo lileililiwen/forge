@@ -823,7 +823,7 @@ fn catalog_reports_publish_as_web_with_an_empty_execution_block() {
         .expect("missing catalog row publish");
     assert_eq!(publish.availability, "web", "publish should be web");
     assert_eq!(
-        publish.route.as_deref(),
+        publish.route,
         Some("POST /v1/admin/projects/{id}/publish"),
         "publish route"
     );

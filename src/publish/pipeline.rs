@@ -217,9 +217,7 @@ pub fn run_publish(
     };
 
     if let Some(reg) = registry {
-        let verdict = if request.dry_run {
-            "done"
-        } else if healthy {
+        let verdict = if request.dry_run || healthy {
             "done"
         } else {
             "failed"

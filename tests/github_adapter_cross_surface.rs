@@ -215,7 +215,7 @@ fn fixture(tmp: &Path) -> (PathBuf, PathBuf) {
     write_project(&beta, "beta");
     init_git(&alpha, "https://github.com/octocat/hello-world.git");
     init_git(&beta, "https://github.com/octocat/spoon-knife.git");
-    let mut register = clean_cmd(&alpha.parent().unwrap());
+    let mut register = clean_cmd(alpha.parent().unwrap());
     register
         .arg("--registry")
         .arg(&db)
@@ -227,7 +227,7 @@ fn fixture(tmp: &Path) -> (PathBuf, PathBuf) {
         "register alpha failed: {}",
         lossy(&out.stderr)
     );
-    let mut register = clean_cmd(&alpha.parent().unwrap());
+    let mut register = clean_cmd(alpha.parent().unwrap());
     register
         .arg("--registry")
         .arg(&db)

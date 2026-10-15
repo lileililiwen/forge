@@ -80,6 +80,7 @@ pub fn single_topic_value(changes: &[ProposedChange]) -> Option<String> {
 #[derive(Debug, serde::Deserialize)]
 struct FallbackView {
     #[serde(default)]
+    #[allow(dead_code)]
     name_with_owner: Option<String>,
     #[serde(default)]
     description: Option<String>,

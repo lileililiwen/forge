@@ -52,7 +52,6 @@ pub fn gather(
     let local_ids: std::collections::BTreeSet<String> =
         registry_rows.iter().map(|row| row.id.clone()).collect();
 
-    let registry_count;
     let mut merged_self: Option<CandidateRow> = None;
     for row in registry_rows {
         let evidence = row
@@ -97,7 +96,7 @@ pub fn gather(
             candidates.push(candidate);
         }
     }
-    registry_count = candidates
+    let registry_count = candidates
         .iter()
         .filter(|candidate| candidate.source == RowSource::Registry)
         .count();

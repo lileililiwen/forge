@@ -329,11 +329,11 @@ pub(super) fn cmd_portfolio_share(
                 }
                 for approval in &approvals {
                     out.push_str(&format!(
-                        "  revision {} {} {} {} by {}\n",
+                        "  revision {} {} {} {} project(s) by {}\n",
                         approval.revision,
                         approval.state,
                         approval.manifest_sha256,
-                        format!("{} project(s)", approval.project_count),
+                        approval.project_count,
                         approval.actor
                     ));
                 }

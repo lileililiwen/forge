@@ -12,9 +12,9 @@ pub(super) mod tests {
     use crate::core::manifest::Manifest;
     use crate::feature::contract::TESTED_VERSION;
     use crate::feature::engine::{
-        add_feature, descriptor, edit_manifest_features, expected_receipt, feature_catalog,
-        inspect_feature, lookup, receipt_path, remove_feature, resolve_plan,
-        resolve_plan_with_catalog, upgrade_feature,
+        add_feature, edit_manifest_features, expected_receipt, feature_catalog, inspect_feature,
+        lookup, receipt_path, remove_feature, resolve_plan, resolve_plan_with_catalog,
+        upgrade_feature,
     };
     use crate::feature::model::FeatureDescriptor;
     use crate::registry::Registry;

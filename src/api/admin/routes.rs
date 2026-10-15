@@ -86,8 +86,8 @@ pub const ROUTE_ADMIN_DELIVERY_STATUS: &str = "GET /v1/admin/projects/{id}/deliv
 /// the exact path.
 pub const ROUTE_ADMIN_DELIVERY_PREFLIGHT: &str = "POST /v1/admin/projects/{id}/delivery/preflight";
 
-/// The `forge delivery stage` operation, exposed as a session-gated, preview
-/// + confirm/digest-bound admin route. The descriptor binds the project id,
+/// The `forge delivery stage` operation, exposed as a session-gated, preview,
+/// confirm/digest-bound admin route. The descriptor binds the project id,
 /// server-resolved revision and canonical operation id; Core independently
 /// verifies that the operation is a healthy same-revision preflight.
 pub const ROUTE_ADMIN_DELIVERY_STAGE: &str = "POST /v1/admin/projects/{id}/delivery/stage";

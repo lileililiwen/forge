@@ -43,7 +43,7 @@ where
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
 
-    let width = jobs.max(1).min(FLEET_MAX_JOBS).min(eligible.len().max(1));
+    let width = jobs.clamp(1, FLEET_MAX_JOBS.min(eligible.len().max(1)));
     let stop = AtomicBool::new(false);
     let (tx, rx) = mpsc::channel::<(usize, FleetEntryOutcome)>();
     // Atomic index dispenser: workers claim the next roster slot.
@@ -104,168 +104,6 @@ where
             })
         })
         .collect()
-}
-
-#[cfg(test)]
-pub(super) mod fleet_jobs_tests {
-    use super::super::commands::FleetEntryOutcome;
-    use super::super::publish::validate_fleet_jobs;
-    use super::deploy_needs_prepare_materialization;
-    use super::run_fleet_concurrent;
-    use forge::core::ForgeError;
-    use forge::publish::PublishAction;
-
-    #[test]
-    fn jobs_flag_is_bounded() {
-        assert!(validate_fleet_jobs(1).is_ok());
-        assert!(validate_fleet_jobs(4).is_ok());
-        assert!(validate_fleet_jobs(32).is_ok());
-        assert!(validate_fleet_jobs(0).is_err());
-        assert!(validate_fleet_jobs(33).is_err());
-        assert!(validate_fleet_jobs(usize::MAX).is_err());
-    }
-
-    #[test]
-    fn concurrent_scheduler_preserves_roster_order() {
-        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..8)
-            .map(|i| forge::publish::inventory::InventoryFleetEntry {
-                id: format!("proj-{i:02}"),
-                runtime: forge::publish::inventory::RuntimeClass::Web,
-                profile: String::new(),
-                revision: "0".repeat(40),
-                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
-                compose_file: Some("docker-compose.yml".to_string()),
-                source_path: None,
-                public_http: false,
-                public_port: None,
-                subdomain: None,
-                reason: None,
-            })
-            .collect();
-        let outcomes =
-            run_fleet_concurrent(&entries, 4, false, |entry| FleetEntryOutcome::Published {
-                human: entry.id.clone(),
-                value: serde_json::json!({}),
-                healthy: true,
-                stage_count: 4,
-                subdomain: None,
-                journal: String::new(),
-            });
-        let ids: Vec<String> = outcomes
-            .iter()
-            .map(|o| match o {
-                FleetEntryOutcome::Published { human, .. } => human.clone(),
-                FleetEntryOutcome::Failed { .. } => "failed".to_string(),
-                FleetEntryOutcome::Phased { .. } => "phased".to_string(),
-            })
-            .collect();
-        assert_eq!(
-            ids,
-            (0..8).map(|i| format!("proj-{i:02}")).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn phased_outcomes_preserve_roster_order() {
-        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..5)
-            .map(|i| forge::publish::inventory::InventoryFleetEntry {
-                id: format!("proj-{i:02}"),
-                runtime: forge::publish::inventory::RuntimeClass::Web,
-                profile: String::new(),
-                revision: "0".repeat(40),
-                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
-                compose_file: Some("docker-compose.yml".to_string()),
-                source_path: None,
-                public_http: false,
-                public_port: None,
-                subdomain: None,
-                reason: None,
-            })
-            .collect();
-        let outcomes =
-            run_fleet_concurrent(&entries, 3, false, |_entry| FleetEntryOutcome::Phased {
-                reports: Vec::new(),
-                error: None,
-            });
-        assert_eq!(outcomes.len(), 5);
-        assert!(outcomes.iter().all(|o| matches!(
-            o,
-            FleetEntryOutcome::Phased {
-                reports: _,
-                error: None
-            }
-        )));
-    }
-
-    #[test]
-    fn concurrent_scheduler_stops_scheduling_on_fail_fast() {
-        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..6)
-            .map(|i| forge::publish::inventory::InventoryFleetEntry {
-                id: format!("proj-{i:02}"),
-                runtime: forge::publish::inventory::RuntimeClass::Web,
-                profile: String::new(),
-                revision: "0".repeat(40),
-                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
-                compose_file: Some("docker-compose.yml".to_string()),
-                source_path: None,
-                public_http: false,
-                public_port: None,
-                subdomain: None,
-                reason: None,
-            })
-            .collect();
-        let outcomes = run_fleet_concurrent(&entries, 1, true, |entry| {
-            if entry.id == "proj-00" {
-                FleetEntryOutcome::Failed {
-                    error: ForgeError::PublishInvalid {
-                        reason: "boom".to_string(),
-                    },
-                    journal: None,
-                }
-            } else {
-                FleetEntryOutcome::Published {
-                    human: entry.id.clone(),
-                    value: serde_json::json!({}),
-                    healthy: true,
-                    stage_count: 4,
-                    subdomain: None,
-                    journal: String::new(),
-                }
-            }
-        });
-        assert!(matches!(outcomes[0], FleetEntryOutcome::Failed { .. }));
-        // Tail slots were never scheduled: the scheduler fills them
-        // with a typed skip rather than running them.
-        assert!(matches!(outcomes[1], FleetEntryOutcome::Failed { .. }));
-    }
-
-    #[test]
-    fn deploy_only_phases_materialize_prepare_inputs() {
-        // Phase C runs Deploy alone on a fresh adapter, which must
-        // materialise Prepare's inputs first (`fleet-live-rollout`
-        // live evidence 2026-09-30).
-        assert!(deploy_needs_prepare_materialization(&[
-            PublishAction::Deploy
-        ]));
-        assert!(deploy_needs_prepare_materialization(&[
-            PublishAction::Sync,
-            PublishAction::Db,
-            PublishAction::Deploy,
-        ]));
-        // A subset that runs Prepare already has the state; Sync/Db
-        // never need it.
-        assert!(!deploy_needs_prepare_materialization(&[
-            PublishAction::Prepare
-        ]));
-        assert!(!deploy_needs_prepare_materialization(&[
-            PublishAction::Prepare,
-            PublishAction::Deploy,
-        ]));
-        assert!(!deploy_needs_prepare_materialization(&[
-            PublishAction::Sync,
-            PublishAction::Db,
-        ]));
-    }
 }
 
 /// Load an inventory snapshot from a local JSON file or an
@@ -827,5 +665,167 @@ pub(crate) fn cmd_fleet(
             *dry_run,
             format,
         ),
+    }
+}
+
+#[cfg(test)]
+pub(super) mod fleet_jobs_tests {
+    use super::super::commands::FleetEntryOutcome;
+    use super::super::publish::validate_fleet_jobs;
+    use super::deploy_needs_prepare_materialization;
+    use super::run_fleet_concurrent;
+    use forge::core::ForgeError;
+    use forge::publish::PublishAction;
+
+    #[test]
+    fn jobs_flag_is_bounded() {
+        assert!(validate_fleet_jobs(1).is_ok());
+        assert!(validate_fleet_jobs(4).is_ok());
+        assert!(validate_fleet_jobs(32).is_ok());
+        assert!(validate_fleet_jobs(0).is_err());
+        assert!(validate_fleet_jobs(33).is_err());
+        assert!(validate_fleet_jobs(usize::MAX).is_err());
+    }
+
+    #[test]
+    fn concurrent_scheduler_preserves_roster_order() {
+        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..8)
+            .map(|i| forge::publish::inventory::InventoryFleetEntry {
+                id: format!("proj-{i:02}"),
+                runtime: forge::publish::inventory::RuntimeClass::Web,
+                profile: String::new(),
+                revision: "0".repeat(40),
+                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
+                compose_file: Some("docker-compose.yml".to_string()),
+                source_path: None,
+                public_http: false,
+                public_port: None,
+                subdomain: None,
+                reason: None,
+            })
+            .collect();
+        let outcomes =
+            run_fleet_concurrent(&entries, 4, false, |entry| FleetEntryOutcome::Published {
+                human: entry.id.clone(),
+                value: serde_json::json!({}),
+                healthy: true,
+                stage_count: 4,
+                subdomain: None,
+                journal: String::new(),
+            });
+        let ids: Vec<String> = outcomes
+            .iter()
+            .map(|o| match o {
+                FleetEntryOutcome::Published { human, .. } => human.clone(),
+                FleetEntryOutcome::Failed { .. } => "failed".to_string(),
+                FleetEntryOutcome::Phased { .. } => "phased".to_string(),
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            (0..8).map(|i| format!("proj-{i:02}")).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn phased_outcomes_preserve_roster_order() {
+        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..5)
+            .map(|i| forge::publish::inventory::InventoryFleetEntry {
+                id: format!("proj-{i:02}"),
+                runtime: forge::publish::inventory::RuntimeClass::Web,
+                profile: String::new(),
+                revision: "0".repeat(40),
+                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
+                compose_file: Some("docker-compose.yml".to_string()),
+                source_path: None,
+                public_http: false,
+                public_port: None,
+                subdomain: None,
+                reason: None,
+            })
+            .collect();
+        let outcomes =
+            run_fleet_concurrent(&entries, 3, false, |_entry| FleetEntryOutcome::Phased {
+                reports: Vec::new(),
+                error: None,
+            });
+        assert_eq!(outcomes.len(), 5);
+        assert!(outcomes.iter().all(|o| matches!(
+            o,
+            FleetEntryOutcome::Phased {
+                reports: _,
+                error: None
+            }
+        )));
+    }
+
+    #[test]
+    fn concurrent_scheduler_stops_scheduling_on_fail_fast() {
+        let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..6)
+            .map(|i| forge::publish::inventory::InventoryFleetEntry {
+                id: format!("proj-{i:02}"),
+                runtime: forge::publish::inventory::RuntimeClass::Web,
+                profile: String::new(),
+                revision: "0".repeat(40),
+                classification: forge::publish::inventory::InventoryClassification::ComposeReady,
+                compose_file: Some("docker-compose.yml".to_string()),
+                source_path: None,
+                public_http: false,
+                public_port: None,
+                subdomain: None,
+                reason: None,
+            })
+            .collect();
+        let outcomes = run_fleet_concurrent(&entries, 1, true, |entry| {
+            if entry.id == "proj-00" {
+                FleetEntryOutcome::Failed {
+                    error: ForgeError::PublishInvalid {
+                        reason: "boom".to_string(),
+                    },
+                    journal: None,
+                }
+            } else {
+                FleetEntryOutcome::Published {
+                    human: entry.id.clone(),
+                    value: serde_json::json!({}),
+                    healthy: true,
+                    stage_count: 4,
+                    subdomain: None,
+                    journal: String::new(),
+                }
+            }
+        });
+        assert!(matches!(outcomes[0], FleetEntryOutcome::Failed { .. }));
+        // Tail slots were never scheduled: the scheduler fills them
+        // with a typed skip rather than running them.
+        assert!(matches!(outcomes[1], FleetEntryOutcome::Failed { .. }));
+    }
+
+    #[test]
+    fn deploy_only_phases_materialize_prepare_inputs() {
+        // Phase C runs Deploy alone on a fresh adapter, which must
+        // materialise Prepare's inputs first (`fleet-live-rollout`
+        // live evidence 2026-09-30).
+        assert!(deploy_needs_prepare_materialization(&[
+            PublishAction::Deploy
+        ]));
+        assert!(deploy_needs_prepare_materialization(&[
+            PublishAction::Sync,
+            PublishAction::Db,
+            PublishAction::Deploy,
+        ]));
+        // A subset that runs Prepare already has the state; Sync/Db
+        // never need it.
+        assert!(!deploy_needs_prepare_materialization(&[
+            PublishAction::Prepare
+        ]));
+        assert!(!deploy_needs_prepare_materialization(&[
+            PublishAction::Prepare,
+            PublishAction::Deploy,
+        ]));
+        assert!(!deploy_needs_prepare_materialization(&[
+            PublishAction::Sync,
+            PublishAction::Db,
+        ]));
     }
 }

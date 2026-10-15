@@ -12,7 +12,7 @@ pub(super) mod tests {
     use crate::ui_pattern::patterns::ui_pattern_catalog;
     use crate::ui_pattern::resolve::{inspect_ui_pattern, resolve_outcome, validate_request};
     use crate::ui_pattern::validate::{is_primitive_id, validate_descriptor};
-    use std::fs;
+
     use tempfile::TempDir;
 
     fn strings(values: &[&str]) -> Vec<String> {

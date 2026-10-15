@@ -474,15 +474,12 @@ fn governance_reads_never_run_or_persist() {
         None,
     );
     assert_eq!(list.status, 200);
-    assert!(
-        body_json(&list)
-            .pointer("/providers")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .len()
-            >= 1
-    );
+    assert!(!body_json(&list)
+        .pointer("/providers")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .is_empty());
     let status = get(
         &config,
         &db,

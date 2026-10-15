@@ -458,11 +458,7 @@ fn cmd_gate_evidence(
                 Err(err) => return gate_fail(&err, format),
             };
             // Journal the consumption attempt.
-            let verdict = if record.freshness == gate::evidence::EvidenceFreshness::Fresh {
-                "done"
-            } else {
-                "done"
-            };
+            let verdict = "done";
             let _ = registry.record_operation(
                 "gate",
                 project_id,

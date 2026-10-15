@@ -18,6 +18,12 @@ unsound = "all"
 # `reqwest` 0.11 stack.
 ignore = [
   { id = "RUSTSEC-2023-0071", reason = "rsa private-key decryption timing leak; Forge only does public-key signature verification, so the affected code path is unreachable" },
+  # RUSTSEC-2024-0449: unsafe-libyaml is unmaintained. It is a transitive
+  # dependency of `serde_yaml`, which Forge uses only to parse trusted,
+  # operator-authored config/spec YAML; the crate is feature-complete and the
+  # unmaintained status is a maintenance risk, not a known vulnerability. No
+  # maintained drop-in exists without a yaml-library migration.
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml unmaintained; transitive via serde_yaml for trusted config/spec YAML parsing only, no known vulnerability, no maintained drop-in without a yaml-lib migration" },
 ]
 
 [licenses]

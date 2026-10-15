@@ -18,6 +18,7 @@ use crate::portfolio::{
 use crate::registry::{OperationEntry, ProjectRecord, Registry};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FleetRow {
     pub id: String,
     pub profile: String,
@@ -40,6 +41,7 @@ impl FleetRow {
     /// Cell summary for the evidence column. A project with no
     /// imported observation reads `no evidence`, which is an
     /// honest absence rather than a pass.
+    #[allow(dead_code)]
     pub fn evidence_summary(&self) -> String {
         if self.evidence.is_empty() {
             return "no evidence".to_string();
@@ -53,6 +55,7 @@ impl FleetRow {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FleetListView {
     pub rows: Vec<FleetRow>,
     /// The filter that produced this list, echoed back into the

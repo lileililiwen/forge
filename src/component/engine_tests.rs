@@ -5,7 +5,7 @@
 #[cfg(test)]
 pub(super) mod tests {
     use crate::component::catalog::{
-        component_catalog, descriptor, epoch_record_time, inspect_component, is_primitive_id,
+        component_catalog, epoch_record_time, inspect_component, is_primitive_id,
         latest_verified_timestamp, validate_descriptor,
     };
     use crate::component::contract::{CERTIFIED_TEST_COVERAGE, DEFAULT_INSTALL_STRATEGY};

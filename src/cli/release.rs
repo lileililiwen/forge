@@ -472,6 +472,7 @@ pub(crate) fn cmd_deploy(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_deploy_status(
     db_path: &Path,
     project: Option<&str>,

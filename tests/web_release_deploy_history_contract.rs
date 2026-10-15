@@ -411,10 +411,10 @@ fn deploy_status_answers_from_the_journal_only() {
     // Journal mixed rows: only publish/deploy rows for p1 survive.
     {
         let registry = Registry::open(&db).unwrap();
-        registry.record_operation("publish", "p1", "done", "shipped 1.2.3");
-        registry.record_operation("deploy", "p1", "done", "local delivered");
-        registry.record_operation("release", "p1", "done", "release cut");
-        registry.record_operation("publish", "other", "done", "unrelated");
+        let _ = registry.record_operation("publish", "p1", "done", "shipped 1.2.3");
+        let _ = registry.record_operation("deploy", "p1", "done", "local delivered");
+        let _ = registry.record_operation("release", "p1", "done", "release cut");
+        let _ = registry.record_operation("publish", "other", "done", "unrelated");
     }
     let before = journal_len(&db);
     let status = get(
@@ -520,7 +520,7 @@ fn catalog_reports_the_five_history_rows_as_web() {
             .find(|row| row.id == id)
             .unwrap_or_else(|| panic!("missing catalog row {id}"));
         assert_eq!(row.availability, "web", "{id} should be web");
-        assert_eq!(row.route.as_deref(), Some(route), "{id} route");
+        assert_eq!(row.route, Some(route), "{id} route");
         assert!(row.execution.is_none(), "{id} is a read route");
     }
     let observe = rows

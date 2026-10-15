@@ -2,10 +2,10 @@
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::super::model::{DoctorReport, FindingStatus, RegistryObservation, Remediation};
+    use super::super::model::{FindingStatus, RegistryObservation, Remediation};
     use super::super::probes::parse_target_level;
     use super::super::runner::run_doctor;
-    use crate::core::manifest::Manifest;
+
     use crate::core::ForgeError;
     use crate::policy::{PolicyFinding, PolicyOutcome, PolicyReport, PolicySeverity};
     use std::fs;

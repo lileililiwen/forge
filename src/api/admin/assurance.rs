@@ -745,7 +745,7 @@ fn contract_emit(project_dir: &Path, id: &str, family: &str) -> ApiResponse {
             }
         }),
         "platform.readiness" => match crate::contract::emit_readiness(project_dir, None) {
-            Ok(mut docs) => match docs.into_iter().next() {
+            Ok(docs) => match docs.into_iter().next() {
                 Some(doc) => Ok(doc),
                 None => {
                     return ApiResponse::json(

@@ -3,6 +3,7 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 pub(super) mod tests {
     use crate::gate::contract::{GATE_CONTRACT_VERSION, MAX_PLAN_LINES};
     use crate::gate::engine::{journal_verdict, run_gate};

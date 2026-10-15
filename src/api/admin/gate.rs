@@ -102,7 +102,7 @@ fn evidence_envelope(
 
 /// `GET /v1/admin/projects/{id}/gate/status` — read-only. Reuses the same
 /// Core functions the CLI uses for `forge gate status` (`load_latest_evidence`
-/// + `evidence_freshness` + `evidence_summary`). The handler renders the
+/// and `evidence_freshness` + `evidence_summary`). The handler renders the
 /// parsed `GateEvidence` envelope; the cached record is read-only and no
 /// write path runs. The `GateEvidence` record is the same JSON the
 /// `cmd_gate_status` envelope flattens, so a browser read and a CLI

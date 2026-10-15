@@ -48,12 +48,10 @@ pub struct EligibleProject {
 
 impl EligibleProject {
     pub fn compose_file(&self) -> Option<&'static str> {
-        for cand in ["docker-compose.yml", "compose.yml", "compose.yaml"] {
-            if self.path.join(cand).is_file() {
-                return Some(cand);
-            }
-        }
-        None
+        ["docker-compose.yml", "compose.yml", "compose.yaml"]
+            .into_iter()
+            .find(|&cand| self.path.join(cand).is_file())
+            .map(|v| v as _)
     }
 }
 
@@ -86,12 +84,13 @@ pub fn default_registry_path(workspace_root: Option<&Path>) -> PathBuf {
                 .ok()
                 .map(PathBuf::from)
         })
-        .unwrap_or_else(|| PathBuf::from("/home/paul/code"));
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     root.join("workspace-governance/projects.json")
 }
 
-/// Default workspace root: `$FORGE_WORKSPACE_ROOT` or
-/// `/home/paul/code`.
+/// Default workspace root: `$FORGE_WORKSPACE_ROOT`, or the current directory
+/// when unset. Never a machine-specific absolute path, so the command behaves
+/// the same on a standalone checkout as on a developer fleet machine.
 pub fn default_workspace_root() -> PathBuf {
     if let Ok(env_root) = std::env::var("FORGE_WORKSPACE_ROOT") {
         let trimmed = env_root.trim();
@@ -99,7 +98,7 @@ pub fn default_workspace_root() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
-    PathBuf::from("/home/paul/code")
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 /// Filter the registry to projects that should be published.

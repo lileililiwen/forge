@@ -564,7 +564,6 @@ fn catalog_names_the_reads_and_keeps_writes_cli_only() {
         "agent.new-session",
         "agent.run-spec",
         "identity.setup",
-        "identity.change-password",
         "identity.generate-password",
         "identity.status",
         "identity.complete-auth",
@@ -580,6 +579,18 @@ fn catalog_names_the_reads_and_keeps_writes_cli_only() {
         assert_eq!(row.availability, "cli_only", "{id} stays CLI-only");
         assert_eq!(row.route, None, "{id} names no route");
     }
+    // change-password is intentionally web-exposed: the browser drives password
+    // rotation, posting the new password as JSON. It is a SessionAdmin write
+    // (not a read), so it is asserted separately from the read-only web rows
+    // above rather than kept CLI-only.
+    let cp = by_id.get("identity.change-password").unwrap();
+    assert_eq!(cp.availability, "web", "change-password is web");
+    assert_eq!(
+        cp.route,
+        Some("POST /v1/admin/identity/change-password"),
+        "change-password route"
+    );
+    assert_eq!(cp.risk, "session_admin", "change-password risk");
 }
 
 #[test]

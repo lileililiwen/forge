@@ -29,7 +29,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -207,14 +206,14 @@ fn workspace() -> Workspace {
         "{\"dependencies\": {\"next\": \"15.0.0\"}}\n",
     )
     .unwrap();
-    fs::create_dir_all(&root.join("empty")).unwrap();
-    fs::create_dir_all(&root.join("badprofile")).unwrap();
+    fs::create_dir_all(root.join("empty")).unwrap();
+    fs::create_dir_all(root.join("badprofile")).unwrap();
     fs::write(
         root.join("badprofile").join("forge.yaml"),
         "schema: 1\nproject:\n  id: badprofile\n  name: Test badprofile\n  profile: no-such-profile\n  maturity: L1\nruntime:\n  language: rust\nfeatures: {}\n",
     )
     .unwrap();
-    fs::create_dir_all(&root.join(".hidden")).unwrap();
+    fs::create_dir_all(root.join(".hidden")).unwrap();
     fs::write(root.join("notadir"), "just a file\n").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink("/tmp", root.join("escape-link")).unwrap();
@@ -319,7 +318,7 @@ fn unset_root_is_a_typed_prerequisite_that_never_echoes_the_value() {
             r#"{"items":[{"directory":"manifest-proj"}]}"#,
         ),
     ] {
-        let mut req = request(method, path, &fx.config.frontend_origin);
+        let req = request(method, path, &fx.config.frontend_origin);
         let req = with_cookie(json_body(req, body), &fx.token);
         let response = handle_with_root(&fx.config, &fx.db, &req, None);
         assert_eq!(response.status, 409, "unset root {method} {path}");

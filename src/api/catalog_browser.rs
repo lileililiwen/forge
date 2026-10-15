@@ -67,14 +67,8 @@ fn filtered_records(
     query: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<Vec<catalog::CatalogRecord>, ApiResponse> {
-    let params = match parse_catalog_query_params(query) {
-        Ok(params) => params,
-        Err(response) => return Err(response),
-    };
-    let selection = match build_catalog_selection(&params) {
-        Ok(selection) => selection,
-        Err(response) => return Err(response),
-    };
+    let params = parse_catalog_query_params(query)?;
+    let selection = build_catalog_selection(&params)?;
     if let Err(err) = catalog::validate_max_age(params.max_age) {
         return Err(ApiResponse::from_error(&err));
     }

@@ -10,7 +10,7 @@
 //! *envelope*, not the storage contract — the Core function is
 //! already covered by `tests/web_login_credentials_contract.rs`
 //! (`change_password_stdin_rotates_and_invalidates_a_prior_session`
-//! + `a_short_password_on_stdin_is_refused`), and the generic admin
+//! `a_short_password_on_stdin_is_refused`), and the generic admin
 //! session gate is already covered by
 //! `tests/forge_admin_api_contract.rs`. The new test asserts the
 //! rotation-only behaviours: weak input refused, mismatched
@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use chrono::Utc;
-use forge::api::{command_catalog, handle, ApiConfig, ApiRequest, ApiResponse};
+use forge::api::{handle, ApiConfig, ApiRequest, ApiResponse};
 use serde_json::Value;
 
 const PASSWORD: &str = "a-long-test-password";
@@ -263,7 +263,7 @@ fn oversized_body_is_rejected_with_a_typed_413() {
     );
     req = with_cookie(req, &token);
     let mut body = br#"{"current":"x","password":""#.to_vec();
-    body.extend(std::iter::repeat(b'x').take(9000));
+    body.extend(std::iter::repeat_n(b'x', 9000));
     req = json_body(req, &body);
     let response = post(&config, &db, req);
     assert_eq!(response.status, 413);

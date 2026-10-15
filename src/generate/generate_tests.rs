@@ -9,7 +9,7 @@ pub(super) mod tests {
         check_files_inside, generate, render_files, toolchain_present, verify_native,
     };
     use crate::generate::model::CreationRequest;
-    use crate::generate::request::{manifest_text, normalize_explicit, parse_interactive};
+    use crate::generate::request::{normalize_explicit, parse_interactive};
     use crate::profile::inspect_profile;
     use crate::registry::Registry;
     use std::collections::HashSet;

@@ -943,7 +943,7 @@ fn catalog_reports_delivery_as_web_with_executable_blocks() {
     let status = row("delivery.status");
     assert_eq!(status.availability, "web");
     assert_eq!(
-        status.route.as_deref(),
+        status.route,
         Some("GET /v1/admin/projects/{id}/delivery/status")
     );
     assert!(status.execution.is_none(), "status is read-only");
@@ -975,7 +975,7 @@ fn catalog_reports_delivery_as_web_with_executable_blocks() {
     ] {
         let row = row(id);
         assert_eq!(row.availability, "web", "{id} availability");
-        assert_eq!(row.route.as_deref(), Some(route), "{id} route");
+        assert_eq!(row.route, Some(route), "{id} route");
         let execution = row.execution.as_ref().expect("execution block");
         assert_eq!(execution.route, route, "{id} execution route");
         assert_eq!(execution.method, "POST", "{id} method");

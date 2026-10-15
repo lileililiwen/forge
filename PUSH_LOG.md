@@ -4,6 +4,53 @@ Reviewable record of commits pushed to `origin/main` for CI-alignment /
 standalone-CI work, so they can be reviewed later without re-reading git
 history. Newest first within each dated section.
 
+## 2026-10-15 — fix `test` job: readiness contract emit returns an honest gap (200), not 400
+
+**Root cause (corrected):** after `driftwatchdog` was provisioned in CI
+(`fce47e6`/`78653ac`), the `test` job still failed — but the
+"Reproducing the `test` job locally" conclusion below (that the only
+blocker was `driftwatchdog`) was **wrong**. Run `38733975565` shows the
+suite itself passes **1231 passed, 0 failed**; the single failing test is
+`tests/web_assurance_browser_contract.rs:424`
+`contract_emit_is_read_only_with_honest_gaps` → HTTP **400** expected 200.
+
+Chain: `contract_emit` → `emit_readiness` → `run_matrix(&[])` (full
+profile matrix, incl. `aspnet-web`/`nextjs-web`) → when the **dotnet/node
+toolchain is absent** (the `test` job installs neither) `run_profile_row`
+returns `Err` → `emit_readiness` returns `Err(ContractInvalid)` →
+`assurance_error_status` maps `contract-invalid` → **400**. Locally the
+test passes (200) because the dev machine has dotnet 10.0 + node 24. This
+is the one true local/remote gap: local green, remote red.
+
+The earlier repro concluded `web_assurance_browser_contract` passes and
+the blocker was `checker_contract`/`driftwatchdog`, but that repro's PATH
+strip missed `/usr/bin/dotnet`, so dotnet was still present and the 400
+path never fired. `checker_contract` IS fixed by the `driftwatchdog`
+install; the readiness-emit 400 is a separate, real bug.
+
+**Fix:** `src/api/admin/assurance.rs` — `contract_emit`'s
+`platform.readiness` arm now returns a **200 `unavailable` envelope** when
+`emit_readiness`/`run_matrix` errors (missing toolchain), mirroring the
+existing empty-data case. The contract is read-only and must report an
+honest gap, never a 400, so a runner without every toolchain still gets a
+usable emit.
+
+**Local verification:** `cargo fmt --check` ✔, `cargo clippy -p forge
+--all-targets` ✔ (no warnings), full fast suite **1231+ passed, 0
+failed** ✔. `contract_emit_is_read_only_with_honest_gaps` passes both with
+dotnet present (envelope 200) and with dotnet stubbed to exit 127
+(unavailable 200) — proving the gap is closed.
+
+**Status:** committed this session; pushed to verify in remote CI.
+Remaining red jobs (out of scope this turn, per user decision): `gate`
+(missing `cargo-audit` on PATH + `workspace-governance` sibling + `forge
+gate .` locally hangs), `surfaces` (`forge doctor .` → `manifest-not-found`,
+no root `forge.yaml`; also fails locally), `readiness` (`dotnet build` for
+`aspnet-web` fails even with dotnet), `contract-parity` (`platform-contracts`
+sibling absent in CI), `governance` (`openspec`/`workspace-governance`).
+These are red on both sides or remote-only; `test` was the only
+local-green/remote-red gap.
+
 ## 2026-10-15 — provision driftwatchdog (gate runtime) in CI via release install script
 
 **Decision (user):** install `driftwatchdog` in CI so the `test`/`gate`

@@ -758,9 +758,24 @@ fn contract_emit(project_dir: &Path, id: &str, family: &str) -> ApiResponse {
                     )
                 }
             },
-            Err(e) => Err(crate::core::ForgeError::ContractInvalid {
-                reason: e.to_string(),
-            }),
+            // A missing native toolchain (e.g. dotnet/node for the aspnet-web
+            // or nextjs-web profiles) makes the matrix uncomputable. The
+            // contract is read-only and must report an honest gap (200 +
+            // `unavailable`), never a 400, so a runner without every
+            // toolchain still gets a usable emit. Mirrors the empty-data case
+            // above.
+            Err(e) => {
+                return ApiResponse::json(
+                    200,
+                    json!({
+                        "project": id,
+                        "family": family,
+                        "unavailable": true,
+                        "reason": format!("readiness matrix could not be computed: {e}"),
+                        "contract": API_CONTRACT_VERSION,
+                    }),
+                )
+            }
         },
         "platform.release-evidence" => {
             let manifest = match crate::core::manifest::Manifest::load_from_dir(project_dir, None) {

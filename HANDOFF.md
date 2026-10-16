@@ -1,5 +1,7 @@
 # Forge handoff
 
+current_spec: interface-declaration-consumption
+
 ## Current state
 
 ### `standard-pack-shared-assets-and-install` delivered (2026-10-16)

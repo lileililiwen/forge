@@ -2,7 +2,7 @@
 
 ## Current state
 
-current_spec: none
+current_spec: interface-declaration-and-boundary-findings
 
 ## Completed: OpenSpec seriality guard
 

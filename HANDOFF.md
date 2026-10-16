@@ -2,6 +2,89 @@
 
 ## Current state
 
+### `standard-pack-shared-assets-and-install` delivered (2026-10-16)
+
+Forge now carries the workspace's shared verification scripts as versioned
+pack content and can install a snapshot into a repository that already
+exists — the adoption path that was missing entirely.
+
+**Why.** Measured across the 83 siblings: `verify-local.sh` existed in 77
+repositories with 74 byte-identical copies and the canonical seed outside any
+repository; `scripts/check-openspec-change-names.mjs` existed in 29
+repositories in 26 different contents; the `check-accessibility.py` /
+`check-privacy.py` concern shims existed in 7 byte-identical copies. Forge's
+own pack rendered a five-line stub into `.standard/scripts/verify.sh`
+(`src/standard/snapshot.rs:61-68`), and `forge standard upgrade` refused every
+project with no receipt — so the only two repositories carrying a snapshot
+were the two Forge itself created.
+
+**What changed.**
+
+- `baseline-service@1.2.0` (supported, verified) adds four pinned assets:
+  `verify-local.sh` at the repository root, `scripts/check-openspec-change-names.mjs`,
+  `scripts/check-accessibility.py`, `scripts/check-privacy.py`. Assets are
+  committed under `standards/baseline-service/1.2.0/` and embedded with
+  `include_str!`; provenance and digests are in that directory's
+  `PROVENANCE.md`. `1.0.0`/`1.1.0` keep their own bytes; `2.0.0` stays proposed.
+- **The shared rehearsal script is owned at the repository root, not under
+  `.standard/`.** The script derives its working directory from its own
+  location; installed at `.standard/scripts/verify.sh` the live smoke run
+  printed "No recognized project type here" and exited 0 — a silent false pass.
+  `.standard/scripts/verify.sh` is therefore a Forge-owned wrapper that `cd`s to
+  the project root and `exec`s `./verify-local.sh`, failing loudly if the script
+  is missing.
+- **`forge standard install <pack@version> [PATH] --confirm`** materializes a
+  snapshot into a project that has none: it refuses without `--confirm`,
+  refuses when a receipt already exists (pointing at `diff`/`upgrade`),
+  refuses when a pack-owned path exists with different bytes (naming every
+  path, writing nothing, with no `--force`), adopts byte-identical files
+  without rewriting them, records the receipt, writes nothing else, and rolls
+  back what it wrote on failure. Identity comes from `forge.yaml` when present
+  — an explicit `--id`/`--profile` that contradicts it is refused — otherwise
+  from `--id` (default: directory name) plus `--profile`.
+- The CLI command catalog gained the `standard.install` row
+  (`src/api/command_catalog/rows_project.rs`) and the two hardcoded catalog
+  row counts moved 239 → 240.
+
+**Two defects this work found and fixed, both caught by measurement rather
+than review:** the wrong-location verify script above, and the missing catalog
+row — the repo's own Clap-tree drift tests failed the first full Gate run with
+`missing=["standard.install"]`, which is the guard working as designed.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --check` | clean |
+| `cargo build` | 0 errors |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | clean, 0 warnings |
+| `cargo test --lib standard` | **19 passed / 0 failed** (5 new) |
+| `cargo test --test standard_contract` | **13 passed / 0 failed** (4 new) |
+| `cargo test --test catalog_contract catalog_cross_surface forge_web_command_catalog_contract web_command_reference_browser_contract web_creation_catalog_browser_contract` | 18 / 9 / 9 / 6 / 10 passed, 0 failed |
+| `cargo test --test web_release_deploy_history_contract web_agent_identity_readonly_contract` | 10 / 9 passed, 0 failed |
+| `cargo test --bin forge` (Clap-tree coverage) | 7 passed / 0 failed |
+| live install (throwaway copies of `hookit` under `/tmp`) | canonical `verify-local.sh` **adopted** byte-identical; 8 owned paths written (second probe: 6 written, 2 adopted); `standard check` → `rendered`, 9 files `present`; `standard diff` → all `unchanged`; re-install refused; a divergent `scripts/check-privacy.py` refused the whole install naming it; the copy's `README.md`/`src/main.rs` byte-identical |
+| live rehearsal | `.standard/scripts/verify.sh` in the copy ran `=== Rust ===`, `✔ cargo fmt`, `✔ cargo clippy`, `✔ cargo test`, "All local checks passed." |
+| `node scripts/check-openspec-change-names.mjs` | PASS |
+| `openspec validate --all --strict --no-interactive` | **105 passed / 0 failed** |
+| `git diff --check` | clean |
+| `forge gate --dry-run` | plan rendered: 9 required checks, `declared-verification` 600000 ms |
+| `forge gate` (full, `--timeout-secs 1800`) | **blocked by `source-file-size` only**: `build`, `declared-verification`, `governance-quality`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `tests` **pass**; `source-file-size` fails on `src/api/admin/assurance.rs` (1,003 lines vs 1,000), byte-identical to HEAD `37e8824` and untouched by this change — **pre-existing**, remediation path: a size-split change following the repo's established `*-size-split` pattern. No new failure is introduced by this change |
+| `openspec archive standard-pack-shared-assets-and-install -y` | archived, **no `--skip-specs`**; canonical `standard-pack-registry-and-snapshots` gained two requirements |
+
+Two honest notes. First, the first run of the installed rehearsal script on a
+freshly compiled copy reported one failing check; the second run was clean and
+the failing check was not captured, so it is recorded as unattributed rather
+than explained away. Second, two pinned assets (`check-accessibility.py`,
+`check-privacy.py`) are shims that invoke
+`../workspace-governance/scripts/check_concern.py` at run time: that is the
+existing fleet-layout contract the generated Gate commands already use, and it
+only executes when a repository's Gate selects that concern.
+
+**Nothing was installed into any sibling repository by this change.** The pack
+and the install verb are the deliverable; adoption is a per-repository decision
+executed with `forge standard install`.
+
 ### `agent-provider-honest-state` delivered and archived (2026-10-13)
 
 Forge no longer reports agent activity it did not produce.

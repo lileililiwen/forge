@@ -20,6 +20,7 @@ the change directory.
 | 10 | `toolchain-decision-register` | workspace-governance | `openspec/changes/archive/2026-10-01-toolchain-decision-register/` | shipped |
 | 11 | `shared-postgres-runtime-profile` | workspace-governance | `openspec/changes/archive/2026-10-01-shared-postgres-runtime-profile/` | shipped |
 | 12 | `standalone-project-boundary` | workspace-governance | `openspec/changes/archive/2026-10-01-standalone-project-boundary/` | shipped |
+| 13 | `post-mvp-readiness` (propagated, per repository) | each product repository | `openspec/changes/post-mvp-readiness/` in 59 repositories | parked — campaign, not yet started |
 
 Package 4 was called `gate-run-evidence` in the original portfolio map; 5 was
 `platform-adoption-dotnet`; 6 `platform-adoption-rust`; 7
@@ -35,6 +36,18 @@ terminal capture; package 10 ships the `decisions.json` register; package 11
 adds the external-PostgreSQL runtime template family; package 12 adds the
 repository-relative standalone classification. None of them touches a
 sibling repository, runtime, or promotion ledger.
+
+Package 13 is a **campaign, not one change**: package 9 shipped the post-MVP
+documentation and terminal-capture contract in `workspace-governance`, and its
+package was then propagated as a per-repository change directory into **59**
+product repositories, where it stands at **0 of ~1,324 tasks** and has never run.
+Measured on 2026-10-17: every one of the 59 targets a `readiness` capability that
+is **absent from that repository's canonical specs**, so archiving them without
+doing the work would promote undelivered requirements — which is why the owner's
+recorded decision is to keep them parked and run them as one campaign rather than
+to archive or delete them. A campaign run closes each repository's package with
+the work actually done, then archives it normally (no `--skip-specs`), one
+reviewable commit per repository, ordered by blast radius.
 
 ## Implement a package
 

@@ -487,3 +487,258 @@ fn crate_sha256(bytes: &[u8]) -> String {
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
 }
+
+/// The pinned shared rehearsal script, read from the repository's committed
+/// asset tree: the pack payload and the committed bytes must be the same file.
+fn pinned_shared_script() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("standards/baseline-service/1.2.0/verify-local.sh");
+    fs::read_to_string(path).expect("pinned shared script")
+}
+
+const SHARED_PACK: &str = "baseline-service@1.2.0";
+
+#[test]
+fn install_into_an_existing_project_adopts_identical_files_and_writes_only_owned_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let project = tmp.path().join("sibling");
+    fs::create_dir_all(project.join("src")).unwrap();
+    // The fleet's real starting state: the canonical rehearsal script is already
+    // there (74 repositories carry exactly these bytes), plus unrelated files.
+    write(&project, "verify-local.sh", &pinned_shared_script());
+    write(&project, "README.md", "# sibling\n");
+    write(&project, "src/main.rs", "fn main() {}\n");
+
+    let out = run(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+            "--confirm",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "install failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let human = String::from_utf8_lossy(&out.stdout);
+    assert!(human.contains("adopted"), "{human}");
+
+    // The shared scripts are in place, byte-identical to the pinned assets.
+    assert_eq!(
+        fs::read_to_string(project.join("verify-local.sh")).unwrap(),
+        pinned_shared_script()
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("scripts/check-openspec-change-names.mjs")).unwrap(),
+        fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("standards/baseline-service/1.2.0/scripts/check-openspec-change-names.mjs")
+        )
+        .unwrap()
+    );
+    assert!(project.join("scripts/check-accessibility.py").is_file());
+    assert!(project.join("scripts/check-privacy.py").is_file());
+    assert!(project.join(RECEIPT).is_file());
+    // Unrelated files are untouched: only owned paths plus the receipt are new.
+    assert_eq!(
+        fs::read_to_string(project.join("README.md")).unwrap(),
+        "# sibling\n"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("src/main.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
+#[test]
+fn install_refusals_are_typed_and_write_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let project = tmp.path().join("sibling");
+    fs::create_dir_all(&project).unwrap();
+    write(&project, "README.md", "# sibling\n");
+
+    // Confirmation is required.
+    expect_refusal(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+        ],
+        "standard-invalid",
+    );
+    // A profile is required without a manifest.
+    expect_refusal(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--confirm",
+        ],
+        "standard-invalid",
+    );
+    // A divergent owned path refuses the whole install and names the path.
+    write(&project, "scripts/check-privacy.py", "# local checker\n");
+    let out = run(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+            "--confirm",
+        ],
+    );
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("scripts/check-privacy.py"), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(project.join("scripts/check-privacy.py")).unwrap(),
+        "# local checker\n",
+        "the repository's own file is preserved"
+    );
+    assert!(!project.join(RECEIPT).exists());
+    assert!(!project.join("verify-local.sh").exists());
+
+    // With the conflict resolved the install succeeds, and installing over an
+    // existing snapshot is refused.
+    fs::remove_file(project.join("scripts/check-privacy.py")).unwrap();
+    let out = run(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+            "--confirm",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    expect_refusal(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+            "--confirm",
+        ],
+        "standard-invalid",
+    );
+}
+
+#[test]
+fn installed_snapshot_checks_and_diffs_clean() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let project = tmp.path().join("sibling");
+    fs::create_dir_all(&project).unwrap();
+    let out = run(
+        &db,
+        &[
+            "standard",
+            "install",
+            SHARED_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+            "--confirm",
+            "--format",
+            "json",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let installed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(installed["pack"], "baseline-service");
+    assert_eq!(installed["version"], "1.2.0");
+    assert_eq!(installed["profile"], "rust-web");
+    assert!(installed["adopted"].is_null() || installed["adopted"].as_array().unwrap().is_empty());
+
+    let checked = run_json(&db, &["standard", "check", project.to_str().unwrap()]);
+    assert_eq!(checked["state"], "rendered");
+    let files = checked["files"].as_array().unwrap();
+    assert_eq!(files.len(), 9, "{checked}");
+    assert!(files.iter().all(|f| f["state"] == "present"));
+
+    let diff = run_json(
+        &db,
+        &[
+            "standard",
+            "diff",
+            project.to_str().unwrap(),
+            "--against",
+            SHARED_PACK,
+        ],
+    );
+    // An empty conflict list is omitted rather than serialized as `[]`.
+    let conflicts = diff.get("conflicts").and_then(|v| v.as_array());
+    assert!(conflicts.map(|c| c.is_empty()).unwrap_or(true), "{diff}");
+    assert!(
+        diff["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["change"] == "unchanged"),
+        "{diff}"
+    );
+}
+
+#[test]
+fn generation_with_the_shared_asset_pack_puts_the_scripts_in_place() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let dest = tmp.path().join("generated");
+    new_project(
+        &db,
+        &dest,
+        "rust-web",
+        &["--id", "generated", "--standard-pack", SHARED_PACK],
+    );
+    assert_eq!(
+        fs::read_to_string(dest.join("verify-local.sh")).unwrap(),
+        pinned_shared_script(),
+        "generation must stage the same bytes the pack pins"
+    );
+    assert!(dest
+        .join("scripts/check-openspec-change-names.mjs")
+        .is_file());
+    assert!(dest.join(VERIFY).is_file());
+    assert!(dest.join(RECEIPT).is_file());
+    // The previous version keeps working unchanged.
+    let pinned = tmp.path().join("pinned");
+    new_project(
+        &db,
+        &pinned,
+        "rust-web",
+        &["--id", "pinned", "--standard-pack", PACK],
+    );
+    assert!(!pinned.join("verify-local.sh").exists());
+    assert!(pinned.join(VERIFY).is_file());
+}

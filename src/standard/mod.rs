@@ -10,9 +10,15 @@
 //!
 //! Generation writes the snapshot under `.standard/` and records an
 //! ownership receipt ([`RECEIPT_PATH`]) holding the pack identity, the
-//! descriptor's asset digest, and one digest per owned file. The generated
-//! project owns that snapshot: it builds, verifies and operates with its own
-//! native toolchain and needs neither Forge nor a sibling checkout later.
+//! descriptor's asset digest, and one digest per owned file. A pack may also
+//! own a few repository-relative shared scripts outside `.standard/` — the
+//! paths the workspace Gate binds by name — and the receipt is what makes that
+//! safe: only receipt paths are ever read or written, and a divergent path is a
+//! conflict rather than an overwrite.
+//!
+//! The generated project owns that snapshot: it builds, verifies and operates
+//! with its own native toolchain and needs neither Forge nor a sibling checkout
+//! later.
 //!
 //! The lifecycle is `proposed -> supported -> deprecated`; only `supported`
 //! packs with verified render fixtures are selectable for new generation.

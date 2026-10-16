@@ -236,6 +236,23 @@ pub(crate) enum StandardCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Materialize a snapshot into a project that has none; never replaces an existing file.
+    Install {
+        /// Pack selector, e.g. `baseline-service@1.2.0`.
+        pack: String,
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Project profile when the directory has no `forge.yaml`.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Project id when the directory has no `forge.yaml` (default: the directory name).
+        #[arg(long)]
+        id: Option<String>,
+        /// Required explicit confirmation for the file writes.
+        #[arg(long)]
+        confirm: bool,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub(crate) enum ProviderCommands {

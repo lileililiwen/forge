@@ -517,7 +517,7 @@ impl CatalogBuilder {
         self.group(
             None,
             "standard",
-            "List, inspect, check, diff and upgrade versioned standard-pack snapshots.",
+            "List, inspect, check, diff, upgrade and install versioned standard-pack snapshots.",
             Creation,
             Profile,
         );
@@ -565,6 +565,16 @@ impl CatalogBuilder {
             Some("standard"),
             "upgrade",
             "Upgrade a project's snapshot to a pack version; refuses modified files without `--confirm`.",
+            Creation,
+            Project,
+            LocalWrite,
+            NotYetWeb,
+            caps_local,
+        );
+        self.leaf(
+            Some("standard"),
+            "install",
+            "Materialize a snapshot into a project that has none; refuses to replace an existing file without `--confirm`.",
             Creation,
             Project,
             LocalWrite,

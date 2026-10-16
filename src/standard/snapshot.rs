@@ -9,14 +9,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::layout::{
-    BASELINE_PACK, BASELINE_PROFILES, CI_PATH, CI_TEMPLATE, COMPOSE_PATH, COMPOSE_TEMPLATE,
-    DETERMINISTIC_TIMESTAMP, PROFILE_PATH, QUALITY_PATH, QUALITY_TEMPLATE, RECEIPT_PATH,
-    STANDARD_SCHEMA, VERIFY_PATH,
+    ACCESSIBILITY_CHECK_PATH, BASELINE_PACK, BASELINE_PROFILES, CI_PATH, CI_TEMPLATE, COMPOSE_PATH,
+    COMPOSE_TEMPLATE, DETERMINISTIC_TIMESTAMP, OPENSPEC_NAME_CHECK_PATH, PRIVACY_CHECK_PATH,
+    PROFILE_PATH, QUALITY_PATH, QUALITY_TEMPLATE, RECEIPT_PATH, SHARED_ACCESSIBILITY_CHECK,
+    SHARED_OPENSPEC_NAME_CHECK, SHARED_PRIVACY_CHECK, SHARED_VERIFY_SCRIPT, STANDARD_SCHEMA,
+    VERIFY_LOCAL_PATH, VERIFY_PATH, VERIFY_WRAPPER_TEMPLATE,
 };
 use super::model::{
-    DiffChange, DiffEntry, DiffReport, FileReport, FileState, PackAsset, PackAssetOrigin,
-    PackDescriptor, PackEvidence, PackSupportState, Receipt, ReceiptFile, RenderedSnapshot,
-    SnapshotReport, SnapshotState, UpgradeReport,
+    DiffChange, DiffEntry, DiffReport, FileReport, FileState, InstalledReport, PackAsset,
+    PackAssetOrigin, PackDescriptor, PackEvidence, PackSupportState, Receipt, ReceiptFile,
+    RenderedSnapshot, SnapshotReport, SnapshotState, UpgradeReport,
 };
 
 fn build_pack(
@@ -129,6 +131,25 @@ pub fn all_packs() -> Vec<PackDescriptor> {
                 (CI_PATH, CI_TEMPLATE),
                 (QUALITY_PATH, QUALITY_TEMPLATE),
                 (COMPOSE_PATH, COMPOSE_TEMPLATE),
+            ],
+        ),
+        build_pack(
+            BASELINE_PACK,
+            "1.2.0",
+            PackSupportState::Supported,
+            PackEvidence::Verified,
+            BASELINE_PROFILES,
+            Some("workspace-governance/templates/runtime"),
+            &[
+                (PROFILE_PATH, profile_declaration()),
+                (VERIFY_PATH, VERIFY_WRAPPER_TEMPLATE),
+                (VERIFY_LOCAL_PATH, SHARED_VERIFY_SCRIPT),
+                (CI_PATH, CI_TEMPLATE),
+                (QUALITY_PATH, QUALITY_TEMPLATE),
+                (COMPOSE_PATH, COMPOSE_TEMPLATE),
+                (OPENSPEC_NAME_CHECK_PATH, SHARED_OPENSPEC_NAME_CHECK),
+                (ACCESSIBILITY_CHECK_PATH, SHARED_ACCESSIBILITY_CHECK),
+                (PRIVACY_CHECK_PATH, SHARED_PRIVACY_CHECK),
             ],
         ),
         build_pack(
@@ -631,6 +652,215 @@ pub fn upgrade_snapshot(
         written,
         forced,
         orphaned,
+        generated_at: generated_at.to_string(),
+    })
+}
+
+/// Resolve the identity an install records.
+///
+/// A project's own Forge manifest is authoritative when present; an explicit
+/// argument that contradicts it is refused rather than silently preferred,
+/// because the receipt it would write is what every later `check`, `diff` and
+/// `upgrade` trusts. Without a manifest the id defaults to the directory name
+/// and the profile must be named explicitly.
+fn resolve_install_identity(
+    dir: &Path,
+    profile: Option<&str>,
+    id: Option<&str>,
+) -> Result<(String, String), ForgeError> {
+    let manifest = dir.join("forge.yaml");
+    let (manifest_id, manifest_profile) = if manifest.is_file() {
+        let (loaded, _) = crate::core::manifest::Manifest::load_from_dir(dir, None)?;
+        (Some(loaded.project.id), Some(loaded.project.profile))
+    } else {
+        (None, None)
+    };
+    let project_id = match (manifest_id.as_deref(), id) {
+        (Some(from_manifest), Some(explicit)) if from_manifest != explicit => {
+            return Err(ForgeError::StandardInvalid {
+                reason: format!(
+                    "standard install refuses to record a conflicting project id: \
+                     forge.yaml declares '{from_manifest}' and --id asked for '{explicit}'; \
+                     nothing was changed"
+                ),
+            })
+        }
+        (Some(from_manifest), _) => from_manifest.to_string(),
+        (None, Some(explicit)) => explicit.to_string(),
+        (None, None) => {
+            let derived = dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if derived.is_empty() {
+                return Err(ForgeError::StandardInvalid {
+                    reason: format!(
+                        "standard install cannot derive a project id from '{}'; \
+                         pass --id <kebab-case-id>; nothing was changed",
+                        dir.display()
+                    ),
+                });
+            }
+            derived
+        }
+    };
+    crate::core::validate_project_id(&project_id).map_err(|reason| {
+        ForgeError::StandardInvalid {
+            reason: format!(
+                "standard install refuses an invalid project id: {reason}; \
+             pass --id <kebab-case-id>; nothing was changed"
+            ),
+        }
+    })?;
+    let project_profile = match (manifest_profile.as_deref(), profile) {
+        (Some(from_manifest), Some(explicit)) if from_manifest != explicit => {
+            return Err(ForgeError::StandardInvalid {
+                reason: format!(
+                    "standard install refuses to record a conflicting profile: \
+                     forge.yaml declares '{from_manifest}' and --profile asked for '{explicit}'; \
+                     nothing was changed"
+                ),
+            })
+        }
+        (Some(from_manifest), _) => from_manifest.to_string(),
+        (None, Some(explicit)) => explicit.to_string(),
+        (None, None) => {
+            return Err(ForgeError::StandardInvalid {
+                reason: format!(
+                    "'{}' has no forge.yaml and no --profile was given; the snapshot cannot be \
+                     rendered without a profile; nothing was changed",
+                    dir.display()
+                ),
+            })
+        }
+    };
+    Ok((project_id, project_profile))
+}
+
+/// Materialize a standard snapshot into a project that has none.
+///
+/// This is the adoption path for an existing repository: the shared assets a
+/// pack owns (verification entry point, change-name checker, concern shims) can
+/// be installed once and then kept current by `diff`/`upgrade` instead of being
+/// copied by hand into every repository.
+///
+/// Refusals, each writing nothing: no `--confirm`; a snapshot already present
+/// (that is `diff`/`upgrade`); an unknown or profile-incompatible pack; a
+/// project id or profile that contradicts the project's own manifest; a
+/// pack-owned path that exists with different bytes (the repository's own file
+/// is never replaced — there is deliberately no `--force` here). A pack-owned
+/// path whose bytes already match is adopted and left untouched.
+///
+/// Only the rendered owned files that are absent and the receipt are written;
+/// unrelated files are never touched, and a failed write rolls back what it
+/// wrote.
+pub fn install_snapshot(
+    dir: &Path,
+    spec: &str,
+    profile: Option<&str>,
+    id: Option<&str>,
+    confirm: bool,
+    generated_at: &str,
+) -> Result<InstalledReport, ForgeError> {
+    if !dir.is_dir() {
+        return Err(ForgeError::StandardInvalid {
+            reason: format!(
+                "standard install target '{}' is not a directory; nothing was changed",
+                dir.display()
+            ),
+        });
+    }
+    if !confirm {
+        return Err(ForgeError::StandardInvalid {
+            reason: format!(
+                "standard install of '{spec}' requires --confirm; no files were changed"
+            ),
+        });
+    }
+    if read_receipt(dir)?.is_some() {
+        return Err(ForgeError::StandardInvalid {
+            reason: format!(
+                "'{}' already has a Forge-owned standard snapshot ({RECEIPT_PATH}); \
+                 use `forge standard diff` and `forge standard upgrade` instead; \
+                 nothing was changed",
+                dir.display()
+            ),
+        });
+    }
+    let target = inspect_pack(spec)?;
+    let (project_id, project_profile) = resolve_install_identity(dir, profile, id)?;
+    let rendered = render_snapshot(&project_id, &project_profile, &target, generated_at, true)?;
+    let mut installed: Vec<String> = Vec::new();
+    let mut adopted: Vec<String> = Vec::new();
+    let mut conflicts: Vec<String> = Vec::new();
+    for (path, content) in &rendered.files {
+        match fs::read(dir.join(path)) {
+            Ok(bytes) if bytes == content.as_bytes() => adopted.push(path.clone()),
+            Ok(_) => conflicts.push(path.clone()),
+            Err(_) => installed.push(path.clone()),
+        }
+    }
+    if !conflicts.is_empty() {
+        return Err(ForgeError::StandardInvalid {
+            reason: format!(
+                "standard install of '{spec}' would overwrite file(s) this project already has \
+                 with different bytes: {}; move or remove them and re-run (there is no force mode \
+                 for install); nothing was changed",
+                conflicts.join(", ")
+            ),
+        });
+    }
+    let mut prior: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut apply = || -> Result<(), ForgeError> {
+        let mut previous: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        for (path, content) in &rendered.files {
+            if !installed.contains(path) {
+                continue;
+            }
+            let full = dir.join(path);
+            if let Some(parent) = full.parent() {
+                fs::create_dir_all(parent).map_err(|err| ForgeError::StandardInvalid {
+                    reason: format!("cannot create '{}': {err}", parent.display()),
+                })?;
+            }
+            fs::write(&full, content).map_err(|err| ForgeError::StandardInvalid {
+                reason: format!("cannot write '{}': {err}", full.display()),
+            })?;
+            previous.push((full, content.clone().into_bytes()));
+        }
+        prior = previous;
+        let receipt_path = dir.join(RECEIPT_PATH);
+        if let Some(parent) = receipt_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        // A missing receipt is the only prior state possible here: the
+        // existence check above refused an existing snapshot.
+        let had_receipt = receipt_path.exists();
+        fs::write(&receipt_path, receipt_text(&rendered.receipt)?).map_err(|err| {
+            ForgeError::StandardInvalid {
+                reason: format!("cannot write '{}': {err}", receipt_path.display()),
+            }
+        })?;
+        if !had_receipt {
+            prior.push((receipt_path, Vec::new()));
+        }
+        Ok(())
+    };
+    if let Err(err) = apply() {
+        for (path, _) in prior.iter().rev() {
+            let _ = fs::remove_file(path);
+        }
+        return Err(err);
+    }
+    Ok(InstalledReport {
+        path: dir.display().to_string(),
+        project: project_id,
+        profile: project_profile,
+        pack: target.id,
+        version: target.version,
+        installed,
+        adopted,
         generated_at: generated_at.to_string(),
     })
 }

@@ -163,6 +163,41 @@ pub(crate) fn cmd_standard(
             })?;
             Ok(as_output(format, human, json))
         }
+        StandardCommands::Install {
+            pack,
+            path,
+            profile,
+            id,
+            confirm,
+        } => {
+            let report = standard::install_snapshot(
+                path,
+                pack,
+                profile.as_deref(),
+                id.as_deref(),
+                *confirm,
+                &chrono::Utc::now().to_rfc3339(),
+            )?;
+            let mut human = format!(
+                "installed {}@{} for {} ({}) into {}; {} file(s) written",
+                report.pack,
+                report.version,
+                report.project,
+                report.profile,
+                report.path,
+                report.installed.len()
+            );
+            for owned in &report.installed {
+                human.push_str(&format!("\n  installed {owned}"));
+            }
+            for owned in &report.adopted {
+                human.push_str(&format!("\n  adopted   {owned} (bytes already identical)"));
+            }
+            let json = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                reason: err.to_string(),
+            })?;
+            Ok(as_output(format, human, json))
+        }
     }
 }
 

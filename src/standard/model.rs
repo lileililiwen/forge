@@ -123,6 +123,22 @@ pub struct UpgradeReport {
     pub orphaned: Vec<String>,
     pub generated_at: String,
 }
+/// Result of `standard install`: the pack materialized into a project that had
+/// no snapshot. `installed` lists the owned paths written, `adopted` the owned
+/// paths whose bytes already matched and were therefore left untouched. A
+/// conflicting path is never reported here: it refuses the whole install.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct InstalledReport {
+    pub path: String,
+    pub project: String,
+    pub profile: String,
+    pub pack: String,
+    pub version: String,
+    pub installed: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub adopted: Vec<String>,
+    pub generated_at: String,
+}
 /// Versioned standard-pack descriptor.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackDescriptor {

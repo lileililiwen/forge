@@ -9,17 +9,19 @@ pub(super) mod tests {
     use std::path::{Path, PathBuf};
 
     use crate::standard::layout::{
-        CI_PATH, COMPOSE_PATH, DETERMINISTIC_TIMESTAMP, PROFILE_PATH, QUALITY_PATH, RECEIPT_PATH,
-        STANDARD_DIR, VERIFY_PATH,
+        ACCESSIBILITY_CHECK_PATH, CI_PATH, COMPOSE_PATH, DETERMINISTIC_TIMESTAMP,
+        OPENSPEC_NAME_CHECK_PATH, PRIVACY_CHECK_PATH, PROFILE_PATH, QUALITY_PATH, RECEIPT_PATH,
+        SHARED_ACCESSIBILITY_CHECK, SHARED_OPENSPEC_NAME_CHECK, SHARED_PRIVACY_CHECK,
+        SHARED_VERIFY_SCRIPT, STANDARD_DIR, VERIFY_LOCAL_PATH, VERIFY_PATH,
     };
     use crate::standard::model::{
         DiffChange, FileState, PackAssetOrigin, PackDescriptor, PackEvidence, PackSupportState,
         SnapshotState,
     };
     use crate::standard::snapshot::{
-        all_packs, check_snapshot, diff_snapshot, inspect_pack, pack_asset_digest, parse_pack_spec,
-        receipt_text, render_snapshot, resolve_asset_origin, select_for_generation, staged_files,
-        upgrade_snapshot,
+        all_packs, check_snapshot, diff_snapshot, inspect_pack, install_snapshot,
+        pack_asset_digest, parse_pack_spec, receipt_text, render_snapshot, resolve_asset_origin,
+        select_for_generation, staged_files, upgrade_snapshot,
     };
 
     fn baseline(spec: &str) -> PackDescriptor {
@@ -345,5 +347,229 @@ pub(super) mod tests {
         let err = staged_files("demo", "react-web", "nope@1.0.0", DETERMINISTIC_TIMESTAMP)
             .expect_err("unknown pack refuses before staging");
         assert_eq!(err.code(), "standard-invalid");
+    }
+
+    #[test]
+    fn shared_asset_version_supersets_the_previous_one() {
+        let previous = baseline("baseline-service@1.1.0");
+        let shared = baseline("baseline-service@1.2.0");
+        assert!(shared.is_selectable(), "1.2.0 must be selectable");
+        let previous_paths: Vec<&str> = previous.files.iter().map(|a| a.path.as_str()).collect();
+        let shared_paths: Vec<&str> = shared.files.iter().map(|a| a.path.as_str()).collect();
+        for path in &previous_paths {
+            assert!(
+                shared_paths.contains(path),
+                "missing inherited asset {path}"
+            );
+        }
+        for path in [
+            VERIFY_LOCAL_PATH,
+            OPENSPEC_NAME_CHECK_PATH,
+            ACCESSIBILITY_CHECK_PATH,
+            PRIVACY_CHECK_PATH,
+        ] {
+            assert!(shared_paths.contains(&path), "missing shared asset {path}");
+        }
+        // The previous version keeps its own bytes: adding assets is additive.
+        assert_ne!(previous.asset_digest, shared.asset_digest);
+    }
+
+    #[test]
+    fn rendered_shared_assets_are_the_pinned_canonical_bytes() {
+        let pack = baseline("baseline-service@1.2.0");
+        let rendered =
+            render_snapshot("demo", "rust-web", &pack, DETERMINISTIC_TIMESTAMP, false).unwrap();
+        let content = |path: &str| -> String {
+            rendered
+                .files
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| panic!("{path} not rendered"))
+        };
+        // Byte equality is the whole point: a project that installs the pack
+        // runs the same logic the hand-copied files ran.
+        assert_eq!(content(VERIFY_LOCAL_PATH), SHARED_VERIFY_SCRIPT);
+        assert_eq!(
+            content(OPENSPEC_NAME_CHECK_PATH),
+            SHARED_OPENSPEC_NAME_CHECK
+        );
+        assert_eq!(
+            content(ACCESSIBILITY_CHECK_PATH),
+            SHARED_ACCESSIBILITY_CHECK
+        );
+        assert_eq!(content(PRIVACY_CHECK_PATH), SHARED_PRIVACY_CHECK);
+        // …and that logic is the real rehearsal script, not a stub.
+        let rehearsal = content(VERIFY_LOCAL_PATH);
+        for expected in ["cargo clippy", "dotnet build", "pytest", "npm test"] {
+            assert!(rehearsal.contains(expected), "missing {expected}");
+        }
+        // The snapshot entry point delegates to the root script from the project
+        // root: installed anywhere else the script would check the wrong tree.
+        let wrapper = content(VERIFY_PATH);
+        assert!(wrapper.contains("exec sh ./verify-local.sh"), "{wrapper}");
+        assert!(wrapper.contains("/../.."), "{wrapper}");
+    }
+
+    #[test]
+    fn install_refuses_unconfirmed_existing_snapshot_and_conflicts() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let err = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            Some("demo"),
+            false,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .expect_err("confirmation is required");
+        assert_eq!(err.code(), "standard-invalid");
+        assert!(!tmp.path().join(RECEIPT_PATH).exists());
+
+        // A divergent owned path refuses the whole install and names it.
+        write(tmp.path(), PRIVACY_CHECK_PATH, b"# local privacy checker\n");
+        let err = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            Some("demo"),
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .expect_err("a divergent owned path must refuse");
+        assert_eq!(err.code(), "standard-invalid");
+        assert!(err.to_string().contains(PRIVACY_CHECK_PATH), "{err}");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join(PRIVACY_CHECK_PATH)).unwrap(),
+            "# local privacy checker\n"
+        );
+        assert!(!tmp.path().join(RECEIPT_PATH).exists());
+        assert!(!tmp.path().join(VERIFY_LOCAL_PATH).exists());
+
+        // With the conflict resolved, the install succeeds, then refuses to
+        // install over its own snapshot.
+        fs::remove_file(tmp.path().join(PRIVACY_CHECK_PATH)).unwrap();
+        install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            Some("demo"),
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .unwrap();
+        let err = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            Some("demo"),
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .expect_err("an existing snapshot must refuse");
+        assert_eq!(err.code(), "standard-invalid");
+        assert!(err.to_string().contains("diff"), "{err}");
+    }
+
+    #[test]
+    fn install_adopts_identical_files_and_writes_only_owned_paths() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // The fleet's real starting state: the canonical script already there.
+        write(
+            tmp.path(),
+            VERIFY_LOCAL_PATH,
+            SHARED_VERIFY_SCRIPT.as_bytes(),
+        );
+        write(tmp.path(), "README.md", b"# untouched\n");
+        write(tmp.path(), "src/main.rs", b"fn main() {}\n");
+        let before_script = fs::read(tmp.path().join(VERIFY_LOCAL_PATH)).unwrap();
+        let report = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            Some("demo"),
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .unwrap();
+        assert_eq!(report.pack, "baseline-service");
+        assert_eq!(report.version, "1.2.0");
+        assert_eq!(report.project, "demo");
+        assert_eq!(report.profile, "rust-web");
+        assert!(
+            report.adopted.contains(&VERIFY_LOCAL_PATH.to_string()),
+            "{:?}",
+            report.adopted
+        );
+        assert!(!report.installed.contains(&VERIFY_LOCAL_PATH.to_string()));
+        assert_eq!(
+            fs::read(tmp.path().join(VERIFY_LOCAL_PATH)).unwrap(),
+            before_script,
+            "an adopted file must not be rewritten"
+        );
+        // Unrelated files are untouched, and the receipt exists.
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("README.md")).unwrap(),
+            "# untouched\n"
+        );
+        assert!(tmp.path().join(RECEIPT_PATH).exists());
+        // The installed snapshot verifies, and diffs clean against itself.
+        let checked = check_snapshot(tmp.path()).unwrap();
+        assert_eq!(checked.state, SnapshotState::Rendered);
+        assert_eq!(checked.files.len(), 9);
+        assert!(checked.files.iter().all(|f| f.state == FileState::Present));
+        let diff = diff_snapshot(tmp.path(), "baseline-service@1.2.0").unwrap();
+        assert!(diff.conflicts.is_empty(), "{:?}", diff.conflicts);
+        assert!(diff
+            .entries
+            .iter()
+            .all(|e| e.change == DiffChange::Unchanged));
+    }
+
+    #[test]
+    fn install_identity_comes_from_the_manifest_and_conflicts_refuse() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let err = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            None,
+            Some("demo"),
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .expect_err("a profile is required without a manifest");
+        assert_eq!(err.code(), "standard-invalid");
+        assert!(err.to_string().contains("--profile"), "{err}");
+        assert!(!tmp.path().join(RECEIPT_PATH).exists());
+
+        // A manifest supplies both, and an explicit contradiction refuses.
+        write(
+            tmp.path(),
+            "forge.yaml",
+            b"schema: 1\nproject:\n  id: from-manifest\n  name: From Manifest\n  profile: rust-web\n",
+        );
+        let err = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            Some("other-id"),
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .expect_err("a conflicting id must refuse");
+        assert_eq!(err.code(), "standard-invalid");
+        assert!(!tmp.path().join(RECEIPT_PATH).exists());
+
+        let report = install_snapshot(
+            tmp.path(),
+            "baseline-service@1.2.0",
+            Some("rust-web"),
+            None,
+            true,
+            DETERMINISTIC_TIMESTAMP,
+        )
+        .unwrap();
+        assert_eq!(report.project, "from-manifest");
+        assert_eq!(report.profile, "rust-web");
     }
 }

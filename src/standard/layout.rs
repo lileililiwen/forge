@@ -2,9 +2,12 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
-/// Repository-local snapshot directory. Forge owns exactly this subtree:
-/// every owned file lives under it, so an upgrade can never touch unrelated
-/// project files.
+/// Repository-local snapshot directory. Most owned files live under it. A pack
+/// may also own a small number of repository-relative paths outside it (the
+/// shared scripts the workspace Gate binds by name), so ownership is carried by
+/// the receipt's per-file digests rather than by this prefix: `check`, `diff`
+/// and `upgrade` read exactly the receipt's paths, an existing owned path with
+/// different bytes is a conflict, and an unrelated file is never touched.
 pub const STANDARD_DIR: &str = ".standard";
 
 /// Profile declaration rendered into the snapshot.
@@ -46,3 +49,47 @@ pub(super) const QUALITY_TEMPLATE: &str =
     "schema: 1\npack: {pack}\nversion: {version}\nchecks:\n  - verify\n";
 
 pub(super) const COMPOSE_TEMPLATE: &str = "# Forge standard snapshot Compose selection ({pack}@{version}).\nservices:\n  {id}:\n    build:\n      context: ../..\n      dockerfile: Dockerfile\n";
+
+/// Repository-relative path of the shared CI rehearsal script. It must live at
+/// the repository root, not under `.standard/`: the script derives its working
+/// directory from its own location, so any other placement would run it against
+/// the wrong tree (measured: installed under `.standard/scripts/` it reports
+/// "No recognized project type here" and exits 0 — a silent false pass).
+pub const VERIFY_LOCAL_PATH: &str = "verify-local.sh";
+
+/// Snapshot verification entry point: a Forge-owned wrapper that runs the
+/// repository-root rehearsal script from the project root, so
+/// `.standard/ci/verify.yml` and a human both invoke the same checks.
+pub(super) const VERIFY_WRAPPER_TEMPLATE: &str = "#!/usr/bin/env sh\n# Forge standard snapshot {pack}@{version}: run the project's shared rehearsal script.\nset -eu\nROOT=\"$(cd \"$(dirname \"$0\")/../..\" && pwd)\"\ncd \"$ROOT\"\nif [ ! -f ./verify-local.sh ]; then\n  echo \"verify-local.sh is missing from the project root; the standard snapshot's rehearsal script was removed\" >&2\n  exit 1\nfi\nexec sh ./verify-local.sh \"$@\"\n";
+
+/// Repository-relative path of the shared OpenSpec change-name checker. This
+/// exact path is what the workspace Gate generator binds
+/// (`workspace-governance/scripts/bind_gate_commands.py`), so the pack must own
+/// it there and not under `.standard/`.
+pub const OPENSPEC_NAME_CHECK_PATH: &str = "scripts/check-openspec-change-names.mjs";
+
+/// Repository-relative path of the shared accessibility concern shim, bound by
+/// the same generator for the `accessibility` concern.
+pub const ACCESSIBILITY_CHECK_PATH: &str = "scripts/check-accessibility.py";
+
+/// Repository-relative path of the shared privacy concern shim.
+pub const PRIVACY_CHECK_PATH: &str = "scripts/check-privacy.py";
+
+/// Pinned content of the shared CI rehearsal script, owned at the project root.
+/// Authored by `workspace-governance` and bundled here so a snapshot renders
+/// with no sibling checkout present. Provenance and digests:
+/// `standards/baseline-service/1.2.0/PROVENANCE.md`.
+pub(super) const SHARED_VERIFY_SCRIPT: &str =
+    include_str!("../../standards/baseline-service/1.2.0/verify-local.sh");
+
+/// Pinned content of the shared OpenSpec change-name checker.
+pub(super) const SHARED_OPENSPEC_NAME_CHECK: &str =
+    include_str!("../../standards/baseline-service/1.2.0/scripts/check-openspec-change-names.mjs");
+
+/// Pinned content of the shared accessibility concern shim.
+pub(super) const SHARED_ACCESSIBILITY_CHECK: &str =
+    include_str!("../../standards/baseline-service/1.2.0/scripts/check-accessibility.py");
+
+/// Pinned content of the shared privacy concern shim.
+pub(super) const SHARED_PRIVACY_CHECK: &str =
+    include_str!("../../standards/baseline-service/1.2.0/scripts/check-privacy.py");

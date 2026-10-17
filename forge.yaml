@@ -1,0 +1,36 @@
+schema: 1
+project:
+  id: forge
+  name: Forge
+  profile: rust-product
+verification:
+  rule_pack: workspace-governance@1
+  checks:
+    - id: repository
+      source: bound
+    - id: build
+      source: bound
+    - id: tests
+      source: bound
+      root: project
+      path: scripts/check-tests.sh
+    - id: security
+      source: bound
+    - id: declared-verification
+      source: bound
+      root: project
+      path: .project.json
+    - id: governance-quality
+      source: bound
+      root: governance-workspace
+      path: workspace-governance/scripts/workspace_check.py
+    - id: placeholder-threshold
+      source: bound
+      root: project
+      path: scripts/governance/product_code_quality.py
+    - id: product-code-boundary
+      source: bound
+      root: project
+      path: scripts/governance/product_code_quality.py
+    - id: source-file-size
+      source: native

@@ -4,16 +4,18 @@
 
 ### Requirement: Builtin resolution with providers override
 
-The registry SHALL resolve a plugin id from the workspace declaration of the
-project the id belongs to when that project declares it, then from the
-`providers.yaml` descriptor, then from `kits/manifest.json`, and only then from a
+The registry SHALL resolve a plugin id from the `providers.yaml` descriptor,
+then from the workspace declaration of the project the id belongs to when that
+project declares it, then from `kits/manifest.json`, and only then from a
 builtin table; it SHALL report which source answered each resolution. A
 lower-precedence source SHALL never override a higher-precedence one, so a
 declaration is never silently replaced by a compiled-in guess and a builtin is
-never preferred to a declared value. When a configured descriptor and a
-declaration disagree about an id, the registry SHALL refuse with a typed error
-naming the id and both values rather than choosing one. An id that nothing
-declares SHALL still resolve through the builtin table unchanged.
+never preferred to a declared value. A field the answering source does not state
+SHALL be filled from the next source that states one, never overridden by it.
+When a configured descriptor and a declaration disagree about an id, the
+registry SHALL refuse with a typed error naming the id and both values rather
+than choosing one. An id that nothing declares SHALL still resolve through the
+builtin table unchanged.
 
 #### Scenario: Declaration answers first
 
@@ -35,6 +37,22 @@ declares SHALL still resolve through the builtin table unchanged.
   also declares, and the two disagree on kind or capabilities
 - **THEN** the registry refuses naming the id and both values, and resolves no
   row for that id
+
+#### Scenario: Builtin maps known ids
+
+- **WHEN** no descriptor, declaration or kit manifest names `driftwatchdog`,
+  `cargo-clippy`, `sisyphusfy|ariadex|mnemora`, `platform-contracts`,
+  `labrys|openpanel|jenkins-local`, or `argoscope|devloom`
+- **THEN** they resolve to `gate[gate]`, `quality[quality]`, `agent[agent]`,
+  `contract[contract]`, `delivery[delivery]`, and `metadata[analytics]`
+  respectively, each reporting the builtin table as its source
+
+#### Scenario: Descriptor overrides builtin
+
+- **WHEN** `providers.yaml` carries a `plugins:` descriptor for an id the
+  builtin table also names, and the project declares nothing that contradicts it
+- **THEN** the descriptor kind and capabilities win, the row reports the
+  descriptor as its source, and the builtin is ignored for that id
 
 #### Scenario: No declaration at all
 
@@ -76,11 +94,13 @@ Forge SHALL declare the boundaries it provides and consumes in its own project
 declaration, with each entry's mechanism, entry point and contract version
 derived from the existing versioned-surface inventory rather than restated, so
 the declaration and `forge contract list` cannot disagree. Where a contract
-version does not exist yet, the declaration SHALL record the interface without a
-version rather than invent one, and SHALL leave the missing version visible to
-governance. Forge's retained copies of another project's bytes SHALL each be
-declared as a consumption edge naming the provider, the contract, the version
-and the digest already recorded in its vendored manifest.
+version does not exist yet, the declaration SHALL record the boundary without a
+version — as an `integrations[]` provider when the schema's versioned-contract
+rule leaves no lawful interface for it — rather than invent one, and SHALL leave
+the missing version visible to governance. Forge's retained copies of another
+project's bytes SHALL each be declared as a consumption edge naming the provider,
+the contract, the version and the digest already recorded in its vendored
+manifest.
 
 #### Scenario: Derived values agree with the inventory
 
@@ -92,13 +112,15 @@ and the digest already recorded in its vendored manifest.
 
 #### Scenario: A missing version is declared, not invented
 
-- **WHEN** an interface has no contract version today
-- **THEN** the declaration records the interface without a version and governance
-  reports the gap
+- **WHEN** a boundary has no contract version today
+- **THEN** the declaration records the boundary without a version (as an
+  `integrations[]` provider, because the schema requires a versioned contract on
+  every interface) and governance reports the gap
 
 #### Scenario: Retained bytes are declared
 
 - **WHEN** Forge keeps a copy of another project's artifact
 - **THEN** a consumption entry names its provider, contract, version and the
-  digest recorded in `contracts/manifest.json` or `kits/manifest.json`, and no
-  copy remains unaccounted for
+  digest of the retained bytes — the value already recorded in
+  `contracts/manifest.json` or `kits/manifest.json` where one pins the copy, and
+  the copy's own sha256 otherwise — and no copy remains unaccounted for

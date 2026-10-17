@@ -24,6 +24,42 @@
 //! `kind`, `capabilities`, `description` — so the registry can answer
 //! "which plugin maintains metadata" without hard-coding an id.
 //!
+//! # Declaration-first resolution
+//!
+//! The workspace already owns a language for these boundaries:
+//! `workspace-governance`'s `schemas/project.schema.json` carries the
+//! optional `interfaces[]`, `capabilities` and `integrations` blocks.
+//! Forge **reads** that declaration from the project directory it is
+//! inspecting and adds no field to it — the format is not Forge's. A
+//! declaration is never fetched: an absent one is not an error, and
+//! nothing here needs a sibling checkout.
+//!
+//! Resolution order per id, highest first:
+//!
+//! 1. the `providers.yaml` `plugins:` descriptor — operator
+//!    configuration for this installation (`descriptor`);
+//! 2. the project's declaration (`interfaces[]`, then `capabilities`
+//!    and `integrations`) — the provider's own statement of its
+//!    boundary (`declared`);
+//! 3. the `kits/manifest.json` `plugins:` block (`manifest`);
+//! 4. the builtin table below — the last-resort fallback for an id
+//!    nothing declares (`builtin`).
+//!
+//! A lower rank never *overrides* a higher one. A field the answering
+//! rank does not state is **filled** from the next rank that does, and
+//! the row reports the rank that answered: an id nothing declares still
+//! resolves exactly as it did before this source existed. The provenance
+//! is rendered by `forge plugins list` and by the API shipping-reads
+//! section, so a reviewer can tell a declaration from a compiled-in
+//! guess.
+//!
+//! A declaration is **readable or refused**, never half-read: an
+//! unparseable file, a mechanism outside the closed set, a version-less
+//! contract on a non-`sibling` interface, or a `consume`/`observe`
+//! entry without a digest each produce a typed refusal naming the file
+//! or field, and nothing is resolved from that declaration. An absent or
+//! empty `interfaces` array stays silent.
+//!
 //! # Capability vocabulary
 //!
 //! Capabilities are a closed set. A descriptor naming anything else is
@@ -37,6 +73,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::ForgeError;
 use crate::publish::providers::{ProviderConfig, ProviderEntry};
 
 /// The closed capability vocabulary. A plugin may advertise any
@@ -54,6 +91,43 @@ pub const CAPABILITIES: [&str; 11] = [
     "contract",
     "analytics",
 ];
+
+/// The closed mechanism set `workspace-governance` owns
+/// (`schemas/project.schema.json`). Mirrored here so a declaration Forge
+/// cannot read is refused by name rather than ignored; the set is
+/// closed, and Forge never invents a fifth mechanism.
+pub const INTERFACE_MECHANISMS: [&str; 4] = ["invoke", "consume", "observe", "sibling"];
+
+/// Which rank answered a resolved row, in resolution order.
+///
+/// The name a reviewer reads in `forge plugins list`: `descriptor` is
+/// this installation's configuration, `declared` is the project's own
+/// boundary declaration, `manifest` is the bundled kit metadata and
+/// `builtin` is the compiled-in table (including the documented default
+/// for an id nothing declares at all).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginSource {
+    /// The `providers.yaml` `plugins:` descriptor.
+    Descriptor,
+    /// The project's own workspace declaration.
+    Declared,
+    /// The `kits/manifest.json` `plugins:` block.
+    Manifest,
+    /// The builtin table: the last-resort fallback.
+    Builtin,
+}
+
+impl PluginSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PluginSource::Descriptor => "descriptor",
+            PluginSource::Declared => "declared",
+            PluginSource::Manifest => "manifest",
+            PluginSource::Builtin => "builtin",
+        }
+    }
+}
 
 /// What a plugin is *for*, independent of which capabilities it
 /// advertises. `delivery` is the default for an existing
@@ -179,6 +253,8 @@ pub struct PluginRecord {
     pub capabilities: BTreeSet<String>,
     pub state: PluginState,
     pub description: Option<String>,
+    /// Which source answered this row's kind and capabilities.
+    pub source: PluginSource,
 }
 
 impl PluginRecord {
@@ -237,24 +313,87 @@ pub fn load_descriptors(path: &Path) -> Result<PluginConfig, crate::core::ForgeE
 /// remaining plugins are still listed: one broken entry must not hide
 /// the rest of the workspace's reach.
 ///
-/// Resolution order per id: `providers.yaml` `plugins:` descriptor first
-/// (explicit override), then the builtin table consulting
-/// `kits/manifest.json` when it carries a `plugins` array, then the
-/// hardcoded builtin map, then the legacy delivery default.
-pub fn list(config: &ProviderConfig, descriptors: &PluginConfig) -> Vec<PluginRecord> {
+/// Resolution order per id: this installation's `providers.yaml`
+/// `plugins:` descriptor, then the inspected project's declaration
+/// (`interfaces[]`, then `capabilities`/`integrations`), then the
+/// `kits/manifest.json` `plugins:` block, then the builtin table, then
+/// the legacy delivery default. Each row carries the [`PluginSource`]
+/// that answered it. A lower rank never overrides a higher one; a field
+/// the answering rank does not state is filled from the next rank that
+/// states one.
+///
+/// `project_dir` is the project being inspected: the declaration is read
+/// from that directory and nowhere else, so nothing is fetched and no
+/// sibling checkout is required. `None` means "no project to inspect"
+/// (the registry has no directory) and resolves exactly as the builtin
+/// table alone did before the declaration source existed.
+///
+/// # Errors
+///
+/// A typed refusal, never a silent fallback, when: the project's
+/// declaration cannot be parsed (naming the file and the parse error);
+/// an interface `mechanism` is outside the closed set (naming the field
+/// and the accepted set); a non-`sibling` interface names a contract
+/// with no version; a `consume`/`observe` interface carries no digest;
+/// or a configured descriptor contradicts the declaration for the same
+/// id (naming the id and both values).
+pub fn list(
+    config: &ProviderConfig,
+    descriptors: &PluginConfig,
+    project_dir: Option<&Path>,
+) -> Result<Vec<PluginRecord>, ForgeError> {
+    let declaration = match project_dir {
+        Some(dir) => read_declaration(dir)?,
+        None => Declaration::default(),
+    };
     let mut records = Vec::with_capacity(config.providers.len());
     for entry in &config.providers {
-        let explicit = descriptor_for(descriptors, &entry.id);
-        if explicit.is_some() {
-            records.push(record_for(entry, explicit));
-        } else if let Some(builtin) = builtin_descriptor(&entry.id) {
-            records.push(record_for(entry, Some(&builtin)));
-        } else {
-            records.push(record_for(entry, None));
-        }
+        records.push(resolve(entry, descriptors, &declaration)?);
     }
     records.sort_by(|a, b| a.id.cmp(&b.id));
-    records
+    Ok(records)
+}
+
+/// Resolve one configured id through the four ranks.
+fn resolve(
+    entry: &ProviderEntry,
+    descriptors: &PluginConfig,
+    declaration: &Declaration,
+) -> Result<PluginRecord, ForgeError> {
+    let explicit = descriptor_for(descriptors, &entry.id);
+    let claim = declaration.claims.get(&entry.id);
+    if let (Some(descriptor), Some(claim)) = (explicit, claim) {
+        check_descriptor_against_declaration(entry, descriptor, claim)?;
+    }
+    // Rank 1: this installation's descriptor.
+    if let Some(descriptor) = explicit {
+        return Ok(record_for(
+            entry,
+            Some(descriptor),
+            PluginSource::Descriptor,
+        ));
+    }
+    // Rank 2: the project's own declaration answered for this id.
+    if let Some(claim) = claim {
+        return Ok(record_for(
+            entry,
+            Some(&claim.filled(&entry.id)),
+            PluginSource::Declared,
+        ));
+    }
+    // Rank 3: the bundled kit metadata.
+    if let Some(from_manifest) = builtin_from_kits_manifest(&entry.id) {
+        return Ok(record_for(
+            entry,
+            Some(&from_manifest),
+            PluginSource::Manifest,
+        ));
+    }
+    // Rank 4: the compiled-in table, then the legacy delivery default.
+    if let Some(builtin) = builtin_hardcoded(&entry.id) {
+        return Ok(record_for(entry, Some(&builtin), PluginSource::Builtin));
+    }
+    Ok(record_for(entry, None, PluginSource::Builtin))
 }
 
 /// The plugins that can service a metadata propose request for every
@@ -306,14 +445,20 @@ fn plugins_of_kind(records: &[PluginRecord], kind: PluginKind) -> Vec<&PluginRec
 ///
 /// `kits/manifest.json` is consulted first: when it exists and carries a
 /// `plugins: [{id, kind, capabilities, description}]` array, a matching
-/// entry wins over the hardcoded map below. A `providers.yaml`
-/// descriptor always overrides both (see `list`). An absent file, an
-/// unreadable file, or a file without a `plugins` key falls back to the
-/// hardcoded map, which is the documented builtin set:
+/// entry wins over the hardcoded map below. An absent file, an unreadable
+/// file, or a file without a `plugins` key falls back to the hardcoded
+/// map, which is the documented builtin set:
 ///
 /// driftwatchdog=gate, cargo-*=quality, sisyphusfy/ariadex/mnemora=agent,
 /// platform-contracts=contract, labrys/openpanel/jenkins-local/jenkins=delivery,
 /// argoscope/devloom=metadata+analytics.
+///
+/// Both are the *last resort*: a `providers.yaml` descriptor and the
+/// inspected project's declaration are consulted first and win (see
+/// [`list`]). This table never overrides a declaration, and it is the only
+/// source an id nothing declares resolves from — which is what keeps such
+/// an id working exactly as it did before the declaration source existed.
+/// It is also the *fill* for a field a higher rank leaves unstated.
 pub fn builtin_descriptor(id: &str) -> Option<PluginDescriptor> {
     if let Some(from_manifest) = builtin_from_kits_manifest(id) {
         return Some(from_manifest);
@@ -411,7 +556,11 @@ fn descriptor_for<'a>(descriptors: &'a PluginConfig, id: &str) -> Option<&'a Plu
         .map(|entry| &entry.descriptor)
 }
 
-fn record_for(entry: &ProviderEntry, descriptor: Option<&PluginDescriptor>) -> PluginRecord {
+fn record_for(
+    entry: &ProviderEntry,
+    descriptor: Option<&PluginDescriptor>,
+    source: PluginSource,
+) -> PluginRecord {
     // An absent descriptor is a delivery plugin: the shape every
     // configuration that exists today already has.
     let (kind, capabilities, description, descriptor_problem) = match descriptor {
@@ -433,6 +582,7 @@ fn record_for(entry: &ProviderEntry, descriptor: Option<&PluginDescriptor>) -> P
                             format!(
                                 "unknown plugin kind `{raw}`; expected one of metadata|delivery|gate|quality|agent|contract"
                             ),
+                            source,
                         )
                     }
                 },
@@ -460,6 +610,7 @@ fn record_for(entry: &ProviderEntry, descriptor: Option<&PluginDescriptor>) -> P
                             .join(", "),
                         CAPABILITIES.join(", ")
                     ),
+                    source,
                 );
             }
             if capabilities.is_empty() {
@@ -494,10 +645,16 @@ fn record_for(entry: &ProviderEntry, descriptor: Option<&PluginDescriptor>) -> P
         capabilities,
         state,
         description,
+        source,
     }
 }
 
-fn invalid_record(entry: &ProviderEntry, kind: PluginKind, reason: String) -> PluginRecord {
+fn invalid_record(
+    entry: &ProviderEntry,
+    kind: PluginKind,
+    reason: String,
+    source: PluginSource,
+) -> PluginRecord {
     PluginRecord {
         id: entry.id.clone(),
         kind,
@@ -508,6 +665,7 @@ fn invalid_record(entry: &ProviderEntry, kind: PluginKind, reason: String) -> Pl
         capabilities: BTreeSet::new(),
         state: PluginState::Invalid { reason },
         description: None,
+        source,
     }
 }
 
@@ -528,128 +686,13 @@ fn executable(command: &Path) -> bool {
     }
 }
 
+mod declaration;
+
+use declaration::check_descriptor_against_declaration;
+
+pub use declaration::{
+    read_declaration, Declaration, DeclarationClaim, InterfaceEntry, DECLARATION_FILE,
+};
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn provider(id: &str, command: &str, enabled: bool) -> ProviderEntry {
-        ProviderEntry {
-            id: id.to_string(),
-            command: PathBuf::from(command),
-            enabled,
-        }
-    }
-
-    fn descriptor(id: &str, kind: &str, capabilities: &[&str]) -> PluginConfig {
-        PluginConfig {
-            plugins: vec![PluginDescriptorEntry {
-                id: id.to_string(),
-                descriptor: PluginDescriptor {
-                    kind: Some(kind.to_string()),
-                    capabilities: capabilities.iter().map(|c| c.to_string()).collect(),
-                    description: None,
-                },
-            }],
-        }
-    }
-
-    #[test]
-    fn a_plugin_without_a_descriptor_is_a_delivery_plugin() {
-        // This is the shape every existing providers.yaml has. It must keep
-        // working, so it resolves to delivery without any edit.
-        let config = ProviderConfig {
-            providers: vec![provider("openpanel", "/bin/true", true)],
-        };
-        let records = list(&config, &PluginConfig::default());
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].kind, PluginKind::Delivery);
-        assert_eq!(records[0].state, PluginState::Ready);
-        assert_eq!(records[0].capability_list(), vec!["delivery"]);
-    }
-
-    #[test]
-    fn a_metadata_plugin_advertises_its_fields() {
-        let config = ProviderConfig {
-            providers: vec![provider("github", "/bin/true", true)],
-        };
-        let records = list(
-            &config,
-            &descriptor("github", "metadata", &["topic", "description"]),
-        );
-        assert_eq!(records[0].kind, PluginKind::Metadata);
-        assert!(records[0].maintains("topic"));
-        assert!(records[0].maintains("description"));
-        assert!(!records[0].maintains("homepage"));
-    }
-
-    #[test]
-    fn an_unknown_capability_is_invalid_and_advertises_nothing() {
-        let config = ProviderConfig {
-            providers: vec![provider("github", "/bin/true", true)],
-        };
-        let records = list(
-            &config,
-            &descriptor("github", "metadata", &["topic", "teleport"]),
-        );
-        assert!(matches!(records[0].state, PluginState::Invalid { .. }));
-        assert!(records[0].capabilities.is_empty());
-        let reason = records[0].state.reason().unwrap();
-        assert!(reason.contains("teleport"), "{reason}");
-        assert!(reason.contains("closed set"), "{reason}");
-    }
-
-    #[test]
-    fn an_unknown_kind_is_invalid() {
-        let config = ProviderConfig {
-            providers: vec![provider("x", "/bin/true", true)],
-        };
-        let records = list(&config, &descriptor("x", "teleport", &[]));
-        assert!(matches!(records[0].state, PluginState::Invalid { .. }));
-        assert!(records[0]
-            .state
-            .reason()
-            .unwrap()
-            .contains("unknown plugin kind"));
-    }
-
-    #[test]
-    fn a_missing_command_does_not_hide_the_others() {
-        let config = ProviderConfig {
-            providers: vec![
-                provider("broken", "/nonexistent/plugin", true),
-                provider("working", "/bin/true", true),
-            ],
-        };
-        let records = list(&config, &PluginConfig::default());
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0].id, "broken");
-        assert!(matches!(records[0].state, PluginState::Unavailable { .. }));
-        // The healthy plugin is still listed.
-        assert_eq!(records[1].id, "working");
-        assert_eq!(records[1].state, PluginState::Ready);
-    }
-
-    #[test]
-    fn a_disabled_plugin_is_reported_disabled_not_broken() {
-        let config = ProviderConfig {
-            providers: vec![provider("off", "/bin/true", false)],
-        };
-        let records = list(&config, &PluginConfig::default());
-        assert_eq!(records[0].state, PluginState::Disabled);
-    }
-
-    #[test]
-    fn metadata_routing_requires_every_field() {
-        let config = ProviderConfig {
-            providers: vec![provider("gh", "/bin/true", true)],
-        };
-        let records = list(
-            &config,
-            &descriptor("gh", "metadata", &["topic", "description"]),
-        );
-        let both = metadata_plugins(&records, &["topic".to_string(), "description".to_string()]);
-        assert_eq!(both.len(), 1);
-        let too_many = metadata_plugins(&records, &["topic".to_string(), "homepage".to_string()]);
-        assert!(too_many.is_empty(), "no plugin can service `homepage`");
-    }
-}
+mod plugin_tests;

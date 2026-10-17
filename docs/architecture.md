@@ -42,6 +42,99 @@ DriftWatch owns the quality/policy engine; its actual interface is inspected whe
 
 Transport parity is delivered: CLI first, one mature stdio MCP server, an authenticated HTTP API and read-only portal views afterward, all dispatching through the same Core contracts. SSO uses standard OIDC, project-specific sessions and independent authorization; no shared cookies across unrelated apps.
 
+## Plugin boundary declaration
+
+The plugin registry (`forge plugins list`, `forge cap list|inspect`, and
+`GET /v1/admin/projects/{id}/plugins`) resolves an id's kind and
+capabilities from the workspace's own declaration first, and reports
+**which source answered every row** as `source: descriptor | declared |
+manifest | builtin`:
+
+| Rank | Source | Meaning |
+| --- | --- | --- |
+| 1 | `providers.yaml` `plugins:` descriptor | operator configuration for this installation |
+| 2 | the inspected project's declaration (`interfaces[]`, then `capabilities`, then `integrations`) | the provider's own statement of its boundary |
+| 3 | `kits/manifest.json` `plugins:` | bundled kit metadata |
+| 4 | the builtin table in `src/plugins/mod.rs` | last-resort fallback for an id nothing declares |
+
+A lower rank never overrides a higher one; a field the answering rank does
+not state is *filled* from the next rank that states one, which is what
+keeps a declared row behaviourally equal to the builtin row for the same
+id. An id nothing declares keeps resolving through the builtin table,
+unchanged.
+
+The declaration format is `workspace-governance`'s
+(`schemas/project.schema.json`). Forge reads a project's `.project.json`
+from the directory it inspects, fetches nothing and writes no declaration
+into another project, so the no-sibling invariant holds. A declaration is
+**readable or refused**: an unparseable file, a `mechanism` outside the
+closed set (`invoke|consume|observe|sibling`), a version-less `contract` on
+a non-`sibling` interface, or a `consume`/`observe` entry without a
+`digest` each refuse with the stable code `plugin-boundary-refused`, naming
+the file or the field, and nothing is resolved from that declaration. A
+configured descriptor that *contradicts* what the project declares refuses
+by name rather than choosing one. An absent or empty `interfaces` array is
+valid and silent.
+
+### Forge's own declaration
+
+`forge/.project.json` declares Forge's boundaries with contract versions
+derived from the versioned-surface inventory (`CONTRACTS` in
+`src/contract/mod.rs`, the adapter contract constants and
+`PLATFORM_FAMILY_VERSIONS`) rather than restated by hand;
+`tests/plugins_declaration_contract.rs` asserts the shipped declaration
+equals that derivation. A row the inventory registers with a wire
+discriminator is named by it, a `platform_family` row by
+`<family>/<platform_family_version>`, and any other row by its canonical
+spec id with the row's registered version.
+
+- **Provides** (Forge owns the contract and offers the entry):
+  `gate-result` (`platform.gate-result/1.0.0`, `forge gate --format json`),
+  `contract-envelope` (`platform-contract-consumption/0.1.0`,
+  `forge contract emit <family> <target>`), `mcp-surface`
+  (`mature-mcp-surface/0.1.0`, `forge mcp serve`), `publish-provider`
+  (`forge-publish-provider/0.1.0`, `./adapters/<provider-id>`),
+  `deploy-executor` (`forge-deploy-executor/0.1.0`, the reference executor's
+  bounded argv) and `checker-document` (`forge-checker/0.1.0`, observing the
+  canonical checker-emission spec).
+- **Consumes** (siblings own these): `policy-checker-report`
+  (`driftwatch-checker/0.1.0`, driftwatchdog),
+  `governance-observation` (`governance-provider-contract/0.1.0`,
+  workspace-governance), and the retained copies below.
+- **Integrations.** `ariadex` and `sisyphusfy` are declared as optional
+  integrations with an `evidence_ref`, and **not** as `interfaces[]`:
+  neither runtime has a contract version on either side (they are invoked by
+  argv and their status documents are discriminated by shape), and the
+  schema requires a versioned contract for every non-`sibling` mechanism —
+  declaring them as interfaces would mean inventing one. The entry keeps the
+  boundary and its missing version visible to governance, and both ids
+  resolve as `declared` in the plugin registry. The *gate* evidence-export
+  document is in the same position: it is versioned by a bare
+  `schema_version` integer, so it is reached through driftwatchdog's
+  versioned `driftwatch-checker/0.1.0` check boundary instead.
+- **Ownership of the adapter contracts.** `publish-provider` and
+  `deploy-executor` are declared `provides`, not `consumes`: both contract
+  constants are declared in this repository and an adapter *implements*
+  them, while a consumption must name the single provider it consumes from
+  — which no project is, because every installation configures its own
+  adapters.
+- **Retained copies** are declared `consume` edges, each naming provider,
+  contract, version and the digest of the bytes it keeps. The two
+  manifest-pinned trees are named by their pin document
+  (`contracts/manifest.json`, `kits/manifest.json`, digest pinned), and the
+  test proves every file under those trees is recorded in the pin document
+  the edge names — so no copy is unaccounted for. The un-manifested
+  `scripts/governance/**` copies, the `scripts/vocabulary.json` list and
+  both copies of the governance vocabulary are each declared with their own
+  sha256; the *third* copy of the secret-field vocabulary
+  (`contracts/vocabulary/secret-field-substrings.json`) is one declared
+  edge against `platform-contracts` instead of an undeclared sibling copy.
+  Where an artifact publishes no release version, the declaration names the
+  contract after the interface id and records the artifact's own schema
+  version (`1` → `1.0.0`); it never asserts a release the provider does not
+  publish, and the kit feed — whose pin document does record a release
+  version — is named `dotnet-platform-libs/0.2.0`.
+
 ## Evidence
 
 Test deterministic output and repeatability, compatibility rejection, path confinement, partial writes, stale plans and per-project/provider failures. Run generated-project native builds for each advertised profile. Integration fixtures prove contracts; successful real adapter runs establish runtime integration. Neither OpenSpec validation nor build-only skeletons establish product completion.

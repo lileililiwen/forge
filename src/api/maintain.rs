@@ -55,7 +55,16 @@ pub fn maintain(db_path: &Path, id: &str) -> ApiResponse {
 
     let github = github_observation(&record);
     let proposals = proposals(project_dir);
-    let plugins = plugin_records(project_dir);
+    let plugins = match plugin_records(project_dir) {
+        Ok(plugins) => plugins,
+        Err(err) => {
+            return super::admin::gateway::error(
+                super::err_status(&err),
+                err.code(),
+                &err.to_string(),
+            )
+        }
+    };
 
     ApiResponse::json(
         200,
@@ -202,16 +211,20 @@ fn proposals(project_dir: &Path) -> Vec<Value> {
 }
 
 /// The configured plugin registry for this project, bounded.
-fn plugin_records(project_dir: &Path) -> Vec<Value> {
+///
+/// A declaration the registry cannot read is a typed refusal that
+/// propagates: this view reports an error rather than a half-read (or
+/// silently empty) registry.
+fn plugin_records(project_dir: &Path) -> Result<Vec<Value>, crate::core::ForgeError> {
     let config_path = plugins::resolve_config_path(Some(project_dir));
     let (provider_config, descriptors) = if config_path.is_file() {
         let provider_config = match providers::load_config(&config_path) {
             Ok(config) => config,
-            Err(_) => return Vec::new(),
+            Err(_) => return Ok(Vec::new()),
         };
         let descriptors = match plugins::load_descriptors(&config_path) {
             Ok(descriptors) => descriptors,
-            Err(_) => return Vec::new(),
+            Err(_) => return Ok(Vec::new()),
         };
         (provider_config, descriptors)
     } else {
@@ -220,7 +233,8 @@ fn plugin_records(project_dir: &Path) -> Vec<Value> {
             plugins::PluginConfig::default(),
         )
     };
-    plugins::list(&provider_config, &descriptors)
+    let records = plugins::list(&provider_config, &descriptors, Some(project_dir))?;
+    Ok(records
         .iter()
         .map(|record| {
             json!({
@@ -230,9 +244,10 @@ fn plugin_records(project_dir: &Path) -> Vec<Value> {
                 "capabilities": record.capability_list(),
                 "state": record.state.as_str(),
                 "reason": record.state.reason(),
+                "source": record.source.as_str(),
             })
         })
-        .collect()
+        .collect())
 }
 
 /// `POST .../classify/approve` — preview, then confirm- and digest-bound

@@ -33,14 +33,22 @@ pub fn cap_group_commands(capability: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-fn live_records(project: &str) -> Vec<plugins::PluginRecord> {
+/// Live plugin records for the inspected project.
+///
+/// A missing provider config is an honest empty registry — `cap` has
+/// always answered "no plugins advertise this capability" rather than
+/// failing. A declaration the registry cannot read is a different thing:
+/// it is a typed refusal, and it propagates, because a boundary that
+/// cannot be read must never be reported as a boundary that does not
+/// exist.
+fn live_records(project: &str) -> Result<Vec<plugins::PluginRecord>, ForgeError> {
     let dir = Path::new(project);
     let config_path = plugins::resolve_config_path(Some(dir));
     let Ok(provider_config) = providers::load_config(&config_path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let descriptors = plugins::load_descriptors(&config_path).unwrap_or_default();
-    plugins::list(&provider_config, &descriptors)
+    plugins::list(&provider_config, &descriptors, Some(dir))
 }
 
 pub(crate) fn cmd_cap(
@@ -50,7 +58,7 @@ pub(crate) fn cmd_cap(
 ) -> Result<Output, ForgeError> {
     match command {
         CapCommands::List { project } => {
-            let records = live_records(project);
+            let records = live_records(project)?;
             let ready = |cap: &str| {
                 records
                     .iter()
@@ -106,7 +114,7 @@ pub(crate) fn cmd_cap(
                     ),
                 });
             };
-            let records = live_records(project);
+            let records = live_records(project)?;
             let providers: Vec<String> = records
                 .iter()
                 .filter(|r| {
@@ -114,7 +122,7 @@ pub(crate) fn cmd_cap(
                         && r.enabled
                         && r.capabilities.contains(cap.as_str())
                 })
-                .map(|r| format!("{} ({})", r.id, r.kind.as_str()))
+                .map(|r| format!("{} ({}, {})", r.id, r.kind.as_str(), r.source.as_str()))
                 .collect();
             match format {
                 Format::Json | Format::Ndjson => Ok(Output::Json(serde_json::json!({

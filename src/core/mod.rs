@@ -157,6 +157,9 @@ pub enum ForgeError {
     #[error("publish invalid: {reason}")]
     PublishInvalid { reason: String },
 
+    #[error("plugin boundary refused: {reason}")]
+    PluginBoundaryRefused { reason: String },
+
     #[error("publish sync failed: {reason}")]
     PublishSyncFailed { reason: String },
 
@@ -471,6 +474,7 @@ impl ForgeError {
             ForgeError::DeployTargetStale { .. } => "deploy-target-stale",
             ForgeError::DeployHealthFailed { .. } => "deploy-health-failed",
             ForgeError::PublishInvalid { .. } => "publish-invalid",
+            ForgeError::PluginBoundaryRefused { .. } => "plugin-boundary-refused",
             ForgeError::PublishSyncFailed { .. } => "publish-sync-failed",
             ForgeError::PublishPrepareFailed { .. } => "publish-prepare-failed",
             ForgeError::PublishDeployFailed { .. } => "publish-deploy-failed",

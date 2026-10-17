@@ -112,7 +112,7 @@ pub fn apply(project_path: &Path, confirm: bool) -> Result<ApplyOutcome, ForgeEr
     } else {
         plugins::PluginConfig::default()
     };
-    let records = plugins::list(&provider_config, &descriptors);
+    let records = plugins::list(&provider_config, &descriptors, Some(project_path))?;
     let candidates = plugins::metadata_plugins(&records, &field_names);
     if candidates.is_empty() {
         return Err(ForgeError::SemanticInvalid {

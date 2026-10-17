@@ -5,7 +5,11 @@
 //! list + inspect), `provider::matrix(false)` (evidence matrix, never
 //! live) + `provider::inspect` (static descriptor, never probed), and
 //! `plugins::list` over the same config plus its sibling `plugins:`
-//! block. No adapter invocation, no probe, no network, no write, no
+//! block and the inspected project's own boundary declaration — every
+//! plugin row carries the `source` that answered it (`descriptor`,
+//! `declared`, `manifest`, `builtin`), and a declaration the registry
+//! refuses is a typed `plugin-boundary-refused` response rather than an
+//! empty list. No adapter invocation, no probe, no network, no write, no
 //! journal row, no browser-supplied path on any path; every response
 //! carries the admin contract version and project-bound bodies are
 //! scrubbed of the absolute project directory. The CLI's provider-matrix
@@ -127,7 +131,7 @@ fn split_item(item: &str) -> Result<(String, String), ApiResponse> {
 /// under the source-file-size cap.
 pub(in crate::api) fn shipping_error_status(err: &crate::core::ForgeError) -> u16 {
     match err.code() {
-        "publish-invalid" | "provider-invalid" => 400,
+        "publish-invalid" | "provider-invalid" | "plugin-boundary-refused" => 400,
         _ => super::super::err_status(err),
     }
 }
@@ -354,7 +358,10 @@ fn shipping_plugins_list(project_dir: &Path, id: &str) -> ApiResponse {
         Ok(descriptors) => descriptors,
         Err(err) => return typed_project_shipping_error(project_dir, &err),
     };
-    let records = crate::plugins::list(&provider_config, &descriptors);
+    let records = match crate::plugins::list(&provider_config, &descriptors, Some(project_dir)) {
+        Ok(records) => records,
+        Err(err) => return typed_project_shipping_error(project_dir, &err),
+    };
     let views: Vec<Value> = records
         .iter()
         .map(|record| {
@@ -367,6 +374,7 @@ fn shipping_plugins_list(project_dir: &Path, id: &str) -> ApiResponse {
                 "command": record.command.to_string_lossy(),
                 "capabilities": record.capability_list(),
                 "description": record.description,
+                "source": record.source.as_str(),
             })
         })
         .collect();

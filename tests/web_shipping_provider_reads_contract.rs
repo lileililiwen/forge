@@ -379,6 +379,12 @@ fn plugin_list_agrees_with_the_cli_and_empty_is_an_answer() {
     assert!(!jenkins["reason"].as_str().unwrap().is_empty());
     assert_eq!(jenkins["description"], "test delivery plugin");
     assert_eq!(jenkins["capabilities"], serde_json::json!(["delivery"]));
+    // The provenance travels with the row: this fixture configures
+    // `jenkins-mac` through a `plugins:` descriptor, and `backup` names
+    // nothing at all, so the two ranks are distinguishable over the wire.
+    assert_eq!(jenkins["source"], "descriptor");
+    let backup = plugins.iter().find(|p| p["id"] == "backup").unwrap();
+    assert_eq!(backup["source"], "builtin");
     assert_eq!(body["contract"], "forge-plugins/0.1.0");
 
     // A project with no config answers an honest empty registry.

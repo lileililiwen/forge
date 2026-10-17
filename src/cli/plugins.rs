@@ -61,7 +61,11 @@ pub(crate) fn cmd_plugins(
             // delivery plugin, which is what every configuration in the wild
             // already means.
             let descriptors = load_plugin_descriptors(&config_path)?;
-            let records = plugins::list(&provider_config, &descriptors);
+            // The declaration is read from the inspected project directory —
+            // `--project` — and nowhere else. An absent `.project.json` is not
+            // an error; a malformed one is a typed refusal, never a silent
+            // fallback to the builtin table.
+            let records = plugins::list(&provider_config, &descriptors, Some(dir))?;
             let _ = db_path;
             match format {
                 Format::Json | Format::Ndjson => {
@@ -79,6 +83,7 @@ pub(crate) fn cmd_plugins(
                                 "command": record.command.to_string_lossy(),
                                 "capabilities": record.capability_list(),
                                 "description": record.description,
+                                "source": record.source.as_str(),
                             }))
                             .collect::<Vec<_>>(),
                     });
@@ -94,14 +99,15 @@ pub(crate) fn cmd_plugins(
                     let mut lines = Vec::new();
                     for record in &records {
                         lines.push(format!(
-                            "{}  {}  {}{}",
+                            "{}  {}  {}{}  source: {}",
                             record.id,
                             record.kind.as_str(),
                             record.state.as_str(),
                             match record.state.reason() {
                                 Some(reason) => format!("  ({reason})"),
                                 None => String::new(),
-                            }
+                            },
+                            record.source.as_str()
                         ));
                         lines.push(format!("    command: {}", record.command.to_string_lossy()));
                         lines.push(format!(

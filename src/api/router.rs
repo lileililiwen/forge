@@ -78,6 +78,7 @@ pub(in crate::api) fn err_status(err: &ForgeError) -> u16 {
         | "intent-ambiguous"
         | "plan-conflict"
         | "plan-apply-failed"
+        | "plugin-boundary-refused"
         | "remediation-invalid" => 400,
         "graduation-conflict" | "remediation-conflict" | "plan-stale" => 409,
         // Delivery provider / adapter availability is a transient

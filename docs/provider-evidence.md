@@ -21,6 +21,45 @@ Row statuses: `supported` (controlled round trip with provenance),
 attempted; the default), `disabled` (manifest-disabled semantics of the
 underlying adapter).
 
+## Declared boundaries and provenance
+
+A provider boundary in Forge is not only probed — it is **declared**, and
+the declaration is read before anything compiled in.
+
+- The registry resolves a plugin id from the inspected project's workspace
+  declaration (`interfaces[]`, then `capabilities`/`integrations`), then
+  from `kits/manifest.json` and finally from the builtin table, with the
+  operator's `providers.yaml` descriptor speaking first. Each row carries
+  the source that answered it (`descriptor` | `declared` | `manifest` |
+  `builtin`), rendered by `forge plugins list` and by the API's
+  `/v1/admin/projects/{id}/plugins` projection, and shown by
+  `forge cap inspect` beside each Ready plugin. A reviewer can therefore
+  tell a provider's own claim from a compiled-in guess.
+- The declaration is `workspace-governance`'s format
+  (`schemas/project.schema.json`); Forge reads the project directory it was
+  pointed at and writes nothing. A declaration that cannot be read — an
+  unparseable file, a mechanism outside
+  `invoke|consume|observe|sibling`, a version-less contract on a non-
+  `sibling` interface, a `consume`/`observe` edge without a digest — refuses
+  with `plugin-boundary-refused`, naming the file or field. A configured
+  descriptor that contradicts the declaration refuses naming the id and
+  both values. An id nothing declares still resolves through the builtin
+  table and reports `builtin`.
+- The **evidence** for a boundary and the **declaration** of it are
+  different things, and this document keeps them apart: the matrix rows
+  above say what has been *observed*, while a declared interface says what
+  the boundary *is* and what version it speaks. A declared interface
+  promotes no matrix row: an unprobed provider stays `not-run`, and a
+  declaration is never presented as a successful round trip.
+- Forge's own boundaries are declared in `forge/.project.json` with
+  contract versions derived from the versioned-surface inventory
+  (`CONTRACTS` in `src/contract/mod.rs`, the adapter contract constants and
+  `PLATFORM_FAMILY_VERSIONS`) rather than restated; a boundary with no
+  contract version today (the `ariadex` and `sisyphusfy` agent runtimes) is
+  recorded as an **integration** with an `evidence_ref`, never as an
+  interface with an invented version. See
+  [architecture.md](architecture.md#forges-own-declaration).
+
 ## Opt-in rule
 
 - `forge provider matrix` reports every row as `not-run`. A `not-run`

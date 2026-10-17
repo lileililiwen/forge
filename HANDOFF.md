@@ -5777,3 +5777,29 @@ Two verification contracts were corrected with the feature: catalog row-count
 expectations now include its three Clap paths; the native scaffold test checks
 toolchain availability without recursively running Cargo in the Forge root.
 The exact scaffold test passes, and the complete suite passes.
+
+## Facade `forge use` (delivered 2026-10-17, no OpenSpec change)
+
+A thin facade was added so the consolidated dev tooling crates are reachable
+through one command without re-implementing them.
+
+- `forge use <product> [--] [ARGS...]` resolves and delegates to the product's
+  own binary; the product runs in the caller's current directory (relative
+  use) and its exit code is returned unchanged. No AI, no rewriting.
+- Resolution order: (1) in-repo Rust crate binary under
+  `target/{debug,release}/<binary>`; (2) binary on `PATH`; (3) `npx -y
+  <product>` — but **only** for products cataloged as `external`, so a typo
+  never triggers a network install.
+- `forge use --list` enumerates routable products; `forge help` prints the
+  facade overview. The `Help` subcommand reuses clap's help subcommand slot
+  (`disable_help_subcommand = true` on `Commands`).
+- Catalog lives in `src/cli/use_cmd.rs` (`PRODUCTS`): `driftwatchdog`,
+  `cargo-audit-boost`, `cargo-matrix-boost`, `cargo-sonar-boost` (alias
+  `cargo-sonar`, all kind `rust`) and `gitrunbykaru` (alias `grbk`, kind
+  `external`).
+- Docs: `README.md` facade section + `docs/facade.md`.
+- Verified: `cargo build --workspace` green; `cargo check --workspace` green;
+  `git diff --check` clean; `forge help`, `forge use --list`, delegation
+  (`forge use driftwatchdog -- list` -> rc 0), alias, and JSON/unknown error
+  paths exercised. No `current_spec` pointer (delivered directly per explicit
+  user instruction; no OpenSpec change opened).

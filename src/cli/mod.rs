@@ -40,6 +40,7 @@ pub mod release;
 pub mod semantic;
 pub mod setup;
 pub mod ui_pattern;
+pub mod use_cmd;
 
 // `cli` holds the per-surface command handlers; the binary root
 // (`src/main.rs`) keeps the `Cli`/`Commands` shape plus dispatch.

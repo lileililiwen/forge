@@ -51,6 +51,7 @@ use cli::release::{cmd_deploy, cmd_docs, cmd_release};
 use cli::semantic::{cmd_classify, cmd_describe, cmd_remediate, cmd_standard};
 use cli::setup::{cmd_graduation, cmd_kit, cmd_profile, cmd_workspace};
 use cli::ui_pattern::cmd_ui_pattern;
+use cli::use_cmd::{cmd_use, render_help};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(crate) enum Format {
@@ -92,6 +93,7 @@ pub(crate) struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+#[command(disable_help_subcommand = true)]
 enum Commands {
     /// List registered projects.
     List,
@@ -481,6 +483,21 @@ enum Commands {
         #[command(subcommand)]
         command: CapCommands,
     },
+    /// Run a consolidated tooling crate or external sibling product in the
+    /// current directory. Forge locates the binary and delegates; it adds no
+    /// AI and no rewriting. See `forge help`.
+    Use {
+        /// List the routable products and exit.
+        #[arg(long)]
+        list: bool,
+        /// Product id to run (e.g. driftwatchdog, cargo-audit-boost, gitrunbykaru).
+        product: Option<String>,
+        /// Arguments forwarded verbatim to the product's binary.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Print the facade overview for `forge use` and the consolidated products.
+    Help,
 }
 
 fn main() -> ExitCode {
@@ -528,6 +545,12 @@ fn main() -> ExitCode {
     // fail the run).
     if let Commands::Workspace { command } = &cli.command {
         return cmd_workspace(&db_path, command, cli.format);
+    }
+
+    // `forge use` delegates to the product's own binary (inherited stdio)
+    // and must return that binary's exit code, so it owns its exit code.
+    if let Commands::Use { list, product, args } = &cli.command {
+        return cmd_use(*list, product.as_deref(), args, cli.format);
     }
 
     let result = match &cli.command {
@@ -685,6 +708,13 @@ fn main() -> ExitCode {
         Commands::Delivery { command } => cmd_delivery(&db_path, command, cli.format),
         Commands::Studio { command } => cmd_studio(&db_path, command, cli.format),
         Commands::Cap { command } => cmd_cap(&db_path, command, cli.format),
+        Commands::Help => Ok(Output::Human(render_help())),
+        Commands::Use { .. } => {
+            // Handled by the early `if let` above (the delegate run owns its
+            // exit code so the product's stdout/stderr stream through); this
+            // arm exists only to keep the match exhaustive.
+            return ExitCode::from(2);
+        }
         Commands::Gate { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this

@@ -19,6 +19,33 @@ These are registered as workspace members via `members = ["crates/*"]` in
 `Cargo.toml`. `workspace-governance` remains an external sibling. Build the
 whole workspace with `cargo build --workspace` (or `cargo check --workspace`).
 
+## Facade: `forge use <product>`
+
+The outer Forge workspace is a *thin* control plane. It does not re-implement
+the consolidated tooling; it **routes** you to each product's own binary and
+lets it run in your current directory ("relative use"). No AI is involved and
+nothing is rewritten — Forge only locates the right binary and delegates, so a
+product keeps its own accuracy and maturity.
+
+```sh
+forge use <product> [--] [ARGS...]   # run a product in the current directory
+forge use --list                    # list routable products
+forge help                          # print the facade overview
+```
+
+Resolution order for a product id:
+
+1. **In-repo Rust crate** — `crates/*` built into
+   `target/{debug,release}/<binary>` (e.g. `driftwatchdog`,
+   `cargo-audit-boost`, `cargo-matrix-boost`, `cargo-sonar-boost`).
+2. **External binary on `PATH`** — a locally installed tool (e.g. the npm
+   package `gitrunbykaru`, aliased `grbk`).
+3. **`npx -y <product>`** — only for products *cataloged* as external, so a
+   typo never triggers a network install.
+
+`forge use <product> -- --help` forwards flags verbatim to the product, and the
+product's own exit code is returned unchanged. See [docs/facade.md](docs/facade.md).
+
 ## MVP and delivery
 
 v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These commands are available from this checkout via `cargo build`.

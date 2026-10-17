@@ -388,10 +388,10 @@ fn template_files(
     }
     files.push(("forge.yaml".to_string(), manifest));
     // Versioned standard snapshot, only when a pack was explicitly selected
-    // (`--standard-pack`): the owned `.standard/` subtree plus its digest
-    // receipt. Staged as ordinary template files so the promotion/cleanup
-    // guarantees cover them identically. Without a selection the output is
-    // byte-identical to pre-standard releases.
+    // (defaulted for compatible profiles or explicitly selected with
+    // `--standard-pack`): the owned snapshot and digest receipt. Staged as
+    // ordinary template files so promotion/cleanup guarantees cover them
+    // identically.
     if let Some(spec) = request.standard_pack.as_deref() {
         files.extend(crate::standard::staged_files(
             &request.id,

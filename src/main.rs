@@ -170,10 +170,9 @@ enum Commands {
         /// (output is then byte-identical to pre-metadata releases).
         #[arg(long)]
         no_workspace_metadata: bool,
-        /// Render a versioned standard-pack snapshot into `.standard/`
-        /// (e.g. `baseline-service@1.1.0`). Without this flag the output
-        /// is byte-identical to pre-standard releases: no pack is
-        /// selected implicitly.
+        /// Render a versioned standard-pack snapshot, including owned root paths
+        /// (e.g. `baseline-service@1.3.0`). Compatible profiles receive the
+        /// current baseline pack by default; this flag pins another version.
         #[arg(long, value_name = "PACK@VERSION")]
         standard_pack: Option<String>,
         /// Bypass an unmet shared-layer consumption floor, recording the

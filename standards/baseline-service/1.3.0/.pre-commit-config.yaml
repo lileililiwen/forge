@@ -1,0 +1,10 @@
+# Forge standard snapshot (baseline-service@1.3.0).
+repos:
+  - repo: local
+    hooks:
+      - id: forge-gate
+        name: Forge Gate
+        entry: forge gate .
+        language: system
+        pass_filenames: false
+        always_run: true

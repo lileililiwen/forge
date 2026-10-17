@@ -22,6 +22,12 @@ pub const VERIFY_PATH: &str = ".standard/scripts/verify.sh";
 /// CI workflow definition carried by the snapshot.
 pub const CI_PATH: &str = ".standard/ci/verify.yml";
 
+/// GitHub Actions discovers workflow files only under this repository path.
+pub const GITHUB_CI_PATH: &str = ".github/workflows/forge-gate.yml";
+
+/// Pre-commit framework configuration rendered at the repository root.
+pub const PRE_COMMIT_PATH: &str = ".pre-commit-config.yaml";
+
 /// Quality configuration carried by the snapshot.
 pub const QUALITY_PATH: &str = ".standard/quality/quality.yaml";
 
@@ -34,9 +40,22 @@ pub const STANDARD_SCHEMA: u8 = 1;
 /// Pack family mapped to every supported server profile.
 pub const BASELINE_PACK: &str = "baseline-service";
 
-/// Profiles the baseline pack supports. Client-only profiles
-/// (`flutter-app`, `react-web`) map to no pack and render nothing.
+/// Gate-only baseline for the current client profiles.
+pub const CLIENT_PACK: &str = "baseline-client";
+
+/// Default snapshot for compatible new projects. Bump only when a new
+/// supported, verified pack version becomes the generation default.
+pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.3.0";
+
+/// Default snapshot for client profiles with verified Gate-only templates.
+pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.0.0";
+
+/// Service profiles supported by `baseline-service`.
 pub const BASELINE_PROFILES: &[&str] = &["aspnet-web", "nextjs-web", "python-service", "rust-web"];
+
+/// Client profiles receive the Gate-only pack until their native CI baseline
+/// has its own verified language verifier.
+pub const CLIENT_PROFILES: &[&str] = &["flutter-app", "react-web"];
 
 /// Deterministic timestamp used by the pure renderer (`render_files`), so
 /// byte-equality tests are not defeated by the wall clock. Real generation
@@ -44,6 +63,22 @@ pub const BASELINE_PROFILES: &[&str] = &["aspnet-web", "nextjs-web", "python-ser
 pub const DETERMINISTIC_TIMESTAMP: &str = "1970-01-01T00:00:00+00:00";
 
 pub(super) const CI_TEMPLATE: &str = "# Forge standard snapshot CI ({pack}@{version}).\nname: verify\non:\n  push:\n  pull_request:\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - name: standard verify\n        run: sh .standard/scripts/verify.sh\n";
+
+/// Forge-owned service CI template for the Gate-enabled baseline version.
+pub(super) const GATE_CI_TEMPLATE: &str =
+    include_str!("../../standards/baseline-service/1.3.0/ci/verify.yml");
+
+/// Forge-owned pre-commit entry point for the Gate-enabled baseline version.
+pub(super) const PRE_COMMIT_TEMPLATE: &str =
+    include_str!("../../standards/baseline-service/1.3.0/.pre-commit-config.yaml");
+
+/// Gate-only CI asset for the client profile pack.
+pub(super) const CLIENT_CI_TEMPLATE: &str =
+    include_str!("../../standards/baseline-client/1.0.0/ci/verify.yml");
+
+/// Pre-commit hook asset for the client profile pack.
+pub(super) const CLIENT_PRE_COMMIT_TEMPLATE: &str =
+    include_str!("../../standards/baseline-client/1.0.0/.pre-commit-config.yaml");
 
 pub(super) const QUALITY_TEMPLATE: &str =
     "schema: 1\npack: {pack}\nversion: {version}\nchecks:\n  - verify\n";

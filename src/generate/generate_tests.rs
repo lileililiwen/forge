@@ -503,7 +503,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn standard_snapshot_requires_explicit_selection_and_nothing_else_changes() {
+    fn compatible_generation_defaults_to_gate_pack_and_explicit_versions_stay_pinned() {
         let tmp = TempDir::new().unwrap();
         let plain = normalize_explicit(
             Some("rust-web"),
@@ -515,14 +515,23 @@ pub(super) mod tests {
         )
         .unwrap();
         let baseline = render_files(&plain).unwrap();
-        assert!(
-            !baseline
-                .iter()
-                .any(|(p, _)| p.starts_with(crate::standard::STANDARD_DIR)),
-            "without a selection no .standard/ files are staged"
-        );
-        // An explicit selection stages the owned subtree with a receipt
-        // whose recorded digests match the staged content.
+        let baseline_receipt = baseline
+            .iter()
+            .find(|(p, _)| p == crate::standard::RECEIPT_PATH)
+            .map(|(_, c)| c.clone())
+            .expect("compatible generation stages the default standard receipt");
+        let baseline_receipt: crate::standard::Receipt =
+            serde_json::from_str(&baseline_receipt).unwrap();
+        assert_eq!(baseline_receipt.version, "1.3.0");
+        assert!(baseline
+            .iter()
+            .any(|(p, _)| p == crate::standard::PRE_COMMIT_PATH));
+        let default_owned: Vec<String> = baseline_receipt
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect();
+        // Explicit selection still pins an older supported version.
         let with_pack = normalize_explicit(
             Some("rust-web"),
             Some("std-plain"),
@@ -558,14 +567,29 @@ pub(super) mod tests {
                 owned.path
             );
         }
-        // Selection changes nothing else: minus the snapshot subtree the
+        // Selection changes nothing else: minus each pack's owned paths the
         // two renders are identical.
+        let explicit_owned: Vec<String> =
+            receipt.files.iter().map(|file| file.path.clone()).collect();
         let rest: Vec<(String, String)> = files
             .iter()
-            .filter(|(p, _)| !p.starts_with(crate::standard::STANDARD_DIR))
+            .filter(|(p, _)| {
+                p != crate::standard::RECEIPT_PATH
+                    && !default_owned.contains(p)
+                    && !explicit_owned.contains(p)
+            })
             .cloned()
             .collect();
-        assert_eq!(rest, baseline);
+        let baseline_rest: Vec<(String, String)> = baseline
+            .iter()
+            .filter(|(p, _)| {
+                p != crate::standard::RECEIPT_PATH
+                    && !default_owned.contains(p)
+                    && !explicit_owned.contains(p)
+            })
+            .cloned()
+            .collect();
+        assert_eq!(rest, baseline_rest);
         // A bad selection refuses during normalization, before mutation.
         let err = normalize_explicit(
             Some("rust-web"),

@@ -128,6 +128,32 @@ Product-native monetization for one selected product remains a deferred, product
 
 Live analytics aggregate evidence for the interest store is likewise a provider-owned prerequisite, not missing Forge work: the import verb and its store are complete, and what is absent is a producer that emits `forge-portfolio-interest/0.1.0` documents. It is registered with its exact next action in [docs/provider-evidence.md](docs/provider-evidence.md).
 
+## Forge source consolidation and retirement
+
+Forge is the developer-facing owner and facade. Components can live in `src/`
+or ordinary subdirectories/workspaces and may keep independent build and
+publication boundaries. They are not Git submodules, and generated projects
+must not depend on sibling checkouts. Migration proceeds in this order; origin
+repositories are archived only after the final row's consumer evidence:
+
+| Order | Package | Scope / completion evidence | State |
+| --- | --- | --- | --- |
+| 1 | `forge-ci-precommit-templates` | Versioned baseline templates; compatible new-project default; legacy install/upgrade; same Forge Gate in local hook and CI | Complete; archived 2026-10-17 |
+| 2 | `forge-portable-binary-distribution` | Publish versioned, checksummed Forge binaries so generated CI can install a pinned release without a source checkout | Remaining |
+| 3 | `forge-driftwatchdog-test-reconciliation` | Reconcile in-tree DriftWatchdog Gate tests with Forge's authoritative behavior; current workspace suite has 10 failures in that crate | Remaining |
+| 4 | `forge-workspace-governance-internalization` | Move selected bootstrap, workspace-check and runtime-template sources into Forge; remove sibling-checkout runtime dependencies; resolve registry/provider ownership | Remaining |
+| 5 | `forge-platform-schema-ownership` | Move only actively consumed schema sources and validators under Forge maintenance; remove sibling-path parity requirements; list unsupported schema families explicitly | Remaining |
+| 6 | `forge-multiservice-local-runtime` | Represent multiple services and entry points across Compose and local processes; expose the existing `gitrunbykaru` process manager through Forge | Remaining |
+| 7 | `forge-platform-libraries-monorepo` | Relocate .NET and Rust libraries as ordinary subdirectories/workspaces while preserving package identity, independent builds and publication | Remaining |
+| 8 | `forge-developer-workflow-facade` | Stable end-to-end Forge workflows across consolidated modules; reconcile the current product boundary that excludes generic CI/CD replacement | Remaining |
+| 9 | `forge-origin-repository-retirement` | Verify Forge's in-tree DriftWatchdog and `cargo-*` sources plus all migrated consumers, then make each origin repository read-only/archive it; requires explicit remote operation after migration evidence | Remaining |
+
+Before each sibling migration, recheck its live HANDOFF, Git state, build and
+publication instructions. Do not overwrite pre-existing sibling work during
+source moves. Keep schemas/formats only when an identified producer and
+consumer need them, with the owning Forge module and validation included in
+the same migration.
+
 ## Operating rule
 
 All 29 baseline and audit changes plus the sibling-integration packages

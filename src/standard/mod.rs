@@ -16,9 +16,10 @@
 //! safe: only receipt paths are ever read or written, and a divergent path is a
 //! conflict rather than an overwrite.
 //!
-//! The generated project owns that snapshot: it builds, verifies and operates
-//! with its own native toolchain and needs neither Forge nor a sibling checkout
-//! later.
+//! The generated project owns that snapshot and builds/operates with its own
+//! native toolchain. The Forge Gate entry points intentionally invoke Forge;
+//! the project's ordinary native build and runtime do not require Forge or a
+//! sibling checkout.
 //!
 //! The lifecycle is `proposed -> supported -> deprecated`; only `supported`
 //! packs with verified render fixtures are selectable for new generation.

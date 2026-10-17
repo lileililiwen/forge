@@ -158,16 +158,41 @@ fn unknown_or_malformed_pack_selector_is_typed() {
 }
 
 #[test]
-fn new_selects_nothing_implicitly_and_renders_the_named_pack() {
+fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
 
-    // No pack named, no snapshot: the output is the prior release.
+    // Compatible profiles receive the current supported pack by default.
     let plain = tmp.path().join("plain-svc");
     new_project(&db, &plain, "rust-web", &[]);
-    assert!(!plain.join(STANDARD_DIR).exists());
+    assert!(plain.join(STANDARD_DIR).exists());
+    assert!(plain.join(".github/workflows/forge-gate.yml").is_file());
+    let default_receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(plain.join(RECEIPT)).unwrap()).unwrap();
+    assert_eq!(default_receipt["version"], "1.3.0");
     let value = run_json(&db, &["standard", "check", plain.to_str().unwrap()]);
-    assert_eq!(value["state"], "absent");
+    assert_eq!(value["state"], "rendered");
+
+    // Current client profiles receive the Gate-only pack.
+    for profile in ["react-web", "flutter-app"] {
+        let client_default = tmp.path().join(format!("client-{profile}"));
+        new_project(&db, &client_default, profile, &[]);
+        let receipt: serde_json::Value =
+            serde_json::from_slice(&fs::read(client_default.join(RECEIPT)).unwrap()).unwrap();
+        assert_eq!(receipt["pack"], "baseline-client");
+        assert_eq!(receipt["version"], "1.0.0");
+        assert!(client_default
+            .join(".github/workflows/forge-gate.yml")
+            .is_file());
+        assert!(client_default.join(".pre-commit-config.yaml").is_file());
+    }
+
+    // An explicit older supported selection remains exact.
+    let pinned = tmp.path().join("pinned-service");
+    new_project(&db, &pinned, "rust-web", &["--standard-pack", PACK]);
+    let pinned_receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(pinned.join(RECEIPT)).unwrap()).unwrap();
+    assert_eq!(pinned_receipt["version"], "1.1.0");
 
     // An unsupported request is refused before anything is written.
     for spec in [
@@ -497,6 +522,7 @@ fn pinned_shared_script() -> String {
 }
 
 const SHARED_PACK: &str = "baseline-service@1.2.0";
+const GATE_PACK: &str = "baseline-service@1.3.0";
 
 #[test]
 fn install_into_an_existing_project_adopts_identical_files_and_writes_only_owned_paths() {
@@ -651,6 +677,46 @@ fn install_refusals_are_typed_and_write_nothing() {
 }
 
 #[test]
+fn gate_pack_install_refuses_preexisting_hook_without_writing_other_owned_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let project = tmp.path().join("sibling");
+    fs::create_dir_all(&project).unwrap();
+    write(
+        &project,
+        ".pre-commit-config.yaml",
+        "# project-owned hook\n",
+    );
+    write(&project, "README.md", "# sibling\n");
+
+    let out = run(
+        &db,
+        &[
+            "standard",
+            "install",
+            GATE_PACK,
+            project.to_str().unwrap(),
+            "--profile",
+            "rust-web",
+            "--confirm",
+        ],
+    );
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains(".pre-commit-config.yaml"), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(project.join(".pre-commit-config.yaml")).unwrap(),
+        "# project-owned hook\n"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("README.md")).unwrap(),
+        "# sibling\n"
+    );
+    assert!(!project.join(".standard/receipt.json").exists());
+    assert!(!project.join("verify-local.sh").exists());
+}
+
+#[test]
 fn installed_snapshot_checks_and_diffs_clean() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
@@ -741,4 +807,65 @@ fn generation_with_the_shared_asset_pack_puts_the_scripts_in_place() {
     );
     assert!(!pinned.join("verify-local.sh").exists());
     assert!(pinned.join(VERIFY).is_file());
+}
+
+#[test]
+fn generated_gate_pack_renders_matching_ci_and_precommit_entry_points() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let dest = tmp.path().join("generated-gate");
+    new_project(&db, &dest, "rust-web", &["--standard-pack", GATE_PACK]);
+
+    let ci = fs::read_to_string(dest.join(".standard/ci/verify.yml")).unwrap();
+    let github_ci = fs::read_to_string(dest.join(".github/workflows/forge-gate.yml")).unwrap();
+    let hook = fs::read_to_string(dest.join(".pre-commit-config.yaml")).unwrap();
+    assert!(ci.contains("forge gate ."), "{ci}");
+    assert!(ci.contains("sh .standard/scripts/verify.sh"), "{ci}");
+    assert!(github_ci.contains("forge gate ."), "{github_ci}");
+    assert!(
+        github_ci.contains("sh .standard/scripts/verify.sh"),
+        "{github_ci}"
+    );
+    assert!(hook.contains("entry: forge gate ."), "{hook}");
+    assert!(hook.contains("pass_filenames: false"), "{hook}");
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(dest.join(RECEIPT)).unwrap()).unwrap();
+    assert_eq!(receipt["version"], "1.3.0");
+    assert!(receipt["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| { f["path"] == ".pre-commit-config.yaml" }));
+}
+
+#[test]
+fn legacy_snapshot_upgrades_to_active_gate_workflow_and_hook() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let project = tmp.path().join("legacy-gated");
+    new_project(&db, &project, "rust-web", &["--standard-pack", SHARED_PACK]);
+
+    let out = run(
+        &db,
+        &[
+            "standard",
+            "upgrade",
+            project.to_str().unwrap(),
+            "--to",
+            GATE_PACK,
+            "--confirm",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(project.join(".github/workflows/forge-gate.yml").is_file());
+    assert!(project.join(".pre-commit-config.yaml").is_file());
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(project.join(RECEIPT)).unwrap()).unwrap();
+    assert_eq!(receipt["version"], "1.3.0");
+    let checked = run_json(&db, &["standard", "check", project.to_str().unwrap()]);
+    assert_eq!(checked["state"], "rendered");
 }

@@ -9,11 +9,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::layout::{
-    ACCESSIBILITY_CHECK_PATH, BASELINE_PACK, BASELINE_PROFILES, CI_PATH, CI_TEMPLATE, COMPOSE_PATH,
-    COMPOSE_TEMPLATE, DETERMINISTIC_TIMESTAMP, OPENSPEC_NAME_CHECK_PATH, PRIVACY_CHECK_PATH,
-    PROFILE_PATH, QUALITY_PATH, QUALITY_TEMPLATE, RECEIPT_PATH, SHARED_ACCESSIBILITY_CHECK,
-    SHARED_OPENSPEC_NAME_CHECK, SHARED_PRIVACY_CHECK, SHARED_VERIFY_SCRIPT, STANDARD_SCHEMA,
-    VERIFY_LOCAL_PATH, VERIFY_PATH, VERIFY_WRAPPER_TEMPLATE,
+    ACCESSIBILITY_CHECK_PATH, BASELINE_PACK, BASELINE_PROFILES, CI_PATH, CI_TEMPLATE,
+    CLIENT_CI_TEMPLATE, CLIENT_PACK, CLIENT_PRE_COMMIT_TEMPLATE, CLIENT_PROFILES, COMPOSE_PATH,
+    COMPOSE_TEMPLATE, DEFAULT_BASELINE_PACK_SPEC, DEFAULT_CLIENT_PACK_SPEC,
+    DETERMINISTIC_TIMESTAMP, GATE_CI_TEMPLATE, GITHUB_CI_PATH, OPENSPEC_NAME_CHECK_PATH,
+    PRE_COMMIT_PATH, PRE_COMMIT_TEMPLATE, PRIVACY_CHECK_PATH, PROFILE_PATH, QUALITY_PATH,
+    QUALITY_TEMPLATE, RECEIPT_PATH, SHARED_ACCESSIBILITY_CHECK, SHARED_OPENSPEC_NAME_CHECK,
+    SHARED_PRIVACY_CHECK, SHARED_VERIFY_SCRIPT, STANDARD_SCHEMA, VERIFY_LOCAL_PATH, VERIFY_PATH,
+    VERIFY_WRAPPER_TEMPLATE,
 };
 use super::model::{
     DiffChange, DiffEntry, DiffReport, FileReport, FileState, InstalledReport, PackAsset,
@@ -91,6 +94,25 @@ fn verify_script(v1_1: bool) -> &'static str {
 pub fn all_packs() -> Vec<PackDescriptor> {
     vec![
         build_pack(
+            CLIENT_PACK,
+            "1.0.0",
+            PackSupportState::Supported,
+            PackEvidence::Verified,
+            CLIENT_PROFILES,
+            None,
+            &[
+                (PROFILE_PATH, profile_declaration()),
+                (
+                    VERIFY_PATH,
+                    include_str!("../../standards/baseline-client/1.0.0/verify.sh"),
+                ),
+                (CI_PATH, CLIENT_CI_TEMPLATE),
+                (GITHUB_CI_PATH, CLIENT_CI_TEMPLATE),
+                (PRE_COMMIT_PATH, CLIENT_PRE_COMMIT_TEMPLATE),
+                (QUALITY_PATH, QUALITY_TEMPLATE),
+            ],
+        ),
+        build_pack(
             BASELINE_PACK,
             "0.9.0",
             PackSupportState::Deprecated,
@@ -145,6 +167,27 @@ pub fn all_packs() -> Vec<PackDescriptor> {
                 (VERIFY_PATH, VERIFY_WRAPPER_TEMPLATE),
                 (VERIFY_LOCAL_PATH, SHARED_VERIFY_SCRIPT),
                 (CI_PATH, CI_TEMPLATE),
+                (QUALITY_PATH, QUALITY_TEMPLATE),
+                (COMPOSE_PATH, COMPOSE_TEMPLATE),
+                (OPENSPEC_NAME_CHECK_PATH, SHARED_OPENSPEC_NAME_CHECK),
+                (ACCESSIBILITY_CHECK_PATH, SHARED_ACCESSIBILITY_CHECK),
+                (PRIVACY_CHECK_PATH, SHARED_PRIVACY_CHECK),
+            ],
+        ),
+        build_pack(
+            BASELINE_PACK,
+            "1.3.0",
+            PackSupportState::Supported,
+            PackEvidence::Verified,
+            BASELINE_PROFILES,
+            None,
+            &[
+                (PROFILE_PATH, profile_declaration()),
+                (VERIFY_PATH, VERIFY_WRAPPER_TEMPLATE),
+                (VERIFY_LOCAL_PATH, SHARED_VERIFY_SCRIPT),
+                (CI_PATH, GATE_CI_TEMPLATE),
+                (GITHUB_CI_PATH, GATE_CI_TEMPLATE),
+                (PRE_COMMIT_PATH, PRE_COMMIT_TEMPLATE),
                 (QUALITY_PATH, QUALITY_TEMPLATE),
                 (COMPOSE_PATH, COMPOSE_TEMPLATE),
                 (OPENSPEC_NAME_CHECK_PATH, SHARED_OPENSPEC_NAME_CHECK),
@@ -227,8 +270,21 @@ pub fn select_for_generation(profile: &str, spec: &str) -> Result<String, ForgeE
     Ok(spec.to_string())
 }
 
-/// Staged files generation adds when a pack is explicitly selected: the
-/// owned content files plus the receipt.
+/// Current default pack for a profile, or `None` when no Gate template pack
+/// has been verified for that profile. Explicit selectors still use
+/// [`select_for_generation`] and are never silently rewritten.
+pub fn default_for_generation(profile: &str) -> Option<String> {
+    if BASELINE_PROFILES.contains(&profile) {
+        Some(DEFAULT_BASELINE_PACK_SPEC.to_string())
+    } else if CLIENT_PROFILES.contains(&profile) {
+        Some(DEFAULT_CLIENT_PACK_SPEC.to_string())
+    } else {
+        None
+    }
+}
+
+/// Staged files generation adds for a selected/default pack: the owned
+/// content files plus the receipt.
 pub fn staged_files(
     id: &str,
     profile: &str,

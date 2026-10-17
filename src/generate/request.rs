@@ -103,7 +103,7 @@ pub fn normalize_explicit(
     let closed_features = check_request(profile, &id, &sorted_features)?;
     let standard_pack = match standard_pack {
         Some(spec) => Some(crate::standard::select_for_generation(profile, spec)?),
-        None => None,
+        None => crate::standard::default_for_generation(profile),
     };
     Ok(CreationRequest {
         profile: profile.to_string(),
@@ -227,7 +227,7 @@ pub fn parse_interactive(
     let closed_features = check_request(&profile, &id, &features)?;
     let standard_pack = match preset_standard_pack {
         Some(spec) => Some(crate::standard::select_for_generation(&profile, spec)?),
-        None => None,
+        None => crate::standard::default_for_generation(&profile),
     };
     Ok(CreationRequest {
         profile,

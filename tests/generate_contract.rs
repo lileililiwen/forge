@@ -128,6 +128,12 @@ fn new_creates_registered_portable_project() {
     assert!(dest.join("Cargo.toml").exists());
     assert!(dest.join("src/main.rs").exists());
     assert!(dest.join("README.md").exists());
+    assert!(dest.join(".standard/receipt.json").is_file());
+    assert!(dest.join(".standard/ci/verify.yml").is_file());
+    assert!(dest.join(".github/workflows/forge-gate.yml").is_file());
+    assert!(dest.join(".pre-commit-config.yaml").is_file());
+    let hook = fs::read_to_string(dest.join(".pre-commit-config.yaml")).unwrap();
+    assert!(hook.contains("entry: forge gate ."), "{hook}");
     let manifest = fs::read_to_string(dest.join("forge.yaml")).unwrap();
     assert!(manifest.contains("profile: rust-web"), "{manifest}");
     let readme = fs::read_to_string(dest.join("README.md")).unwrap();
@@ -191,8 +197,15 @@ fn explicit_flags_and_interactive_answers_are_equivalent() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
 
-    let a = file_bytes(&via_flags);
-    let b = file_bytes(&via_cli);
+    let mut a = file_bytes(&via_flags);
+    let mut b = file_bytes(&via_cli);
+    for (path, bytes) in a.iter_mut().chain(b.iter_mut()) {
+        if path == ".standard/receipt.json" {
+            let mut receipt: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            receipt["generated_at"] = serde_json::Value::String("<generation-time>".into());
+            *bytes = serde_json::to_vec_pretty(&receipt).unwrap();
+        }
+    }
     assert_eq!(a, b);
 }
 

@@ -9,19 +9,20 @@ pub(super) mod tests {
     use std::path::{Path, PathBuf};
 
     use crate::standard::layout::{
-        ACCESSIBILITY_CHECK_PATH, CI_PATH, COMPOSE_PATH, DETERMINISTIC_TIMESTAMP,
-        OPENSPEC_NAME_CHECK_PATH, PRIVACY_CHECK_PATH, PROFILE_PATH, QUALITY_PATH, RECEIPT_PATH,
-        SHARED_ACCESSIBILITY_CHECK, SHARED_OPENSPEC_NAME_CHECK, SHARED_PRIVACY_CHECK,
-        SHARED_VERIFY_SCRIPT, STANDARD_DIR, VERIFY_LOCAL_PATH, VERIFY_PATH,
+        ACCESSIBILITY_CHECK_PATH, CI_PATH, CLIENT_PACK, COMPOSE_PATH, DETERMINISTIC_TIMESTAMP,
+        GITHUB_CI_PATH, OPENSPEC_NAME_CHECK_PATH, PRE_COMMIT_PATH, PRIVACY_CHECK_PATH,
+        PROFILE_PATH, QUALITY_PATH, RECEIPT_PATH, SHARED_ACCESSIBILITY_CHECK,
+        SHARED_OPENSPEC_NAME_CHECK, SHARED_PRIVACY_CHECK, SHARED_VERIFY_SCRIPT, STANDARD_DIR,
+        VERIFY_LOCAL_PATH, VERIFY_PATH,
     };
     use crate::standard::model::{
         DiffChange, FileState, PackAssetOrigin, PackDescriptor, PackEvidence, PackSupportState,
         SnapshotState,
     };
     use crate::standard::snapshot::{
-        all_packs, check_snapshot, diff_snapshot, inspect_pack, install_snapshot,
-        pack_asset_digest, parse_pack_spec, receipt_text, render_snapshot, resolve_asset_origin,
-        select_for_generation, staged_files, upgrade_snapshot,
+        all_packs, check_snapshot, default_for_generation, diff_snapshot, inspect_pack,
+        install_snapshot, pack_asset_digest, parse_pack_spec, receipt_text, render_snapshot,
+        resolve_asset_origin, select_for_generation, staged_files, upgrade_snapshot,
     };
 
     fn baseline(spec: &str) -> PackDescriptor {
@@ -82,11 +83,27 @@ pub(super) mod tests {
             let err = select_for_generation("rust-web", spec).expect_err("must refuse");
             assert_eq!(err.code(), "standard-invalid");
         }
-        // Client profiles have no implicit pack: an explicit selection for
-        // an incompatible profile refuses rather than guessing.
+        // Client profiles select their own Gate-only pack. Cross-family
+        // explicit selections remain incompatible.
+        assert_eq!(
+            select_for_generation("react-web", "baseline-client@1.0.0").unwrap(),
+            "baseline-client@1.0.0"
+        );
         let err = select_for_generation("react-web", "baseline-service@1.1.0")
             .expect_err("incompatible profile must refuse");
         assert_eq!(err.code(), "standard-invalid");
+        assert_eq!(
+            default_for_generation("rust-web").as_deref(),
+            Some("baseline-service@1.3.0")
+        );
+        assert_eq!(
+            default_for_generation("react-web").as_deref(),
+            Some("baseline-client@1.0.0")
+        );
+        assert_eq!(
+            default_for_generation("flutter-app").as_deref(),
+            Some("baseline-client@1.0.0")
+        );
         // Unknown selectors refuse by name.
         let err = select_for_generation("rust-web", "nope@1.0.0").expect_err("must refuse");
         assert_eq!(err.code(), "standard-invalid");
@@ -372,6 +389,62 @@ pub(super) mod tests {
         }
         // The previous version keeps its own bytes: adding assets is additive.
         assert_ne!(previous.asset_digest, shared.asset_digest);
+    }
+
+    #[test]
+    fn gate_pack_assets_share_one_repository_wide_command() {
+        let pack = baseline("baseline-service@1.3.0");
+        let rendered =
+            render_snapshot("demo", "rust-web", &pack, DETERMINISTIC_TIMESTAMP, false).unwrap();
+        let content = |path: &str| -> String {
+            rendered
+                .files
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| panic!("{path} not rendered"))
+        };
+        let ci = content(CI_PATH);
+        let github_ci = content(GITHUB_CI_PATH);
+        let hook = content(PRE_COMMIT_PATH);
+        assert!(ci.contains("forge gate ."), "{ci}");
+        assert!(ci.contains("sh .standard/scripts/verify.sh"), "{ci}");
+        assert!(github_ci.contains("forge gate ."), "{github_ci}");
+        assert!(
+            github_ci.contains("sh .standard/scripts/verify.sh"),
+            "{github_ci}"
+        );
+        assert!(ci.contains("d7c5f96c16fab8c50a9b40f80e55783b25a729af"));
+        assert!(ci.contains("contents: read"), "{ci}");
+        assert!(hook.contains("entry: forge gate ."), "{hook}");
+        assert!(hook.contains("pass_filenames: false"), "{hook}");
+        assert!(hook.contains("always_run: true"), "{hook}");
+    }
+
+    #[test]
+    fn client_pack_is_gate_only_and_covers_both_client_profiles() {
+        let pack = baseline("baseline-client@1.0.0");
+        assert!(pack.supports("react-web"));
+        assert!(pack.supports("flutter-app"));
+        let rendered =
+            render_snapshot("demo", "react-web", &pack, DETERMINISTIC_TIMESTAMP, false).unwrap();
+        let content = |path: &str| -> String {
+            rendered
+                .files
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| panic!("{path} not rendered"))
+        };
+        let verifier = content(VERIFY_PATH);
+        let ci = content(GITHUB_CI_PATH);
+        let hook = content(PRE_COMMIT_PATH);
+        assert!(verifier.contains("exec forge gate ."), "{verifier}");
+        assert!(ci.contains("sh .standard/scripts/verify.sh"), "{ci}");
+        assert!(!ci.contains("verify-local.sh"), "{ci}");
+        assert!(hook.contains("entry: forge gate ."), "{hook}");
+        assert!(hook.contains("pass_filenames: false"), "{hook}");
+        assert_eq!(pack.id, CLIENT_PACK);
     }
 
     #[test]

@@ -5778,10 +5778,14 @@ expectations now include its three Clap paths; the native scaffold test checks
 toolchain availability without recursively running Cargo in the Forge root.
 The exact scaffold test passes, and the complete suite passes.
 
-## Facade `forge use` (delivered 2026-10-17, no OpenSpec change)
+## Facade `forge use` (spec-driven; change `cli-facade` archived 2026-10-17)
 
-A thin facade was added so the consolidated dev tooling crates are reachable
-through one command without re-implementing them.
+A thin facade was added so the consolidated dev tooling crates and external
+sibling products are reachable through one command without re-implementing
+them. Delivered spec-driven: OpenSpec change `cli-facade` archived as
+`2026-10-17-cli-facade`; canonical spec `openspec/specs/cli-facade/spec.md`
+promoted (requirements CF-001..CF-004; Purpose updated post-archive so no
+placeholder remains).
 
 - `forge use <product> [--] [ARGS...]` resolves and delegates to the product's
   own binary; the product runs in the caller's current directory (relative
@@ -5801,5 +5805,28 @@ through one command without re-implementing them.
 - Verified: `cargo build --workspace` green; `cargo check --workspace` green;
   `git diff --check` clean; `forge help`, `forge use --list`, delegation
   (`forge use driftwatchdog -- list` -> rc 0), alias, and JSON/unknown error
-  paths exercised. No `current_spec` pointer (delivered directly per explicit
-  user instruction; no OpenSpec change opened).
+  paths exercised. `openspec validate cli-facade --strict` and
+  `openspec validate --all --strict` pass (107 items).
+
+### Local Gate (forge gate, revision 7d9103d)
+
+Ran `forge gate --dry-run` then `forge gate --timeout-secs 1200`. Aggregate:
+**blocked**. The change introduces **no new failure**; all failing checks are
+pre-existing and unrelated (none of the changed files touch the failing
+surfaces):
+
+| Check | Status | Attribution | Remediation |
+|---|---|---|---|
+| `build` | pass | — | — |
+| `declared-verification` | fail | pre-existing (`.project.json` validation, untouched by this change) | Out of scope; track with the owning change. |
+| `governance-quality` | fail | pre-existing (1 in-scope governance finding, unrelated) | Out of scope; track with the owning change. |
+| `placeholder-threshold` | pass | — | — |
+| `product-code-boundary` | pass | — | — |
+| `repository` | pass | — | — |
+| `security` | pass | — | Known `unsafe-libyaml`/`paste` unmaintained advisory (pre-existing). |
+| `source-file-size` | fail | pre-existing; `src/api/admin/assurance.rs` at 1003 lines (>1000). Untouched by this change. | Separate size-split change per repo precedent. |
+| `tests` | fail | pre-existing; `crates/driftwatchdog/tests/packaging.rs::packaging_bash_and_node_suites_pass` -> `FAIL agent_examples`. **driftwatchdog crate untouched by this change.** | Track with the driftwatchdog owning change; not attributable here. |
+
+Implementation commit `7d9103d` (forge use + docs). Archive and promoted
+canonical spec committed in this handoff. Nothing pushed. No `current_spec`
+pointer remains.

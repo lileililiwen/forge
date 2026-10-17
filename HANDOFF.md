@@ -5888,14 +5888,14 @@ checkout was changed. Nothing was pushed.
 | Formatting | PASS | `rustfmt --check --config skip_children=true` over changed Rust files. Workspace-wide formatting was avoided because it rewrites unrelated legacy files. |
 | OpenSpec/name/diff checks | PASS | Name preflight; `openspec validate --all --strict --no-interactive` **108/0** after archive; `git diff --check`. |
 | `forge gate --dry-run` | PASS | Eight checks resolved; no checks executed or evidence written. |
-| Full Forge Gate | BLOCKED, pre-existing | Run `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 660 ./target/debug/forge gate --timeout-secs 600`. Build, repository, quality, security and source-size pass. Test and declared-verification fail on the same 10 existing tests in untouched `crates/driftwatchdog` (718 passed, 10 failed); reproduce with `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 600 scripts/check-tests.sh`. Security reports unmaintained `paste` and `unsafe-libyaml` advisories. Remediation is roadmap package `forge-driftwatchdog-test-reconciliation`; these failures are not attributable to this change. Evidence revision: `73bbe74f80bc`. |
+| Full serial workspace suite | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 600 scripts/check-tests.sh` completed with exit code 0. The 10 previously failing DriftWatchdog tests now pass. |
+| Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 660 ./target/debug/forge gate --timeout-secs 600` completed with aggregate PASS. All checks pass; source-size evaluated 419/419 candidates. Security surfaces existing unmaintained `paste` and `unsafe-libyaml` advisories without failing the Gate. |
 
 ## Remaining consolidation work
 
 The dependency-ordered queue is in [ROADMAP.md](ROADMAP.md#forge-source-consolidation-and-retirement):
 
-1. **Distribution and reliability:** publish checksummed Forge binaries for
-   CI, then reconcile the 10 in-tree DriftWatchdog test failures.
+1. **Distribution and reliability:** publish checksummed Forge binaries for CI.
 2. **Ownership consolidation:** internalize selected workspace-governance
    sources and actively consumed platform schemas/validators; remove sibling
    checkout and mirrored-schema maintenance dependencies.
@@ -5911,6 +5911,6 @@ The dependency-ordered queue is in [ROADMAP.md](ROADMAP.md#forge-source-consolid
    the source repositories read-only/archive them. This remains the final
    external operation.
 
-These are roadmap packages, not active OpenSpec changes. `openspec list` is
-empty, so this HANDOFF has no `current_spec` pointer. Before each migration,
-refresh the sibling HANDOFF, Git state, source, build and publication evidence.
+These are remaining roadmap packages; the Gate regression reconciliation is
+complete and archived. Before each sibling migration, refresh the sibling
+HANDOFF, Git state, source, build and publication evidence.

@@ -2,7 +2,74 @@
 
 ## Current state
 
-current_spec: interface-declaration-and-boundary-findings
+current_spec: none
+
+## Completed: interface declaration and boundary findings
+
+`interface-declaration-and-boundary-findings` is archived at
+`openspec/changes/archive/2026-10-17-interface-declaration-and-boundary-findings/`.
+The portfolio had a boundary language for capabilities and none for
+interfaces, so every cross-project call was invisible to governance. The
+optional `interfaces[]` block now declares each boundary with its mechanism,
+its contract and, where the mechanism requires one, a `sha256` digest, and the
+audit charges an undeclared or unpinned edge.
+
+**What landed.** `schemas/project.schema.json` gains `interfaces` plus the
+`interface*` `$defs`; `scripts/workspace_check.py` gains the whole-declaration
+validation pass (a malformed declaration yields no interface assertion, never a
+partial read), cross-project resolution of a `consumes` edge against the
+provider's own `provides` entry, the seven interface findings, and
+`CAPABILITY_PROVIDER_UNVERIFIED`, which names the provider holding each of the
+nine `exempt` capabilities unverified without moving a posture or charging a
+consumer; `scripts/bind_gate_commands.py` and `scripts/bind_ui_gate.py` write
+the matching `mechanism: sibling` declaration, digest included, in the same
+operation as the command they write, and leave a concern unbound (recorded as
+debt) rather than declare an edge they cannot describe; `decisions.json` `D7`
+records 2027-01-15 as the date the two ramped findings become blocking, and the
+audit reads that date from the register, so no environment variable or
+project-controlled switch can start the ramp early. The declaration, the closed
+mechanism set and the two lawful alternatives to a sibling path are documented
+in `docs/capabilities.md`, with `D7` restated in
+`docs/toolchain-decisions.md`.
+
+**Verification.** Full unit suite — 1011 passed, 2 skipped (948 before the
+change, so 63 new tests are counted); workspace self-check — 0 errors,
+0 warnings; auto-gate — PASS; strict OpenSpec validation — 26 canonical specs,
+0 failed; change-name validation and `git diff --check` — clean. Fleet,
+measured with `scripts/workspace_check.py --root .. --json` before and after:
+317 errors / 24 warnings → 317 / 33, the entire delta being the nine
+design-mandated `CAPABILITY_PROVIDER_UNVERIFIED` warnings, with **zero**
+`INTERFACE_*` findings on the 82 existing declarations. Generator round trip,
+on a temporary scaffold only: exactly one declared `sibling` edge beside the
+bound command, its digest `sha256(entry)`, recomputed and accepted by the
+audit; the pinned form of a real `aegify` binding is silent, the unpinned form
+reports WARNING with both lawful alternatives and never ERROR.
+`bind_gate_commands.py --apply` was never run against `/home/paul/code`.
+
+**Archive.** Archived without `--skip-specs`: `capability-adoption-gate` gained
+three requirements (6 → 9) and `platform-capability-manifest` two (3 → 5), both
+retaining their existing real Purposes — the archiver created no placeholder.
+Its trailing blank line was removed from the adoption-gate spec so
+`git diff --check` stayed clean. The package's own baseline task records the
+sibling bindings measured today: **65** gate manifests bind
+`workspace_check.py` and **44** bind `product_code_quality.py` (the proposal's
+67 predates this run). Forge's two vendored copies
+(`scripts/governance/product_code_quality.py`, `scripts/governance/vocabulary.py`)
+are byte-identical to this repository's files; declaring them as
+`mechanism: consume` with their digests is Forge's own follow-up change.
+
+**Deferred scope.** Five tasks are unchecked, all of them in the package's
+"Follow-up changes (other repositories, not this one)" section: Forge's
+consumption change, the `platform-contracts` interface envelope,
+`dotnet-platform-libs`' verified capability entries that unfreeze the nine
+exemptions, `driftwatchdog`'s released checker manifest, and the per-consumer
+conversion of sibling edges to digest-pinned copies or published artifacts.
+None is work inside this repository's contract.
+
+**Commits.** `a55fbb7` contains the schema, audit, both generators, the `D7`
+decision, the documentation, the tests, and the archived change. This
+HANDOFF-only commit records the verification and clears the active pointer;
+there are no active OpenSpec changes.
 
 ## Completed: OpenSpec seriality guard
 

@@ -5830,3 +5830,33 @@ surfaces):
 Implementation commit `7d9103d` (forge use + docs). Archive and promoted
 canonical spec committed in this handoff. Nothing pushed. No `current_spec`
 pointer remains.
+
+## Forge native Gate — archived OpenSpec change (2026-10-17)
+
+`forge-native-gate-checks` is archived as
+`2026-10-17-forge-native-gate-checks`, with canonical specs promoted. Forge now
+executes the bundled gate engine, always includes the versioned 1,000-line
+source-file baseline, adds explicit project checks as extensions, and persists
+only Forge-owned gate evidence. The CI/pre-commit template and legacy-adoption
+package is the next planned change and remains unstarted.
+
+Implementation, tests, archive, and promoted specs are committed as
+`d7c5f96` (`feat: make Forge own the project gate`). This checkout has no
+active OpenSpec changes, so no `current_spec` pointer is present.
+
+| Check | Result | Evidence / attribution |
+|---|---|---|
+| Focused Forge gate contract | **4 passed** | Manifest-free pass, >1,000-line failure, extension union plus baseline suppression attempt, and dry-run zero side effects/no `.driftwatch` state. |
+| Gate manifest unit suite | **73 passed** | Includes mandatory baseline, immutable requirement, profile defaults, and baseline-version digest identity. |
+| Forge gate runtime unit suite | **23 passed** | Includes legacy runtime declaration independence and historical evidence projection fixtures. |
+| Formatting | **PASS** | `rustfmt --check --config skip_children=true` over every changed Rust file. Whole-package `cargo fmt --check` also flags pre-existing formatting in untouched `src/cli/use_cmd.rs`; that unrelated file was preserved. |
+| Workspace build | **PASS** | `CARGO_TARGET_DIR=/tmp/forge-native-gate-target RUSTC_WRAPPER= cargo build --workspace --all-features`. |
+| Workspace Clippy | **FAIL, unrelated** | `cargo clippy --workspace --all-targets --all-features -- -D warnings` reports existing warnings in untouched `crates/cargo-audit-boost`. Changed Forge and gate files produced no Clippy diagnostics before that failure. |
+| Workspace tests | **BLOCKED by environment** | `cargo test --workspace --all-targets` failed at linking `gate_governance_quality` with `ld` signal 7 (Bus error). Final Gate test checks also hit `/tmp` disk quota while compiling `forge`; the focused contracts and manifest suite pass. |
+| OpenSpec/name/diff validation | **PASS** | Name preflight PASS; `openspec validate --all --strict --no-interactive` **108/0**; `git diff --check` PASS. |
+| `forge gate --dry-run` | **PASS** | Runtime `forge`; baseline `forge-baseline/1.0.0` resolved first; no checks executed and no evidence written. |
+| Full `forge gate --timeout-secs 600` | **BLOCKED, environmental failures only** | Build, repository, product checks, and source-size **PASS**; source scan covered 418/418 candidates after splitting `src/api/admin/assurance.rs` to 925 lines plus `src/api/admin/assurance/analytics.rs` at 76 lines. `security` could not obtain `/home/paul/.cargo/advisory-db..lock`; `declared-verification` and `tests` could not compile after `/tmp` quota exhaustion. The newly required baseline is green; no change-attributable failure remains. Retry after restoring temporary build space and a writable/current Cargo advisory database. |
+
+The full Gate wrote `.forge/gate/forge/evidence.json` at revision
+`337c66be94dc`; its overall verdict is blocked as recorded above. Do not treat
+that run as a pass. No sibling repository, push, or deployment was performed.

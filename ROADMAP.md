@@ -57,6 +57,18 @@ Follow the order below by default; every dependency was implemented and verified
 | 39 | sibling | `gate-evidence-export-consumption` | `driftwatchdog gate-evidence-export` (archived sibling) | §24, §25, §29, §32, §38 |
 | 40 | later | [forge-independent-project-inventory-fleet](openspec/specs/forge-independent-project-inventory-fleet/spec.md) | `forge-publish-queue-status`, `forge-publish-observability-revision-containers` | §7, §23, §29, §32, §34, §36 |
 
+## Proposed next package
+
+`project-metadata-bundle` (not authored). Forge would generate one per-project
+metadata document and expose it to agents over MCP. Measured gaps it closes: the
+catalog record is a closed fifteen-key set with no description, keywords,
+capability, gate or spec fields; no MCP tool reads any `.forge/*` artifact; and
+the 18-tool MCP surface has no text or semantic search. It builds on the
+interface declaration Forge now carries in `.project.json` — the declared
+boundaries are the metadata a search surface would index. Queued behind
+`interface-declaration-consumption` (implemented 2026-10-17) so the vocabulary
+it indexes is stable first.
+
 ## Later packages
 
 Delivered after the dependency-order table above and archived with their

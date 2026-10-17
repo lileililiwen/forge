@@ -196,17 +196,10 @@ pub(super) mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 239 Clap paths (probe-verified from
-        // `Cli::command()`, including the `identity change-password` and
-        // `identity generate-password` leaf commands, the `workspace` /
-        // `workspace.sync` bulk-convergence paths and the `plugins` /
-        // `plugins.list` registry paths, plus the `classify.derive` and
-        // `classify.apply` paths, plus the new `identity.status` path, plus
-        // the capability-grouping facade paths `cap`, `cap.add`,
-        // `cap.inspect`, `cap.list` and `cap.run`, plus the `standard.install`
-        // snapshot-adoption path) plus the explicit
-        // top-level `help` row.
-        assert_eq!(rows().len(), 240);
+        // The row count equals the 242 Clap paths (probe-verified from
+        // `Cli::command()`, including the metadata group and build/search
+        // leaves, plus the explicit top-level `help` row.
+        assert_eq!(rows().len(), 243);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 

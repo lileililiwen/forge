@@ -334,6 +334,14 @@ pub enum ForgeError {
     #[error("catalog invalid: {reason}; no catalog state was changed")]
     CatalogInvalid { reason: String },
 
+    #[error("project metadata invalid: {reason}")]
+    ProjectMetadataInvalid { reason: String },
+    #[error("project metadata conflict: {reason}")]
+    ProjectMetadataConflict { reason: String },
+
+    #[error("invalid argument: {reason}")]
+    InvalidArgument { reason: String },
+
     #[error("github invalid: {reason}")]
     GithubInvalid { reason: String },
 
@@ -531,7 +539,10 @@ impl ForgeError {
             ForgeError::ContractInvalid { .. } => "contract-invalid",
             ForgeError::StandardInvalid { .. } => "standard-invalid",
             ForgeError::CatalogInvalid { .. } => "catalog-invalid",
+            ForgeError::ProjectMetadataInvalid { .. } => "project-metadata-invalid",
             ForgeError::GithubInvalid { .. } => "github-invalid",
+            ForgeError::ProjectMetadataConflict { .. } => "project-metadata-conflict",
+            ForgeError::InvalidArgument { .. } => "invalid-argument",
             ForgeError::GithubAdapterUnavailable { .. } => "github-adapter-unavailable",
             ForgeError::GithubCliInvalid { .. } => "github-cli-invalid",
             ForgeError::GithubCliConflict { .. } => "github-cli-conflict",

@@ -65,6 +65,30 @@ describes descriptors, compatibility and toolchain presence; only
 profiles with native-tool evidence are claimed as verified (see
 [release readiness](docs/release-readiness.md)).
 
+
+## Project metadata for agent discovery
+
+Forge can generate a deterministic, project-local metadata bundle from an
+explicitly selected repository and search bundles for projects already in
+the local registry:
+
+```sh
+forge project metadata build /path/to/project
+forge --format json project metadata search "payments webhook" --limit 10
+```
+
+Generation reads the project's `.project.json`, optional `forge.yaml`,
+`README.md`, and canonical specification identifiers. It writes only
+`.forge/project-metadata.json` and its SHA-256 ownership receipt. Refresh
+requires the receipt to match the generated file; foreign or edited targets
+are refused. Search reads the local registry and registered project bundles
+without changing either. It reports missing, invalid, or stale bundles as
+per-project issues instead of treating them as empty results. Search accepts
+1–8 terms in a query of at most 128 characters and a result limit from 1 to
+50. The mature MCP surface advertises the same read-only operation as
+`search_project_metadata`; it takes `query`, optional `project_id`, and
+optional `limit`.
+
 ## Documentation quickstart
 
 With Node.js and the OpenSpec CLI available (validated here with OpenSpec 1.6.0):

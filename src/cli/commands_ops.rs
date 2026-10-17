@@ -173,11 +173,29 @@ pub(crate) enum ProjectCommands {
         #[arg(long = "remediation-class", value_name = "CLASS")]
         remediation_classes: Vec<String>,
     },
+    /// Generate or search deterministic project metadata.
+    Metadata {
+        #[command(subcommand)]
+        command: ProjectMetadataCommands,
+    },
     /// Optional GitHub metadata observation and approved change surface
     /// (`github-project-metadata-adapter`).
     Github {
         #[command(subcommand)]
         command: GithubCommands,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub(crate) enum ProjectMetadataCommands {
+    /// Generate or refresh the owned metadata bundle for one project root.
+    Build { path: std::path::PathBuf },
+    /// Search metadata from registered projects.
+    Search {
+        query: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
     },
 }
 #[derive(Debug, Subcommand)]

@@ -338,9 +338,8 @@ pub(super) mod tests {
 
     #[test]
     fn rust_scaffold_builds_and_tests_with_native_toolchain() {
-        let toolchain: HashSet<String> = ["cargo".to_string()].into_iter().collect();
-        if verify_native("rust-web", Path::new("."), Some(&toolchain)).is_err() {
-            // Probe only: toolchain set override cannot run real cargo; skip.
+        // Probe availability only; native commands must run in the generated project below.
+        if !toolchain_present("cargo", None) {
             return;
         }
         let tmp = TempDir::new().unwrap();
@@ -366,9 +365,7 @@ pub(super) mod tests {
             }
             fs::write(path, contents).unwrap();
         }
-        if !toolchain_present("cargo", None) {
-            return;
-        }
+
         let report = verify_native("rust-web", &target, None).expect("cargo build+test");
         assert!(report.verified);
     }

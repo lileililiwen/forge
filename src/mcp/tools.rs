@@ -37,6 +37,18 @@ pub fn tool_registry() -> Vec<McpToolDescriptor> {
             ),
         ),
         McpToolDescriptor::read_only(
+            "search_project_metadata",
+            "Search current metadata bundles for registered projects without mutating project or registry state.",
+            schema_object(
+                &[
+                    ("query", string_type()),
+                    ("project_id", string_type()),
+                    ("limit", "integer"),
+                ],
+                &["query"],
+            ),
+        ),
+        McpToolDescriptor::read_only(
             "inspect_project",
             "Inspect every catalog record for a project id across the selected sources.",
             schema_object(

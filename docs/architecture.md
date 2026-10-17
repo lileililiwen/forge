@@ -11,6 +11,7 @@ Deterministic assets are preferred at every reuse level: Profile → Feature →
 | Boundary | Ownership | Consumers |
 | --- | --- | --- |
 | Core / Registry | Validated project model, schema, identity, state and timestamped observations | All operations |
+| Project Metadata | Explicit, receipt-protected projection of each project's declarations; registered-project search uses the existing local registry read-only | CLI `forge project metadata`, read-only MCP `search_project_metadata` |
 | Profiles / Features / Components | Versioned assets, contracts, compatibility, provenance and quality evidence | Planner, Generator, Upgrade, Doctor |
 | Intent / Planner | Structured intent, graph validation, exact resolution and reviewable steps | CLI, later MCP/API |
 | Generator / Upgrade | Deterministic application, ownership records, preconditions and recovery | New, feature lifecycle, upgrades |

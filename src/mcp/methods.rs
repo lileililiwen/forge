@@ -102,6 +102,7 @@ fn dispatch_read_only(
     match name {
         "list_projects" => mcp_list_projects(db_path, args),
         "inspect_project" => mcp_inspect_project(db_path, args),
+        "search_project_metadata" => mcp_search_project_metadata(db_path, args),
         "list_profiles" => Ok(serde_json::json!({"profiles": crate::profile::list_profiles()})),
         "inspect_profile" => {
             let id = required_string(args, "id")?;
@@ -253,6 +254,37 @@ fn mcp_inspect_project(db_path: &Path, args: &Map<String, Value>) -> Result<Valu
         "records": records,
     });
     Ok(serde_json::json!({ "catalog": page }))
+}
+fn mcp_search_project_metadata(
+    db_path: &Path,
+    args: &Map<String, Value>,
+) -> Result<Value, McpRpcError> {
+    let query = required_string(args, "query")?;
+    let project_id = optional_string(args, "project_id");
+    let limit = match args.get("limit") {
+        None => 10,
+        Some(value) => value
+            .as_u64()
+            .and_then(|raw| usize::try_from(raw).ok())
+            .ok_or_else(|| {
+                McpRpcError::new(rpc_code::INVALID_PARAMS, "limit must be a positive integer")
+            })?,
+    };
+    let outcome = crate::project_metadata::search_registered_projects(
+        db_path,
+        &query,
+        project_id.as_deref(),
+        limit,
+    )
+    .map_err(|err| match err {
+        ForgeError::InvalidArgument { reason } => {
+            McpRpcError::new(rpc_code::INVALID_PARAMS, reason)
+                .with_data(serde_json::json!({"code": "invalid-argument"}))
+        }
+        other => core_error(other),
+    })?;
+    let value = serde_json::to_value(outcome).map_err(|err| internal_error(err.to_string()))?;
+    Ok(serde_json::json!({ "metadata_search": value }))
 }
 
 fn build_catalog_selection_from_mcp(

@@ -3,7 +3,7 @@
 
 use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
-use super::routes::REASON_LOCAL_TOOLCHAIN;
+use super::routes::{REASON_LOCAL_FS, REASON_LOCAL_TOOLCHAIN};
 use super::routes::{
     WEB_ROUTE_ADMIN_CATALOG, WEB_ROUTE_ADMIN_CATALOG_GAPS, WEB_ROUTE_ADMIN_CATALOG_INSPECT,
     WEB_ROUTE_ADMIN_CATALOG_LANGUAGES, WEB_ROUTE_ADMIN_CATALOG_TAGS, WEB_ROUTE_ADMIN_FLEET_INSPECT,
@@ -26,6 +26,8 @@ impl CatalogBuilder {
         use Risk::*;
         use Scope::*;
         let caps_registry: &[&str] = &["registry_read"];
+        let caps_local: &[&str] = &["local_filesystem"];
+        let caps_metadata_search: &[&str] = &["registry_read", "local_filesystem"];
         let caps_registry_write: &[&str] = &["registry_read", "registry_write"];
         let caps_provider: &[&str] = &["external_provider"];
         let caps_provider_gh: &[&str] = &["external_provider", "github_cli"];
@@ -194,6 +196,34 @@ impl CatalogBuilder {
             RemoteWrite,
             caps_provider_gh,
         );
+        self.group(
+            Some("project"),
+            "metadata",
+            "Build and search receipt-owned, declared project metadata bundles.",
+            Registry,
+            Workspace,
+        );
+        self.cli_only(
+            Some("project.metadata"),
+            "build",
+            "Generate or safely refresh the declared metadata bundle under an explicit project root.",
+            Registry,
+            Project,
+            LocalWrite,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.cli_only(
+            Some("project.metadata"),
+            "search",
+            "Search registered projects' valid metadata bundles without mutating them.",
+            Registry,
+            Workspace,
+            Read,
+            REASON_LOCAL_FS,
+            caps_metadata_search,
+        );
+
         self.group(
             None,
             "inventory",

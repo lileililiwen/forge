@@ -143,8 +143,8 @@ fn mcp_mature_registry_exposes_no_workspace_tool() {
     for tool in tools {
         let name = tool["name"].as_str().unwrap();
         assert!(
-            !name.contains("workspace") && !name.contains("metadata"),
-            "workspace metadata stays a generation output, not a tool: {name}"
+            !name.contains("workspace"),
+            "no workspace-scoped MCP tool was added: {name}"
         );
     }
 }

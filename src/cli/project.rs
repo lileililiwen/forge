@@ -11,7 +11,7 @@ use super::catalog::{
     catalog_counts_output, catalog_filter_pairs, catalog_page_output, catalog_records_output,
     catalog_selection,
 };
-use super::commands_ops::{GithubCommands, ProjectCommands};
+use super::commands_ops::{GithubCommands, ProjectCommands, ProjectMetadataCommands};
 use super::commands_services::CatalogFilterArgs;
 use super::gaps::cmd_project_gaps;
 use super::github::{
@@ -48,6 +48,50 @@ pub(crate) fn cmd_project(
         ProjectCommands::Tags { filters } => cmd_project_tags(db_path, filters, format),
         ProjectCommands::Languages { filters } => cmd_project_languages(db_path, filters, format),
         ProjectCommands::Github { command } => cmd_project_github(db_path, command, format),
+        ProjectCommands::Metadata { command } => cmd_project_metadata(db_path, command, format),
+    }
+}
+fn cmd_project_metadata(
+    db_path: &Path,
+    command: &ProjectMetadataCommands,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    match command {
+        ProjectMetadataCommands::Build { path } => {
+            let outcome = forge::project_metadata::build_project_metadata(path)?;
+            let value = serde_json::to_value(&outcome).map_err(|err| {
+                ForgeError::ProjectMetadataInvalid {
+                    reason: err.to_string(),
+                }
+            })?;
+            Ok(as_output(
+                format,
+                format!("{}: {}", outcome.project_id, outcome.state),
+                value,
+            ))
+        }
+        ProjectMetadataCommands::Search {
+            query,
+            project,
+            limit,
+        } => {
+            let outcome = forge::project_metadata::search_registered_projects(
+                db_path,
+                query,
+                project.as_deref(),
+                *limit,
+            )?;
+            let value = serde_json::to_value(&outcome).map_err(|err| {
+                ForgeError::ProjectMetadataInvalid {
+                    reason: err.to_string(),
+                }
+            })?;
+            Ok(as_output(
+                format,
+                format!("{} project metadata match(es)", outcome.matches.len()),
+                value,
+            ))
+        }
     }
 }
 

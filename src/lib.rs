@@ -37,6 +37,7 @@ pub mod portfolio;
 pub mod procedure;
 pub mod process;
 pub mod profile;
+pub mod project_metadata;
 pub mod provider;
 pub mod publish;
 pub mod readiness;

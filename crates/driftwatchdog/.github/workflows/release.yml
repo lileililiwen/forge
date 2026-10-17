@@ -1,0 +1,211 @@
+name: release
+
+# Driftwatchdog release packaging. Triggered by a version tag (vX.Y.Z).
+# Builds the three supported native targets, packages each binary into
+# the documented archive names, generates a SHA-256 checksum manifest
+# from the final files, and publishes every asset together. If any
+# matrix build or checksum step fails, the publish job never runs so
+# incomplete assets never ship.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            artifact: linux-x86_64
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            artifact: linux-arm64
+            os: ubuntu-22.04
+          - target: x86_64-apple-darwin
+            artifact: darwin-x86_64
+            os: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Cross-compiling to Linux arm64 requires a cross C toolchain:
+      # rusqlite is built with `features = ["bundled"]`, so
+      # libsqlite3-sys compiles SQLite from C source. Without this,
+      # the arm64 build fails with:
+      #   ToolNotFound: failed to find tool "aarch64-linux-gnu-gcc"
+      - name: Install cross C toolchain for Linux arm64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          aarch64-linux-gnu-gcc --version
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build release binary
+        env:
+          # Point cc-rs at the cross compiler installed above. Only
+          # consulted when cross-compiling to Linux arm64; harmless
+          # (and ignored) for the other targets.
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package.sh
+          mkdir -p stage
+          scripts/package.sh "${{ matrix.target }}" "${{ matrix.artifact }}" stage
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.artifact }}
+          path: stage/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assert single version source (tag == Cargo == npm)
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          cargo_version=$(awk '/^\[package\]/ { in_pkg = 1; next } in_pkg && /^version[ \t]*=/ { sub(/^version[ \t]*=[ \t]*/, ""); sub(/[ \t]*$/, ""); gsub(/^"|"$/, ""); print; exit } /^\[/ { in_pkg = 0 }' Cargo.toml)
+          npm_version=$(node -e "console.log(require('./npm/driftwatchdog/package.json').version)")
+          printf 'tag=%s cargo=%s npm=%s\n' "$tag" "$cargo_version" "$npm_version"
+          # npm/package.json is pinned to the tag at publish time (see
+          # npm-publish job), so allow npm to lag by exactly the pin
+          # step: fail only when Cargo disagrees with the tag.
+          [ "$tag" = "$cargo_version" ] || { echo "tag v$tag != Cargo.toml $cargo_version" >&2; exit 1; }
+
+      - name: Download all archives
+        uses: actions/download-artifact@v5
+        with:
+          path: stage
+          merge-multiple: true
+
+      - name: Verify stage contents
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(stage/*.tar.gz)
+          if [ "${#archives[@]}" -lt 3 ]; then
+            echo "expected 3 archives, found ${#archives[@]}: ${archives[*]}" >&2
+            exit 1
+          fi
+          for a in "${archives[@]}"; do
+            # `sed -n '1p'` reads to EOF instead of closing the pipe
+            # early, so `tar` does not die on SIGPIPE under pipefail.
+            tar -tzf "$a" | sed -n '1p'
+          done
+
+      - name: Generate checksum manifest
+        run: |
+          set -euo pipefail
+          chmod +x scripts/checksum.sh
+          version=$(awk '/^\[package\]/ { in_pkg = 1 } in_pkg && /^version/ { sub(/^version[ \t]*=[ \t]*/, ""); sub(/[ \t]*$/, ""); gsub(/^"|"$/, ""); print; exit }' Cargo.toml)
+          scripts/checksum.sh stage "$version"
+          cat stage/driftwatchdog-${version}-checksums.txt
+
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: spdx-json
+          output-file: stage/driftwatchdog-sbom.spdx.json
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            stage/*.tar.gz
+            stage/*-checksums.txt
+            stage/*.spdx.json
+            scripts/install.sh
+
+  npm-publish:
+    name: publish npm package
+    needs: publish
+    runs-on: ubuntu-22.04
+    # The npm package is pinned to the same version as the GitHub
+    # release tag, so the launcher's download URL resolves. Runs only
+    # on tag pushes so re-running the workflow never republishes npm
+    # (npm refuses to overwrite a published version). The GitHub
+    # release is already published by the `publish` job above.
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Pin npm version to tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          printf 'tag=%s\n' "$tag"
+          cd npm/driftwatchdog
+          # Write the version directly instead of `npm version` so we
+          # never accidentally tag git. The `--no-git-tag-version` flag
+          # is not enough on its own; we just edit the file.
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const file = path.resolve('package.json');
+            const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+            pkg.version = process.argv[1];
+            fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
+          " "$tag"
+          node -e "console.log(require('./package.json').version)"
+
+      - name: Verify npm package contents
+        run: |
+          set -euo pipefail
+          cd npm/driftwatchdog
+          test -f README.md || { echo 'README.md missing' >&2; exit 1; }
+          test -f bin/driftwatch.js || { echo 'bin/driftwatch.js missing' >&2; exit 1; }
+          test -f lib/platform.js || { echo 'lib/platform.js missing' >&2; exit 1; }
+          test -f lib/release.js || { echo 'lib/release.js missing' >&2; exit 1; }
+          test -f lib/verify.js || { echo 'lib/verify.js missing' >&2; exit 1; }
+          test -f scripts/install-guard.js || { echo 'scripts/install-guard.js missing' >&2; exit 1; }
+          npm pack --dry-run
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd npm/driftwatchdog
+          # `--provenance` is opt-in: it attaches an npm-signed
+          # attestation to the published tarball using the workflow's
+          # OIDC identity. Requires an npm trust level of at least
+          # "automation" on the publishing account; comment out if the
+          # token does not have it.
+          npm publish --provenance --access public

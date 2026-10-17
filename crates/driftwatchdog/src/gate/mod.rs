@@ -1,0 +1,120 @@
+//! Generic gate contract.
+//!
+//! Language- and specification-system-neutral result model for
+//! deterministic and semantic checks. This module owns the in-memory
+//! domain types; [`dto`] owns the versioned JSON boundary; [`aggregate`]
+//! owns the deterministic blocking policy; [`redact`] owns secret-safe,
+//! bounded diagnostics; [`adapt`] maps the existing checker protocol to
+//! this contract without changing `driftwatch check` persistence;
+//! [`evidence`] owns bounded artifact persistence, path confinement, and
+//! the evidence-backed-`PASS` guard; [`evidence_export`] owns the
+//! versioned governance-evidence export that maps a completed gate run
+//! into the workspace-governance `release_evidence` vocabulary
+//! (consumed, not re-declared); [`toolchain`] owns pinned tool
+//! manifests, the verified user cache, and the managed / container /
+//! native / project-runtime backends (offline by default, explicit
+//! bootstrap only); [`adapters`] owns tool-adapter contracts, output
+//! normalization, and deterministic evaluation; [`context`] owns
+//! generic read-only context providers (Git, project files, optional
+//! OpenSpec) behind bounded generic documents; [`ai`] owns the
+//! provider-neutral semantic evaluation contract (opt-in, redacted,
+//! bounded, fail-closed) without embedding an LLM; [`aigate`] converts a
+//! business project's `.ai-gate/gate.yaml` policy into the same native
+//! manifest so the shared pipeline executes it unchanged; [`source_size`]
+//! owns the built-in `source-file-size` scanner (raw `wc -l` counting over
+//! a Git-aware repository boundary, no language parsing); [`governance`]
+//! owns the `governance-quality` concern's code-scoped adapter (it runs
+//! the project-bound governance checker, keeps only the finding codes
+//! the concern declares, and maps those findings onto the envelope; it
+//! binds no checker path of its own); [`platform_result`] owns the
+//! `platform.gate-result` emission — the pure mapping from a completed run
+//! onto the portfolio's vendored contract, plus the typed refusals for every
+//! driftwatchdog state or value that contract cannot name without a
+//! coercion; [`dry_run_plan`] owns the `--dry-run` **rehearsal** document —
+//! the machine-readable resolved plan that declares itself a rehearsal and
+//! carries no verdict-shaped key, so a plan preview can never be read as a
+//! quality score.
+//!
+//! No OpenSpec types appear here. No tool is installed implicitly, no
+//! network call is made, and no LLM is invoked.
+
+pub mod adapt;
+pub mod adapters;
+pub mod aggregate;
+pub mod ai;
+pub mod aigate;
+pub mod concerns;
+pub mod context;
+pub mod dry_run_plan;
+pub mod dto;
+pub mod evidence;
+pub mod evidence_export;
+pub mod governance;
+pub mod manifest;
+pub mod platform_result;
+pub mod redact;
+pub mod source_size;
+pub mod toolchain;
+pub mod types;
+
+pub use adapt::adapt_checker_outcome;
+pub use aggregate::{aggregate, AggregateOutcome, BlockingPolicy, GatePlan, PlannedCheck};
+pub use ai::{
+    ai_checks, build_request as build_ai_request, load_ai_config, record_evaluation,
+    run_ai_evaluation, validate_output as validate_ai_output, AiError, AiEvalRequest,
+    AiEvaluationRecord, AiProviderConfig, AiProviderOutput, AiRule, AiViolation,
+    MissingProviderPolicy, MAX_AI_PROMPT_BYTES, MAX_AI_RESPONSE_BYTES,
+};
+pub use concerns::{
+    is_capability_conformance_concern, is_deployable_concern, is_governance_quality_concern,
+    is_product_quality_concern, is_release_evidence_concern, is_release_gate_concern,
+    is_source_file_size_concern, CAPABILITY_CONFORMANCE, CI_CONTRACT, COMPOSE_CONTRACT,
+    DEPLOYABLE_CONCERNS, GOVERNANCE_QUALITY, PLACEHOLDER_THRESHOLD, PRODUCT_CODE_BOUNDARY,
+    PRODUCT_PROFILE_CONCERNS, PRODUCT_QUALITY_CONCERNS, RELEASE_EVIDENCE, RELEASE_GATE_CONCERNS,
+    SOURCE_FILE_SIZE,
+};
+pub use context::{
+    collect_context, context_checks, selection_from_manifest, ContextBundle, ContextDocument,
+    ContextError, ContextOptions, ProviderRegistry, KIND_GIT_DIFF, KIND_GIT_STATUS,
+    KIND_OPENSPEC_DOC, KIND_PROJECT_FILE, MAX_CONTEXT_BYTES, MAX_CONTEXT_DOCS,
+    MAX_PREVIEW_BYTES as MAX_CONTEXT_PREVIEW_BYTES, PROVIDER_GIT, PROVIDER_OPENSPEC,
+    PROVIDER_PROJECT_FILES,
+};
+pub use dto::{
+    parse_gate_result_document, to_canonical_json, DtoError, GATE_CONTRACT_VERSION,
+    MAX_DIAGNOSTIC_BYTES, MAX_EVIDENCE_REFS, MAX_FINDINGS, MAX_MISSING_EVIDENCE,
+    MAX_REMEDIATION_BYTES, MAX_RESULTS_PER_DOC, MAX_RESULT_BYTES,
+};
+pub use evidence::{
+    build_record, confine_adapter_path, confined_path, digest_bytes, evidence_backed_pass,
+    store_bytes, validate_key, ArtifactKind, ArtifactRecord, EvidenceError, NewArtifact,
+    ARTIFACT_DIR_NAME, MAX_ARTIFACT_BYTES, MAX_KEY_BYTES, MAX_PREVIEW_BYTES, UNAVAILABLE_PREVIEW,
+};
+pub use evidence_export::{
+    build as build_evidence_export, fields_for_concern, render_human as render_evidence_human,
+    render_json as render_evidence_json, EvidenceExport, EvidenceState, ExportError, Field,
+    FieldExport, EVIDENCE_EXPORT_SCHEMA_VERSION, GOVERNANCE_FIELDS, GOVERNANCE_STATES,
+};
+pub use governance::{run_governance_quality_adapter, GOVERNANCE_QUALITY_DECLARED_CODES};
+pub use manifest::{
+    exemption_cap as gate_exemption_cap, is_non_exempable_concern as is_non_exempable_gate_concern,
+    load as load_gate_manifest, load_for_runtime as load_gate_manifest_for_runtime,
+    manifest_path as gate_manifest_path, parse as parse_gate_manifest,
+    render_plan as render_gate_plan, resolve as resolve_gate_manifest, ExemptionBudget,
+    ExemptionVerdict, GovernanceQualityPolicy, LoadOutcome, SourceSizePolicy, DEFAULT_MAX_LINES,
+    EXEMPTION_BUDGET_CHECK, MAX_EXEMPTION_CAP, MAX_MAX_LINES, NON_EXEMPTABLE_ALIASES,
+    NON_EXEMPTABLE_CONCERNS,
+};
+pub use platform_result::{
+    build as build_platform_gate_result, map_status as map_platform_status, PlatformCheck,
+    PlatformGateResult, PlatformRun, PlatformStatus, Refusal as PlatformRefusal, CHECK_ID_PATTERN,
+    GATE_ID_PATTERN, MAX_CHECK_ID_CHARS, MAX_DETAIL_CHARS, MAX_EVIDENCE_REF_CHARS,
+    MAX_SUBJECT_REF_CHARS, PIPELINE_PATTERN, PLATFORM_GATE_RESULT_CONTRACT, PLATFORM_PIPELINE,
+};
+pub use redact::{
+    bound_text_with_extra, bounded_diagnostic, redact_secrets, redact_secrets_with_extra,
+};
+pub use toolchain::{
+    bootstrap_plan, render_bootstrap_plan, resolve_execution, resolve_platform, toolchain_checks,
+};
+pub use types::{EvidenceRef, Finding, GateResult, GateSeverity, GateStatus};

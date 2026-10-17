@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "cargo-audit-boost",
+  "kind": "rust-tooling",
+  "role": "tooling",
+  "stack": "rust",
+  "profile": "tooling",
+  "lifecycle": "active",
+  "verification": {
+    "command": "cargo test --workspace",
+    "gate_runtime": "driftwatchdog",
+    "evidence_status": "implemented"
+  },
+  "deployment": {
+    "deployable": false,
+    "jenkins_job": null,
+    "compose_file": null
+  }
+}

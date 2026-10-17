@@ -1,0 +1,24 @@
+[package]
+name = "cargo-matrix-boost"
+version = "0.1.0"
+edition = "2024"
+authors = ["Paul <paul@example.com>"]
+description = "🚀 Multi-Toolchain & Feature Matrix Validator with TUI and HTML Dashboard"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/lileililiwen/cargo-matrix-boost"
+keywords = ["cargo", "features", "matrix", "toolchains", "tui"]
+categories = ["development-tools::cargo-plugins", "development-tools"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["full"] }
+webbrowser = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+cargo_metadata = "0.18"
+ratatui = "0.26"
+crossterm = "0.27"
+anyhow = "1.0"
+

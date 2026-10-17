@@ -6,6 +6,19 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 Implemented baseline: the 24 baseline capabilities, five archived audit/foundation follow-ups, ten archived sibling-integration packages (orders 30–39, newest `gate-evidence-export-consumption`) and the later publish, portal, portfolio, catalog and studio packages — including the `portal-browser-sign-in` browser OIDC sign-in and `portal-accessible-responsive-ui` responsive/accessibility portal work — are implemented, archived and promoted to their canonical specs. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 118 archived OpenSpec changes and 94 promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. Native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
 
+## Consolidated tooling crates
+
+To shrink the number of standalone repositories, Forge now vendors its core
+dev-tooling and quality crates as Cargo workspace members under `crates/`,
+preserving each project's original name:
+
+- `crates/driftwatchdog/` — the Gate policy/execution engine Forge consumes (see the gate-declaration-migration spec).
+- `crates/cargo-audit-boost/`, `crates/cargo-matrix-boost/`, `crates/cargo-sonar/` — the quality/audit tooling crates.
+
+These are registered as workspace members via `members = ["crates/*"]` in
+`Cargo.toml`. `workspace-governance` remains an external sibling. Build the
+whole workspace with `cargo build --workspace` (or `cargo check --workspace`).
+
 ## MVP and delivery
 
 v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These commands are available from this checkout via `cargo build`.

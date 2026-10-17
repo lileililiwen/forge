@@ -1,0 +1,39 @@
+# Driftwatch local runtime state
+.driftwatch/
+
+# Driftwatch project config. A local `driftwatch init` (smoke test,
+# integration test, or accidental run in the repo root) creates
+# this file. Driftwatch itself is not a driftwatch project, so the
+# config at the repo root is never meaningful and should stay
+# untracked.
+driftwatch.toml
+
+# Rust build output
+/target/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+
+# Temporary files
+*.swp
+*.swo
+*~
+
+# Assistant / agent tooling state. These directories are written
+# by the dev environment's AI assistant and have no relationship
+# to the Driftwatch source tree. Earlier `git add -A` runs
+# accidentally tracked them; untrack + ignore to keep `git status`
+# clean.
+.ariadex/
+
+# Node.js dependencies. The `scripts/check-openspec-change-names.mjs`
+# governance checker has no npm dependencies today, but any future
+# Node tooling (or a stray `npm install`) must stay untracked.
+node_modules/
+
+# Keep Cargo.lock committed for this binary application.

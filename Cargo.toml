@@ -15,6 +15,7 @@ keywords = ["control-plane", "registry", "scaffold", "governance", "cli"]
 categories = ["development-tools", "command-line-utilities"]
 
 [workspace]
+members = ["crates/*"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -57,3 +58,7 @@ libc.workspace = true
 argon2.workspace = true
 openidconnect.workspace = true
 reqwest.workspace = true
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

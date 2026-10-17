@@ -1,0 +1,19 @@
+[package]
+name = "cargo-sonar-boost"
+version = "0.1.1"
+edition = "2024"
+authors = ["Paul <paul@example.com>"]
+description = "🛡️ A zero-config code quality and technical debt dashboard CLI for Rust"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/lileililiwen/cargo-sonar-boost"
+keywords = ["cargo", "clippy", "quality", "dashboard", "deny"]
+categories = ["development-tools::cargo-plugins", "development-tools"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["full"] }
+webbrowser = "1.0"
+chrono = { version = "0.4", features = ["serde"] }

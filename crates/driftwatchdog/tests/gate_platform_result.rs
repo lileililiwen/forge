@@ -460,15 +460,14 @@ fn the_export_subcommand_did_not_gain_the_platform_value() {
 }
 
 #[test]
-fn a_project_without_a_manifest_still_exits_zero_under_the_platform_flag() {
+fn a_project_without_a_manifest_emits_the_baseline_under_the_platform_flag() {
     let tmp = init_dir();
 
     let assert = gate_with_format(&tmp, "platform").success();
-    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
-    // Same early-return text as `human` and `json`: the format only applies
-    // once a run exists to describe.
-    assert!(
-        stdout.contains("no gate.toml or .ai-gate/gate.yaml"),
-        "{stdout}"
-    );
+    let doc: serde_json::Value =
+        serde_json::from_slice(&assert.get_output().stdout).expect("platform result JSON");
+    assert_eq!(doc["result"], "passed");
+    assert_eq!(doc["checks"].as_array().unwrap().len(), 1);
+    assert_eq!(doc["checks"][0]["check_id"], "source-file-size");
+    assert_eq!(doc["checks"][0]["status"], "passed");
 }

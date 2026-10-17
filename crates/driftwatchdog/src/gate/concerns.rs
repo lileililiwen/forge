@@ -303,18 +303,21 @@ mod tests {
         }
     }
 
-    /// The product profiles schedule the governance concern, and the
-    /// concern's own adapter claims it. Both facts are load-bearing:
-    /// without the first the concern is unreachable from a built-in
-    /// profile, and without the second the product-quality envelope
-    /// adapter would claim an id whose report shape it cannot parse.
+    /// Product profiles schedule the three product-quality concerns,
+    /// including the mandatory in-process source-size baseline. The
+    /// governance checker is a project extension and is not a profile
+    /// default; its adapter still claims the explicit concern id.
     #[test]
-    fn product_profile_schedules_the_governance_concern_exactly_once() {
-        let scheduled = PRODUCT_PROFILE_CONCERNS
+    fn product_profile_schedules_source_size_but_not_governance_quality() {
+        let source_size = PRODUCT_PROFILE_CONCERNS
             .iter()
-            .filter(|id| **id == GOVERNANCE_QUALITY)
+            .filter(|id| **id == SOURCE_FILE_SIZE)
             .count();
-        assert_eq!(scheduled, 1, "governance-quality must be scheduled once");
+        assert_eq!(source_size, 1, "source-file-size must be scheduled once");
+        assert!(
+            !PRODUCT_PROFILE_CONCERNS.contains(&GOVERNANCE_QUALITY),
+            "governance-quality is a project extension, not a profile default"
+        );
         for id in PRODUCT_QUALITY_CONCERNS {
             assert!(
                 PRODUCT_PROFILE_CONCERNS.contains(id),

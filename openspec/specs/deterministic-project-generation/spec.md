@@ -49,6 +49,14 @@ the profile's native verification command, `evidence_status: planned`, and
 non-deployable defaults, and SHALL omit the file — never guess — when the
 profile has no mapping or the operator opts out.
 
+#### Scenario: Opt-out parity
+
+- **WHEN** generation runs with `--no-workspace-metadata`
+- **THEN** Forge omits `.project.json` and its ownership receipt, and all
+  other generated project content remains byte-identical to an otherwise
+  equivalent generation with metadata enabled, excluding only the actual
+  `generated_at` value in the standard-pack receipt
+
 #### Scenario: Mapped profile generated
 
 - **WHEN** `forge new` creates a project from a profile with a governance
@@ -62,11 +70,6 @@ profile has no mapping or the operator opts out.
 - **WHEN** the chosen profile declares no governance mapping
 - **THEN** no metadata file is written, a note names the missing mapping,
   and every other generation output is unchanged
-
-#### Scenario: Opt-out parity
-
-- **WHEN** generation runs with `--no-workspace-metadata`
-- **THEN** the output is byte-identical to the pre-change release
 
 ### Requirement: Metadata ownership and honesty
 

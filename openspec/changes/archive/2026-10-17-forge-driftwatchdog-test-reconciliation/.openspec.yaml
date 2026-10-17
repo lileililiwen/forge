@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-17
+goal: Make the full Forge workspace verification suite pass without weakening
+  Forge's baseline or changing unrelated Gate behavior

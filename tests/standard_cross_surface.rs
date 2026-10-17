@@ -51,8 +51,12 @@ fn existing_new_profile_inspect_and_list_contracts_stay_intact() {
     let dest = tmp.path().join("compat-svc");
     new_project(&db, &dest, "rust-web", &[]);
 
-    // Default generation carries no standard subtree.
-    assert!(!dest.join(".standard").exists());
+    // Supported service profiles receive the current standard snapshot by
+    // default; the registry/profile query contracts remain independent.
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(dest.join(".standard/receipt.json")).unwrap()).unwrap();
+    assert_eq!(receipt["pack"], "baseline-service");
+    assert_eq!(receipt["version"], "1.3.0");
 
     // The registry still records the generated project.
     let record = run_json(&db, &["inspect", "compat-svc"]);

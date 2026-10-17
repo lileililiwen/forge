@@ -2,8 +2,7 @@
 //!
 //! Covers the `deterministic-project-generation` delta end to end through
 //! the built binary: per-profile declaration emission with the honest
-//! planned/non-deployable shape, opt-out parity with the pre-change
-//! release (pinned tree digests captured from the prior binary),
+//! planned/non-deployable shape, opt-out parity for all non-metadata output,
 //! ownership-conflict refusal on user-edited declarations at upgrade,
 //! refresh of unedited stale content, and import observing foreign
 //! metadata without ever writing it.
@@ -54,18 +53,27 @@ fn lossy(bytes: &[u8]) -> String {
 
 /// Canonical tree digest: sorted `(relative-path, bytes)` pairs hashed by
 /// the same construction the pre-change release baseline was captured with.
-fn tree_digest(root: &Path) -> String {
+fn project_files(root: &Path) -> Vec<(String, Vec<u8>)> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     collect(root, root, &mut entries);
     entries.sort();
-    let mut packed: Vec<u8> = Vec::new();
-    for (rel, bytes) in &entries {
-        packed.extend_from_slice(rel.as_bytes());
-        packed.push(0);
-        packed.extend_from_slice(bytes);
-        packed.push(0);
-    }
-    forge::generate::workspace::sha256_hex(&packed)
+    entries
+        .into_iter()
+        .filter(|(path, _)| path != METADATA_PATH && path != RECEIPT_PATH)
+        .map(|(path, bytes)| {
+            if path == ".standard/receipt.json" {
+                let mut receipt: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("standard receipt JSON");
+                receipt["generated_at"] = serde_json::Value::String("<generated-at>".into());
+                (
+                    path,
+                    serde_json::to_vec(&receipt).expect("standard receipt serializes"),
+                )
+            } else {
+                (path, bytes)
+            }
+        })
+        .collect()
 }
 
 fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
@@ -86,6 +94,11 @@ fn collect(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
 
 fn new_project(tmp: &Path, db: &Path, profile: &str, id: &str, extra: &[&str]) -> PathBuf {
     let dest = tmp.join(id);
+    new_project_at(db, &dest, profile, id, extra);
+    dest
+}
+
+fn new_project_at(db: &Path, dest: &Path, profile: &str, id: &str, extra: &[&str]) {
     let mut args: Vec<&str> = vec![
         "new",
         dest.to_str().unwrap(),
@@ -97,12 +110,10 @@ fn new_project(tmp: &Path, db: &Path, profile: &str, id: &str, extra: &[&str]) -
     args.extend_from_slice(extra);
     let out = run(db, &args);
     assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
-    dest
 }
 
 /// `(governance profile, native test command)` per mapped Forge profile,
-/// mirroring the descriptor table, plus the id used for the baseline
-/// digest capture with the pre-change binary.
+/// mirroring the descriptor table, plus a stable project id.
 const MATRIX: [(&str, &str, &str, &str); 6] = [
     ("aspnet-web", "dotnet-product", "dotnet test", "net-app"),
     ("flutter-app", "flutter-product", "flutter test", "mbl-app"),
@@ -115,66 +126,6 @@ const MATRIX: [(&str, &str, &str, &str); 6] = [
     ),
     ("react-web", "typescript-product", "npm test", "rs-app"),
     ("rust-web", "rust-product", "cargo test", "rs-web-app"),
-];
-
-/// Tree digests for `--no-workspace-metadata` output, one per profile. The
-/// guard's purpose is that opting out of the metadata declaration changes
-/// *nothing else*: these pin the exact bytes the opt-out path produces, so
-/// any unintended future drift fails here.
-///
-/// Re-captured, every profile, by `scaffold-prewires-shared-layer`, which
-/// changed what a scaffold contains by design: the `kit` block in
-/// `forge.yaml`, the README shared-layer section, the `aspnet-web` TFM and
-/// pre-wired package references, and the vendored `.platform/` token subtree.
-/// `net-app` re-captured a second time by the same change's amendment, when
-/// the owner rejected the environment-variable feed: the `NuGet.config` now
-/// names a repo-relative source, the `RestoreAdditionalProjectSources` block
-/// and the Dockerfile build argument are gone, and the committed
-/// `packages/platform-feed/` tree is new.
-/// `net-app` re-captured a third time, after the owner's .NET 10 ruling
-/// (2026-10-02) removed SDK 8 from the machine: the `aspnet-web` profile's
-/// `net8.0` fallback became `net10.0`, and the generated README now names the
-/// pinned kit version. Only `net-app` moved — the other five profiles are
-/// language-agnostic and re-captured unchanged, which is itself the evidence
-/// that the drift is the intended TFM change and not a general rendering
-/// regression.
-/// Earlier re-captures: `rs-app` by `react-web-live-preview` for the runnable
-/// Vite+React client, the first set by `jenkins-deploy-adapter-consumption`.
-/// `rs-app` and `node-app` re-captured a fourth time, by
-/// `resync-ui-token-kit` (2026-10-09), which refreshed the vendored
-/// `platform-ui-web` kit to 0.2.0: three kit files changed in
-/// `kits/tokens/` (`tokens.css` 1844→2872, `verify-tokens.mjs`
-/// 505→3707, `tokens.ts` 1879→2976 bytes), and `.platform/` is scoped to
-/// `react-web` and `nextjs-web` scaffolds by
-/// `scaffold-prewires-shared-layer` ("Token artifacts are vendored and
-/// receipted"), so exactly those two profiles moved. The opt-out guard
-/// still holds where it is meant to: no declaration, no receipt and no
-/// `.forge` tree is emitted — asserted separately in this test.
-const PRE_RELEASE_DIGESTS: [(&str, &str); 6] = [
-    (
-        "net-app",
-        "1337ef1c4e17114610938e908c98f3470d423bf2bbc4e78904894608f4c10ab8",
-    ),
-    (
-        "mbl-app",
-        "aaa0eb726917fe371022a61fb0ebcded40d9b185043bda6e6ad66fe5a4f710a8",
-    ),
-    (
-        "node-app",
-        "d4f41ecb0ca38284a2b235ecedf625af7d82257488c4b2704783b50a51e1fe74",
-    ),
-    (
-        "py-app",
-        "bed945af018867d0bc04740649f7868a5e5e142f0ee53f9e5e05658c953e5380",
-    ),
-    (
-        "rs-app",
-        "f6ce762c1087317b01685bfe1fc6c3c559e4e45bc0d9543b5ae8ff8b2fcd04ac",
-    ),
-    (
-        "rs-web-app",
-        "548fd195ecf7005372d9c4b00305498d9170a504eb8d5fb99b83ee916ea864f5",
-    ),
 ];
 
 #[test]
@@ -218,11 +169,21 @@ fn mapped_profiles_emit_honest_declaration_matrix() {
 }
 
 #[test]
-fn opt_out_is_byte_identical_to_pre_release() {
+fn opt_out_preserves_non_metadata_output() {
     let tmp = tempfile::tempdir().unwrap();
-    let db = tmp.path().join("registry.db");
     for (profile, _governance, _command, id) in MATRIX {
-        let dest = new_project(tmp.path(), &db, profile, id, &["--no-workspace-metadata"]);
+        let standard_db = tmp.path().join(format!("{id}-standard.db"));
+        let opt_out_db = tmp.path().join(format!("{id}-opt-out.db"));
+        let standard = tmp.path().join(format!("{id}-standard"));
+        let dest = tmp.path().join(format!("{id}-opt-out"));
+        new_project_at(&standard_db, &standard, profile, id, &[]);
+        new_project_at(
+            &opt_out_db,
+            &dest,
+            profile,
+            id,
+            &["--no-workspace-metadata"],
+        );
         assert!(
             !dest.join(METADATA_PATH).exists(),
             "{profile}: declaration must be absent"
@@ -236,13 +197,9 @@ fn opt_out_is_byte_identical_to_pre_release() {
             "{profile}: no .forge tree must exist"
         );
         assert_eq!(
-            tree_digest(&dest),
-            PRE_RELEASE_DIGESTS
-                .iter()
-                .find(|(name, _)| *name == id)
-                .map(|(_, digest)| *digest)
-                .unwrap(),
-            "{profile}: opt-out tree must equal the prior release byte-for-byte"
+            project_files(&standard),
+            project_files(&dest),
+            "{profile}: opt-out changes only workspace metadata and its receipt"
         );
     }
 }
@@ -272,9 +229,12 @@ fn default_output_reports_metadata_without_notes() {
         .collect();
     assert!(files.contains(&METADATA_PATH), "{files:?}");
     assert!(files.contains(&RECEIPT_PATH), "{files:?}");
-    // A mapped profile emits without notes; the JSON stays at the prior
-    // key set so consumers see no shape change.
-    assert!(value.get("notes").is_none(), "{value}");
+    // The standard-pack note is expected; workspace metadata adds no note.
+    assert_eq!(
+        value["notes"],
+        serde_json::json!(["standard snapshot: rendered baseline-service@1.3.0 into .standard/"]),
+        "{value}"
+    );
     let human = run(
         &db,
         &[

@@ -509,6 +509,16 @@ impl CatalogBuilder {
         );
         self.cli_only(
             None,
+            "use",
+            "Run a consolidated tooling crate or external sibling product in the current project.",
+            Reference,
+            Project,
+            LocalWrite,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.cli_only(
+            None,
             "help",
             "Print the CLI's complete command tree as terminal help text.",
             Reference,

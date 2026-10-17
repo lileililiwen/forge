@@ -7,13 +7,18 @@
 # instructing the agent to execute write/run commands.
 
 test_agent_examples() {
+    # `repo_root` is the crate root, but Cargo writes workspace binaries to
+    # the workspace target directory. Resolve it once so this check works
+    # both from a workspace test run and a direct crate-local invocation.
+    workspace_root=$(CDPATH= cd -- "$repo_root/../.." && pwd)
+
     # Locate a real driftwatchdog binary. Prefer the release build
     # the verification gates have already produced; fall back to a
     # one-off build so a developer running just this test still has
     # --help introspection.
-    binary="$repo_root/target/debug/driftwatchdog"
+    binary="${CARGO_TARGET_DIR:-$workspace_root/target}/debug/driftwatchdog"
     if [ ! -x "$binary" ]; then
-        (cd "$repo_root" && cargo build --bin driftwatchdog >/dev/null 2>&1) || true
+        (cd "$workspace_root" && cargo build --bin driftwatchdog >/dev/null 2>&1) || true
     fi
     [ -x "$binary" ] || { printf 'no driftwatchdog binary available for --help introspection\n' >&2; return 1; }
 

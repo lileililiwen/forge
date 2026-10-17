@@ -19,6 +19,23 @@ fn init_project(dir: &Path) {
     std::fs::write(dir.join("driftwatch.toml"), "").unwrap();
 }
 
+fn assert_persisted_forge_baseline(dir: &Path) {
+    let db = crate::repo::Db::open_read_only(&dir.join(".driftwatch/state.db")).unwrap();
+    let gates = Gates::new(&db);
+    assert_eq!(gates.count().unwrap(), 1);
+    let run = gates.latest().unwrap().unwrap();
+    assert_eq!(run.status, "PASS");
+    assert!(!run.blocked);
+    assert_eq!(
+        run.rule_pack_version,
+        crate::gate::manifest::FORGE_BASELINE_VERSION
+    );
+    let results: GateRunResultsDocument = serde_json::from_str(&run.results_json).unwrap();
+    assert_eq!(results.results.len(), 1);
+    assert_eq!(results.results[0].gate_id, "source-file-size");
+    assert_eq!(results.results[0].status, GateStatus::Pass);
+}
+
 fn gate_args(dry_run: bool) -> GateArgs {
     GateArgs {
         dry_run,
@@ -28,10 +45,19 @@ fn gate_args(dry_run: bool) -> GateArgs {
 }
 
 #[test]
-fn gate_without_manifest_exits_zero_without_persistence() {
+fn gate_without_manifest_runs_and_persists_forge_baseline() {
     let tmp = tempfile::tempdir().unwrap();
     init_project(tmp.path());
     let code = gate(gate_args(false), tmp.path()).unwrap();
+    assert_eq!(code, EXIT_OK);
+    assert_persisted_forge_baseline(tmp.path());
+}
+
+#[test]
+fn gate_for_forge_runs_baseline_without_driftwatch_persistence() {
+    let tmp = tempfile::tempdir().unwrap();
+    init_project(tmp.path());
+    let code = gate_for_forge(gate_args(false), tmp.path()).unwrap();
     assert_eq!(code, EXIT_OK);
     let db = crate::repo::Db::open_read_only(&tmp.path().join(".driftwatch/state.db")).unwrap();
     assert_eq!(Gates::new(&db).count().unwrap(), 0);
@@ -108,10 +134,11 @@ fn required_unbound_check_fails_with_error_severity_and_a_finding() {
     assert_eq!(run.status, "FAIL");
     assert!(run.blocked);
     let doc: GateRunResultsDocument = serde_json::from_str(&run.results_json).unwrap();
-    assert_eq!(
-        doc.unbound,
-        vec!["governance-quality".to_string(), "ux-review".to_string()]
-    );
+    assert_eq!(doc.unbound, vec!["ux-review".to_string()]);
+    assert!(doc
+        .results
+        .iter()
+        .any(|result| result.gate_id == "source-file-size"));
     let r = doc
         .results
         .iter()
@@ -265,7 +292,7 @@ fn gate_resolves_business_yaml_manifest_and_persists_identity() {
 }
 
 #[test]
-fn gate_foreign_runtime_exits_zero_without_persistence() {
+fn gate_foreign_runtime_ignores_extensions_and_persists_forge_baseline() {
     let tmp = tempfile::tempdir().unwrap();
     init_project(tmp.path());
     std::fs::create_dir_all(tmp.path().join(".ai-gate")).unwrap();
@@ -276,8 +303,7 @@ fn gate_foreign_runtime_exits_zero_without_persistence() {
     .unwrap();
     let code = gate(gate_args(false), tmp.path()).unwrap();
     assert_eq!(code, EXIT_OK);
-    let db = crate::repo::Db::open_read_only(&tmp.path().join(".driftwatch/state.db")).unwrap();
-    assert_eq!(Gates::new(&db).count().unwrap(), 0);
+    assert_persisted_forge_baseline(tmp.path());
 }
 
 #[test]

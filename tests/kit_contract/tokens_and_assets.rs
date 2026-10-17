@@ -206,8 +206,8 @@ fn repeated_render_is_byte_identical_including_the_kit_manifest() {
         let a = tmp.path().join("a");
         let b = tmp.path().join("b");
 
-        // Same identity in both runs: the only thing that may differ is
-        // nothing, so any byte difference is a determinism regression.
+        // The ownership receipt records the real generation time. All
+        // rendered project and kit asset bytes must otherwise be identical.
         for (dest, db) in [(&a, tmp.path().join("a.db")), (&b, tmp.path().join("b.db"))] {
             let out = run(
                 &db,
@@ -225,9 +225,9 @@ fn repeated_render_is_byte_identical_including_the_kit_manifest() {
             assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
         }
         assert_eq!(
-            file_bytes(&a),
-            file_bytes(&b),
-            "{profile} render is not byte-identical across runs"
+            deterministic_render_bytes(&a),
+            deterministic_render_bytes(&b),
+            "{profile} render differs beyond receipt generation time"
         );
         // The rendered kit manifest and the ownership receipt are part of
         // that byte-equality.
@@ -274,10 +274,36 @@ fn flag_and_interactive_renders_are_byte_identical() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", lossy(&out.stderr));
     assert_eq!(
-        file_bytes(&a),
-        file_bytes(&b),
-        "flag and interactive renders differ"
+        deterministic_render_bytes(&a),
+        deterministic_render_bytes(&b),
+        "flag and interactive renders differ beyond receipt generation time"
     );
+}
+
+/// Compare generated trees while masking the one intentionally volatile
+/// provenance field. The receipt continues to be parsed and compared in full
+/// otherwise, so changes to its ownership digests remain visible.
+fn deterministic_render_bytes(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    file_bytes(root)
+        .into_iter()
+        .map(|(path, bytes)| {
+            if path == ".standard/receipt.json" {
+                let mut receipt: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("standard receipt is valid JSON");
+                let generated_at = receipt["generated_at"]
+                    .as_str()
+                    .expect("standard receipt records generation time");
+                assert!(!generated_at.is_empty(), "generation time is present");
+                receipt["generated_at"] = serde_json::Value::String("<generated-at>".into());
+                (
+                    path,
+                    serde_json::to_vec(&receipt).expect("receipt serializes"),
+                )
+            } else {
+                (path, bytes)
+            }
+        })
+        .collect()
 }
 
 #[test]

@@ -139,8 +139,8 @@ repositories are archived only after the final row's consumer evidence:
 | Order | Package | Scope / completion evidence | State |
 | --- | --- | --- | --- |
 | 1 | `forge-ci-precommit-templates` | Versioned baseline templates; compatible new-project default; legacy install/upgrade; same Forge Gate in local hook and CI | Complete; archived 2026-10-17 |
-| 2 | `forge-portable-binary-distribution` | Publish versioned, checksummed Forge binaries so generated CI can install a pinned release without a source checkout | Remaining |
-| 3 | `forge-driftwatchdog-test-reconciliation` | Reconcile in-tree DriftWatchdog Gate tests with Forge's authoritative behavior; current workspace suite has 10 failures in that crate | Remaining |
+| 2 | `forge-driftwatchdog-test-reconciliation` | Reconcile in-tree DriftWatchdog Gate tests with Forge's authoritative behavior; current workspace suite has 10 failures in that crate | Active; prioritized because it blocks Forge's own Gate |
+| 3 | `forge-portable-binary-distribution` | Publish versioned, checksummed Forge binaries so generated CI can install a pinned release without a source checkout | Remaining |
 | 4 | `forge-workspace-governance-internalization` | Move selected bootstrap, workspace-check and runtime-template sources into Forge; remove sibling-checkout runtime dependencies; resolve registry/provider ownership | Remaining |
 | 5 | `forge-platform-schema-ownership` | Move only actively consumed schema sources and validators under Forge maintenance; remove sibling-path parity requirements; list unsupported schema families explicitly | Remaining |
 | 6 | `forge-multiservice-local-runtime` | Represent multiple services and entry points across Compose and local processes; expose the existing `gitrunbykaru` process manager through Forge | Remaining |

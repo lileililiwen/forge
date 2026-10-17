@@ -48,16 +48,17 @@ fn deployable_profile_requires_both_contract_bindings() {
         .failure();
 
     let (status, blocked, results) = latest_status(&tmp);
-    // The two deployable checks and the mandatory governance check are
-    // required and bind no command, so
-    // each is a never-attempted absence: `UNBOUND` and a FAIL, not a
-    // review the project could disable through its blocking list.
+    // The two deployable checks bind no command, so each is a
+    // never-attempted absence: `UNBOUND` and a FAIL, not a review the
+    // project could disable through its blocking list. The mandatory
+    // source-size baseline runs in-process and is not an unbound concern.
     assert_eq!(status, "FAIL");
     assert!(blocked);
     assert!(results.contains("\"UNBOUND\""));
     assert!(results.contains("compose-contract:command"));
     assert!(results.contains("ci-contract:command"));
-    assert!(results.contains("governance-quality:command"));
+    assert!(results.contains("source-file-size"));
+    assert!(!results.contains("governance-quality:command"));
 }
 
 #[test]

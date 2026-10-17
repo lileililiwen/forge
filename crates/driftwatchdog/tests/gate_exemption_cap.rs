@@ -247,14 +247,14 @@ fn a_spine_check_may_never_be_exempted() {
         assert!(run.blocked, "{id} must block");
 
         let doc = run_doc(&tmp);
-        // The exempted check is never recorded as an acknowledged
-        // exemption: no surface may claim this absence is approved.
+        // A missing project command remains UNBOUND. The separate
+        // exemption-budget result rejects the forbidden exemption.
         let r = result_of(&doc, id);
-        assert_eq!(r.status, GateStatus::Fail, "{id}");
+        assert_eq!(r.status, GateStatus::Unbound, "{id}");
         assert_eq!(r.severity, GateSeverity::Error, "{id}");
         assert_ne!(r.status, GateStatus::NotApplicable, "{id}");
         assert!(
-            r.findings[0].title.contains("may never be exempted"),
+            r.findings[0].rule.as_deref() == Some("unbound-required-check"),
             "{id}"
         );
 
@@ -308,7 +308,7 @@ fn the_repository_alias_is_not_exemptable_even_when_it_is_the_only_declaration()
     );
     assert_eq!(
         result_of(&doc, "repository_integrity").status,
-        GateStatus::Fail
+        GateStatus::Unbound
     );
 }
 
@@ -333,7 +333,7 @@ fn an_optional_spine_exemption_still_fails() {
     assert_eq!(run.status, "FAIL");
     assert!(run.blocked);
     let doc = run_doc(&tmp);
-    assert_eq!(result_of(&doc, "security").status, GateStatus::Fail);
+    assert_eq!(result_of(&doc, "security").status, GateStatus::Unbound);
     assert_eq!(result_of(&doc, "exemption-budget").status, GateStatus::Fail);
 }
 
@@ -423,7 +423,11 @@ fn a_repo_with_no_exemptions_is_unchanged() {
     let doc = run_doc(&tmp);
     assert!(doc.unbound.is_empty());
     assert!(doc.results.iter().all(|r| r.gate_id != "exemption-budget"));
-    assert_eq!(doc.results.len(), 21, "20 budget checks plus governance");
+    assert_eq!(
+        doc.results.len(),
+        22,
+        "20 declared checks, governance extension, and mandatory source-size baseline"
+    );
 }
 
 /// A project that declares its own concern named `exemption-budget`

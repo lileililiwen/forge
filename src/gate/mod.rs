@@ -25,6 +25,7 @@ pub mod defaults;
 pub mod engine;
 pub mod engine_tests;
 pub mod evidence;
+mod evidence_export;
 pub mod model;
 pub mod rehearsal;
 

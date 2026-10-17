@@ -126,7 +126,7 @@ input[type=checkbox]{cursor:pointer}
 .sidebar{padding-top:calc(24px + env(safe-area-inset-top,0px))}
 .skip-link{top:calc(12px + env(safe-area-inset-top,0px));left:calc(12px + env(safe-area-inset-left,0px))}
 @media(max-width:850px){.sidebar{padding-top:calc(12px + env(safe-area-inset-top,0px))}}
-@media(max-width:560px){.auth-layout{min-height:calc(100vh - 42px);min-height:calc(100dvh - 42px)}.sidebar{padding-top:calc(10px + env(safe-area-inset-top,0px))}}
+@media(max-width:560px){.auth-layout{min-height:calc(100vh - 42px);min-height:calc(100dvh - 42px)}.sidebar{padding-top:calc(10px + env(safe-area-inset-top,0px))}.ws-summary-empty{display:none}}
 /* ---- slice 3: visible labels and error feedback ----
  * Stacked visible labels replace the placeholder-only+sr-only pattern on
  * the scoped inputs; error summaries and inline errors share one visual
@@ -411,7 +411,8 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
  * and reflowing the dense onboarding table. The <=560px rules keep
  * authority over .summary-grid/.topbar, so they are not re-declared. */
 @media (max-width:720px){
-  .workbench-grid{grid-template-columns:1fr}
+  .workbench-grid{grid-template-columns:minmax(0,1fr)}
+  .workbench-grid>*{min-width:0}
   .panel-tools{flex-wrap:wrap}
   /* 8-column Bulk Workspace onboarding table -> one stacked card per row.
    * No column is removed; <thead> is visually hidden (clip) not deleted so

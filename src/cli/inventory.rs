@@ -493,6 +493,11 @@ pub(super) mod command_catalog_tests {
 
     fn walk(cmd: &clap::Command, prefix: &str, out: &mut BTreeSet<String>) {
         for sub in cmd.get_subcommands() {
+            // Hidden commands are internal dispatch paths, not part of the
+            // operator-facing command catalog.
+            if sub.is_hide_set() {
+                continue;
+            }
             let name = sub.get_name();
             let path = if prefix.is_empty() {
                 name.to_string()

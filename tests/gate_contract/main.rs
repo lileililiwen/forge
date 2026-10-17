@@ -1,365 +1,238 @@
-//! Gate runtime evidence CLI contract (`gate-runtime-evidence`).
+//! Forge-native Gate CLI contract.
 //!
-//! Drives the real `forge` binary with `FORGE_GATE_BIN` pointed at stub
-//! scripts emitting the verbatim sibling documents captured in
-//! `tests/fixtures/gate/` (see `NOTES.md` there). Covers the normative
-//! scenarios: a passing run persists revision-bound evidence, journals
-//! `done` and exits zero; a blocked document (non-zero exit) is evidence
-//! not adapter failure and mirrors the block in the exit code; an
-//! unresolvable runtime lists its attempts while prior evidence stays
-//! byte-identical; a rehearsal never persists or journals; and every
-//! read surface agrees on the same aggregate, revision, runtime and
-//! timestamp.
-//!
-//! The target was a single 1,157-line file; it is now a directory of focused
-//! submodules, each owning one scenario family. The shared helpers below stay
-//! reachable to every submodule through `super::`.
+//! These integration tests exercise Forge's bundled Gate engine and evidence
+//! projection. The retired external-runtime document protocol is covered by
+//! the in-tree DriftWatchdog crate; Forge itself owns the public verdict,
+//! revision binding, evidence file, and operation journal.
 
-use std::borrow::Cow;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 use forge::registry::Registry;
 
-mod blocked;
-mod documented_help;
-mod passing;
-mod review_required;
-mod unknown_runtime;
-
-pub(crate) fn forge_bin() -> PathBuf {
+fn forge_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_forge"))
 }
 
-pub(crate) fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/gate")
-        .join(name)
-}
-
-pub(crate) fn lossy(bytes: &[u8]) -> Cow<'_, str> {
-    String::from_utf8_lossy(bytes)
-}
-
-pub(crate) fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
-    let path = dir.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    let mut perms = fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&path, perms).unwrap();
-    path
-}
-
-pub(crate) fn rust_manifest(id: &str) -> String {
-    format!(
-        "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: rust-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: rust\n"
+fn project(tmp: &Path, id: &str) -> PathBuf {
+    let project = tmp.join(id);
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("forge.yaml"), "schema: 1\n").unwrap();
+    fs::write(
+        project.join(".project.json"),
+        format!(r#"{{"schema_version":1,"id":"{id}"}}"#),
     )
+    .unwrap();
+    fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();
+    git(&project, &["init", "-q"]);
+    git(&project, &["config", "user.email", "forge@example.com"]);
+    git(&project, &["config", "user.name", "Forge Test"]);
+    git(&project, &["config", "commit.gpgsign", "false"]);
+    git(&project, &["add", "-A"]);
+    git(&project, &["commit", "-q", "-m", "initial"]);
+    project
 }
 
-pub(crate) fn write_file(dir: &Path, name: &str, text: &str) {
-    let path = dir.join(name);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    fs::write(path, text).unwrap();
-}
-
-pub(crate) fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
+fn git(project: &Path, args: &[&str]) {
+    let output = Command::new("git")
         .arg("-C")
-        .arg(dir)
+        .arg(project)
         .args(args)
         .output()
-        .expect("git");
-    assert!(out.status.success(), "git {args:?}: {}", lossy(&out.stderr));
+        .expect("git starts");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
-/// A git scratch project carrying the manifest and one commit, so the
-/// evidence revision binding is a real HEAD.
-pub(crate) fn project(tmp: &Path, id: &str) -> PathBuf {
-    let proj = tmp.join(id);
-    fs::create_dir_all(&proj).unwrap();
-    write_file(&proj, "forge.yaml", &rust_manifest(id));
-    write_file(&proj, "src/lib.rs", "// demo\n");
-    git(&proj, &["init", "-q"]);
-    git(&proj, &["config", "user.email", "forge@example.com"]);
-    git(&proj, &["config", "user.name", "Forge Test"]);
-    git(&proj, &["config", "commit.gpgsign", "false"]);
-    git(&proj, &["add", "-A"]);
-    git(&proj, &["commit", "-q", "-m", "initial"]);
-    proj
-}
-
-pub(crate) struct GateRun {
-    pub(crate) status: i32,
-    pub(crate) stdout: String,
-    pub(crate) stderr: String,
-}
-
-pub(crate) fn gate(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> GateRun {
-    let mut cmd = Command::new(forge_bin());
-    cmd.env_remove("FORGE_REGISTRY")
-        .env_remove("FORGE_GATE_BIN")
-        .env_remove("FORGE_DRIFTWATCH_BIN")
+fn run_gate(registry: &Path, args: &[&str], legacy_runtime: Option<&str>) -> Output {
+    let mut command = Command::new(forge_bin());
+    command
+        .env_remove("FORGE_REGISTRY")
         .env_remove("FORGE_WORKSPACE_ROOT")
         .env_remove("FORGE_WORKSPACE_REGISTRY")
-        .env_remove("HTTP_PROXY")
-        .env_remove("HTTPS_PROXY")
-        .env_remove("ALL_PROXY");
-    if let Some(binary) = gate_bin {
-        cmd.env("FORGE_GATE_BIN", binary);
-    }
-    cmd.arg("--registry")
-        .arg(db)
+        .env("FORGE_REGISTRY", registry)
+        .env_remove("FORGE_GATE_BIN")
+        .env_remove("FORGE_DRIFTWATCH_BIN")
         .arg("--format")
         .arg("json")
         .arg("gate");
-    for arg in args {
-        cmd.arg(arg);
+    if let Some(path) = legacy_runtime {
+        command.env("FORGE_GATE_BIN", path);
     }
-    let out = cmd.output().expect("run forge gate");
-    GateRun {
-        status: out.status.code().unwrap_or(-1),
-        stdout: lossy(&out.stdout).to_string(),
-        stderr: lossy(&out.stderr).to_string(),
-    }
+    command.args(args).output().expect("Forge gate starts")
 }
 
-pub(crate) fn gate_human(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> GateRun {
-    let mut cmd = Command::new(forge_bin());
-    cmd.env_remove("FORGE_GATE_BIN")
-        .env_remove("FORGE_DRIFTWATCH_BIN");
-    if let Some(binary) = gate_bin {
-        cmd.env("FORGE_GATE_BIN", binary);
-    }
-    cmd.arg("--registry").arg(db).arg("gate");
-    for arg in args {
-        cmd.arg(arg);
-    }
-    let out = cmd.output().expect("run forge gate");
-    GateRun {
-        status: out.status.code().unwrap_or(-1),
-        stdout: lossy(&out.stdout).to_string(),
-        stderr: lossy(&out.stderr).to_string(),
-    }
-}
-
-pub(crate) fn gate_json(run: &GateRun) -> serde_json::Value {
+fn gate_json(output: &Output) -> serde_json::Value {
     assert!(
-        !run.stdout.is_empty(),
-        "empty stdout; stderr: {}",
-        run.stderr
+        !output.stdout.is_empty(),
+        "gate produced no JSON; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_str(&run.stdout).expect("gate json")
+    serde_json::from_slice(&output.stdout).expect("gate stdout is JSON")
 }
 
-/// Stub answering `--version` and the real gate surface with a fixture.
-pub(crate) fn document_stub(dir: &Path, name: &str, document: &str, exit: &str) -> PathBuf {
-    let doc = fixture(document).display().to_string();
-    write_script(
-        dir,
-        name,
-        &format!(
-            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi\ncat '{doc}'\nexit {exit}\n"
-        ),
-    )
+fn evidence_path(project: &Path, id: &str) -> PathBuf {
+    project.join(".forge/gate").join(id).join("evidence.json")
 }
 
-pub(crate) fn passing_stub(dir: &Path) -> PathBuf {
-    document_stub(dir, "gate-pass.sh", "gate-status-pass.json", "0")
-}
-
-pub(crate) fn blocked_stub(dir: &Path) -> PathBuf {
-    document_stub(dir, "gate-blocked.sh", "gate-status-blocked.json", "1")
-}
-
-pub(crate) fn journal_for(db: &Path, project_id: &str) -> Vec<(String, String, String)> {
-    Registry::open(db)
+fn gate_journal(registry: &Path, project_id: &str) -> Vec<(String, String)> {
+    Registry::open(registry)
         .unwrap()
         .operations_for_project(project_id, 50)
         .unwrap()
         .into_iter()
         .filter(|entry| entry.kind == "gate")
-        .map(|entry| (entry.kind, entry.state, entry.detail.unwrap_or_default()))
+        .map(|entry| (entry.state, entry.detail.unwrap_or_default()))
         .collect()
 }
 
-pub(crate) fn evidence_file(proj: &Path, id: &str) -> PathBuf {
-    proj.join(".forge/gate").join(id).join("evidence.json")
-}
+#[test]
+fn baseline_run_persists_forge_evidence_and_done_journal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = tmp.path().join("registry.db");
+    let project = project(tmp.path(), "native-pass");
 
-pub(crate) fn head(dir: &Path) -> String {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .output()
-        .expect("git rev-parse");
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
-
-// ─── gate evidence-export consumption tests ───────────────────────────────────
-
-/// Evidence export fixture path.
-pub(crate) fn evidence_fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/gate-evidence")
-        .join(name)
-}
-
-/// Stub that emits the evidence-export JSON via `gate evidence-export --format json`.
-/// Copies the fixture to a temp file, replaces the hardcoded project_id with the
-/// test's project id, and cats it.
-pub(crate) fn evidence_export_stub_with_project(
-    dir: &Path,
-    name: &str,
-    fixture: &str,
-    project_id: &str,
-    exit: &str,
-) -> PathBuf {
-    let src = evidence_fixture(fixture);
-    let text = fs::read_to_string(&src).unwrap();
-    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let mut adjusted = json;
-    adjusted["project_id"] = serde_json::json!(project_id);
-    let json_path = dir.join(format!("{name}.json"));
-    fs::write(&json_path, serde_json::to_string_pretty(&adjusted).unwrap()).unwrap();
-    let json_str = json_path.display().to_string();
-    write_script(
-        dir,
-        name,
-        &format!(
-            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
-if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit {exit}; fi
-echo 'unrecognized'
-exit 1
-"
-        ),
-    )
-}
-
-/// Stub emitting an export with a specific project id.
-pub(crate) fn evidence_export_stub(
-    dir: &Path,
-    name: &str,
-    fixture: &str,
-    project_id: &str,
-    exit: &str,
-) -> PathBuf {
-    evidence_export_stub_with_project(dir, name, fixture, project_id, exit)
-}
-
-/// Stub that produces no export document (runtime unavailable).
-pub(crate) fn evidence_unavailable_stub(dir: &Path, name: &str) -> PathBuf {
-    write_script(
-        dir,
-        name,
-        "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
-echo 'no gate run found'
-exit 1
-",
-    )
-}
-
-/// Stub that emits malformed JSON.
-pub(crate) fn evidence_malformed_stub(dir: &Path, name: &str) -> PathBuf {
-    write_script(
-        dir,
-        name,
-        "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
-echo '{ not json'
-exit 0
-",
-    )
-}
-
-/// Stub emitting an export with an unknown field name.
-pub(crate) fn evidence_unknown_field_stub(dir: &Path, name: &str, project_id: &str) -> PathBuf {
-    // Write the JSON to a temp file and cat it.
-    let json_path = dir.join(format!("{name}.json"));
-    let json = format!(
-        r#"{{"schema_version": 1, "project_id": "{project_id}", "revision": "deadbeef12345678", "toolchain": "driftwatchdog@0.1.0", "fields": [{{"field": "unknown-field-x", "state": "unverified"}}, {{"field": "revision", "state": "verified", "evidence_ref": "revision-ref"}}], "gate_run_id": 99}}"#,
-        project_id = project_id
+    let output = run_gate(&registry, &[project.to_str().unwrap()], None);
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
-    fs::write(&json_path, json).unwrap();
-    let json_str = json_path.display().to_string();
-    write_script(
-        dir,
-        name,
-        &format!(
-            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
-if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit 0; fi
-echo 'unrecognized'
-exit 1
-"
-        ),
-    )
+    let document = gate_json(&output);
+    assert_eq!(document["gate"]["runtime"], "forge");
+    assert_eq!(document["gate"]["aggregate"], "passed");
+    assert_eq!(document["gate"]["checks"].as_array().unwrap().len(), 1);
+    assert_eq!(document["gate"]["checks"][0]["id"], "source-file-size");
+    assert!(evidence_path(&project, "native-pass").is_file());
+    let rows = gate_journal(&registry, "native-pass");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].0, "done");
 }
 
-/// Stub emitting a verified publication without digests (contradiction).
-pub(crate) fn evidence_publication_contradiction_stub(
-    dir: &Path,
-    name: &str,
-    project_id: &str,
-) -> PathBuf {
-    let json_path = dir.join(format!("{name}.json"));
-    let json = format!(
-        r#"{{"schema_version": 1, "project_id": "{project_id}", "revision": "deadbeef12345678", "toolchain": "driftwatchdog@0.1.0", "fields": [{{"field": "publication", "state": "verified", "evidence_ref": "pub-ref"}}, {{"field": "digests", "state": "unverified"}}], "gate_run_id": 99}}"#,
-        project_id = project_id
+#[test]
+fn required_extension_failure_blocks_and_persists_with_the_baseline() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = tmp.path().join("registry.db");
+    let project = project(tmp.path(), "native-fail");
+    fs::write(
+        project.join("gate.toml"),
+        "version = 1\nprofile = \"minimal\"\n[[checks]]\nid = \"project-smoke\"\ncommand = \"exit 1\"\n",
+    )
+    .unwrap();
+
+    let output = run_gate(&registry, &[project.to_str().unwrap()], None);
+    assert_eq!(output.status.code(), Some(1));
+    let document = gate_json(&output);
+    assert_eq!(document["gate"]["runtime"], "forge");
+    assert_eq!(document["gate"]["aggregate"], "blocked");
+    let checks = document["gate"]["checks"].as_array().unwrap();
+    assert!(checks
+        .iter()
+        .any(|row| { row["id"] == "source-file-size" && row["state"] == "pass" }));
+    assert!(checks
+        .iter()
+        .any(|row| { row["id"] == "project-smoke" && row["state"] == "fail" }));
+    assert!(evidence_path(&project, "native-fail").is_file());
+    assert_eq!(gate_journal(&registry, "native-fail")[0].0, "blocked");
+}
+
+#[test]
+fn dry_run_previews_the_native_plan_without_evidence_or_journaling() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = tmp.path().join("registry.db");
+    let project = project(tmp.path(), "native-preview");
+
+    let output = run_gate(&registry, &["--dry-run", project.to_str().unwrap()], None);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    fs::write(&json_path, json).unwrap();
-    let json_str = json_path.display().to_string();
-    write_script(
-        dir,
-        name,
-        &format!(
-            "if [ \"$1\" = \"--version\" ]; then echo 'driftwatch 0.1.0'; exit 0; fi
-if [ \"$1\" = \"gate\" ] && [ \"$2\" = \"evidence-export\" ]; then cat '{json_str}'; exit 0; fi
-echo 'unrecognized'
-exit 1
-"
-        ),
+    let document = gate_json(&output);
+    assert_eq!(document["dry_run"], true);
+    assert_eq!(document["gate"]["persisted"], false);
+    assert_eq!(document["gate"]["journaled"], false);
+    assert!(document["gate"]["rehearsal"].is_object());
+    assert!(!project.join(".forge").exists());
+    assert!(gate_journal(&registry, "native-preview").is_empty());
+}
+
+#[test]
+fn legacy_runtime_declarations_and_overrides_do_not_replace_forge() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = tmp.path().join("registry.db");
+    let project = project(tmp.path(), "native-legacy-runtime");
+    fs::write(
+        project.join(".project.json"),
+        r#"{"schema_version":1,"id":"native-legacy-runtime","kind":"product","verification":{"command":"true","gate_runtime":"jenkins-gate"}}"#,
     )
+    .unwrap();
+
+    let output = run_gate(
+        &registry,
+        &[project.to_str().unwrap()],
+        Some("/missing/legacy-gate"),
+    );
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = gate_json(&output);
+    assert_eq!(document["gate"]["runtime"], "forge");
+    assert_eq!(document["gate"]["aggregate"], "passed");
+    assert!(evidence_path(&project, "native-legacy-runtime").is_file());
 }
 
-pub(crate) fn gate_evidence_cmd(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> GateRun {
-    let mut cmd = Command::new(forge_bin());
-    cmd.env_remove("FORGE_REGISTRY")
-        .env_remove("FORGE_GATE_BIN")
-        .env_remove("FORGE_DRIFTWATCH_BIN")
-        .env_remove("FORGE_WORKSPACE_ROOT")
-        .env_remove("FORGE_WORKSPACE_REGISTRY")
-        .env_remove("HTTP_PROXY")
-        .env_remove("HTTPS_PROXY")
-        .env_remove("ALL_PROXY");
-    if let Some(binary) = gate_bin {
-        cmd.env("FORGE_GATE_BIN", binary);
-    }
-    cmd.arg("--registry")
-        .arg(db)
-        .arg("--format")
-        .arg("json")
-        .arg("gate");
-    for arg in args {
-        cmd.arg(arg);
-    }
-    let out = cmd.output().expect("run forge gate evidence");
-    GateRun {
-        status: out.status.code().unwrap_or(-1),
-        stdout: lossy(&out.stdout).to_string(),
-        stderr: lossy(&out.stderr).to_string(),
-    }
+#[test]
+fn status_transitions_from_absent_to_fresh_then_stale() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = tmp.path().join("registry.db");
+    let project = project(tmp.path(), "native-freshness");
+
+    let absent = run_gate(&registry, &["status", project.to_str().unwrap()], None);
+    assert_eq!(absent.status.code(), Some(1));
+    let absent_doc = gate_json(&absent);
+    assert_eq!(absent_doc["gate"]["freshness"], "absent");
+    assert!(gate_journal(&registry, "native-freshness").is_empty());
+
+    let run = run_gate(&registry, &[project.to_str().unwrap()], None);
+    assert!(run.status.success());
+    let fresh = run_gate(&registry, &["status", project.to_str().unwrap()], None);
+    assert!(fresh.status.success());
+    assert_eq!(gate_json(&fresh)["gate"]["freshness"], "fresh");
+
+    fs::write(project.join("README.md"), "changed\n").unwrap();
+    git(&project, &["add", "-A"]);
+    git(&project, &["commit", "-q", "-m", "second"]);
+    let stale = run_gate(&registry, &["status", project.to_str().unwrap()], None);
+    assert_eq!(stale.status.code(), Some(1));
+    let stale_doc = gate_json(&stale);
+    assert_eq!(stale_doc["gate"]["freshness"], "stale");
+    assert_eq!(stale_doc["gate"]["aggregate"], "passed");
 }
 
-pub(crate) fn evidence_json(run: &GateRun) -> serde_json::Value {
-    serde_json::from_str(&run.stdout).expect("evidence json")
-}
+#[test]
+fn invalid_timeout_and_unknown_target_refuse_before_journaling() {
+    let tmp = tempfile::tempdir().unwrap();
+    let registry = tmp.path().join("registry.db");
+    let project = project(tmp.path(), "native-refusal");
 
-pub(crate) fn evidence_status_file(proj: &Path, id: &str) -> PathBuf {
-    proj.join(".forge/gate")
-        .join(id)
-        .join("release-evidence.json")
+    let timeout = run_gate(
+        &registry,
+        &["--timeout-secs", "0", project.to_str().unwrap()],
+        None,
+    );
+    assert_eq!(timeout.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&timeout.stderr).contains("gate-invalid"));
+    let unknown = run_gate(&registry, &["not-registered-native-target"], None);
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown-project"));
+    assert!(gate_journal(&registry, "native-refusal").is_empty());
 }

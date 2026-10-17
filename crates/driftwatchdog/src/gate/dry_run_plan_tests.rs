@@ -26,8 +26,8 @@ fn doc(toml: &str) -> serde_json::Value {
     build_document(&resolved, &manifest)
 }
 
-/// Three required checks, two bound, `governance-quality` (a profile default
-/// and never exempable) with no command — the shape that forces a block.
+/// Two required project checks are bound and one is deliberately unbound.
+/// The in-process Forge baseline is added separately and is not coverage debt.
 const ONE_UNBOUND: &str = r#"
 profile = "minimal"
 [[checks]]
@@ -36,6 +36,8 @@ command = "true"
 [[checks]]
 id = "repo-hygiene"
 command = "true"
+[[checks]]
+id = "required-extension"
 "#;
 
 /// Everything bound and inside the allowance: the plan cannot decide.
@@ -158,7 +160,7 @@ fn a_required_unbound_check_forces_a_block_prediction() {
         .iter()
         .find(|r| r["rule"] == "unbound-required-check")
         .expect("the unbound check is named as a forcing reason");
-    assert_eq!(reason["checks"], serde_json::json!(["governance-quality"]));
+    assert_eq!(reason["checks"], serde_json::json!(["required-extension"]));
 }
 
 #[test]
@@ -345,7 +347,8 @@ fn exempted_checks_and_unscheduled_concerns_are_plan_inputs() {
         "no UI surface in this project"
     );
     let not_scheduled = value["not_scheduled"].as_array().unwrap();
-    assert!(not_scheduled.contains(&serde_json::json!("source-file-size")));
+    assert!(not_scheduled.contains(&serde_json::json!("a11y")));
+    assert!(!not_scheduled.contains(&serde_json::json!("source-file-size")));
     assert!(!not_scheduled.contains(&serde_json::json!("smoke")));
 }
 

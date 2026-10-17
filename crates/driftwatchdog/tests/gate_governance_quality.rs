@@ -7,11 +7,9 @@
 //! respectively. A concern that cannot produce a failure is an
 //! assumption, not a check.
 //!
-//! The unbound case is equally load-bearing. A project that picks a
-//! product profile without binding a governance command — which is every
-//! repository in the workspace today — records `UNBOUND` and blocks,
-//! because the checker lives outside this repository and there is no path
-//! to default to.
+//! Governance quality is an explicit project extension. Product profiles
+//! schedule their built-in concerns, while projects opt into this checker
+//! by declaring and binding it in their manifest.
 //!
 //! Unix-only: the concern's command runs through `sh -c`.
 
@@ -195,11 +193,11 @@ fn an_out_of_scope_backlog_does_not_fail_the_concern() {
     assert!(diagnostic.contains("0 of 2"), "{diagnostic}");
 }
 
-/// Task 4.5: a project that picks the profile and binds no command is
-/// `UNBOUND` and blocks. This is the state of the 70 repositories that
-/// have not yet opted in, and it is a real result rather than a skip.
+/// A product profile does not implicitly opt into the project-owned
+/// governance extension. Unbound optional built-in concerns remain
+/// advisory and the run does not fabricate a governance result.
 #[test]
-fn a_product_profile_without_a_governance_command_records_unbound() {
+fn a_product_profile_does_not_implicitly_schedule_governance_quality() {
     let tmp = init_dir();
     std::fs::write(
         tmp.path().join("gate.toml"),
@@ -209,20 +207,15 @@ fn a_product_profile_without_a_governance_command_records_unbound() {
     )
     .unwrap();
 
-    let assert = run_gate(&tmp);
-    assert.failure();
+    run_gate(&tmp).success();
     let run = latest_run(&tmp);
-    assert_eq!(run.status, "FAIL");
-    assert!(run.blocked);
+    assert_eq!(run.status, "PASS");
+    assert!(!run.blocked);
     let doc = run_doc(&tmp);
-    let r = result_of(&doc, CONCERN);
-    assert_eq!(r.status, GateStatus::Unbound);
-    assert_eq!(r.severity, GateSeverity::Error);
-    assert_ne!(r.status, GateStatus::NotApplicable);
-    assert_ne!(r.status, GateStatus::Pass);
+    assert!(doc.results.iter().all(|r| r.gate_id != CONCERN));
+    assert!(!doc.unbound.iter().any(|id| id == CONCERN));
 
-    // The plan names it as unbound before anything runs, so the debt is
-    // visible without a gate run.
+    // Dry-run agrees that this extension is not selected by the profile.
     let dry = driftwatch()
         .arg("gate")
         .arg("--dry-run")
@@ -230,7 +223,7 @@ fn a_product_profile_without_a_governance_command_records_unbound() {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&dry.stdout);
-    assert!(stdout.contains(CONCERN), "dry run plan: {stdout}");
+    assert!(!stdout.contains(CONCERN), "dry run plan: {stdout}");
 }
 
 /// The concern is not exempable: an exemption removes a required check
@@ -239,7 +232,6 @@ fn a_product_profile_without_a_governance_command_records_unbound() {
 #[test]
 fn the_concern_may_not_be_exempted() {
     let tmp = init_dir();
-    let cmd = report_command(&tmp, "governance.json", &report(&[]), 0);
     std::fs::write(
         tmp.path().join("gate.toml"),
         format!(
@@ -253,16 +245,18 @@ fn the_concern_may_not_be_exempted() {
         ),
     )
     .unwrap();
-    let _ = cmd;
-
     run_gate(&tmp).failure();
     let run = latest_run(&tmp);
     assert_eq!(run.status, "FAIL");
     assert!(run.blocked);
     let doc = run_doc(&tmp);
     let r = result_of(&doc, CONCERN);
-    assert_eq!(r.status, GateStatus::Fail);
-    assert!(r.findings[0].title.contains("may never be exempted"));
+    assert_eq!(r.status, GateStatus::Unbound);
+    assert_eq!(r.severity, GateSeverity::Error);
+    assert_eq!(
+        r.findings[0].rule.as_deref(),
+        Some("unbound-required-check")
+    );
     let budget = result_of(&doc, "exemption-budget");
     assert_eq!(budget.status, GateStatus::Fail);
     assert!(budget.diagnostic.as_deref().unwrap().contains(CONCERN));
@@ -636,14 +630,17 @@ fn the_documented_template_selects_and_binds_the_governance_concern() {
         "the template's blocking list must include REVIEW_REQUIRED"
     );
 
-    // And the profile actually schedules it, whether or not `checks:`
-    // says so: `profile_defaults_for` adds the mandatory concern.
+    // The profile does not add it implicitly; the explicit manifest check
+    // above is what selects this project-owned extension.
     let selected = driftwatchdog::gate::manifest::profile_defaults_for(manifest, &manifest.profile)
         .expect("the template's profile resolves");
     assert!(
-        selected.iter().any(|id| id == CONCERN),
-        "the template's profile `{}` does not schedule `{CONCERN}`: {selected:?}",
-        manifest.profile
+        selected.iter().all(|id| id != CONCERN),
+        "the profile unexpectedly adds `{CONCERN}`: {selected:?}"
+    );
+    assert!(
+        manifest.checks.iter().any(|check| check.id == CONCERN),
+        "the template must explicitly schedule `{CONCERN}`",
     );
 }
 

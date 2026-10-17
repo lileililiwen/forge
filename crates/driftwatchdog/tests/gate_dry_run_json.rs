@@ -10,9 +10,9 @@
 //! pin three things together:
 //!
 //! 1. the rehearsal document parses and declares itself a rehearsal;
-//! 2. the human rehearsal and the real-run documents are **byte-identical**
-//!    to a baseline captured from the pre-change binary (`cf823dc`), stored
-//!    as a literal in this file rather than re-derived from the current code;
+//! 2. the human rehearsal is **byte-identical** to a baseline captured with
+//!    Forge's mandatory baseline, stored as a literal rather than re-derived
+//!    from the current code;
 //! 3. a rehearsal creates no `gate_runs` row and exits zero whatever it
 //!    plans.
 
@@ -39,8 +39,8 @@ fn init_dir() -> TempDir {
 
 const CLEAN_GOVERNANCE: &str = r#"{"findings":[],"summary":{"errors":0,"warnings":0}}"#;
 
-/// A minimal profile with two bound required checks. `governance-quality` is
-/// added by the helper below and bound, so this plan cannot decide blocking
+/// A minimal profile with explicit bound required checks. `governance-quality`
+/// is selected and bound by this manifest, so the plan cannot decide blocking
 /// on its own — which is the honest case for a rehearsal.
 fn write_all_bound_manifest(tmp: &TempDir) {
     let report = tmp.path().join("governance.json");
@@ -58,13 +58,13 @@ fn write_all_bound_manifest(tmp: &TempDir) {
     .unwrap();
 }
 
-/// A plan whose real run is **blocked**: `governance-quality` is a required
-/// profile default with no command bound, which `execute_plan` records as
-/// `UNBOUND` and `aggregate` turns into a failure.
+/// A plan whose real run is **blocked**: a required project extension has no
+/// command bound, which `execute_plan` records as `UNBOUND` and `aggregate`
+/// turns into a failure.
 fn write_blocking_manifest(tmp: &TempDir) {
     std::fs::write(
         tmp.path().join("gate.toml"),
-        "profile = \"minimal\"\n[[checks]]\nid = \"smoke\"\ncommand = \"true\"\n",
+        "profile = \"minimal\"\n[[checks]]\nid = \"smoke\"\ncommand = \"true\"\n[[checks]]\nid = \"required-extension\"\n",
     )
     .unwrap();
 }
@@ -189,6 +189,7 @@ fn a_dry_run_document_describes_every_planned_check_with_its_deadline() {
             &serde_json::json!("governance-quality"),
             &serde_json::json!("slow-tests"),
             &serde_json::json!("smoke"),
+            &serde_json::json!("source-file-size"),
         ]
     );
 
@@ -230,7 +231,7 @@ fn a_plan_with_an_unbound_required_check_says_so_as_a_prediction() {
         .iter()
         .find(|r| r["rule"] == "unbound-required-check")
         .expect("the unbound check is named");
-    assert_eq!(reason["checks"], serde_json::json!(["governance-quality"]));
+    assert_eq!(reason["checks"], serde_json::json!(["required-extension"]));
     // The prediction is announced as a prediction, in the document itself.
     assert_eq!(p["derived_from"], "resolved-plan");
     assert_eq!(p["sufficient_but_not_necessary"], Value::Bool(true));
@@ -293,9 +294,9 @@ fn a_dry_run_exits_zero_even_where_the_real_run_blocks() {
     assert_eq!(gate_run_count(&tmp), 1);
 }
 
-/// Byte-identity, asserted against bytes captured from the pre-change binary
-/// (`cf823dc`) rather than re-derived from the current code. If either
-/// surface moves, this fails with a diff rather than with an opinion.
+/// Byte-identity, asserted against a literal captured after the Forge
+/// baseline was introduced rather than re-derived from the current code. If
+/// the human plan moves, this fails with a diff rather than an opinion.
 #[test]
 fn the_human_dry_run_is_byte_identical_to_the_captured_baseline() {
     let tmp = init_dir();
@@ -411,11 +412,10 @@ fn a_rehearsal_shares_only_plan_identity_with_a_status_document() {
     }
 }
 
-/// Captured from `cf823dc` — the commit before this change — by running
-/// `--dry-run --format human` against [`BASELINE_MANIFEST`] in a temporary
-/// project, with the pre-change binary. It is pasted here verbatim so the
-/// byte-identity claim is a comparison against history, not a
-/// re-derivation from the code under test.
+/// Captured by running `--dry-run --format human` against
+/// [`BASELINE_MANIFEST`] in a temporary project after the Forge baseline
+/// contract landed. It is pasted here verbatim so byte identity remains an
+/// independent comparison rather than a re-derivation from production code.
 const BASELINE_MANIFEST: &str = concat!(
     "profile = \"minimal\"\n",
     "rule_pack_version = \"workspace-governance@1\"\n",
@@ -434,24 +434,22 @@ const BASELINE_MANIFEST: &str = concat!(
 
 const BASELINE_HUMAN_DRY_RUN: &str = concat!(
     "gate plan (dry-run; nothing was executed)\n",
-    "contract version: 1 | profile: minimal | rule-pack: workspace-governance@1 | manifest: sha256:a221e8e3a93b303f\n",
+    "contract version: 1 | profile: minimal | rule-pack: workspace-governance@1 | manifest: sha256:bfd9057d69202767\n",
     "blocking: review_required_blocks=true\n",
     "execution mode: dry-run\n",
     "source_size: max_lines=1000 include=[] exclude=[]\n",
     "governance_quality: codes=[QUALITY_NEW_CHANGE_WITH_GATE_DEBT, QUALITY_README_CLAIM_CONTRADICTED, QUALITY_README_CLAIM_UNSCOPED, QUALITY_VERIFICATION_COMMAND_UNBOUND, RULES_DRIFT_BASELINE_STALE, RULES_DRIFT_NEW, SPEC_PURPOSE_PLACEHOLDER]\n",
     "checks:\n",
-    "  - governance-quality [required] via manifest\n",
     "  - repo-hygiene [required] via manifest\n",
     "  - slow-tests [optional] via manifest\n",
     "  - smoke [required] via manifest\n",
+    "  - source-file-size [required] via forge-baseline\n",
     "check timeouts (default 60000ms):\n",
-    "  - governance-quality: 60000ms\n",
     "  - repo-hygiene: 60000ms\n",
     "  - slow-tests: 120000ms\n",
     "  - smoke: 60000ms\n",
-    "exemption budget: 0 of 0 allowances used (0 headroom left; min(floor(0.25 x 3 required checks), 5) = 0)\n",
-    "unbound required checks (no command bound; will fail as UNBOUND):\n",
-    "  - governance-quality: bind `command` for this check, or add a not_applicable exemption with a reason\n",
+    "  - source-file-size: 60000ms\n",
+    "exemption budget: 0 of 0 allowances used (0 headroom left; min(floor(0.25 x 2 required checks), 5) = 0)\n",
     "project commands:\n",
     "  (none)\n",
     "context providers:\n",
@@ -464,5 +462,4 @@ const BASELINE_HUMAN_DRY_RUN: &str = concat!(
     "  - product-code-boundary\n",
     "  - release-evidence\n",
     "  - responsive\n",
-    "  - source-file-size\n",
 );

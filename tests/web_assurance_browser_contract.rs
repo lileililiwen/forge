@@ -360,7 +360,11 @@ fn remediate_scan_and_diff_rebuild_server_side() {
     assert_eq!(error_code(&packless), "remediation-invalid");
     let packs = forge::standard::all_packs();
     assert!(!packs.is_empty());
-    let selector = format!("{}@{}", packs[0].id, packs[0].version);
+    let pack = packs
+        .iter()
+        .find(|pack| pack.is_selectable() && pack.supports("rust-web"))
+        .expect("a verified selectable pack supports the rust-web fixture");
+    let selector = format!("{}@{}", pack.id, pack.version);
     let diff = get(
         &config,
         &db,

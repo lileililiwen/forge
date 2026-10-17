@@ -55,13 +55,8 @@ fn write_lines(tmp: &tempfile::TempDir, rel: &str, newlines: usize) {
     std::fs::write(&path, "x\n".repeat(newlines)).unwrap();
 }
 
-/// A `product` manifest that relaxes the three project-owned concerns and
-/// appends the caller's extra policy (e.g. a `[source_size]` table).
-///
-/// `governance-quality` is relaxed for the same reason as the other two:
-/// the profile schedules it, no command is bound, and an unbound required
-/// check would block the run, making every fixture here measure the
-/// unbound path instead of the scanner.
+/// A `product` manifest that relaxes the two project-owned profile concerns
+/// and appends the caller's extra policy (e.g. a `[source_size]` table).
 fn source_manifest(extra: &str) -> String {
     format!(
         "version = 1\nprofile = \"product\"\n\
@@ -170,7 +165,7 @@ fn json_output_reports_the_source_file_size_finding() {
         .find(|r| r["gate_id"] == "source-file-size")
         .expect("source-file-size result present");
     assert_eq!(result["status"], "FAIL");
-    assert_eq!(result["source"], "driftwatchdog");
+    assert_eq!(result["source"], "forge");
     assert_eq!(result["findings"][0]["location"], "src/big.rs");
     assert_eq!(result["findings"][0]["rule"], "source-file-size");
     assert_eq!(result["findings"][0]["severity"], "error");
@@ -233,7 +228,7 @@ fn git_repository_honors_gitignore_for_dependencies() {
 }
 
 #[test]
-fn explicit_include_and_exclude_override_discovery() {
+fn explicit_include_adds_coverage_but_excludes_cannot_weaken_the_baseline() {
     let tmp = init_dir();
     write_lines(&tmp, "packages/service/keep.rs", 10);
     write_lines(&tmp, "packages/service/legacy/big.rs", 5_000);
@@ -247,16 +242,21 @@ fn explicit_include_and_exclude_override_discovery() {
 
     let output = gate_output(&tmp, &[]);
     assert!(
-        output.status.success(),
-        "excluded and out-of-include files must not fail"
+        !output.status.success(),
+        "the baseline still scans src/ files"
     );
     let run = latest_run(&tmp);
-    assert_eq!(run.status, "PASS");
-    assert!(!run.blocked);
+    assert_eq!(run.status, "FAIL");
+    assert!(run.blocked);
+    assert!(run.results_json.contains("src/huge.rs"));
+    assert!(
+        run.results_json.contains("packages/service/legacy/big.rs"),
+        "the baseline's default packages/ boundary cannot be excluded"
+    );
 }
 
 #[test]
-fn include_without_exclude_reports_only_the_included_file() {
+fn include_adds_project_coverage_without_removing_baseline_candidates() {
     let tmp = init_dir();
     write_lines(&tmp, "packages/service/big.rs", 5_000);
     write_lines(&tmp, "src/huge.rs", 5_000);
@@ -271,8 +271,8 @@ fn include_without_exclude_reports_only_the_included_file() {
     assert_eq!(run.status, "FAIL");
     assert!(run.results_json.contains("packages/service/big.rs"));
     assert!(
-        !run.results_json.contains("src/huge.rs"),
-        "src/huge.rs is outside the explicit include and must not be a candidate"
+        run.results_json.contains("src/huge.rs"),
+        "an explicit include cannot remove a default baseline candidate"
     );
 }
 
@@ -294,7 +294,7 @@ fn broken_git_boundary_is_review_required_and_blocks() {
 }
 
 #[test]
-fn optional_source_file_size_failure_is_visible_but_unblocked() {
+fn optional_source_file_size_declaration_cannot_relax_the_baseline() {
     let tmp = init_dir();
     write_lines(&tmp, "src/big.rs", 5_000);
     write_gate_manifest(
@@ -303,16 +303,19 @@ fn optional_source_file_size_failure_is_visible_but_unblocked() {
     );
 
     let output = gate_output(&tmp, &[]);
-    assert!(output.status.success(), "optional failure must not block");
+    assert!(
+        !output.status.success(),
+        "the mandatory baseline still blocks"
+    );
     let run = latest_run(&tmp);
-    assert_eq!(run.status, "PASS");
-    assert!(!run.blocked);
+    assert_eq!(run.status, "FAIL");
+    assert!(run.blocked);
     assert!(run.results_json.contains("source-file-size"));
     assert!(run.results_json.contains("\"FAIL\""));
 }
 
 #[test]
-fn disabled_source_file_size_is_absent_and_not_scanned() {
+fn disabled_source_file_size_declaration_cannot_remove_the_baseline() {
     let tmp = init_dir();
     write_lines(&tmp, "src/big.rs", 5_000);
     write_gate_manifest(
@@ -321,14 +324,15 @@ fn disabled_source_file_size_is_absent_and_not_scanned() {
     );
 
     let output = gate_output(&tmp, &[]);
-    assert!(output.status.success());
+    assert!(!output.status.success());
     let run = latest_run(&tmp);
-    assert_eq!(run.status, "PASS");
-    assert!(!run.blocked);
+    assert_eq!(run.status, "FAIL");
+    assert!(run.blocked);
     assert!(
-        !run.results_json.contains("source-file-size"),
-        "a disabled concern must be absent from the plan and the results"
+        run.results_json.contains("source-file-size"),
+        "the mandatory baseline remains scheduled and scans the file"
     );
+    assert!(run.results_json.contains("src/big.rs"));
 }
 
 #[test]
@@ -355,7 +359,7 @@ fn dry_run_renders_policy_without_scanning_or_persisting() {
 }
 
 #[test]
-fn foreign_runtime_does_not_run_or_persist() {
+fn foreign_runtime_declaration_still_runs_and_persists_the_baseline() {
     let tmp = init_dir();
     write_lines(&tmp, "src/big.rs", 5_000);
     std::fs::create_dir_all(tmp.path().join(".ai-gate")).unwrap();
@@ -366,15 +370,11 @@ fn foreign_runtime_does_not_run_or_persist() {
     .unwrap();
 
     let output = gate_output(&tmp, &[]);
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("other-gate"),
-        "foreign runtime notice: {stdout}"
-    );
+    assert!(!output.status.success());
     assert_eq!(
         persisted_run_count(&tmp),
-        0,
-        "a foreign runtime persists no gate run"
+        1,
+        "the direct DriftWatchdog API records the bundled Forge baseline run"
     );
+    assert_eq!(latest_run(&tmp).status, "FAIL");
 }

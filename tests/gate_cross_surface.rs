@@ -305,7 +305,7 @@ fn read_surfaces_agree_on_the_same_evidence_bytes() {
     assert_eq!(status_value["gate"]["observed_at"], observed);
     assert_eq!(status_value["gate"]["revision"], revision);
     assert_eq!(status_value["gate"]["aggregate"], "passed");
-    assert_eq!(status_value["gate"]["runtime"], "gate-pass");
+    assert_eq!(status_value["gate"]["runtime"], "forge");
 
     let doctor = run(
         &db,
@@ -317,7 +317,7 @@ fn read_surfaces_agree_on_the_same_evidence_bytes() {
     assert!(summary.contains(observed), "{summary}");
     assert!(summary.contains(&revision[..12]), "{summary}");
     assert!(summary.contains("aggregate=passed"), "{summary}");
-    assert!(summary.contains("runtime=gate-pass"), "{summary}");
+    assert!(summary.contains("runtime=forge"), "{summary}");
 }
 
 #[test]

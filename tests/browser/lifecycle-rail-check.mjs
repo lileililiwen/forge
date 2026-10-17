@@ -607,9 +607,21 @@ try {
   const reflow = await small.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
     client: document.documentElement.clientWidth,
+    overflow: [...document.querySelectorAll('body *')]
+      .map((element) => ({
+        tag: element.tagName.toLowerCase(),
+        id: element.id,
+        className: typeof element.className === 'string' ? element.className : '',
+        left: Math.round(element.getBoundingClientRect().left),
+        right: Math.round(element.getBoundingClientRect().right),
+        width: Math.round(element.getBoundingClientRect().width),
+      }))
+      .filter((element) => element.right > document.documentElement.clientWidth + 1)
+      .sort((left, right) => right.right - left.right)
+      .slice(0, 24),
   }));
   if (reflow.scroll > reflow.client + 1) {
-    fail(`mobile 390px horizontal overflow (${reflow.scroll} > ${reflow.client})`);
+    fail(`mobile 390px horizontal overflow (${reflow.scroll} > ${reflow.client}): ${JSON.stringify(reflow.overflow)}`);
   }
   note('mobile 390px has no horizontal overflow');
   await mobile.close();

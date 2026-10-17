@@ -55,7 +55,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::ForgeError;
 
 use super::{
-    bound_note, capture_note, capture_revision, resolve_runtime, GateConfig, GATE_EVIDENCE_DIR,
+    bound_note, capture_note, capture_revision, GateConfig, GATE_EVIDENCE_DIR,
     MAX_GATE_OUTPUT_BYTES,
 };
 
@@ -246,18 +246,21 @@ fn run_evidence_export(
     _project_id: &str,
     config: &GateConfig,
 ) -> Result<Option<String>, String> {
-    let resolved = match resolve_runtime(dir, config) {
-        Ok(r) => r,
-        Err(_) => return Ok(None),
+    // Gate execution is Forge-native, but the separate release-evidence
+    // export remains an optional DriftWatchdog producer boundary. Do not
+    // route this verb through the Forge gate engine: Forge intentionally
+    // has no `gate evidence-export` command.
+    let Some(binary) = super::evidence_export::resolve_evidence_export_binary() else {
+        return Ok(None);
     };
-    let _runtime_version = probe_evidence_version(&resolved.binary, config.timeout);
+    let _runtime_version = probe_evidence_version(&binary, config.timeout);
     let args: Vec<&OsStr> = vec![
         OsStr::new("gate"),
         OsStr::new("evidence-export"),
         OsStr::new("--format"),
         OsStr::new("json"),
     ];
-    let mut command = Command::new(&resolved.binary);
+    let mut command = Command::new(&binary);
     command
         .args(&args)
         .current_dir(dir)

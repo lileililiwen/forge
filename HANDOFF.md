@@ -5749,4 +5749,31 @@ pre-existing flaky test (passes 3/3 in isolation, single-threaded; fails only
 under full parallel execution, unrelated to this change which does not touch
 catalog code). No new failure was introduced by this remediation.
 
-Nothing pushed. No `current_spec` pointer remains.
+## Project metadata bundle — archived 2026-10-17
+
+Change `project-metadata-bundle` archived as
+`2026-10-17-project-metadata-bundle`; canonical
+`openspec/specs/project-metadata-bundle/spec.md` promoted with three
+requirements and its generated Purpose placeholder replaced. Implementation,
+tests and canonical/archived specs are in commit `3b59ea4`
+(`feat: add project metadata bundle search`). No push.
+
+The bundle is deterministic and receipt-protected, derived only from bounded
+declared project sources. CLI build/search and read-only MCP search share the
+same Core projection; the catalog remains a closed fifteen-key record.
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check`, `cargo build --workspace --all-targets --all-features`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` | PASS |
+| `cargo test --workspace --all-targets` | **2,762 passed, 0 failed, 3 ignored** (153 suites) |
+| Focused metadata contract | **13 passed**; includes malformed declaration refusal, receipt tampering, deterministic output, CLI/MCP parity, and read-only search |
+| CLI smoke | `forge project metadata build` created the bundle; CLI search for `native app` returned `native-app` with `name` and `project_id` matches and no issues |
+| `node scripts/check-openspec-change-names.mjs`; `openspec validate --all --strict --no-interactive` | PASS; **105/0** after archive |
+| Purpose-marker scan; `git diff --check` | no stale marker; clean |
+| `forge gate --dry-run` | plan rendered; 9 required checks |
+| Full `forge gate --timeout-secs 1800` | **blocked by one pre-existing failure, 0 attributable**: 8 checks pass; `source-file-size` identifies unchanged `src/api/admin/assurance.rs` at 1,003 lines (limit 1,000). No changed file exceeds the cap. Remediation remains a separate size-split change following repository precedent. `security` passes with the known `unsafe-libyaml` unmaintained warning. Gate ran on the final worktree before commit; recorded Git revision `37a8e68`. |
+
+Two verification contracts were corrected with the feature: catalog row-count
+expectations now include its three Clap paths; the native scaffold test checks
+toolchain availability without recursively running Cargo in the Forge root.
+The exact scaffold test passes, and the complete suite passes.

@@ -21,6 +21,7 @@ stdout and can fail. Cleanup uses `shutil.rmtree(..., ignore_errors=True)`.
 """
 
 import io
+import hashlib
 import json
 import os
 import re
@@ -31,9 +32,12 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "bind_gate_commands.py"
+import workspace_check  # noqa: E402
 from bind_gate_commands import (  # noqa: E402
     ALREADY_BOUND,
     BOUND,
@@ -1595,6 +1599,14 @@ class ProfileSelectionTests(RepoCase):
     def setUp(self):
         super().setUp()
         self.write_sibling()
+        # Every repository in this fleet carries a `.project.json`, and the
+        # command that reaches the workspace checkers is declared in it as a
+        # `mechanism: sibling` edge. The fixture reproduces that layout for
+        # the same reason it reproduces the sibling checkout: a repository
+        # with nowhere to declare the edge cannot bind it lawfully, so a
+        # fixture without one could not tell "refused because the declaration
+        # is missing" apart from "bound".
+        self.write_declaration()
         self.write_manifest(checks=BUILD_AND_TESTS, text=PRODUCT_MANIFEST.format(
             checks=BUILD_AND_TESTS
         ))
@@ -1825,7 +1837,8 @@ class ProfileSelectionTests(RepoCase):
         # Nothing was written for the quality concerns: not the block, not the
         # selection, not the command. A selection with no command behind it is
         # worse than the gap it replaced. (`governance-quality` is reachable
-        # in this fixture and does bind; it is not what this test is about.)
+        # in this fixture and does bind, declaring its sibling edge in the
+        # repository's own `.project.json`; it is not what this test is about.)
         before = self.manifest_text()
         outcome = self.bind(apply=True)
         text = self.manifest_text()
@@ -1833,7 +1846,17 @@ class ProfileSelectionTests(RepoCase):
         self.assertNotIn("product-code-boundary", text)
         self.assertIn("governance-quality", text, "the fixture's own concern still binds")
         self.assertNotEqual(text, before)
-        self.assertFalse((self.repo / ".project.json").exists())
+        declaration = json.loads((self.repo / ".project.json").read_text(encoding="utf-8"))
+        self.assertNotIn(
+            "quality",
+            declaration,
+            "a refused quality concern wrote no policy block",
+        )
+        self.assertEqual(
+            [item["id"] for item in declaration["interfaces"]],
+            ["workspace-check"],
+            "only the reachable sibling edge was declared",
+        )
         self.assertEqual(
             self.concern(outcome, "placeholder-threshold").status, UNRESOLVED
         )
@@ -1854,7 +1877,9 @@ class ProfileSelectionTests(RepoCase):
     def test_a_hand_written_quality_block_is_left_exactly_as_it_is(self):
         # The repository's own policy is its own decision, including the parts
         # this tool would derive differently. A project that wrote
-        # `product_roots: ["app"]` gets `app` scanned, not `src`.
+        # `product_roots: ["app"]` gets `app` scanned, not `src`. The one key
+        # this run adds is the declaration of the sibling edge its own bound
+        # command walks; the hand-written block is untouched, byte for byte.
         original = {
             "schema_version": 1,
             "id": "demo",
@@ -1869,13 +1894,24 @@ class ProfileSelectionTests(RepoCase):
         self.write(".project.json", json.dumps(original, indent=2) + "\n")
         self.write_manifest(checks="", text=PRODUCT_MANIFEST.format(checks=""))
         before = (self.repo / ".project.json").read_text(encoding="utf-8")
-        self.bind(apply=True)
+        outcome = self.bind(apply=True)
         after = (self.repo / ".project.json").read_text(encoding="utf-8")
-        self.assertEqual(after, before, "a hand-written block was rewritten")
         self.assertEqual(
             json.loads(after)["quality"],
             original["quality"],
             "the block's own values were changed",
+        )
+        self.assertEqual(
+            {key: value for key, value in json.loads(after).items() if key != "interfaces"},
+            json.loads(before),
+            "the run changed something other than the declared sibling edge",
+        )
+        self.assertEqual(
+            [item["id"] for item in json.loads(after)["interfaces"]],
+            ["product-code-quality", "workspace-check"],
+        )
+        self.assertIn(
+            "declared interfaces -> product-code-quality, workspace-check", outcome.detail
         )
 
     def test_a_declared_concern_is_not_given_a_duplicate_selection(self):
@@ -1931,7 +1967,11 @@ class ProfileSelectionTests(RepoCase):
     def test_a_repository_with_no_declaration_is_refused_not_given_one(self):
         # `.project.json` is the registry's document. Writing a one-key file
         # to stand in for it would be inventing the repository's identity, so
-        # the run refuses by name and writes no manifest entry either.
+        # the run refuses by name and writes no manifest entry either. The
+        # sibling edge makes this sharper: a command that reaches another
+        # checkout is lawful only when the declaration accounts for it, so a
+        # repository with nowhere to declare the edge cannot bind the command.
+        (self.repo / ".project.json").unlink()
         self.write("Cargo.toml", '[package]\nname = "demo"\n')
         self.write("src/main.rs", "fn main() {}\\n")
         self.write_manifest(checks="", text=PRODUCT_MANIFEST.format(checks=""))
@@ -1939,6 +1979,11 @@ class ProfileSelectionTests(RepoCase):
         self.assertEqual(outcome.status, REFUSED)
         self.assertIn(".project.json", outcome.detail)
         self.assertNotIn("placeholder-threshold", self.manifest_text())
+        self.assertNotIn(
+            "governance-quality: 'python3",
+            self.manifest_text(),
+            "a command that reaches another checkout is not bound without a declaration",
+        )
         self.assertFalse((self.repo / ".project.json").exists())
 
     def test_a_quality_policy_is_honoured_when_the_repository_wrote_one(self):
@@ -2047,6 +2092,247 @@ class ProfileSelectionTests(RepoCase):
                 "source-file-size",
             ),
         )
+
+
+# --- the sibling edge a bound command makes --------------------
+
+
+INVENTORY_MANIFEST = """version: 1
+runtime: driftwatchdog
+profile: inventory
+checks:
+blocking:
+  - FAIL
+"""
+
+GOVERNANCE_COMMAND = (
+    "python3 ../workspace-governance/scripts/workspace_check.py "
+    "--root .. --project demo --json"
+)
+PRODUCT_QUALITY_COMMAND = (
+    "python3 ../workspace-governance/scripts/product_code_quality.py ."
+)
+
+
+class SiblingDeclarationTests(RepoCase):
+    """A bound command that reaches another checkout declares the edge it makes.
+
+    The declaration is `mechanism: sibling`, the provider, `required: true`,
+    and a digest of the invocation the tool wrote. `workspace_check.py`
+    recomputes that digest from the `entry` it reads, so a declaration this
+    tool writes is asserted twice here: against the command string, and
+    against the audit that would charge the edge if it were unpinned.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.write_sibling()
+        self.write_declaration(
+            {
+                "role": "product",
+                "stack": "python",
+                "kind": "python-product",
+                "profile": "inventory",
+                "lifecycle": "inventory",
+                "verification": {"command": "true", "gate_runtime": "driftwatchdog", "evidence_status": "planned"},
+                "deployment": {"deployable": False, "jenkins_job": None, "compose_file": None},
+            }
+        )
+        self.write_manifest(checks="", text=INVENTORY_MANIFEST)
+
+    def declaration(self) -> dict:
+        return json.loads((self.repo / ".project.json").read_text(encoding="utf-8"))
+
+    def interfaces(self) -> list:
+        return self.declaration().get("interfaces", [])
+
+    def audit(self) -> list:
+        # The other side of the edge: the provider checkout declares the
+        # provision, so a passing audit here also proves the pairing and not
+        # merely the pin.
+        provider = self.repo.parent / "workspace-governance"
+        (provider / ".project.json").write_text(
+            json.dumps(
+                {
+                    **{key: value for key, value in self.declaration().items() if key not in ("interfaces",)},
+                    "id": "workspace-governance",
+                    "interfaces": [
+                        {
+                            "id": interface_id,
+                            "provides": True,
+                            "mechanism": "invoke",
+                            "entry": f"scripts/{relative}",
+                            "contract": f"platform.{interface_id}/1.0.0",
+                            "required": False,
+                        }
+                        for interface_id, relative in (
+                            ("workspace-check", "workspace_check.py"),
+                            ("product-code-quality", "product_code_quality.py"),
+                        )
+                    ],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        registry = self.repo.parent / "projects.json"
+        registry.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "workspace_root": None,
+                    "discovery": {"mode": "explicit", "unregistered_policy": "fail"},
+                    "projects": [
+                        {
+                            "id": "demo",
+                            "path": "demo",
+                            "profile": "inventory",
+                            "role": "product",
+                            "stack": "python",
+                            "lifecycle": "inventory",
+                            "adoption": "adopted",
+                        },
+                        {
+                            "id": "workspace-governance",
+                            "path": "workspace-governance",
+                            "profile": "inventory",
+                            "role": "product",
+                            "stack": "python",
+                            "lifecycle": "inventory",
+                            "adoption": "adopted",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        findings, _summary = workspace_check.run(
+            SimpleNamespace(
+                registry=str(registry),
+                root=str(self.repo.parent),
+                project=None,
+                audit=True,
+                self_check=False,
+                as_json=False,
+            )
+        )
+        return findings
+
+    def test_a_fresh_bind_declares_exactly_one_sibling_edge(self):
+        outcome = self.bind(apply=True)
+        self.assertEqual(self.concern(outcome, "governance-quality").status, BOUND)
+        self.assertEqual(
+            self.interfaces(),
+            [
+                {
+                    "id": "workspace-check",
+                    "consumes": True,
+                    "provider": "workspace-governance",
+                    "mechanism": "sibling",
+                    "entry": GOVERNANCE_COMMAND,
+                    "digest": "sha256:" + hashlib.sha256(GOVERNANCE_COMMAND.encode("utf-8")).hexdigest(),
+                    "required": True,
+                    "evidence_ref": ".ai-gate/gate.yaml",
+                }
+            ],
+        )
+        self.assertIn(GOVERNANCE_COMMAND, self.manifest_text())
+        self.assertIn("declared interfaces -> workspace-check", outcome.detail)
+
+    def test_the_audit_recomputes_the_digest_and_reports_nothing(self):
+        self.bind(apply=True)
+        entry = self.interfaces()[0]
+        self.assertEqual(
+            entry["digest"],
+            "sha256:" + hashlib.sha256(entry["entry"].encode("utf-8")).hexdigest(),
+            "the digest must be the one the audit recomputes from the entry",
+        )
+        findings = self.audit()
+        self.assertEqual(
+            [item.code for item in findings if item.code.startswith("INTERFACE_")],
+            [],
+            findings,
+        )
+
+    def test_a_second_apply_declares_nothing_new(self):
+        self.bind(apply=True)
+        first = (self.repo / ".project.json").read_bytes()
+        manifest = self.manifest_text()
+        outcome = self.bind(apply=True)
+        self.assertEqual(self.concern(outcome, "governance-quality").status, ALREADY_BOUND)
+        self.assertEqual((self.repo / ".project.json").read_bytes(), first)
+        self.assertEqual(self.manifest_text(), manifest)
+
+    def test_a_dry_run_writes_no_declaration(self):
+        before = (self.repo / ".project.json").read_bytes()
+        outcome = self.bind(apply=False)
+        self.assertIn("would write interfaces -> workspace-check", outcome.detail)
+        self.assertEqual((self.repo / ".project.json").read_bytes(), before)
+
+    def test_two_concerns_over_one_command_declare_one_edge(self):
+        # `placeholder-threshold` and `product-code-boundary` are two gates
+        # over one scan, so the same command answers both and the edge is
+        # declared once.
+        self.write("Cargo.toml", '[package]\nname = "demo"\n')
+        self.write("src/main.rs", "fn main() {}\n")
+        self.write_manifest(checks="", text=PRODUCT_MANIFEST.format(checks=""))
+        outcome = self.bind(apply=True)
+        for concern in ("placeholder-threshold", "product-code-boundary"):
+            self.assertEqual(self.concern(outcome, concern).status, BOUND)
+        ids = [item["id"] for item in self.interfaces()]
+        self.assertEqual(sorted(ids), ["product-code-quality", "workspace-check"])
+        self.assertEqual(len(ids), len(set(ids)), "an edge was declared twice")
+        quality = next(item for item in self.interfaces() if item["id"] == "product-code-quality")
+        self.assertEqual(quality["entry"], PRODUCT_QUALITY_COMMAND)
+        self.assertEqual(quality["required"], True)
+        self.assertEqual(quality["provider"], "workspace-governance")
+
+    def test_an_unreachable_checker_declares_nothing(self):
+        self.forget_sibling()
+        outcome = self.bind(apply=True)
+        self.assertEqual(self.concern(outcome, "governance-quality").status, UNRESOLVED)
+        self.assertNotIn("interfaces", self.declaration())
+
+    def test_a_repository_with_no_declaration_cannot_bind_a_sibling_command(self):
+        (self.repo / ".project.json").unlink()
+        outcome = self.bind(apply=True)
+        self.assertEqual(self.concern(outcome, "governance-quality").status, UNRESOLVED)
+        self.assertIn(".project.json", self.concern(outcome, "governance-quality").reason)
+        self.assertNotIn("governance-quality", self.manifest_text())
+        self.assertFalse((self.repo / ".project.json").exists())
+
+    def test_a_command_that_cannot_be_described_leaves_the_concern_unbound(self):
+        # A command that walks into another checkout in a shape this tool
+        # cannot resolve to a provider and an entry is not declared and not
+        # bound: a fabricated declaration would be worse than the gap.
+        with mock.patch(
+            "bind_gate_commands.derive",
+            return_value=("python3 ../Bad_Provider/scripts/x.py", "elsewhere", ""),
+        ):
+            outcome = self.bind(apply=True)
+        concern = self.concern(outcome, "governance-quality")
+        self.assertEqual(concern.status, UNRESOLVED)
+        self.assertIn("cannot describe that edge", concern.reason)
+        self.assertIn("mechanism: consume", concern.reason)
+        self.assertNotIn("interfaces", self.declaration())
+
+    def test_a_hand_written_entry_is_never_overwritten(self):
+        declaration = self.declaration()
+        declaration["interfaces"] = [
+            {
+                "id": "workspace-check",
+                "consumes": True,
+                "provider": "workspace-governance",
+                "mechanism": "sibling",
+                "entry": "python3 ../workspace-governance/scripts/workspace_check.py --root .. --project demo --json",
+                "digest": "sha256:" + "a" * 64,
+                "required": True,
+                "evidence_ref": ".ai-gate/gate.yaml",
+            }
+        ]
+        (self.repo / ".project.json").write_text(json.dumps(declaration, indent=2) + "\n")
+        self.bind(apply=True)
+        self.assertEqual(self.interfaces()[0]["digest"], "sha256:" + "a" * 64)
 
 
 # --- the committed record against the gate itself --------------

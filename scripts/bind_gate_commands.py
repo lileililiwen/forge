@@ -137,6 +137,7 @@ fail. Nothing here deletes anything.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -1151,6 +1152,139 @@ GOVERNANCE_CHECKERS: dict[str, tuple[str, str, str]] = {
 QUALITY_POLICY_FILE = ".project.json"
 QUALITY_POLICY_KEY = "quality"
 
+
+# --- declaring the sibling edge the command walks ----------------
+
+# Ruling: a `mechanism: sibling` edge — a relative-path invocation of another
+# checkout — is lawful only when the consuming project also declares the
+# provider `required: true` and pins the edge with a digest. So the command
+# this tool writes and the declaration that accounts for it are one
+# operation, in the same shape as the `quality` block and the command that
+# reads it: either both land or neither does, because a bound command with no
+# declaration is exactly the undeclared edge the declaration exists to expose.
+#
+# The declaration is never fabricated. A command that reaches no other
+# checkout is bound without one, and a command this tool cannot describe as an
+# edge (a `../` path it cannot resolve to a provider and an entry) leaves the
+# concern UNBOUND and recorded in the debt record, rather than writing a
+# declaration that would not be true.
+SIBLING_LAWFUL_ALTERNATIVES = (
+    "declare the copy as `mechanism: consume` with its contract and a sha256 "
+    "digest, or publish the artifact and consume it by version"
+)
+
+# `../<provider>/<relative>` — the one shape a sibling invocation has here.
+# The provider is a directory name, which is the registry `path` of all 81
+# registered projects, and the entry is the file it names.
+SIBLING_PROVIDER = "workspace-governance"
+SIBLING_INVOCATION = re.compile(
+    r"\.\./(?P<provider>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/(?P<relative>[A-Za-z0-9][A-Za-z0-9._/-]*)"
+)
+SIBLING_REACH = re.compile(r"(?:^|[\s'\"(])\.\./")
+SIBLING_SUFFIXES = (".py", ".mjs", ".js", ".sh", ".cjs")
+
+
+def interface_id_for(relative: str) -> str:
+    """The kebab-case interface id a checker path declares: `scripts/foo_bar.py` -> `foo-bar`."""
+    stem = Path(relative).name
+    for suffix in SIBLING_SUFFIXES:
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
+
+
+def sibling_interface(command: str) -> tuple[str, dict] | None:
+    """`(provider, interfaces[] entry)` declaring `command`, or None.
+
+    None means "this command reaches no checkout", and it is never a licence
+    to invent one: the caller either binds a plain local command or refuses
+    the concern by name.
+    """
+    match = SIBLING_INVOCATION.search(command or "")
+    if not match:
+        return None
+    relative = match.group("relative")
+    interface_id = interface_id_for(relative)
+    if not interface_id:
+        return None
+    return match.group("provider"), {
+        "id": interface_id,
+        "consumes": True,
+        "provider": match.group("provider"),
+        "mechanism": "sibling",
+        "entry": command,
+        "digest": "sha256:" + hashlib.sha256(command.encode("utf-8")).hexdigest(),
+        "required": True,
+        "evidence_ref": GATE_YAML,
+    }
+
+
+def declared_interface_ids(repo: Path) -> set[str]:
+    """The interface ids this repository's own declaration already carries."""
+    data = read_json(repo / PROJECT_JSON)
+    if not isinstance(data, dict):
+        return set()
+    interfaces = data.get("interfaces")
+    if not isinstance(interfaces, list):
+        return set()
+    return {
+        item["id"]
+        for item in interfaces
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+
+
+def has_declaration(repo: Path) -> bool:
+    """True when the repository carries a `.project.json` this tool may write into.
+
+    The declaration is the registry's document, and this tool never creates
+    one: a repository without it has nowhere to declare a sibling edge, so the
+    edge cannot be bound lawfully and the concern stays debt.
+    """
+    return isinstance(read_json(repo / PROJECT_JSON), dict)
+
+
+def render_interfaces(text: str, entries: list[dict]) -> str:
+    """Insert or extend the `interfaces` array of a `.project.json` document.
+
+    An entry whose id is already declared is left exactly as it is: a
+    hand-written declaration is the operator's, and this tool never overwrites
+    one. Rendering is `json.dumps(..., indent=2)`, the same round trip the
+    `quality` block uses, so the diff a run produces is the added entries and
+    nothing else.
+    """
+    data = json.loads(text)
+    ordered = dict(data)
+    existing = ordered.get("interfaces")
+    if not isinstance(existing, list):
+        existing = []
+    declared = {
+        item.get("id") for item in existing if isinstance(item, dict)
+    }
+    merged = list(existing) + [item for item in entries if item["id"] not in declared]
+    ordered["interfaces"] = merged
+    return json.dumps(ordered, indent=2) + "\n"
+
+
+def write_interfaces(repo: Path, entries: list[dict]) -> str:
+    """Write `entries` into the repository's `.project.json`; return the new text.
+
+    A repository with no `.project.json` is refused rather than created. The
+    caller has already established that the concern can be described, so the
+    only failure left is an unreadable document, which is refused by name.
+    """
+    target = repo / PROJECT_JSON
+    if not target.is_file():
+        raise ValueError(
+            f"no {PROJECT_JSON} to declare the sibling edge in; the declaration "
+            f"is the registry's document and is not created here"
+        )
+    text = target.read_text(encoding="utf-8")
+    updated = render_interfaces(text, entries)
+    target.write_text(updated, encoding="utf-8")
+    return updated
+
 # The two concerns the derived `quality` block answers, by name. They are two
 # gates over one scan.
 QUALITY_CONCERNS = ("placeholder-threshold", "product-code-boundary")
@@ -1365,6 +1499,34 @@ def write_quality_block(repo: Path, block: dict) -> str:
 
 
 
+def interface_ids_for(repo: Path, shape: Shape, required: list[str]) -> list[str]:
+    """The interface ids the required concerns would declare, deduplicated in order.
+
+    Derived from the same facts the command derivation itself uses — the
+    concern's checker, `../<provider>/<relative>` existing on disk, and, for a
+    quality concern, the policy it is fail-closed without — so the declaration
+    write and the command write are decided on one rule rather than two. An id
+    the declaration already carries is still returned; the caller subtracts
+    what is already declared.
+    """
+    ids: list[str] = []
+    for concern in required:
+        checker = GOVERNANCE_CHECKERS.get(concern)
+        if checker is None:
+            continue
+        relative = checker[0]
+        if not (repo.parent / SIBLING_PROVIDER / relative).is_file():
+            continue
+        if concern in QUALITY_CONCERNS and not (
+            has_quality_policy(repo) or derive_quality_block(repo, shape)[0] is not None
+        ):
+            continue
+        interface_id = interface_id_for(relative)
+        if interface_id and interface_id not in ids:
+            ids.append(interface_id)
+    return ids
+
+
 def governance_concern(repo: Path, concern: str, shape: Shape) -> tuple[str, str, str]:
     """Derive one of this workspace's own concerns, or refuse by name.
 
@@ -1440,6 +1602,23 @@ def governance_concern(repo: Path, concern: str, shape: Shape) -> tuple[str, str
             f"operation. Without --apply this run is a dry run, writes nothing, "
             f"and the concern stays in the debt record. To opt out, exempt the "
             f"concern under `not_applicable:` with a reason",
+        )
+
+    # The command reaches another checkout, so binding it writes a
+    # `mechanism: sibling` interface edge as well as the command. A repository
+    # with no declaration has nowhere for that edge to be declared, and an
+    # undeclared edge is exactly what this rule exists to stop, so the concern
+    # stays unbound and is recorded in the debt record by name.
+    if not has_declaration(repo):
+        return (
+            "",
+            "",
+            f"the {concern} checker is reachable at "
+            f"../workspace-governance/{relative}, but a command that reaches another "
+            f"checkout is lawful only when the edge is declared and this repository has "
+            f"no {PROJECT_JSON} to declare it in; the declaration is the registry's "
+            f"document and this tool never creates one, so the concern stays unbound "
+            f"rather than becoming an undeclared sibling edge",
         )
 
     # `{project}` is this repository's own directory name, which is also its
@@ -1741,9 +1920,35 @@ def classify_repo(repo_path: Path, selected: list[str], bound: dict[str, str],
     nothing.
     """
     outcomes = []
+
+    def proposal(concern: str) -> tuple[str, str, str]:
+        """`derive(...)`, plus the rule that a sibling edge must be describable.
+
+        Every command this tool binds either reaches no other checkout — a
+        local runner, a repository's own script — or reaches one, and then it
+        is an interface edge that has to be declared (`mechanism: sibling`,
+        provider, entry, digest). `derive` knows the command; only here is the
+        edge visible. A command that walks into another checkout in a shape
+        this tool cannot describe is refused by name, so the concern stays
+        debt instead of becoming an undeclared edge, and no declaration is
+        ever fabricated for it.
+        """
+        command, evidence, reason = derive(concern, shape, repo_path)
+        if command and SIBLING_REACH.search(command) and sibling_interface(command) is None:
+            return (
+                "",
+                "",
+                f"the derived command `{command}` reaches another checkout, and this "
+                f"tool cannot describe that edge as a declared interface (a provider and "
+                f"the entry it invokes, with a digest); the concern stays unbound rather "
+                f"than becoming an undeclared sibling edge. The two lawful alternatives "
+                f"are {SIBLING_LAWFUL_ALTERNATIVES}",
+            )
+        return command, evidence, reason
+
     for concern in selected:
         if concern in profile_only:
-            command, evidence, reason = derive(concern, shape, repo_path)
+            command, evidence, reason = proposal(concern)
             if command:
                 # Reachable: bound, and `bind_repo` writes the matching
                 # `checks:` entry with it.
@@ -1768,7 +1973,7 @@ def classify_repo(repo_path: Path, selected: list[str], bound: dict[str, str],
                 )
             continue
         if concern in bound:
-            command, evidence, _reason = derive(concern, shape, repo_path)
+            command, evidence, _reason = proposal(concern)
             if not command:
                 # Bound, and by an authority other than this tool: the
                 # `declared-verification` command the sibling generator
@@ -1799,7 +2004,7 @@ def classify_repo(repo_path: Path, selected: list[str], bound: dict[str, str],
                     )
                 )
             continue
-        command, evidence, reason = derive(concern, shape, repo_path)
+        command, evidence, reason = proposal(concern)
         if command:
             outcomes.append(ConcernOutcome(repo_path.name, concern, BOUND, command, evidence))
         else:
@@ -1940,11 +2145,22 @@ def bind_repo(repo_path: Path, apply: bool = False, check_clean: bool = True) ->
     # an `--apply` run immediately after a previous one would write a
     # record that silently under-reports.
     manifest_dirty = check_clean and is_dirty(repo_path)
-    # The `quality` block goes into `.project.json`, so that file's own
-    # uncommitted work refuses the write for the same reason.
-    declaration_dirty_now = (
-        check_clean and not has_quality_policy(repo_path) and declaration_dirty(repo_path)
+    # The `quality` block and any `interfaces[]` entry go into
+    # `.project.json`, so that file's own uncommitted work refuses the write
+    # for the same reason. A declaration write is needed when a `quality`
+    # block must be written, or when a required concern binds a command that
+    # reaches another checkout and the declaration of that edge is not on
+    # disk yet.
+    declaration_needed = (
+        not has_quality_policy(repo_path) and any(c in QUALITY_CONCERNS for c in required)
+    ) or bool(
+        [
+            interface_id
+            for interface_id in interface_ids_for(repo_path, shape, required)
+            if interface_id not in declared_interface_ids(repo_path)
+        ]
     )
+    declaration_dirty_now = check_clean and declaration_needed and declaration_dirty(repo_path)
     dirty = manifest_dirty or declaration_dirty_now
 
     # The two product-quality concerns need a `quality` block in the
@@ -2016,12 +2232,55 @@ def bind_repo(repo_path: Path, apply: bool = False, check_clean: bool = True) ->
             shape=shape.label(),
         )
 
+    # The sibling edges this repository's commands make. A command this tool
+    # wrote and a command it found already bound identically are the same
+    # edge, and both are declared here, which is what turns the fleet's
+    # existing bindings from undeclared into declared ones on a re-run. A
+    # `CONFLICT` command is deliberately not described: the tool leaves it
+    # exactly as it is, and a declaration it cannot reconcile with its own
+    # derivation is not one it may write. A repository with no declaration to
+    # write into keeps the old behaviour for the same reason.
+    declarations: dict[str, dict] = {}
+    if has_declaration(repo_path):
+        for item in concerns:
+            if item.status not in (BOUND, ALREADY_BOUND) or not item.command:
+                continue
+            described = sibling_interface(item.command)
+            if described is None:
+                continue
+            declarations.setdefault(described[1]["id"], described[1])
+    already_declared = declared_interface_ids(repo_path)
+    missing = [item for key, item in sorted(declarations.items()) if key not in already_declared]
+    missing_ids = ", ".join(item["id"] for item in missing)
+
+    declared_here = ""
+    if apply and not dirty and missing:
+        try:
+            write_interfaces(repo_path, missing)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return Outcome(
+                name,
+                REFUSED,
+                f"cannot declare the sibling edge in {PROJECT_JSON}: {exc}",
+                concerns=concerns,
+                shape=shape.label(),
+            )
+        declared_here = f"interfaces -> {missing_ids}"
+
     pending = [c for c in concerns if c.status == BOUND]
     if not pending:
+        if apply:
+            note = f"; wrote {declared_here} in {PROJECT_JSON}" if declared_here else ""
+        else:
+            note = (
+                f"; would declare interfaces -> {missing_ids} in {PROJECT_JSON}"
+                if missing
+                else ""
+            )
         return Outcome(
             name,
             status,
-            f"{label}, all already bound or refused",
+            f"{label}, all already bound or refused{note}",
             before=before,
             after=before,
             concerns=concerns,
@@ -2044,7 +2303,8 @@ def bind_repo(repo_path: Path, apply: bool = False, check_clean: bool = True) ->
         )
 
     if not apply:
-        suffix = f"; would write {quality_written} in {QUALITY_POLICY_FILE}" if quality_written else ""
+        written = [part for part in (quality_written, f"interfaces -> {missing_ids}" if missing else "") if part]
+        suffix = f"; would write {', '.join(written)} in {QUALITY_POLICY_FILE}" if written else ""
         return Outcome(
             name,
             status,
@@ -2062,10 +2322,13 @@ def bind_repo(repo_path: Path, apply: bool = False, check_clean: bool = True) ->
             name, REFUSED, f"cannot write {GATE_YAML}: {exc}", concerns=concerns,
             shape=shape.label(),
         )
+    detail = f"bound {len(pending)} concern(s): {', '.join(c.concern for c in pending)}"
+    if declared_here:
+        detail += f"; declared {declared_here} in {PROJECT_JSON}"
     return Outcome(
         name,
         status,
-        f"bound {len(pending)} concern(s): {', '.join(c.concern for c in pending)}",
+        detail,
         wrote=True,
         before=before,
         after=after,

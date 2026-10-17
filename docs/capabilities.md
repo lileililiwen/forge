@@ -1,11 +1,13 @@
 # Platform Capability and Release Evidence Vocabulary
 
-This document is the canonical reference for the two optional blocks that a
+This document is the canonical reference for the three optional blocks that a
 project may add to its `.project.json` declaration:
 
 - `capabilities` — what reusable capabilities the project intends to consume
   or provide, with native evidence pointers.
 - `release_evidence` — the producer-neutral record that backs a deployment.
+- `interfaces` — the boundaries the project provides and consumes, with the
+  mechanism each is reached by and the contract it speaks.
 
 Workspace Governance owns the **vocabulary and policy**. Platform repositories
 own the **implementations**. Products retain the **native build, test, and
@@ -206,6 +208,116 @@ provider is not the consumer's fault to fix, so it is reported for review and
 never escalated. The audit still **never promotes a capability to `verified`
 on its own** — a measured adoption is a declared intent to restore an artifact,
 not a proof that the restore succeeded.
+
+## Declared interfaces
+
+Every cross-project call in this workspace is a boundary, and a boundary nobody
+declared cannot be reviewed. The optional `interfaces` array states what a
+project reaches for, and how:
+
+```json
+"interfaces": [
+  {
+    "id": "gate-result",
+    "provides": true,
+    "mechanism": "invoke",
+    "entry": "driftwatchdog gate --format json",
+    "contract": "platform.gate-result/1.0.0",
+    "required": false
+  },
+  {
+    "id": "ui-tokens",
+    "consumes": true,
+    "provider": "dotnet-platform-libs",
+    "mechanism": "consume",
+    "entry": "@platform/design-tokens",
+    "contract": "platform.design-tokens/0.1.0",
+    "digest": "sha256:…",
+    "evidence_ref": "docs/ui-adoption.md",
+    "required": false
+  }
+]
+```
+
+An **absent** `interfaces` array is valid and produces no finding: a project
+that declares nothing is never charged for a boundary it did not claim, and
+the 82 declarations that predate this block stay valid unchanged. A declaration
+that is present is a promise the audit holds the project to.
+
+| Field | Rule |
+|---|---|
+| `id` | Kebab-case and unique within the project. Names the interface, not the call site. |
+| `provides` / `consumes` | Exactly one is `true`. A consumption names its `provider`. |
+| `provider` | The kebab-case id of the project that provides it. It must declare a matching `provides` entry, or the edge is one-sided. |
+| `mechanism` | One of the four values below. The set is closed. |
+| `entry` | The entry point in the mechanism's vocabulary. An absolute path is never lawful. |
+| `contract` | `"<name>/<major>.<minor>.<patch>"`, required for every mechanism except `sibling`. |
+| `digest` | `sha256:<64 hex>`, required for `consume`, `observe` and `sibling`. |
+| `required` | Consumer side: is this edge part of the baseline? For `sibling` it is also the pinning flag. |
+| `evidence_ref` | Repository-relative path to the consumer's own use of the edge. |
+
+### The closed mechanism set
+
+| Mechanism | What it is | Entry vocabulary | Pinned by |
+|---|---|---|---|
+| `invoke` | A bounded argv invocation plus one versioned JSON document on stdin/stdout. | An argv string. | `contract` |
+| `consume` | A published artifact consumed by version. | A package coordinate, or the path of a copy the project keeps. | `contract` + `digest` |
+| `observe` | A read-only document at a declared path. | A repository-relative path. | `contract` + `digest` |
+| `sibling` | A repository-relative invocation of another checkout — `python3 ../<provider>/scripts/<checker>.py …`. | The invocation. | `required: true` + `digest` |
+
+No mechanism is blessed beyond these four. In particular no environment
+variable is an escape hatch, and no absolute path becomes lawful.
+
+A **`sibling` edge is lawful only when it is pinned**: the consuming project
+declares that provider `required: true` *and* carries a `digest` of the
+invocation it wrote. Anything else is `INTERFACE_SIBLING_PATH_UNPINNED`, whose
+remediation names the two lawful alternatives — declare the copy as
+`mechanism: consume` with its contract and a `sha256` digest, or publish the
+artifact and consume it by version. The gate bindings this workspace ships
+today reach `../workspace-governance/scripts/…` exactly this way, and
+`bind_gate_commands.py` and `bind_ui_gate.py` write the matching `interfaces[]`
+entry, digest included, in the same operation as the command. A command the
+generator cannot describe as an edge is left unbound and recorded as debt
+rather than declared falsely.
+
+A **vendored copy is lawful only with provenance**. A project that keeps a byte
+copy of another project's artifact declares it as `mechanism: consume` naming
+the provider, the contract and the `sha256` of the retained bytes; the audit
+recomputes that digest over the file the `entry` names, and a copy whose
+declared digest is not those bytes is `INTERFACE_VENDORED_WITHOUT_DIGEST`. The
+audit reads no network, no package manager and no file outside the repository,
+so a published coordinate the project does not hold is taken at its word.
+
+### Interface findings
+
+| Code | Level | Meaning |
+|---|---|---|
+| `INTERFACE_DECLARATION_INVALID` | ERROR | The declaration fails validation (id, exclusive side flags, missing provider, missing contract or digest, bad digest form, unknown key, escaping path). Nothing else is asserted about the project's interfaces: a malformed declaration is never partially honoured. |
+| `INTERFACE_MECHANISM_UNKNOWN` | ERROR | `mechanism` is outside the closed set. Names the accepted set; the entry is otherwise ignored. |
+| `INTERFACE_CONTRACT_UNVERSIONED` | ERROR | A non-`sibling` edge names a contract with no version. Write `"<name>/<major>.<minor>.<patch>"`. |
+| `INTERFACE_PROVIDER_UNDECLARED` | WARNING | A consumption whose provider declares no matching `provides` entry. An edge counts as declared only when both sides declare it; a provider outside the registry is charged here too. |
+| `INTERFACE_CONSUMED_UNUSED` | WARNING | A consumption with no `evidence_ref` resolving to the consumer's own use of the edge. |
+| `INTERFACE_SIBLING_PATH_UNPINNED` | WARNING, ramps to FAIL | A `sibling` edge without `required: true`, without a digest, or with a digest that is not the declared invocation. |
+| `INTERFACE_VENDORED_WITHOUT_DIGEST` | WARNING, ramps to FAIL | A retained byte copy whose declared digest does not pin the retained bytes. |
+| `CAPABILITY_PROVIDER_UNVERIFIED` | WARNING | A registry entry still `exempt` because its provider declares no `verified` capability record. Attributed to the provider, which is the one repository that can end it. |
+
+### Interface ramp and the unfrozen capability
+
+`INTERFACE_SIBLING_PATH_UNPINNED` and `INTERFACE_VENDORED_WITHOUT_DIGEST`
+begin as WARNINGs and become blocking from the date recorded in `decisions.json`
+(`D7`, 2027-01-15, read from the entry's `escalates` field). The ramp is an
+owner decision that stays visible and revocable in the register; nothing becomes
+blocking before the fleet has had a release cycle in which to declare, and no
+environment variable or project-controlled switch can start it early or hold it
+back. A register that cannot be read leaves every interface finding a WARNING,
+because nothing becomes blocking on a record that was never read.
+
+`CAPABILITY_PROVIDER_UNVERIFIED` is the other half of the same honesty. The
+registry exempts a capability because its provider declares no verified entry;
+without a reporter that exemption silently absorbs every consumer and nobody
+owns the next action. The finding names the provider and changes nothing else:
+no posture moves, no consumer is charged, and the exemption lifts the moment
+the provider records verified evidence with a resolving `evidence_ref`.
 
 ## Ownership
 

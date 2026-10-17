@@ -16,6 +16,7 @@ No test uses `rm`: this host's `rm` is a recoverable-delete shim that prints to
 stdout and can fail. Cleanup uses `shutil.rmtree(..., ignore_errors=True)`.
 """
 
+import hashlib
 import json
 import shutil
 import sys
@@ -80,6 +81,23 @@ class RepoCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.repo = self.tmp / "demo"
         (self.repo / ".ai-gate").mkdir(parents=True)
+        # The bound command reaches a sibling checkout, and that edge has to
+        # be declared in the repository's own `.project.json`. The fixture
+        # reproduces the real layout — every repository in this fleet carries
+        # a declaration — so a repository that has nowhere to declare the
+        # edge is a case a test states for itself rather than the default.
+        self.write_declaration()
+
+    def write_declaration(self, body: dict | None = None) -> Path:
+        target = self.repo / ".project.json"
+        target.write_text(
+            json.dumps(body or {"schema_version": 1, "id": "demo"}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return target
+
+    def declaration(self) -> dict:
+        return json.loads((self.repo / ".project.json").read_text(encoding="utf-8"))
 
     def write_manifest(self, text: str = RULE_PACK_MANIFEST) -> Path:
         target = self.repo / ".ai-gate" / "gate.yaml"
@@ -239,6 +257,98 @@ class BindRepoTests(RepoCase):
         self.assertNotIn(CHECK_ID, other_manifest.read_text(encoding="utf-8"))
 
 
+class SiblingDeclarationTests(RepoCase):
+    """The command this tool binds reaches another checkout, so it declares the edge.
+
+    `workspace_check.py` recomputes the digest from the `entry` it reads, so
+    the digest asserted here is the audit's own recomputation, and the round
+    trip end to end is asserted next to the fleet writer in
+    `tests/test_bind_gate_commands.py`.
+    """
+
+    def interfaces(self) -> list:
+        return self.declaration().get("interfaces", [])
+
+    def test_binding_declares_the_sibling_edge(self):
+        self.write_manifest()
+        outcome = bind_repo(self.repo, apply=True)
+        self.assertEqual(outcome.status, BOUND)
+        self.assertIn(f"interfaces.{CHECK_ID}", outcome.added)
+        self.assertEqual(
+            self.interfaces(),
+            [
+                {
+                    "id": CHECK_ID,
+                    "consumes": True,
+                    "provider": "workspace-governance",
+                    "mechanism": "sibling",
+                    "entry": DEFAULT_COMMAND,
+                    "digest": "sha256:"
+                    + hashlib.sha256(DEFAULT_COMMAND.encode("utf-8")).hexdigest(),
+                    "required": True,
+                    "evidence_ref": ".ai-gate/gate.yaml",
+                }
+            ],
+        )
+        self.assertIn("declared interfaces.ui-conformance", outcome.detail)
+
+    def test_a_second_run_declares_nothing_new(self):
+        self.write_manifest()
+        bind_repo(self.repo, apply=True)
+        before = (self.repo / ".project.json").read_bytes()
+        outcome = bind_repo(self.repo, apply=True)
+        self.assertEqual(outcome.status, ALREADY_BOUND)
+        self.assertEqual(outcome.added, ())
+        self.assertFalse(outcome.wrote)
+        self.assertEqual((self.repo / ".project.json").read_bytes(), before)
+
+    def test_a_repository_with_no_declaration_is_refused(self):
+        manifest = self.write_manifest()
+        before = manifest.read_bytes()
+        (self.repo / ".project.json").unlink()
+        outcome = bind_repo(self.repo, apply=True)
+        self.assertEqual(outcome.status, REFUSED)
+        self.assertIn(".project.json", outcome.detail)
+        self.assertEqual(manifest.read_bytes(), before)
+        self.assertFalse((self.repo / ".project.json").exists())
+
+    def test_an_undescribable_sibling_command_is_refused(self):
+        manifest = self.write_manifest()
+        before = manifest.read_bytes()
+        outcome = bind_repo(self.repo, apply=True, command="python3 ../Bad_Provider/x.py")
+        self.assertEqual(outcome.status, REFUSED)
+        self.assertIn("cannot describe", outcome.detail)
+        self.assertEqual(manifest.read_bytes(), before)
+
+    def test_a_local_command_declares_no_edge(self):
+        self.write_manifest()
+        outcome = bind_repo(self.repo, apply=True, command="python3 scripts/check-ui.py .")
+        self.assertEqual(outcome.status, BOUND)
+        self.assertNotIn("interfaces", self.declaration())
+        self.assertNotIn("interfaces", outcome.added)
+
+    def test_a_hand_written_entry_is_never_overwritten(self):
+        self.write_manifest()
+        self.write_declaration(
+            {
+                "interfaces": [
+                    {
+                        "id": CHECK_ID,
+                        "consumes": True,
+                        "provider": "workspace-governance",
+                        "mechanism": "sibling",
+                        "entry": DEFAULT_COMMAND,
+                        "digest": "sha256:" + "a" * 64,
+                        "required": True,
+                        "evidence_ref": ".ai-gate/gate.yaml",
+                    }
+                ]
+            }
+        )
+        bind_repo(self.repo, apply=True)
+        self.assertEqual(self.interfaces()[0]["digest"], "sha256:" + "a" * 64)
+
+
 class CliTests(RepoCase):
     def test_check_exits_non_zero_and_writes_nothing_when_unbound(self):
         manifest = self.write_manifest()
@@ -265,6 +375,17 @@ class CliTests(RepoCase):
         self.assertEqual(main([str(self.repo)]), 0)
         self.assertEqual(manifest.read_bytes(), before)
 
+    def test_check_surfaces_a_missing_declaration(self):
+        # The command half is bound and the edge is not declared: the check
+        # mode exists to surface that rather than pass on the strength of a
+        # bound command that no declaration accounts for.
+        self.write_manifest()
+        main([str(self.repo), "--apply"])
+        declaration = self.declaration()
+        declaration.pop("interfaces")
+        (self.repo / ".project.json").write_text(json.dumps(declaration, indent=2) + "\n")
+        self.assertEqual(main([str(self.repo), "--check"]), 1)
+
     def test_check_cannot_be_combined_with_apply(self):
         self.write_manifest()
         self.assertEqual(main([str(self.repo), "--check", "--apply"]), 2)
@@ -283,7 +404,12 @@ class CliTests(RepoCase):
         self.assertEqual(payload["repo"], self.repo.name)
         self.assertFalse(payload["wrote"])
         self.assertEqual(
-            payload["added"], [f"checks.{CHECK_ID}", f"commands.{CHECK_ID}"]
+            payload["added"],
+            [
+                f"checks.{CHECK_ID}",
+                f"commands.{CHECK_ID}",
+                f"interfaces.{CHECK_ID}",
+            ],
         )
 
     def test_an_absolute_command_is_refused_before_any_read(self):

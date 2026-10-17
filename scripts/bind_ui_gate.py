@@ -33,6 +33,32 @@ rule here, not a style preference: a CI runner that lacks the variable fails
 exactly as a hard-coded path fails, and the shared feed already refuses
 env-var-assembled paths for the same reason.
 
+That command reaches another checkout, so binding it also declares the
+interface edge in the repository's own `.project.json`:
+
+```json
+"interfaces": [
+  {
+    "id": "ui-conformance",
+    "consumes": true,
+    "provider": "workspace-governance",
+    "mechanism": "sibling",
+    "entry": "python3 ../workspace-governance/scripts/ui_conformance.py .",
+    "digest": "sha256:…",
+    "required": true,
+    "evidence_ref": ".ai-gate/gate.yaml"
+  }
+]
+```
+
+An undeclared sibling edge is what `workspace_check.py` charges once the
+recorded ramp date passes, so the declaration is written in the same operation
+as the binding rather than left for a later run: a repository with no
+`.project.json` to declare the edge in is refused by name, and a command this
+tool cannot describe as an edge is refused rather than declared falsely. The
+entry is never overwritten: an id already declared in the repository's own
+file is left exactly as the repository wrote it.
+
 ## What it refuses to do
 
 * **Never invents a gate.** A repository whose `.ai-gate/gate.yaml` is missing,
@@ -68,6 +94,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
+from bind_gate_commands import (  # noqa: E402
+    SIBLING_REACH,
+    declared_interface_ids,
+    has_declaration,
+    sibling_interface,
+    write_interfaces,
+)
+
 # The check id this tool binds. Like `declared-verification`, it lives in no
 # closed concern vocabulary in the gate, so the Gate routes it to the
 # project-runtime text adapter where the exit code is the verdict: 0 is PASS,
@@ -75,6 +110,8 @@ from pathlib import Path
 CHECK_ID = "ui-conformance"
 
 GATE_YAML = ".ai-gate/gate.yaml"
+
+PROJECT_JSON = ".project.json"
 
 # The governance manifest shape this tool will write into. A manifest without
 # this is a different document that happens to be called `gate.yaml`.
@@ -306,6 +343,39 @@ def bind_repo(
     except Exception as exc:  # noqa: BLE001 - a bad manifest must not stop a run
         return Outcome(name, REFUSED, f"{GATE_YAML} could not be updated: {exc}")
 
+    # The command reaches another checkout, so binding it is declaring an
+    # interface edge: `mechanism: sibling`, the provider it names, and a
+    # digest of the invocation. The declaration goes into the repository's
+    # own `.project.json` in the same operation as the manifest write, on the
+    # same rule as the `quality` block `bind_gate_commands.py` writes: an
+    # undeclared sibling edge is the state this exists to remove, so a
+    # repository that cannot carry the declaration is refused by name rather
+    # than left with one.
+    reaches_sibling = bool(SIBLING_REACH.search(command))
+    described = sibling_interface(command) if reaches_sibling else None
+    if reaches_sibling and described is None:
+        return Outcome(
+            name,
+            REFUSED,
+            f"`{command}` reaches another checkout in a shape this tool cannot "
+            "describe as a declared interface (a provider and the entry it "
+            "invokes, with a digest); nothing was written",
+        )
+    declaration_key = ""
+    if described is not None:
+        provider, entry = described
+        if not has_declaration(repo_path):
+            return Outcome(
+                name,
+                REFUSED,
+                f"`{command}` reaches {provider} and a sibling edge is lawful only "
+                f"when it is declared, but this repository has no {PROJECT_JSON} to "
+                "declare it in; the declaration is the registry's document and this "
+                "tool never creates one, so nothing was written",
+            )
+        if entry["id"] not in declared_interface_ids(repo_path):
+            declaration_key = f"interfaces.{entry['id']}"
+
     if status == CONFLICT:
         return Outcome(
             name,
@@ -318,19 +388,40 @@ def bind_repo(
             REFUSED,
             f"{GATE_YAML} is not a governance rule_pack manifest; nothing was written",
         )
+
+    # The declaration lands before the manifest, and before the early return
+    # that an already-bound manifest takes: the edge is undeclared until it
+    # lands, and leaving it for a re-run is how it stays undeclared.
+    declaration_written = False
+    if declaration_key and apply:
+        try:
+            write_interfaces(repo_path, [described[1]])
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return Outcome(
+                name,
+                REFUSED,
+                f"cannot declare the sibling edge in {PROJECT_JSON}: {exc}",
+            )
+        declaration_written = True
+    declared_note = ""
+    if declaration_key:
+        verb = "declared" if declaration_written else "would declare"
+        declared_note = f"; {verb} {declaration_key} in {PROJECT_JSON}"
+
     if status == ALREADY_BOUND or after == before:
         return Outcome(
             name,
             ALREADY_BOUND,
-            f"already bound to `{command}`; no change",
-            added=(),
+            f"already bound to `{command}`; no change{declared_note}",
+            wrote=declaration_written,
+            added=(declaration_key,) if declaration_key else (),
         )
     if not apply:
         return Outcome(
             name,
             BOUND,
-            f"would bind `{command}`",
-            added=added,
+            f"would bind `{command}`{declared_note}",
+            added=(*added, declaration_key) if declaration_key else added,
         )
 
     try:
@@ -340,9 +431,9 @@ def bind_repo(
     return Outcome(
         name,
         BOUND,
-        f"bound `{command}`",
+        f"bound `{command}`{declared_note}",
         wrote=True,
-        added=added,
+        added=(*added, declaration_key) if declaration_key else added,
     )
 
 
@@ -435,6 +526,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.check and outcome.status == CONFLICT:
         # Already bound, but not to what this tool would write. A check run must
         # surface that rather than pass on the strength of a wrong command.
+        return 1
+    if args.check and outcome.added:
+        # The command half is bound and the declaration is not: the edge is
+        # still undeclared, which is what this tool's check mode exists to
+        # surface rather than pass.
         return 1
     if outcome.status in (CONFLICT, REFUSED, NO_MANIFEST):
         return 1

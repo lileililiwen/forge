@@ -82,6 +82,27 @@
           "change": "identity-and-taxonomy-axis-split"
         }
       ]
+    },
+    {
+      "id": "D7",
+      "title": "Unpinned interface edges escalate to FAIL on 2027-01-15",
+      "status": "accepted",
+      "date": "2026-10-17",
+      "owner_project": "workspace-governance",
+      "decision": "`INTERFACE_SIBLING_PATH_UNPINNED` and `INTERFACE_VENDORED_WITHOUT_DIGEST` are reported at WARNING, and become blocking (FAIL, which this audit's vocabulary spells ERROR) from 2027-01-15 on. The date is recorded in the `escalates` field of this entry and the audit reads it from there, so the ramp is an owner decision that stays visible and revocable rather than a silent tightening, and nothing becomes blocking before the fleet has had a release cycle in which to declare its interfaces. `mechanism: sibling` — the relative-path invocation a repository's gate uses to reach another checkout — is lawful only when the consuming project also declares that provider `required: true` and pins the edge with a digest of the invocation it wrote; the two lawful alternatives to an unpinned sibling edge are a digest-pinned copy declared as `mechanism: consume`, or a published artifact consumed by version. Outside `decisions.json` the ramp has no switch: no environment variable and no project-controlled flag can start it early or hold it back.",
+      "escalates": {
+        "finding_codes": [
+          "INTERFACE_SIBLING_PATH_UNPINNED",
+          "INTERFACE_VENDORED_WITHOUT_DIGEST"
+        ],
+        "effective": "2027-01-15"
+      },
+      "downstream": [
+        {
+          "repo": "workspace-governance",
+          "change": "interface-declaration-and-boundary-findings"
+        }
+      ]
     }
   ]
 }

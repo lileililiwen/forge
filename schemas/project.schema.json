@@ -230,6 +230,11 @@
       "description": "Optional list of named external providers the project optionally or mandatorily integrates with. Each entry is a JSON object; absolute paths in 'evidence_ref' are rejected.",
       "items": {"$ref": "#/$defs/integration"},
       "uniqueItems": false
+    },
+    "interfaces": {
+      "type": "array",
+      "description": "Optional declaration of the boundaries this project provides and consumes. Each entry names one reachable interface: a stable kebab-case 'id', exactly one of 'provides'/'consumes', a 'mechanism' from the closed set invoke|consume|observe|sibling, and an 'entry' in that mechanism's vocabulary. An absent array means 'nothing declared' and produces no finding, so a project that declares nothing is never charged for a boundary it did not claim. Interface ids must be unique within the project; uniqueness is enforced by the audit because JSON Schema cannot express it. See docs/capabilities.md.",
+      "items": {"$ref": "#/$defs/interface"}
     }
   },
   "$defs": {
@@ -276,6 +281,115 @@
           "description": "Repository-relative path to the native evidence artefact. Required when 'required' is true; the audit emits STANDALONE_INTEGRATION_PENDING if the file is missing."
         }
       }
+    },
+    "interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One declared boundary of a project. The entry says which side of the edge this project is on, how the other side is reached, and what the contract is; the audit charges an undeclared or unpinned edge.",
+      "required": ["id", "mechanism", "entry"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Stable kebab-case interface id, unique within the project."
+        },
+        "provides": {
+          "type": "boolean",
+          "description": "true when this project provides the interface."
+        },
+        "consumes": {
+          "type": "boolean",
+          "description": "true when this project consumes the interface. `provider` is then required, and the provider must declare a matching `provides` entry."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Kebab-case id of the project (or sibling checkout) that provides the consumed interface. A consumes entry whose provider declares no matching `provides` entry is a one-sided edge reported as INTERFACE_PROVIDER_UNDECLARED."
+        },
+        "mechanism": {"$ref": "#/$defs/interface_mechanism"},
+        "entry": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)[^\\u0000]+$",
+          "description": "The interface's entry point in its mechanism's vocabulary: an argv invocation (invoke, sibling), a published package coordinate (consume), or a repository-relative document path (observe). An absolute path is never lawful."
+        },
+        "contract": {"$ref": "#/$defs/interface_contract"},
+        "digest": {"$ref": "#/$defs/interface_digest"},
+        "required": {
+          "type": "boolean",
+          "description": "Consumer side: true when the consumed interface is part of the project's baseline. For `mechanism: sibling` it is also the pinning flag — a sibling edge without it is INTERFACE_SIBLING_PATH_UNPINNED."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$",
+          "description": "Repository-relative path to the consumer's own evidence that it uses this interface. A consumption edge whose evidence_ref is absent or does not resolve is INTERFACE_CONSUMED_UNUSED."
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["provides"],
+          "properties": {"provides": {"const": true}}
+        },
+        {
+          "required": ["consumes"],
+          "properties": {"consumes": {"const": true}}
+        }
+      ],
+      "allOf": [
+        {
+          "description": "A consumption names the provider it consumes from.",
+          "if": {
+            "required": ["consumes"],
+            "properties": {"consumes": {"const": true}}
+          },
+          "then": {"required": ["provider"]}
+        },
+        {
+          "description": "Every mechanism except `sibling` names a versioned contract: \"<name>/<major>.<minor>.<patch>\".",
+          "if": {
+            "required": ["mechanism"],
+            "properties": {"mechanism": {"const": "sibling"}}
+          },
+          "then": true,
+          "else": {"required": ["contract"]}
+        },
+        {
+          "description": "`consume`, `observe` and `sibling` are digest-pinned.",
+          "if": {
+            "required": ["mechanism"],
+            "properties": {"mechanism": {"enum": ["consume", "observe", "sibling"]}}
+          },
+          "then": {"required": ["digest"]}
+        },
+        {
+          "description": "An `observe` entry is a document at a path inside the repository: no `..` segment may escape it.",
+          "if": {
+            "required": ["mechanism"],
+            "properties": {"mechanism": {"const": "observe"}}
+          },
+          "then": {
+            "properties": {
+              "entry": {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"}
+            }
+          }
+        }
+      ]
+    },
+    "interface_mechanism": {
+      "type": "string",
+      "enum": ["invoke", "consume", "observe", "sibling"],
+      "description": "The closed mechanism set. `invoke`: bounded argv plus one versioned JSON document. `consume`: a published artifact pinned by version and digest. `observe`: a read-only document at a declared path, digest-pinned. `sibling`: a repository-relative invocation of another checkout, lawful only when the consuming project declares that provider `required: true` and pins the edge with a digest."
+    },
+    "interface_contract": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@/-]*/[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "A contract identifier with its version: \"<name>/<major>.<minor>.<patch>\", where the name is kebab-case, dotted or scoped. Required for every mechanism except `sibling`. A contract that names no version is reported as INTERFACE_CONTRACT_UNVERSIONED."
+    },
+    "interface_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "A sha256 digest of the pinned bytes or invocation. Required for `consume`, `observe` and `sibling`; a retained copy whose declared digest is not the retained bytes is INTERFACE_VENDORED_WITHOUT_DIGEST."
     },
     "language": {
       "type": "string",

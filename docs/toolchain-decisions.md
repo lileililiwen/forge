@@ -15,6 +15,7 @@ text and the D3 ownership split.
 | D4 | Crate publication mode                      | accepted   | 2026-09-30 | workspace-governance   |
 | D5 | The rules drift report stays unwired        | accepted   | 2026-10-03 | workspace-governance   |
 | D6 | Project identity is immutable; two axes     | accepted   | 2026-10-03 | workspace-governance   |
+| D7 | Unpinned interface edges ramp to FAIL       | accepted   | 2026-10-17 | workspace-governance   |
 
 Inspect or script the register with:
 
@@ -107,6 +108,24 @@ the flag, before the flip. The migration itself is a fleet-wide cross-repo
 source edit, applied by `scripts/axis_migration.py`. The full text, the
 measured 30-of-77 disagreement it resolves, and the immutability rule are in
 `decisions.json`; the mechanism is in `docs/vocabulary.md`.
+
+## D7 — Unpinned interface edges escalate to FAIL on 2027-01-15
+
+`INTERFACE_SIBLING_PATH_UNPINNED` and `INTERFACE_VENDORED_WITHOUT_DIGEST` are
+reported at WARNING, and become blocking from **2027-01-15**. The date is
+recorded in the entry's `escalates` field, which is where the audit reads it,
+so the ramp is an owner decision that stays visible and revocable rather than a
+silent tightening — nothing becomes blocking before the fleet has had a release
+cycle in which to declare its interfaces, and no environment variable or
+project-controlled flag can start it early or hold it back.
+
+`mechanism: sibling` — the relative-path invocation a repository's gate uses to
+reach another checkout — is lawful only when the consuming project also
+declares that provider `required: true` and pins the edge with a digest of the
+invocation it wrote. The two lawful alternatives to an unpinned sibling edge
+are a digest-pinned copy declared as `mechanism: consume`, or a published
+artifact consumed by version. The declaration, the mechanism set and the
+finding vocabulary are in `docs/capabilities.md`.
 
 ## Register rules
 

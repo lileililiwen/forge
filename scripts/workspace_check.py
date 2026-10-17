@@ -10,7 +10,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -384,6 +384,55 @@ CAPABILITY_ADOPTION_UNEVIDENCED = "CAPABILITY_ADOPTION_UNEVIDENCED"
 CAPABILITY_ADOPTION_EVIDENCE_STALE = "CAPABILITY_ADOPTION_EVIDENCE_STALE"
 CAPABILITY_ADOPTION_DECLINE_UNRECORDED = "CAPABILITY_ADOPTION_DECLINE_UNRECORDED"
 CAPABILITY_ADOPTION_UNRESOLVED = "CAPABILITY_ADOPTION_UNRESOLVED"
+
+# Interface declaration and boundary findings (see
+# `openspec/changes/interface-declaration-and-boundary-findings/` and
+# `docs/capabilities.md`). A project MAY declare the boundaries it provides
+# and consumes in an optional `interfaces[]` array; an absent array is valid
+# and silent, and a declaration that fails validation yields
+# `INTERFACE_DECLARATION_INVALID` and no interface assertions at all.
+INTERFACE_DECLARATION_INVALID = "INTERFACE_DECLARATION_INVALID"
+INTERFACE_MECHANISM_UNKNOWN = "INTERFACE_MECHANISM_UNKNOWN"
+INTERFACE_CONTRACT_UNVERSIONED = "INTERFACE_CONTRACT_UNVERSIONED"
+INTERFACE_PROVIDER_UNDECLARED = "INTERFACE_PROVIDER_UNDECLARED"
+INTERFACE_CONSUMED_UNUSED = "INTERFACE_CONSUMED_UNUSED"
+INTERFACE_SIBLING_PATH_UNPINNED = "INTERFACE_SIBLING_PATH_UNPINNED"
+INTERFACE_VENDORED_WITHOUT_DIGEST = "INTERFACE_VENDORED_WITHOUT_DIGEST"
+CAPABILITY_PROVIDER_UNVERIFIED = "CAPABILITY_PROVIDER_UNVERIFIED"
+
+# The closed mechanism set. No mechanism becomes lawful merely because a
+# tool accepts it: `sibling` is lawful only under the pinning rule below,
+# and no absolute path is lawful under any mechanism.
+INTERFACE_MECHANISMS = ("invoke", "consume", "observe", "sibling")
+INTERFACE_CONTRACT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@/-]*/[0-9]+\.[0-9]+\.[0-9]+$")
+INTERFACE_CONTRACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@/-]*$")
+INTERFACE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+INTERFACE_ENTRY_KEYS = frozenset(
+    {
+        "id",
+        "provides",
+        "consumes",
+        "provider",
+        "mechanism",
+        "entry",
+        "contract",
+        "digest",
+        "required",
+        "evidence_ref",
+    }
+)
+
+# The additive decision-register field that records an interface ramp. The
+# register tolerates unknown entry-level keys, so a ramp is recorded as a
+# decision carrying `{"finding_codes": [...], "effective": "YYYY-MM-DD"}`.
+INTERFACE_ESCALATION_FIELD = "escalates"
+
+# The two alternatives a `sibling` edge has when it is not pinned. Named in
+# the remediation because "unpinned" is a diagnosis, not a next action.
+SIBLING_LAWFUL_ALTERNATIVES = (
+    "declare the copy as `mechanism: consume` with its contract and a sha256 "
+    "digest, or publish the artifact and consume it by version"
+)
 
 # Postures live in `capabilities.json`. A capability is always admitted as
 # `expected`; `required` additionally needs a recorded graduation entry.
@@ -2122,6 +2171,446 @@ def validate_adoption_grant(
         finding(findings, "ERROR", ADOPTION_GRANT_UNSATISFIED, f"{project_id} declares capabilities[{capability_id!r}].consumes[] but no adoption record exists in adoption/{ADOPTION_LEDGER_FILE}; the adoption is not treated as authorized", project_id)
 
 
+# ---------------------------------------------------------------------------
+# Declared interfaces and boundary findings
+#
+# A project MAY declare the boundaries it provides and consumes in an
+# optional `interfaces[]` array. Everything below is read-only: the audit
+# never writes a declaration, never executes a project command, and never
+# reads a byte outside the workspace root it was given. Three properties are
+# deliberate and each one is a rule, not an implementation detail:
+#
+# 1. A declaration is validated as a whole before anything is asserted about
+#    it, so a malformed declaration never yields a partial read.
+# 2. A project that declares no interfaces reports nothing. Governance
+#    charges a boundary a project claimed; it never invents one, so a
+#    duplicate that nobody declared stays invisible rather than guessed at.
+# 3. An edge counts as declared only when both sides declare it, so a
+#    consumption the provider does not provide is a finding rather than
+#    silent adoption.
+#
+# Two of the declaration rules are asserted as findings rather than as
+# malformation, because the canonical specification names a distinct code for
+# each and a malformed declaration yields no findings at all: a contract
+# without a version (`INTERFACE_CONTRACT_UNVERSIONED`) and a `sibling` edge
+# that is not pinned (`INTERFACE_SIBLING_PATH_UNPINNED`). Every other rule in
+# `schemas/project.schema.json` is in the malformed set below.
+# ---------------------------------------------------------------------------
+
+
+def interface_escalation_dates(governance_root: Path | None = None) -> dict[str, str]:
+    """`{finding code: ISO effective date}` recorded in the decisions register.
+
+    A ramp is an owner decision, not a property of the checker. The register
+    entry lives in `decisions.json` and carries an `escalates` object naming
+    the finding codes and the date the WARNING becomes blocking; the register
+    loader tolerates additive entry-level keys, which is what lets the ramp be
+    machine-readable without a second list to keep in sync.
+
+    Unreadable or malformed input yields an empty mapping, so the finding
+    stays a WARNING: nothing may become blocking on the strength of a record
+    that could not be read. Read-only and never raises.
+    """
+    override = os.environ.get("WORKSPACE_DECISIONS_PATH")
+    root = Path(governance_root) if governance_root is not None else _default_governance_root()
+    path = Path(override) if override else root / "decisions.json"
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(document, dict):
+        return {}
+    entries = document.get("decisions")
+    if not isinstance(entries, list):
+        return {}
+    dates: dict[str, str] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ramp = entry.get(INTERFACE_ESCALATION_FIELD)
+        if not isinstance(ramp, dict):
+            continue
+        codes = ramp.get("finding_codes")
+        effective = ramp.get("effective")
+        if not isinstance(codes, list) or not isinstance(effective, str):
+            continue
+        try:
+            date.fromisoformat(effective)
+        except ValueError:
+            continue
+        for code in codes:
+            if isinstance(code, str) and code:
+                dates[code] = effective
+    return dates
+
+
+def interface_finding_level(
+    code: str,
+    escalation: dict[str, str] | None = None,
+    today: date | None = None,
+) -> str:
+    """The level an interface finding is reported at: WARNING, or blocking after the ramp.
+
+    `INTERFACE_SIBLING_PATH_UNPINNED` and `INTERFACE_VENDORED_WITHOUT_DIGEST`
+    begin as WARNINGs and become blocking once the date recorded in
+    `decisions.json` has passed. The escalation is never triggered by an
+    environment variable, by a project-controlled switch, or by elapsed time
+    alone: it is an owner decision, it is dated, and it stays visible and
+    revocable in the register. `FAIL` in the finding vocabulary is the
+    blocking level `ERROR`, which is what the gate turns into a failed run.
+    """
+    effective = (escalation or {}).get(code)
+    if not effective:
+        return "WARNING"
+    try:
+        boundary = date.fromisoformat(effective)
+    except ValueError:
+        return "WARNING"
+    return "ERROR" if (today or date.today()) >= boundary else "WARNING"
+
+
+def build_interface_index(
+    workspace_root: Path, projects: list[dict[str, Any]]
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Index every declared `provides` interface by `(project id, interface id)`.
+
+    One bounded read per declaration, read-only, and no directory walk: the
+    provider side of an edge is a declaration, so the index is the set of
+    declarations the fleet actually makes. A declaration that cannot be read,
+    or an `interfaces` value that is not an array, contributes nothing — and
+    nothing is exactly what a consumer's missing provision has to look like
+    for the one-sided edge to be reported rather than assumed.
+    """
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in projects:
+        if not isinstance(entry, dict):
+            continue
+        project_id = entry.get("id")
+        path = entry.get("path")
+        if not isinstance(project_id, str) or not isinstance(path, str):
+            continue
+        try:
+            declaration = json.loads(
+                (workspace_root / path / ".project.json").read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(declaration, dict):
+            continue
+        interfaces = declaration.get("interfaces")
+        if not isinstance(interfaces, list):
+            continue
+        for item in interfaces:
+            if not isinstance(item, dict):
+                continue
+            interface_id = item.get("id")
+            if item.get("provides") is not True or not isinstance(interface_id, str):
+                continue
+            if item.get("mechanism") not in INTERFACE_MECHANISMS:
+                continue
+            index.setdefault((project_id, interface_id), item)
+    return index
+
+
+def _interface_shape_problems(interfaces: Any) -> list[str]:
+    """Every declaration-shape problem in an `interfaces` value, in order.
+
+    This is the malformed set: the required keys, the id grammar and
+    uniqueness, the exclusive side flags, the provider a consumption names,
+    the entry and digest and evidence types, the `observe` path rules, the
+    digest a `consume`/`observe` edge must carry, and the contract every
+    mechanism except `sibling` must name. An unknown mechanism is
+    deliberately absent from this set: it has its own finding and the entry is
+    otherwise ignored, so a mechanism this checker does not know is not
+    reported as a malformed document.
+    """
+    problems: list[str] = []
+    if not isinstance(interfaces, list):
+        return ["`interfaces` must be an array of interface declarations"]
+    seen: dict[str, int] = {}
+    for index, item in enumerate(interfaces):
+        where = f"interfaces[{index}]"
+        if not isinstance(item, dict):
+            problems.append(f"{where} must be an object")
+            continue
+        interface_id = item.get("id")
+        if isinstance(interface_id, str) and PROJECT_ID.fullmatch(interface_id):
+            where = f"interface {interface_id!r}"
+            if interface_id in seen:
+                problems.append(
+                    f"{where} repeats the id already declared at interfaces[{seen[interface_id]}]; "
+                    "interface ids are unique within a project"
+                )
+            else:
+                seen[interface_id] = index
+        else:
+            problems.append(f"{where}.id must be a kebab-case identifier")
+        unknown = sorted(key for key in item if key not in INTERFACE_ENTRY_KEYS)
+        if unknown:
+            problems.append(f"{where} has unknown key(s): {', '.join(unknown)}")
+        provides = item.get("provides")
+        consumes = item.get("consumes")
+        for key, value in (("provides", provides), ("consumes", consumes)):
+            if value is not None and not isinstance(value, bool):
+                problems.append(f"{where}.{key} must be a boolean")
+        if (provides is True) == (consumes is True):
+            problems.append(f"{where} must declare exactly one of provides/consumes as true")
+        mechanism = item.get("mechanism")
+        if not isinstance(mechanism, str) or not mechanism:
+            problems.append(f"{where}.mechanism is required")
+        entry = item.get("entry")
+        if not isinstance(entry, str) or not entry:
+            problems.append(f"{where}.entry is required")
+        elif _is_absolute_path(entry):
+            problems.append(f"{where}.entry must not be an absolute path")
+        if consumes is True:
+            provider = item.get("provider")
+            if not isinstance(provider, str) or not PROJECT_ID.fullmatch(provider):
+                problems.append(
+                    f"{where}.provider must be the kebab-case id of the project providing it"
+                )
+        contract = item.get("contract")
+        if contract is not None and (
+            not isinstance(contract, str) or not INTERFACE_CONTRACT_NAME.fullmatch(contract)
+        ):
+            problems.append(f"{where}.contract must be a \"<name>/<version>\" identifier")
+        digest = item.get("digest")
+        if digest is not None and (
+            not isinstance(digest, str) or not INTERFACE_DIGEST.fullmatch(digest)
+        ):
+            problems.append(f"{where}.digest must be a sha256 digest of the form sha256:<64 hex>")
+        evidence_ref = item.get("evidence_ref")
+        if evidence_ref is not None and (
+            not isinstance(evidence_ref, str)
+            or not evidence_ref
+            or _is_absolute_path(evidence_ref)
+            or _has_path_escape(evidence_ref)
+        ):
+            problems.append(f"{where}.evidence_ref must be a repository-relative path")
+        required = item.get("required")
+        if required is not None and not isinstance(required, bool):
+            problems.append(f"{where}.required must be a boolean")
+        if isinstance(mechanism, str) and mechanism in INTERFACE_MECHANISMS:
+            if mechanism != "sibling" and contract is None:
+                problems.append(f"{where}.contract is required for mechanism {mechanism!r}")
+            if mechanism in ("consume", "observe") and digest is None:
+                problems.append(f"{where}.digest is required for mechanism {mechanism!r}")
+            if mechanism == "observe" and isinstance(entry, str) and entry and _has_path_escape(entry):
+                problems.append(
+                    f"{where}.entry must be a repository-relative document path; "
+                    "'..' is refused and never normalized"
+                )
+    return problems
+
+
+def _retained_copy_digest(project_path: Path, entry: str) -> str | None:
+    """The sha256 of the bytes an `entry` names inside the project, or None.
+
+    `entry` is a retained copy only when it names a file the project actually
+    holds. A published coordinate (`@platform/design-tokens`) names no file
+    here, and the audit fetches nothing: no network, no package manager, no
+    lockfile. `None` therefore means "not a retained copy the audit can
+    digest", never "a copy that matched".
+    """
+    if _is_absolute_path(entry) or _has_path_escape(entry):
+        return None
+    try:
+        resolved = (project_path / entry).resolve(strict=True)
+        resolved.relative_to(project_path.resolve(strict=True))
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not resolved.is_file():
+        return None
+    try:
+        return "sha256:" + hashlib.sha256(resolved.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _sibling_edge_pinning_problem(item: dict[str, Any]) -> str:
+    """Why a `sibling` edge is not pinned, or `""` when it is.
+
+    Both halves are required: the consuming project declares the provider
+    `required: true`, and the edge carries a digest of the invocation it
+    wrote. The digest is over the `entry` string, which is the invocation —
+    the thing a consumer can actually pin, and the same bytes the generator
+    hashes when it writes the entry.
+    """
+    missing: list[str] = []
+    if item.get("required") is not True:
+        missing.append("`required: true` naming the provider as part of the baseline")
+    digest = item.get("digest")
+    entry = item.get("entry")
+    if not isinstance(digest, str):
+        missing.append("a `digest`")
+    elif not isinstance(entry, str) or digest != "sha256:" + hashlib.sha256(
+        entry.encode("utf-8")
+    ).hexdigest():
+        missing.append("a `digest` that matches the declared invocation")
+    if not missing:
+        return ""
+    return "is missing " + " and ".join(missing)
+
+
+def validate_interfaces(
+    declaration: dict[str, Any],
+    project_path: Path,
+    findings: list[Finding],
+    project_id: str,
+    *,
+    index: dict[tuple[str, str], dict[str, Any]] | None = None,
+    escalation: dict[str, str] | None = None,
+) -> None:
+    """Validate this project's `interfaces[]` and charge its unpinned edges.
+
+    Read-only. An absent `interfaces` key is valid and silent, and a
+    declaration that fails the shape rules above yields
+    `INTERFACE_DECLARATION_INVALID` and no interface assertions at all — never
+    a partial read. The declared rules are then asserted per entry: the
+    closed mechanism set, the versioned contract, the pinning rule for
+    `sibling`, the cross-project pairing of a `consumes` edge against the
+    provider's own `provides` entry, the consumer's own evidence for a
+    consumption, and the digest of a retained byte copy.
+    """
+    if "interfaces" not in declaration:
+        return
+    interfaces = declaration.get("interfaces")
+    problems = _interface_shape_problems(interfaces)
+    if problems:
+        for problem in problems:
+            finding(
+                findings,
+                "ERROR",
+                INTERFACE_DECLARATION_INVALID,
+                f"invalid interface declaration: {problem}",
+                project_id,
+            )
+        return
+
+    for item in interfaces:
+        interface_id = item.get("id")
+        mechanism = item.get("mechanism")
+        if mechanism not in INTERFACE_MECHANISMS:
+            finding(
+                findings,
+                "ERROR",
+                INTERFACE_MECHANISM_UNKNOWN,
+                f"interface {interface_id!r} declares mechanism {mechanism!r}; "
+                f"accepted mechanisms: {', '.join(INTERFACE_MECHANISMS)}",
+                project_id,
+            )
+            continue
+        if mechanism == "sibling":
+            unpinned = _sibling_edge_pinning_problem(item)
+            if unpinned:
+                finding(
+                    findings,
+                    interface_finding_level(INTERFACE_SIBLING_PATH_UNPINNED, escalation),
+                    INTERFACE_SIBLING_PATH_UNPINNED,
+                    f"interface {interface_id!r} reaches provider {item.get('provider')!r} by a "
+                    f"repository-relative path and {unpinned}; a sibling edge is lawful only when "
+                    f"the provider is declared `required: true` and the edge is digest-pinned. "
+                    f"The two lawful alternatives: {SIBLING_LAWFUL_ALTERNATIVES}",
+                    project_id,
+                )
+        else:
+            contract = item.get("contract")
+            if not isinstance(contract, str) or not INTERFACE_CONTRACT.fullmatch(contract):
+                finding(
+                    findings,
+                    "ERROR",
+                    INTERFACE_CONTRACT_UNVERSIONED,
+                    f"interface {interface_id!r} names contract {contract!r} without a version; "
+                    "write \"<name>/<major>.<minor>.<patch>\"",
+                    project_id,
+                )
+                continue
+        if item.get("consumes") is not True:
+            continue
+        provider = item.get("provider")
+        if (index or {}).get((provider, interface_id)) is None:
+            finding(
+                findings,
+                "WARNING",
+                INTERFACE_PROVIDER_UNDECLARED,
+                f"interface {interface_id!r} consumes from provider {provider!r}, which declares "
+                "no matching `provides` entry for it; an edge counts as declared only when both "
+                "sides declare it",
+                project_id,
+            )
+        evidence_ref = item.get("evidence_ref")
+        if not isinstance(evidence_ref, str) or not _standalone_evidence_resolves(
+            project_path, evidence_ref
+        ):
+            finding(
+                findings,
+                "WARNING",
+                INTERFACE_CONSUMED_UNUSED,
+                f"interface {interface_id!r} declares a consumption with no `evidence_ref` "
+                "resolving to this project's own use of the edge; record the repository-relative "
+                "path where the project uses it",
+                project_id,
+            )
+        entry = item.get("entry")
+        if mechanism != "consume" or not isinstance(entry, str):
+            continue
+        retained = _retained_copy_digest(project_path, entry)
+        if retained is not None and retained != item.get("digest"):
+            finding(
+                findings,
+                interface_finding_level(INTERFACE_VENDORED_WITHOUT_DIGEST, escalation),
+                INTERFACE_VENDORED_WITHOUT_DIGEST,
+                f"interface {interface_id!r} keeps a byte copy at {entry!r} of provider "
+                f"{provider!r} whose declared digest does not pin those bytes; declare the "
+                f"sha256 of the retained copy, which is {retained}, or consume the published "
+                "artifact by version",
+                project_id,
+            )
+
+
+def report_unverified_exempt_capabilities(
+    project_id: str,
+    findings: list[Finding],
+    registry: "CapabilityRegistry | None",
+    provider_verified: Any = None,
+) -> None:
+    """WARNING `CAPABILITY_PROVIDER_UNVERIFIED` on the provider that owns an exemption.
+
+    A registry entry is exempt because its provider declares no verified
+    capability record, so without a reporter the exemption silently absorbs
+    every consumer and nobody owns the next action. The finding is attributed
+    to the provider, which is the one repository that can end it by recording
+    verified evidence, and the resolved provider is named in the message.
+
+    Read-only in all three directions the specification names: no posture is
+    changed, no consumer is charged for an unfrozen capability, and the
+    existing exemption semantics are untouched. A capability whose provider
+    declares verified evidence stops being reported here, and a capability
+    that binds to no provider is left to `CAPABILITY_ADOPTION_UNRESOLVED`.
+    """
+    if registry is None:
+        return
+    for capability_id in sorted(registry.capabilities):
+        entry = registry.capabilities[capability_id]
+        if not isinstance(entry, dict) or entry.get("posture") != "exempt":
+            continue
+        provider = _resolved_provider(entry)
+        if provider is None or provider != project_id:
+            continue
+        if callable(provider_verified) and provider_verified(provider, capability_id):
+            continue
+        reason = str(entry.get("reason") or "no reason recorded")
+        finding(
+            findings,
+            "WARNING",
+            CAPABILITY_PROVIDER_UNVERIFIED,
+            f"capability {capability_id!r} is exempt ({reason}) and provider {provider!r} "
+            "declares no `verified` capability record for it; the exemption lifts when the "
+            "provider records verified evidence with a resolving evidence_ref",
+            project_id,
+        )
+
+
 def validate_release_evidence(release_evidence: Any, project_path: Path, findings: list[Finding], project_id: str) -> None:
     """Audit a project's optional release evidence record.
 
@@ -3426,6 +3915,8 @@ def validate_project(
     gate_debt: dict[str, tuple[str, ...]] | None = None,
     gate_debt_baseline: frozenset[tuple[str, str]] | None = None,
     gate_debt_exceptions: dict[tuple[str, str], str] | None = None,
+    interface_index: dict[tuple[str, str], dict[str, Any]] | None = None,
+    interface_escalation: dict[str, str] | None = None,
 ) -> None:
     project_id = str(entry.get("id"))
     project_path = workspace_root / str(entry.get("path"))
@@ -3556,6 +4047,22 @@ def validate_project(
             ledger=adoption_ledger or [],
             provider_verified=resolved,
         )
+        # The exemption's owner, and the next action that ends it. Read-only,
+        # and emitted once per exempt capability rather than once per project.
+        report_unverified_exempt_capabilities(
+            project_id,
+            findings,
+            capability_registry,
+            resolved,
+        )
+    validate_interfaces(
+        declaration,
+        project_path,
+        findings,
+        project_id,
+        index=interface_index,
+        escalation=interface_escalation,
+    )
     release_evidence = declaration.get("release_evidence")
     if release_evidence is not None:
         validate_release_evidence(release_evidence, project_path, findings, project_id)
@@ -3666,6 +4173,11 @@ def run(args: argparse.Namespace) -> tuple[list[Finding], dict[str, int]]:
     # information it carries is about this checker's coverage and not about a
     # repository's defect (ruling 7).
     readme_claim_coverage: list[tuple[str, str, int, str, str]] = []
+    # The interface ramp, read once per run from the decisions register: a
+    # WARNING today, blocking after the recorded date. Unreadable input leaves
+    # every interface finding a WARNING, because nothing becomes blocking on a
+    # record that could not be read.
+    interface_escalation = interface_escalation_dates(governance_root)
     # Provider identity is read from the registry's own entries, never from a
     # directory name, so the eight ids that differ from their folder name
     # resolve exactly like the rest.
@@ -3703,6 +4215,10 @@ def run(args: argparse.Namespace) -> tuple[list[Finding], dict[str, int]]:
                     })
     if args.self_check:
         selected = [{**entry, "path": "."} for entry in projects if entry.get("id") == "workspace-governance"]
+        # The interface index is built from the declarations this run audits,
+        # so a self-check resolves a `consumes` edge against the governance
+        # repository's own declaration and a fleet audit against all of them.
+        interface_index = build_interface_index(workspace_root, selected)
         for entry in selected:
             validate_project(
                 entry,
@@ -3721,6 +4237,8 @@ def run(args: argparse.Namespace) -> tuple[list[Finding], dict[str, int]]:
                 gate_debt=gate_debt,
                 gate_debt_baseline=gate_debt_baseline,
                 gate_debt_exceptions=gate_debt_exceptions,
+                interface_index=interface_index,
+                interface_escalation=interface_escalation,
             )
     else:
         selected = effective_projects
@@ -3728,6 +4246,7 @@ def run(args: argparse.Namespace) -> tuple[list[Finding], dict[str, int]]:
             selected = [entry for entry in effective_projects if entry.get("id") == args.project or entry.get("path") == args.project]
             if not selected:
                 finding(findings, "ERROR", "PROJECT_UNKNOWN", f"project not found in registry: {args.project}")
+        interface_index = build_interface_index(workspace_root, effective_projects)
         for entry in selected:
             adopted = entry.get("adoption", "pending") == "adopted"
             discovered_only = entry.get("path") not in explicit_paths
@@ -3749,6 +4268,8 @@ def run(args: argparse.Namespace) -> tuple[list[Finding], dict[str, int]]:
                     gate_debt=gate_debt,
                     gate_debt_baseline=gate_debt_baseline,
                     gate_debt_exceptions=gate_debt_exceptions,
+                    interface_index=interface_index,
+                    interface_escalation=interface_escalation,
                 )
             else:
                 finding(findings, "WARNING", "ADOPTION_PENDING", "project is registered but not yet adopted", str(entry.get("id")))

@@ -21,6 +21,7 @@ the change directory.
 | 11 | `shared-postgres-runtime-profile` | workspace-governance | `openspec/changes/archive/2026-10-01-shared-postgres-runtime-profile/` | shipped |
 | 12 | `standalone-project-boundary` | workspace-governance | `openspec/changes/archive/2026-10-01-standalone-project-boundary/` | shipped |
 | 13 | `post-mvp-readiness` (propagated, per repository) | each product repository | `openspec/changes/post-mvp-readiness/` in 59 repositories | parked — campaign, not yet started |
+| 14 | `python-security-audit-scoping` | workspace-governance | to be authored | queued — decision D8 accepted 2026-10-17 |
 
 Package 4 was called `gate-run-evidence` in the original portfolio map; 5 was
 `platform-adoption-dotnet`; 6 `platform-adoption-rust`; 7

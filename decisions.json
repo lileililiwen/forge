@@ -103,6 +103,40 @@
           "change": "interface-declaration-and-boundary-findings"
         }
       ]
+    },
+    {
+      "id": "D8",
+      "title": "A Python security audit audits the project, not the host interpreter",
+      "status": "accepted",
+      "date": "2026-10-17",
+      "owner_project": "workspace-governance",
+      "decision": "The binder derives `security: 'pip-audit'` for Python repositories, and a bare `pip-audit` audits the ambient interpreter environment, so the concern reports advisories for packages the repository does not declare (measured: platform-contracts, alethefy, ariadex, jenkins-local, metiscope, workspace-governance). A security concern that reports the host is not that repository's evidence and cannot be gated. The derived command SHALL therefore audit the project's own declared dependency set (a requirements/lock file, or the project path) and SHALL be omitted — leaving the concern UNBOUND with a reason, never a passing or host-scoped substitute — when the repository declares no Python dependency set to audit. Implementation is owed in the change `python-security-audit-scoping`, which is queued behind the active change.",
+      "downstream": [
+        {
+          "repo": "workspace-governance",
+          "change": "python-security-audit-scoping"
+        },
+        {
+          "repo": "platform-contracts",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "alethefy",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "ariadex",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "jenkins-local",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "metiscope",
+          "change": "rebind-security-concern"
+        }
+      ]
     }
   ]
 }

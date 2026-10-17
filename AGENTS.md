@@ -12,6 +12,12 @@
 - Preserve existing user files and unrelated worktree changes.
 - Use direct technical language; omit greetings and filler.
 
+## Repository search
+
+- Use `rg --files` to locate repository files and `rg` to search file contents.
+- Use `fd` for path discovery when it is installed; if unavailable, use `rg --files`.
+- Prefer these tools before `find` or `grep` for routine repository searches.
+
 ## Required workflow
 
 - Non-trivial changes require an active OpenSpec change.

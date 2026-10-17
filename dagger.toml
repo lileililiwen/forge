@@ -1,0 +1,15 @@
+[modules.shellcheck]
+source = "dagger.io/shellcheck"
+
+[modules.dang-sdk]
+source = "github.com/dagger/dang-sdk"
+
+[sdks.dang]
+module = "dang-sdk"
+
+[modules.forge-checks]
+source = ".dagger/modules/forge-checks"
+
+[sdks.dang.scopes.".dagger/modules/forge-checks"]
+is-module = true
+name = "forge-checks"

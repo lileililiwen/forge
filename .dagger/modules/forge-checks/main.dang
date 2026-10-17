@@ -1,0 +1,69 @@
+"""
+Forge verification checks, executed in a pinned rust:1.87 container so that
+local `dagger check` matches CI (which pins the toolchain via
+dtolnay/rust-toolchain@1.87 / ADR-0002).
+
+These mirror scripts/check-tests.sh and .github/workflows/ci.yml. Dagger does
+NOT redefine the gates — it runs the same cargo commands in the same image.
+
+NOTE (Dagger 1.0-beta Dang SDK): a `@check` returning Void does NOT execute a
+`withExec` unless the container is forced with a terminal call like `.exitCode()`.
+Without `.exitCode()`, the check is a SILENT FALSE-POSITIVE (passes without
+running anything). This is the one correctness trap to remember.
+"""
+
+type ForgeChecks {
+  """
+  Rust image pinned to forge's MSRV floor (ADR-0002).
+  """
+  rustImage: String! = "rust:1.87"
+
+  """
+  Base container: pinned Rust image, cargo registry cache, source mounted.
+  """
+  base(src: Directory!): Container! {
+    container
+      .from(rustImage)
+      .withMountedCache("/usr/local/cargo/registry", cacheVolume("forge-cargo-registry"))
+      .withMountedCache("/usr/local/rustup", cacheVolume("forge-rustup"))
+      .withExec(["rustup", "default", "1.87.0"])
+      .withExec(["rustup", "component", "add", "rustfmt", "clippy"])
+      .withMountedDirectory("/src", src)
+      .withWorkdir("/src")
+  }
+
+  """
+  cargo fmt --all -- --check
+  """
+  @check
+  pub fmt(ws: Workspace!): Void {
+    base(ws.directory(".")).withExec(["cargo", "fmt", "--all", "--", "--check"]).exitCode()
+    null
+  }
+
+  """
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  """
+  @check
+  pub clippy(ws: Workspace!): Void {
+    base(ws.directory(".")).withExec([
+      "cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings",
+    ]).exitCode()
+    null
+  }
+
+  """
+  Fast test suite (the three native-scaffold tests are skipped, matching
+  scripts/check-tests.sh; they run in CI's dedicated native-scaffold job).
+  """
+  @check
+  pub test(ws: Workspace!): Void {
+    base(ws.directory(".")).withExec([
+      "cargo", "test", "--workspace", "--all-targets", "--",
+      "--skip", "rust_scaffold_builds_and_tests_with_native_toolchain",
+      "--skip", "rust_scaffold_builds_with_native_toolchain_without_forge",
+      "--skip", "declaration_is_inert_for_native_builds_present_and_absent",
+    ]).exitCode()
+    null
+  }
+}

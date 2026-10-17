@@ -1,14 +1,13 @@
 version: 1
-runtime: driftwatchdog
+runtime: forge
 profile: rust-product
-rule_pack: workspace-governance@1
+rule_pack: forge-baseline/1.0.0
 checks:
   repository: true
   build: true
   tests: true
   security: true
   declared-verification: true
-  governance-quality: true
   placeholder-threshold: true
   product-code-boundary: true
 blocking:
@@ -35,13 +34,6 @@ commands:
   repository: 'git diff --check'
   build: 'cargo build --workspace'
   security: 'cargo audit'
-  # governance-quality needs the fleet governance repository (its projects.json
-  # registry, profiles/, decisions register and capability registry). That is a
-  # sibling checkout the standalone remote runner does not have, so this concern
-  # fails fast with a clear `blocked` message when it is absent rather than
-  # silently assuming a machine-specific fleet layout. Matches the repo's
-  # contract-parity CI job, which blocks the same way on a missing sibling.
-  governance-quality: 'SCRIPT="../workspace-governance/scripts/workspace_check.py"; if [ -f "$SCRIPT" ]; then python3 "$SCRIPT" --root .. --project forge --json; else echo "governance-quality blocked: workspace-governance sibling not found at ../workspace-governance (fleet layout required); check out the sibling or run inside the fleet" >&2; exit 1; fi'
   # placeholder-threshold and product-code-boundary are vendored into
   # scripts/governance/ so the gate is self-contained: they only read the repo
   # root and the committed scripts/vocabulary.json, with no sibling dependency.

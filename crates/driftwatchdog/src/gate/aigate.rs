@@ -1,8 +1,8 @@
 //! Business-project Gate policy: `.ai-gate/gate.yaml` → `GateManifest`.
 //!
-//! Bootstrapped business repositories declare Gate policy in
-//! `.ai-gate/gate.yaml` and name `driftwatchdog` as the shared runtime.
-//! This module parses that YAML form into the same [`GateManifest`] the
+//! Business repositories may declare Gate extensions in
+//! `.ai-gate/gate.yaml` and name `forge` as their gate owner. This module
+//! parses that YAML form into the same [`GateManifest`] the
 //! native `gate.toml` produces, so every downstream step
 //! (`resolve`/`render_plan`/execute/aggregate/persist) is reused
 //! unchanged. No shared Gate logic is copied into the business project
@@ -12,7 +12,7 @@
 //!
 //! ```yaml
 //! version: 1
-//! runtime: driftwatchdog          # optional; other values are not ours
+//! runtime: forge                  # optional; legacy driftwatchdog is accepted
 //! profile: browser-extension      # built-in or project-defined
 //! rule_pack: browser-extension@0.1.0   # optional identity
 //! checks:                         # concern id -> true | false | "optional"
@@ -62,8 +62,8 @@ use crate::gate::manifest::{
     ManifestCheck, ManifestError, SourceSizePolicy, BINDING_POLICIES,
 };
 
-/// The runtime name this binary answers to in a `.ai-gate/gate.yaml`.
-pub const RUNTIME_NAME: &str = "driftwatchdog";
+/// The runtime name new `.ai-gate/gate.yaml` manifests declare.
+pub const RUNTIME_NAME: &str = "forge";
 
 /// Top-level keys accepted in a business Gate YAML manifest.
 const YAML_FIELDS: &[&str] = &[

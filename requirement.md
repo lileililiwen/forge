@@ -218,7 +218,7 @@ Registry     Registry     Registry        Registry      Engine
                              │
                    Existing Systems
                              │
-      DriftWatch / OpenCode / GitHub / Content
+      Forge Gate / OpenCode / GitHub / Content
 ```
 
 ---
@@ -382,7 +382,7 @@ Forge should detect:
 - CI configuration
 - authentication
 - existing Forge-compatible features
-- DriftWatch configuration
+- Legacy checker configuration, when present
 - Git remotes
 - deployment configuration
 
@@ -396,7 +396,7 @@ Framework: Axum
 Database: PostgreSQL
 Container: Docker
 GitHub: configured
-DriftWatch: missing
+Forge Gate: built in
 Forge manifest: missing
 
 Suggested profile:
@@ -808,7 +808,7 @@ Example:
 6. Generate manifest
 7. Run doctor
 8. Run tests
-9. Run DriftWatch
+9. Run Forge Gate
 ```
 
 Plans should be reviewable before execution where appropriate.
@@ -844,7 +844,7 @@ When creating a project:
 5. generate project
 6. run doctor
 7. run tests
-8. run DriftWatch
+8. run Forge Gate
 9. report unresolved gaps
 ```
 
@@ -944,7 +944,7 @@ Agent implementation
 ↓
 Test
 ↓
-DriftWatch
+Forge Gate
 ↓
 Commit
 ```
@@ -1000,11 +1000,20 @@ manual
 
 ---
 
-# 24. DriftWatch Integration
+# 24. Forge Gate
 
-DriftWatch remains the quality/policy engine.
+Forge owns the project Gate contract and ships built-in checks that apply
+without project-authored scripts. The baseline includes a repository-aware
+source-file physical line-count limit. Project CI and pre-commit templates
+must call Forge's Gate entry points so local and CI enforcement use the same
+checks and verdicts.
 
-Forge should call it rather than replace it.
+Projects may register additional commands as Gate extensions for stack- or
+product-specific checks. Extensions add coverage; they cannot disable,
+exempt, or weaken Forge's mandatory baseline. New project templates include
+the Forge CI and pre-commit templates. Existing projects can adopt the same
+templates to receive the baseline without implementing their own check
+scripts.
 
 Possible policy categories:
 
@@ -1073,7 +1082,7 @@ Required:
 - authentication where applicable
 - administration
 - CI
-- DriftWatch
+- Forge Gate
 - basic deployment automation
 - audit where applicable
 
@@ -1250,7 +1259,7 @@ doctor
 ↓
 tests
 ↓
-DriftWatch
+Forge Gate
 ↓
 version bump
 ↓
@@ -1354,8 +1363,8 @@ Existing systems should retain their identities.
 Recommended mapping:
 
 ```text
-DriftWatch
-→ Quality / Policy Plane
+Forge Gate
+→ Project Quality / Policy Plane
 
 OpenCode PTY manager
 → Agent Runtime
@@ -1655,7 +1664,7 @@ Start extracting real shared capabilities from existing projects.
 Integrate:
 
 ```text
-DriftWatch
+Forge Gate
 Spec generation
 OpenCode runner
 Codex workflow
@@ -1674,7 +1683,7 @@ agent
 ↓
 test
 ↓
-DriftWatch
+Forge Gate
 ```
 
 ---
@@ -1728,7 +1737,6 @@ Forge should not initially become:
 - another CMS
 - another Git hosting service
 - an AI model
-- a replacement for DriftWatch
 - a replacement for OpenCode
 - a universal runtime framework
 
@@ -1822,7 +1830,7 @@ doctor
 ↓
 tests
 ↓
-DriftWatch
+Forge Gate
 ↓
 GitHub
 ↓

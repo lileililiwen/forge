@@ -10,7 +10,7 @@ a healthy result.
 | Id | Boundary | Live binary (default) | Override |
 | --- | --- | --- | --- |
 | `driftwatch-policy` | `check --dry-run --format json` (`gate --format json` for gate-managed projects — whose only side effect is a `gate_runs` row in the project's own `.driftwatch/` store), project as working directory; ordered binary probe `driftwatchdog` → `driftwatch` | `driftwatchdog` / `driftwatch` | `FORGE_DRIFTWATCH_BIN` |
-| `gate-runtime` | `gate --dry-run --format json` against the resolved gate runtime with the project as the working directory; the real sibling's dry-run surface is a side-effect-free plan preview (no JSON composition at `25811ed`), so a responding plan, a parseable status document, or the honest "nothing to gate" answer records `supported` while a missing binary (resolution: explicit `FORGE_GATE_BIN`, else the ordered PATH probe), timeout or refused invocation records `unavailable`; the probe never runs the real gate and never claims a gate pass | `driftwatchdog` / `driftwatch` | `FORGE_GATE_BIN` |
+| `gate-runtime` | `forge gate --dry-run` using the bundled engine; validates the resolved baseline and project extensions without running checks or persisting a verdict. A valid plan records `supported`; invalid project configuration or an unavailable Forge execution records `unavailable`. This provider row describes command support only and never claims a gate pass. | `forge` | none |
 | `oidc-identity` | in-memory challenge/callback/claims/mint/validate/terminate | none (no external binary) | n/a |
 | `analytics` | `health --provider <p> --project <id> --project-ref <ref> --plane <plane>` | `forge-analytics-adapter` | `FORGE_ANALYTICS_BIN` |
 | `deploy` | `apply --target <t> --kind <k> --project <id> --revision <rev> --dry-run` under the `forge-deploy-executor/0.1.0` envelope contract ([contract](adapter-contracts/deploy-executor.md), [reference adapter](../adapters/jenkins/jenkins-adapter.md)) | `forge-deployer` | `FORGE_DEPLOYER_BIN` |
@@ -132,10 +132,8 @@ document; tests use `sandbox: fixture` paths only.
 
 No live sandbox is configured in the local environment, so every live
 claim below is `not-run` by design. CI (`artifact-and-ci-baseline`)
-changes this for exactly one surface: the `gate` job installs the
-declared gate runtime and initializes its store in the runner workspace,
-so `forge gate .` executes for real there and the job mirrors the
-runtime's verdict. Every other row stays `not-run` in CI — no OIDC
+runs Forge's bundled gate directly; it does not install a separate gate
+runtime. Other rows stay `not-run` in CI — no OIDC
 issuer, analytics adapter, deploy target or release publisher is
 provisioned, and the `surfaces` job runs only `forge provider matrix`
 without `--live`, which never claims support.

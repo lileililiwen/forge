@@ -200,19 +200,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install driftwatchdog (forge check runtime)
-        run: |
-          curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build Forge
         run: cargo build
-      - name: Real gate verdict (mirrors the runtime, including blocked)
+      - name: Real Forge gate verdict
         run: |
-          if command -v driftwatchdog >/dev/null 2>&1; then BIN=driftwatchdog;
-          elif command -v driftwatch >/dev/null 2>&1; then BIN=driftwatch;
-          else echo "gate blocked: no gate runtime on PATH (tried driftwatchdog, driftwatch)" >&2; exit 1; fi
-          echo "gate: runtime $BIN ($("$BIN" --version 2>&1 | head -n 1))"
-          "$BIN" init || { echo "gate blocked: gate-runtime-unavailable (store init failed)" >&2; exit 1; }
           ./target/debug/forge gate .
           ./target/debug/forge gate status .
 

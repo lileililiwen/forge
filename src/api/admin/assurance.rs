@@ -15,6 +15,8 @@
 //! every response carries the admin contract version and project-bound
 //! bodies are scrubbed of the absolute project directory.
 
+mod analytics;
+
 use super::super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -366,12 +368,12 @@ pub(in crate::api) fn dispatch(
                 ("analytics", "metrics") => match deploy_id_gate(db_path, item) {
                     Ok(dir) => {
                         let _ = &dir;
-                        analytics_metrics(db_path, item, query)
+                        analytics::metrics(db_path, item, query)
                     }
                     Err(response) => response,
                 },
                 ("studio", "preview") => match deploy_id_gate(db_path, item) {
-                    Ok(dir) => studio_preview(&dir, item),
+                    Ok(dir) => analytics::studio_preview(&dir, item),
                     Err(response) => response,
                 },
                 _ => error(
@@ -916,86 +918,6 @@ fn governance_observe(project_dir: &Path, id: &str) -> ApiResponse {
                     "project": id, "observation": observation,
                     "contract": crate::governance::GOVERNANCE_CONTRACT_VERSION,
                 }),
-            )
-        }
-        Err(err) => typed_project_assurance_error(project_dir, &err),
-    }
-}
-
-/// `GET .../analytics/metrics?window_days=`: registry-only metrics —
-/// the same aggregates as `forge analytics metrics` minus the provider
-/// plane, the summary write and the journal row. The browser never
-/// probes providers.
-fn analytics_metrics(db_path: &Path, id: &str, query: Option<&str>) -> ApiResponse {
-    let window_days = match query_single(query, "window_days") {
-        None => crate::analytics::DEFAULT_WINDOW_DAYS,
-        Some(raw) => match raw.trim().parse::<u32>() {
-            Ok(window) => window,
-            Err(_) => {
-                return error(
-                    400,
-                    "admin-invalid-assurance-query",
-                    "the analytics `window_days` query value must be a number.",
-                )
-            }
-        },
-    };
-    if !(crate::analytics::MIN_WINDOW_DAYS..=crate::analytics::MAX_WINDOW_DAYS)
-        .contains(&window_days)
-    {
-        return error(
-            400,
-            "admin-invalid-assurance-query",
-            "the analytics `window_days` query value is outside the allowed range.",
-        );
-    }
-    let registry = match crate::registry::Registry::open(db_path) {
-        Ok(registry) => registry,
-        Err(err) => return typed_assurance_error(&err),
-    };
-    match crate::analytics::aggregate_project_metrics(
-        &registry,
-        Some(crate::analytics::DoctorSummary::default()),
-        &crate::analytics::MetricsAggregateOptions {
-            default_window_days: window_days,
-            external_observations: Vec::new(),
-        },
-    ) {
-        Ok(report) => ApiResponse::json(
-            200,
-            json!({
-                "project": id, "metrics": report,
-                "contract": crate::analytics::ANALYTICS_CONTRACT_VERSION,
-            }),
-        ),
-        Err(err) => typed_assurance_error(&err),
-    }
-}
-
-/// `GET .../studio/preview`: the current session envelope — the same
-/// record as the CLI `studio preview` status read. A project with no
-/// saved session answers `state: none`, never a 404. Never starts,
-/// stops or spawns.
-fn studio_preview(project_dir: &Path, id: &str) -> ApiResponse {
-    let secrets = [project_dir.display().to_string()];
-    match crate::studio::load_session(project_dir) {
-        Ok(Some(session)) => {
-            let envelope = crate::studio::envelope_from_session(&session);
-            let envelope = scrub_json(json!(envelope), &secrets);
-            ApiResponse::json(
-                200,
-                json!({ "project": id, "preview": envelope, "contract": API_CONTRACT_VERSION }),
-            )
-        }
-        Ok(None) => {
-            let envelope = crate::studio::PreviewEnvelope::from_session(
-                id,
-                "r0",
-                &crate::studio::state::SessionPreviewState::default(),
-            );
-            ApiResponse::json(
-                200,
-                json!({ "project": id, "preview": envelope, "contract": API_CONTRACT_VERSION }),
             )
         }
         Err(err) => typed_project_assurance_error(project_dir, &err),

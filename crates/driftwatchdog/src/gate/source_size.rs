@@ -27,15 +27,15 @@ use std::time::Duration;
 
 use crate::gate::concerns::SOURCE_FILE_SIZE;
 use crate::gate::dto::{
-    MAX_DIAGNOSTIC_BYTES, MAX_FINDINGS, MAX_LOCATION_BYTES, MAX_MISSING_EVIDENCE,
-    MAX_REMEDIATION_BYTES, MAX_TITLE_BYTES,
+    MAX_DIAGNOSTIC_BYTES, MAX_EVIDENCE_REFS, MAX_FINDINGS, MAX_LOCATION_BYTES,
+    MAX_MISSING_EVIDENCE, MAX_REMEDIATION_BYTES, MAX_TITLE_BYTES,
 };
 use crate::gate::manifest::SourceSizePolicy;
 use crate::gate::redact::{bound_text, bounded_diagnostic};
 use crate::gate::types::{Finding, GateResult, GateSeverity, GateStatus};
 
 /// Result `source` label for the built-in scanner.
-const SOURCE_LABEL: &str = "driftwatchdog";
+const SOURCE_LABEL: &str = "forge";
 /// Stable rule id recorded on every oversized-file finding.
 const RULE_ID: &str = "source-file-size";
 /// Per-`git` invocation budget.
@@ -121,6 +121,68 @@ pub fn scan(root: &Path, policy: &SourceSizePolicy) -> GateResult {
         return fail_result(findings, evaluated, policy);
     }
     pass_result(candidates.len(), evaluated, policy)
+}
+
+/// Apply the Forge baseline scan and any stricter or wider project scan.
+/// Project include/exclude settings can add coverage or stricter limits but
+/// cannot remove files from the baseline's default source boundary.
+pub fn scan_with_baseline(root: &Path, policy: &SourceSizePolicy) -> GateResult {
+    let baseline = SourceSizePolicy::default();
+    let base_result = scan(root, &baseline);
+    if policy == &baseline {
+        return base_result;
+    }
+    let configured_result = scan(root, policy);
+    merge_scan_results(base_result, configured_result)
+}
+
+fn merge_scan_results(mut base: GateResult, configured: GateResult) -> GateResult {
+    base.status = if base.status == GateStatus::ReviewRequired
+        || configured.status == GateStatus::ReviewRequired
+    {
+        GateStatus::ReviewRequired
+    } else if base.status == GateStatus::Fail || configured.status == GateStatus::Fail {
+        GateStatus::Fail
+    } else {
+        GateStatus::Pass
+    };
+    base.severity = match base.status {
+        GateStatus::Fail => GateSeverity::Error,
+        GateStatus::ReviewRequired => GateSeverity::Warning,
+        _ => GateSeverity::Info,
+    };
+    base.findings.extend(configured.findings);
+    base.findings.sort_by(|left, right| {
+        left.location
+            .cmp(&right.location)
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    base.findings.dedup();
+    base.findings.truncate(MAX_FINDINGS);
+    base.missing_evidence.extend(configured.missing_evidence);
+    base.missing_evidence.sort();
+    base.missing_evidence.dedup();
+    base.missing_evidence.truncate(MAX_MISSING_EVIDENCE);
+    base.evidence.extend(configured.evidence);
+    base.evidence
+        .sort_by(|left, right| left.key.cmp(&right.key));
+    base.evidence.dedup_by(|left, right| left.key == right.key);
+    base.evidence.truncate(MAX_EVIDENCE_REFS);
+    base.diagnostic = merge_optional_text(base.diagnostic, configured.diagnostic);
+    base.remediation = merge_optional_text(base.remediation, configured.remediation);
+    base
+}
+
+fn merge_optional_text(left: Option<String>, right: Option<String>) -> Option<String> {
+    match (left, right) {
+        (Some(left), Some(right)) if left == right => Some(left),
+        (Some(left), Some(right)) => Some(bounded_diagnostic(
+            &format!("{left}; configured scan: {right}"),
+            MAX_DIAGNOSTIC_BYTES,
+        )),
+        (Some(text), None) | (None, Some(text)) => Some(text),
+        (None, None) => None,
+    }
 }
 
 /// Enumerate every repository file the boundary should consider. In a
@@ -714,10 +776,15 @@ fn fail_result(
         truncated = true;
     }
     let violating = findings.len();
+    let locations = findings
+        .iter()
+        .filter_map(|finding| finding.location.as_deref())
+        .collect::<Vec<_>>()
+        .join(", ");
     result.findings = findings;
     result.diagnostic = Some(bounded_diagnostic(
         &format!(
-            "{violating} of {evaluated} evaluated file(s) exceed the maximum of {} physical line(s){}",
+            "{violating} of {evaluated} evaluated file(s) exceed the maximum of {} physical line(s): {locations}{}",
             policy.max_lines,
             if truncated {
                 format!("; findings truncated to {MAX_FINDINGS}")

@@ -12,7 +12,7 @@ To shrink the number of standalone repositories, Forge now vendors its core
 dev-tooling and quality crates as Cargo workspace members under `crates/`,
 preserving each project's original name:
 
-- `crates/driftwatchdog/` — the Gate policy/execution engine Forge consumes (see the gate-declaration-migration spec).
+- `crates/driftwatchdog/` — vendored implementation code used inside Forge's Gate engine; projects do not install or invoke a separate DriftWatchdog runtime.
 - `crates/cargo-audit-boost/`, `crates/cargo-matrix-boost/`, `crates/cargo-sonar/` — the quality/audit tooling crates.
 
 These are registered as workspace members via `members = ["crates/*"]` in
@@ -50,7 +50,7 @@ product's own exit code is returned unchanged. See [docs/facade.md](docs/facade.
 
 v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These commands are available from this checkout via `cargo build`.
 
-v0.2 adds features and upgrades; v0.3 integrates DriftWatch, specs and existing agent infrastructure; v0.4 exposes mature MCP operations; v0.5 adds repository distribution, translations, releases and deployment. Advanced components, UI patterns, AI planning, identity, analytics, API and portal are implemented as later changes (`forge component`, `forge ui-pattern`, `forge intent`, `forge identity`, `forge analytics`, `forge api serve`, `forge portal dashboard|view`). Machine-facing checker emission is available as `forge check` (see [external DriftWatch checker](docs/external-checker.md)).
+v0.2 adds features and upgrades; v0.3 integrates Forge Gate, specs and existing agent infrastructure; v0.4 exposes mature MCP operations; v0.5 adds repository distribution, translations, releases and deployment. Advanced components, UI patterns, AI planning, identity, analytics, API and portal are implemented as later changes (`forge component`, `forge ui-pattern`, `forge intent`, `forge identity`, `forge analytics`, `forge api serve`, `forge portal dashboard|view`). Machine-facing checker emission is available as `forge check` for legacy checker-protocol consumers (see [checker protocol compatibility](docs/external-checker.md)).
 
 See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](docs/requirements-coverage.md), [architecture](docs/architecture.md), and [current handoff](HANDOFF.md).
 
@@ -66,7 +66,7 @@ binary — see the real-run [quickstart transcript](docs/quickstart.md).
 
 - `forge import [PATH]` — adopt an existing repository. Without
   `--accept` it only proposes: detected language, framework, package
-  manager, database, container, CI, auth, DriftWatch and Git-remote
+  manager, database, container, CI, auth, Forge Gate and Git-remote
   evidence, plus the suggested profile and maturity. With `--accept` (and
   `--id <kebab-case-id>` when the directory name yields no valid id) it
   writes the minimal `forge.yaml` and registers the project, changing
@@ -420,30 +420,28 @@ Workspace Governance); until then the explicit `--adapter` remedy carries
 any non-executable checkout. Forge never works around the refusal. See
 [provider evidence](docs/provider-evidence.md) for the live captures.
 
-## External DriftWatch checker
+## Legacy checker protocol compatibility
 
 Any Driftwatchdog-monitored project can gate on Forge's read-only assessment
 evidence by registering `forge check` as an external checker. The command
 prints one protocol-compatible alerts document on stdout, mutates nothing,
-journals nothing, and never drives DriftWatch itself unless the operator
+journals nothing, and does not run external policy tools unless the operator
 explicitly passes `--include-policy`. See
 [docs/external-checker.md](docs/external-checker.md) for the envelope
 contract and the `driftwatch.toml` registration snippet.
 
-## Shared gate runtime evidence
+## Forge Gate
 
-Driftwatchdog's Gate owns plan resolution, blocking policy, its own run
-history and exit semantics. `forge gate [TARGET]` resolves the runtime a
-project declares (`FORGE_GATE_BIN` explicitly, else `.project.json`
-`verification.gate_runtime`, else the ordered `driftwatchdog` → `driftwatch`
-probe), executes the real `gate --format json` through one bounded
-argument-array invocation, and journals a revision-bound record at
-`.forge/gate/<project-id>/evidence.json`. A parseable status document is
-evidence whatever the exit code — a blocked gate records `blocked` and
-exits non-zero, mirroring the sibling — while an unresolvable binary, a
-timeout or an unparseable answer stays honestly `unavailable` with prior
-evidence untouched. `forge gate . --dry-run` rehearses through the
-runtime's side-effect-free plan preview and persists or journals nothing.
+Forge owns gate selection, execution, blocking policy, and revision-bound
+evidence. Its baseline runs even when a project has no gate manifest and
+requires source files to stay within 1,000 physical lines. Existing
+`gate.toml` or `.ai-gate/gate.yaml` declarations add project-specific checks;
+they cannot disable, exempt, or weaken the baseline. Forge persists the
+authoritative record at `.forge/gate/<project-id>/evidence.json` and journals
+the verdict. The bundled gate implementation is internal to Forge and is not
+resolved from `PATH`; legacy `FORGE_GATE_BIN` and
+`verification.gate_runtime` values do not select a runtime. Dry-run resolves
+and prints the plan without running checks or writing evidence.
 
 ```sh
 forge gate .
@@ -453,23 +451,19 @@ forge --format json gate <project-id-or-path>
 ```
 
 Doctor's `gate-evidence` finding, the release `gate` check kind and the
-`gate-runtime` provider row consume the same record: stale evidence never
+provider matrix consume the same record: stale evidence never
 satisfies a verification claim, an absent one reads `unverified` and never
 a pass, and captured output is credential-redacted and host-path-scrubbed.
-No gate tool is exposed over MCP or the API, and no gate pass is claimed
-for this repository — the real run honestly reports
-`gate-runtime-unavailable` until the sibling store (`driftwatch init`) is
-initialized in this checkout. See
-[docs/provider-evidence.md](docs/provider-evidence.md) for the probe
-boundary and `tests/fixtures/gate/NOTES.md` for the verbatim sibling
-captures.
+No gate tool is exposed over MCP or the API. CI and local development use
+the same bundled `forge gate` command. See
+[docs/provider-evidence.md](docs/provider-evidence.md) for provider boundaries.
 
 ## Product boundaries
 
 - Deterministic templates, packages, codemods and migrations precede AI generation.
 - Generated projects must build and operate through their native tools without Forge.
 - The product model stays independent of language, framework, AI vendor, IDE and host.
-- Forge coordinates DriftWatch, the existing PTY agent manager, content and analytics tools; it does not replace them.
+- Forge coordinates the existing PTY agent manager, content and analytics tools. Forge itself owns project Gate checks.
 - Project maturity is evidence-based and optional to advance; L0 experimentation is valid.
 - Forge is not a programming language, low-code runtime, IDE, CMS, Git host, AI model, universal runtime, Kubernetes replacement or generic CI/CD replacement.
 

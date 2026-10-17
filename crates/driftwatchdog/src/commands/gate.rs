@@ -85,6 +85,16 @@ const MAX_RESULTS_JSON_BYTES: usize = 256 * 1024;
 /// `driftwatch gate evidence-export`); when a subcommand is given
 /// the top-level flags are ignored and the subcommand takes over.
 pub fn gate(args: GateArgs, cwd: &Path) -> Result<i32, Error> {
+    gate_inner(args, cwd, true)
+}
+
+/// Run the gate engine for Forge without creating Driftwatch-owned project
+/// history. Forge persists the resulting evidence in its own store.
+pub fn gate_for_forge(args: GateArgs, cwd: &Path) -> Result<i32, Error> {
+    gate_inner(args, cwd, false)
+}
+
+fn gate_inner(args: GateArgs, cwd: &Path, persist: bool) -> Result<i32, Error> {
     if let Some(sub) = args.subcommand {
         return match sub {
             crate::cli::GateSubcommand::EvidenceExport(args) => {
@@ -97,17 +107,21 @@ pub fn gate(args: GateArgs, cwd: &Path) -> Result<i32, Error> {
         manifest::manifest_path(&proj.root).unwrap_or_else(|| proj.root.join("gate.toml"));
     let manifest = match manifest::load_for_runtime(&proj.root) {
         Ok(manifest::LoadOutcome::Manifest(m)) => *m,
-        Ok(manifest::LoadOutcome::NoManifest) => {
-            println!("driftwatch gate: no gate.toml or .ai-gate/gate.yaml; nothing to gate.");
-            println!("Legacy `driftwatch check` remains available for checker-only projects.");
-            return Ok(EXIT_OK);
-        }
+        Ok(manifest::LoadOutcome::NoManifest) => manifest::parse(manifest::FORGE_BASELINE_MANIFEST)
+            .map_err(|e| Error::ConfigInvalid {
+                path: gate_toml.clone(),
+                message: e.to_string(),
+            })?,
         Ok(manifest::LoadOutcome::ForeignRuntime { runtime }) => {
-            println!(
-                "driftwatch gate: .ai-gate/gate.yaml targets runtime `{runtime}`, not driftwatchdog."
+            eprintln!(
+                "forge gate: ignoring extensions declared for foreign runtime `{runtime}`; running the Forge baseline"
             );
-            println!("Nothing was executed and no gate run was recorded.");
-            return Ok(EXIT_OK);
+            manifest::parse(manifest::FORGE_BASELINE_MANIFEST).map_err(|e| {
+                Error::ConfigInvalid {
+                    path: gate_toml.clone(),
+                    message: e.to_string(),
+                }
+            })?
         }
         Err(e) => {
             return Err(Error::ConfigInvalid {
@@ -126,7 +140,11 @@ pub fn gate(args: GateArgs, cwd: &Path) -> Result<i32, Error> {
         return Ok(EXIT_OK);
     }
 
-    let mut db = crate::repo::Db::open(&proj.db_path)?;
+    let mut db = if persist {
+        crate::repo::Db::open(&proj.db_path)?
+    } else {
+        crate::repo::Db::open_in_memory()?
+    };
     let (results, plan) = execute_plan(&resolved, &manifest, &proj, &db)?;
     let outcome = aggregate(&plan, &results);
     let git_ctx = git::capture(&proj.root);
@@ -134,19 +152,21 @@ pub fn gate(args: GateArgs, cwd: &Path) -> Result<i32, Error> {
     let revision = git_ctx.commit.clone().unwrap_or_else(|| taken_at.clone());
     let change_id = revision.clone();
     let results_json = bound_results_json(&results, &outcome.unbound);
-    Gates::insert(
-        &mut db,
-        &NewGateRun {
-            taken_at: &taken_at,
-            change_id: &change_id,
-            revision: &revision,
-            manifest_digest: &resolved.manifest_digest,
-            rule_pack_version: &resolved.rule_pack_version,
-            status: outcome.status.as_str(),
-            blocked: outcome.blocked,
-            results_json: &results_json,
-        },
-    )?;
+    if persist {
+        Gates::insert(
+            &mut db,
+            &NewGateRun {
+                taken_at: &taken_at,
+                change_id: &change_id,
+                revision: &revision,
+                manifest_digest: &resolved.manifest_digest,
+                rule_pack_version: &resolved.rule_pack_version,
+                status: outcome.status.as_str(),
+                blocked: outcome.blocked,
+                results_json: &results_json,
+            },
+        )?;
+    }
 
     match args.format {
         GateOutputFormat::Json => print_json(&outcome, &results, &resolved),
@@ -209,7 +229,7 @@ fn execute_plan(
         // by the repository scanner; it never consults a project command
         // and never routes through the project-runtime text adapter.
         if is_source_file_size_concern(&check.gate_id) {
-            results.push(crate::gate::source_size::scan(
+            results.push(crate::gate::source_size::scan_with_baseline(
                 &proj.root,
                 &resolved.source_size,
             ));

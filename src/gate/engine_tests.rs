@@ -5,7 +5,7 @@
 #[cfg(test)]
 pub(super) mod tests {
     use crate::gate::contract::{
-        GATE_BIN_ENV, GATE_CONTRACT_VERSION, GATE_EVIDENCE_DIR, GATE_EVIDENCE_FILE, MAX_NOTE_CHARS,
+        GATE_CONTRACT_VERSION, GATE_EVIDENCE_DIR, GATE_EVIDENCE_FILE, MAX_NOTE_CHARS,
     };
     use crate::gate::engine::{
         bound_note, classify_aggregate, declared_gate_runtime, evidence_freshness, evidence_path,
@@ -59,14 +59,14 @@ pub(super) mod tests {
         };
         let resolved = resolve_runtime(tmp.path(), &config).expect("override resolves as named");
         assert_eq!(resolved.name, "gate-runtime-xyz");
-        assert!(resolved.attempts[0].contains(GATE_BIN_ENV));
+        assert!(resolved.attempts[0].contains("Forge owns gate execution"));
         // A dead override surfaces the spawn failure honestly.
         let outcome = run_gate(tmp.path(), "demo", &config, false);
         assert!(matches!(outcome, GateOutcome::Unavailable { .. }));
     }
 
     #[test]
-    fn declared_unknown_runtime_is_refused_by_name() {
+    fn legacy_runtime_declaration_does_not_change_forge_resolution() {
         let tmp = project_dir();
         fs::write(
             tmp.path().join(".project.json"),
@@ -77,33 +77,24 @@ pub(super) mod tests {
             binary: None,
             timeout: Duration::from_secs(2),
         };
-        let err = resolve_runtime(tmp.path(), &config).unwrap_err();
-        assert!(err.contains("jenkins-gate"), "{err}");
-        assert!(err.contains("driftwatchdog"), "{err}");
+        let resolved = resolve_runtime(tmp.path(), &config).expect("Forge resolves itself");
+        assert_eq!(resolved.name, "forge");
     }
 
     #[test]
-    fn declared_known_runtime_and_fallback_use_the_ordered_probe() {
+    fn legacy_driftwatch_declaration_does_not_require_a_path_binary() {
         let tmp = project_dir();
         fs::write(
             tmp.path().join(".project.json"),
             "{\"schema_version\":1,\"id\":\"x\",\"verification\":{\"gate_runtime\":\"driftwatchdog\"}}",
         )
         .unwrap();
-        // With an empty PATH nothing resolves, and the attempts say so.
         let config = GateConfig {
             binary: None,
             timeout: Duration::from_secs(2),
         };
-        // (Runs with the ambient PATH; a resolution is environment
-        // dependent, so assert only the refusal text shape.)
-        match resolve_runtime(tmp.path(), &config) {
-            Ok(resolved) => assert!(resolved
-                .attempts
-                .iter()
-                .any(|a| a.contains("declared gate_runtime `driftwatchdog`"))),
-            Err(reason) => assert!(reason.contains("no gate runtime resolvable"), "{reason}"),
-        }
+        let resolved = resolve_runtime(tmp.path(), &config).expect("Forge resolves itself");
+        assert_eq!(resolved.name, "forge");
     }
 
     #[test]

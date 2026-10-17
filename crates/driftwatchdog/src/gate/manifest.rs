@@ -98,8 +98,8 @@ use sha2::{Digest, Sha256};
 
 use crate::gate::aggregate::{BlockingPolicy, GatePlan, PlannedCheck};
 use crate::gate::concerns::{
-    is_source_file_size_concern, DEPLOYABLE_CONCERNS, GOVERNANCE_QUALITY, PRODUCT_PROFILE_CONCERNS,
-    RELEASE_GATE_CONCERNS,
+    is_source_file_size_concern, DEPLOYABLE_CONCERNS, PRODUCT_PROFILE_CONCERNS,
+    RELEASE_GATE_CONCERNS, SOURCE_FILE_SIZE,
 };
 use crate::gate::dto::GATE_CONTRACT_VERSION;
 use crate::gate::redact::bound_text;
@@ -118,17 +118,9 @@ pub fn profile_defaults(profile: &str) -> Option<&'static [&'static str]> {
             "secret-scan",
         ]),
         "minimal" => Some(&[]),
-        // Product-quality profiles select the stable product-quality
-        // concern ids, the built-in scanner, and the code-scoped
-        // `governance-quality` concern. Selection is data only and does
-        // not invent a command; a project that picks `product` (or
-        // `rust-product`) without binding `commands.<id>` has an
-        // unbound required check and fails on UNBOUND. That includes
-        // `governance-quality`: the governance checker lives outside
-        // this repository, so there is no path to default to and no
-        // binding here is ever inferred. The `source-file-size` concern
-        // is the one exception: it is executed by the in-process
-        // scanner and needs no command binding.
+        // Product-quality profiles select Forge-owned product checks.
+        // `source-file-size` executes in-process; project commands for
+        // other selected checks remain explicit extensions.
         "product" | "rust-product" => Some(PRODUCT_PROFILE_CONCERNS),
         // Release-gate profile selects the two stable release-gate
         // concern ids. The profile is data only and never invents a
@@ -140,11 +132,9 @@ pub fn profile_defaults(profile: &str) -> Option<&'static [&'static str]> {
         // Deployable projects must bind both project-owned contract commands;
         // the profile supplies required checks but never invents commands.
         "deployable" => Some(DEPLOYABLE_CONCERNS),
-        // These workspace profile names are accepted policy profiles even
-        // though their concern sets are owned outside Driftwatchdog. They all
-        // receive the mandatory governance check. Keep this list explicit so
-        // a typo still fails manifest validation and declared project profiles
-        // continue to resolve through `profile_defaults_for`.
+        // These legacy workspace profile names stay parse-compatible but
+        // no longer imply an external governance checker. Such checks are
+        // opt-in project extensions.
         "typescript-product"
         | "python-product"
         | "dotnet-product"
@@ -154,7 +144,7 @@ pub fn profile_defaults(profile: &str) -> Option<&'static [&'static str]> {
         | "tooling"
         | "deployment"
         | "inventory"
-        | "governance" => Some(&[GOVERNANCE_QUALITY]),
+        | "governance" => Some(&[]),
         _ => None,
     }
 }
@@ -181,20 +171,27 @@ pub const SUPPORTED_PROFILES: &[&str] = &[
     "governance",
 ];
 
+/// Forge's always-on, language-neutral baseline used when a project has
+/// no gate manifest. The planner also injects the baseline row for projects
+/// that do have one, so this manifest is an identity for a bare target rather
+/// than an opt-in policy file.
+pub const FORGE_BASELINE_MANIFEST: &str = r#"version = 1
+profile = "minimal"
+rule_pack_version = "forge-baseline/1.0.0"
+"#;
+pub const FORGE_BASELINE_VERSION: &str = "forge-baseline/1.0.0";
+
 /// Resolve the default concern set for `profile` in the context of a
 /// concrete manifest: a built-in profile uses [`profile_defaults`];
 /// otherwise a project-defined `[profiles.<name>]` entry is consulted.
 /// Returns `None` only when the profile is neither built-in nor declared,
 /// which is the same condition [`validate`] rejects.
 pub fn profile_defaults_for(manifest: &GateManifest, profile: &str) -> Option<Vec<String>> {
-    let mut defaults = if let Some(builtin) = profile_defaults(profile) {
+    let defaults = if let Some(builtin) = profile_defaults(profile) {
         builtin.iter().map(|s| (*s).to_string()).collect()
     } else {
         manifest.profiles.get(profile)?.clone()
     };
-    if !defaults.iter().any(|id| id == GOVERNANCE_QUALITY) {
-        defaults.push(GOVERNANCE_QUALITY.to_string());
-    }
     Some(defaults)
 }
 
@@ -342,6 +339,7 @@ pub const NON_EXEMPTABLE_CONCERNS: &[&str] = &[
     "security",
     "repository",
     "governance-quality",
+    SOURCE_FILE_SIZE,
     // A repository's own declared `verification.command` is the ruling
     // D18 makes binding: a verifier that no gate runs does not gate. If
     // this id were exempable, any repository could add
@@ -373,6 +371,7 @@ pub const NON_EXEMPTABLE_ALIASES: &[(&str, &[&str])] = &[
     // spellings a real `.ai-gate/gate.yaml` uses, and a concern with a
     // single id does not need a second name to be protected.
     ("governance-quality", &["governance-quality"]),
+    (SOURCE_FILE_SIZE, &[SOURCE_FILE_SIZE]),
     // One spelling, one concern, generated from a fixed constant, so no
     // alias is needed here either.
     ("declared-verification", &["declared-verification"]),
@@ -1311,13 +1310,22 @@ pub fn resolve(
         }
     }
 
+    // Every Forge gate includes its language-neutral built-in source
+    // boundary. Project profiles and extensions may add checks but may
+    // not remove, exempt, or mark the baseline optional.
+    selected.insert(
+        SOURCE_FILE_SIZE.to_string(),
+        (true, "forge-baseline".to_string()),
+    );
+
     let mut checks: Vec<PlannedCheck> = selected
         .iter()
         .map(|(gate_id, (required, source))| PlannedCheck {
             gate_id: gate_id.clone(),
             source: source.clone(),
             required: *required,
-            exempt: manifest.not_applicable.contains_key(gate_id),
+            exempt: manifest.not_applicable.contains_key(gate_id)
+                && !is_non_exempable_concern(gate_id),
         })
         .collect();
     // BTreeMap iteration is already sorted; keep an explicit sort so
@@ -1373,8 +1381,9 @@ pub fn resolve(
         })
         .collect();
 
-    let canonical = toml::to_string_pretty(manifest)
+    let manifest_canonical = toml::to_string_pretty(manifest)
         .unwrap_or_else(|_| format!("profile={}", manifest.profile));
+    let canonical = format!("{}\n{manifest_canonical}", FORGE_BASELINE_VERSION);
     let plan = GatePlan {
         version: GATE_CONTRACT_VERSION,
         checks,
@@ -1541,7 +1550,7 @@ pub fn manifest_path(project_root: &Path) -> Option<PathBuf> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadOutcome {
     NoManifest,
-    /// The manifest names a runtime other than driftwatchdog; nothing
+    /// The manifest names a runtime other than Forge; nothing
     /// was executed and no gate run was persisted.
     ForeignRuntime {
         runtime: String,
@@ -1576,8 +1585,8 @@ pub fn load(project_root: &Path) -> Result<Option<GateManifest>, ManifestError> 
 }
 
 /// Load the manifest honoring the optional `runtime` field of a
-/// `.ai-gate/gate.yaml`. Native `gate.toml` manifests have no runtime
-/// field and are always driftwatchdog's.
+/// `.ai-gate/gate.yaml`. New manifests name Forge. The archived
+/// `driftwatchdog` spelling remains accepted for existing projects.
 pub fn load_for_runtime(project_root: &Path) -> Result<LoadOutcome, ManifestError> {
     let Some(path) = manifest_path(project_root) else {
         return Ok(LoadOutcome::NoManifest);
@@ -1589,7 +1598,7 @@ pub fn load_for_runtime(project_root: &Path) -> Result<LoadOutcome, ManifestErro
             .map_err(|e| ManifestError::Parse(format!("cannot read {}: {e}", path.display())))?;
         let doc = crate::gate::aigate::parse_document(&text)?;
         if let Some(rt) = &doc.runtime {
-            if rt != crate::gate::aigate::RUNTIME_NAME {
+            if rt != crate::gate::aigate::RUNTIME_NAME && rt != "driftwatchdog" {
                 return Ok(LoadOutcome::ForeignRuntime {
                     runtime: rt.clone(),
                 });
@@ -1668,10 +1677,7 @@ id = "ux-review"
         assert_eq!(m.binding_policy, BindingPolicy::Report);
         assert!(m.not_applicable.is_empty());
         let r = resolve(&m, &[]).unwrap();
-        assert_eq!(
-            r.unbound,
-            vec!["governance-quality".to_string(), "ux-review".to_string()]
-        );
+        assert_eq!(r.unbound, vec!["ux-review".to_string()]);
         assert!(r.exemptions.is_empty());
         let check = r
             .plan
@@ -1700,7 +1706,6 @@ id = "ux-review"
         assert_eq!(
             r.unbound,
             vec![
-                "governance-quality".to_string(),
                 "placeholder-threshold".to_string(),
                 "product-code-boundary".to_string()
             ]
@@ -1960,13 +1965,13 @@ ux-review = "we have a command after all"
         // `repository_integrity` in 2. `declared-verification` joins at
         // 6 entries / 7 spellings with the single spelling its
         // generating constant produces.
-        assert_eq!(NON_EXEMPTABLE_ALIASES.len(), 6);
+        assert_eq!(NON_EXEMPTABLE_ALIASES.len(), 7);
         assert_eq!(
             NON_EXEMPTABLE_ALIASES
                 .iter()
                 .flat_map(|(_, spellings)| spellings.iter().copied())
                 .count(),
-            7
+            8
         );
     }
 
@@ -2016,11 +2021,6 @@ ux-review = "we have a command after all"
             .checks
             .iter()
             .any(|check| check.gate_id == "declared-verification"));
-        assert!(r2
-            .plan
-            .checks
-            .iter()
-            .any(|check| check.gate_id == GOVERNANCE_QUALITY));
     }
 
     /// The spine fails the budget whatever the counts say: one
@@ -2487,7 +2487,6 @@ profile = "product"
         assert_eq!(
             ids,
             vec![
-                "governance-quality",
                 "placeholder-threshold",
                 "product-code-boundary",
                 "source-file-size"
@@ -2600,7 +2599,7 @@ enabled = false
     }
 
     #[test]
-    fn workspace_profiles_schedule_only_governance_quality() {
+    fn workspace_profiles_have_no_implicit_sibling_checks() {
         let profiles = [
             "typescript-product",
             "python-product",
@@ -2615,14 +2614,14 @@ enabled = false
         ];
         for profile in profiles {
             assert!(SUPPORTED_PROFILES.contains(&profile));
-            assert_eq!(profile_defaults(profile), Some(&[GOVERNANCE_QUALITY][..]));
+            assert_eq!(profile_defaults(profile), Some(&[][..]));
             let text = format!("version = 1\nprofile = \"{profile}\"\n");
             let manifest = parse(&text).unwrap();
             let resolved = resolve(&manifest, &[]).unwrap();
             assert_eq!(
                 unbound_required_checks(&manifest, &selected_without_triggers(&manifest)),
-                vec![GOVERNANCE_QUALITY],
-                "fallback must be required and unbound for profile {profile}"
+                Vec::<String>::new(),
+                "workspace profile {profile} must not inject sibling checks"
             );
             let ids: Vec<&str> = resolved
                 .plan
@@ -2630,12 +2629,12 @@ enabled = false
                 .iter()
                 .map(|check| check.gate_id.as_str())
                 .collect();
-            assert_eq!(ids, vec![GOVERNANCE_QUALITY], "profile {profile}");
+            assert_eq!(ids, vec![SOURCE_FILE_SIZE], "profile {profile}");
         }
     }
 
     #[test]
-    fn every_supported_profile_schedules_governance_quality_once() {
+    fn every_supported_profile_has_no_implicit_governance_check() {
         for profile in SUPPORTED_PROFILES {
             let text = format!("version = 1\nprofile = \"{profile}\"\n");
             let manifest = parse(&text).unwrap();
@@ -2643,9 +2642,9 @@ enabled = false
             assert_eq!(
                 defaults
                     .iter()
-                    .filter(|id| id.as_str() == GOVERNANCE_QUALITY)
+                    .filter(|id| id.as_str() == crate::gate::concerns::GOVERNANCE_QUALITY)
                     .count(),
-                1,
+                0,
                 "profile {profile}"
             );
         }
@@ -2658,7 +2657,7 @@ enabled = false
                 .unwrap();
         assert_eq!(
             profile_defaults_for(&manifest, "custom"),
-            Some(vec!["my-check".to_string(), GOVERNANCE_QUALITY.to_string()])
+            Some(vec!["my-check".to_string()])
         );
         assert!(!is_builtin_profile("custom"));
     }
@@ -2699,8 +2698,8 @@ profile = "release"
             ids,
             vec![
                 "capability-conformance",
-                "governance-quality",
-                "release-evidence"
+                "release-evidence",
+                "source-file-size"
             ],
             "release profile selects both release-gate concerns in sorted order"
         );
@@ -2844,6 +2843,20 @@ exclude = ["src/generated/**"]
     }
 
     #[test]
+    fn forge_baseline_version_is_part_of_every_effective_manifest_digest() {
+        let manifest = parse("version = 1\nprofile = \"minimal\"\n").unwrap();
+        let canonical = toml::to_string_pretty(&manifest).unwrap();
+        let without_baseline = manifest_digest(&canonical);
+        let resolved = resolve(&manifest, &[]).unwrap();
+        assert_ne!(resolved.manifest_digest, without_baseline);
+        assert_eq!(resolved.rule_pack_version, "local");
+        assert_eq!(
+            resolved.manifest_digest,
+            manifest_digest(&format!("{}\n{canonical}", FORGE_BASELINE_VERSION))
+        );
+    }
+
+    #[test]
     fn source_size_rejects_zero_and_out_of_range_max_lines() {
         for body in [
             "version = 1\nprofile = \"product\"\n[source_size]\nmax_lines = 0\n",
@@ -2885,7 +2898,7 @@ exclude = ["src/generated/**"]
     }
 
     #[test]
-    fn source_file_size_can_be_relaxed_or_disabled() {
+    fn source_file_size_cannot_be_relaxed_or_disabled() {
         let relaxed = parse(
             "version = 1\nprofile = \"product\"\n[[checks]]\nid = \"source-file-size\"\nrequired = false\n",
         )
@@ -2897,19 +2910,19 @@ exclude = ["src/generated/**"]
             .iter()
             .find(|c| c.gate_id == "source-file-size")
             .unwrap();
-        assert!(!check.required);
+        assert!(check.required);
 
         let disabled = parse(
             "version = 1\nprofile = \"product\"\n[[checks]]\nid = \"source-file-size\"\nenabled = false\n",
         )
         .unwrap();
         let plan = resolve(&disabled, &[]).unwrap();
-        assert!(!plan
+        assert!(plan
             .plan
             .checks
             .iter()
-            .any(|c| c.gate_id == "source-file-size"));
-        assert!(plan.not_scheduled.contains(&"source-file-size".to_string()));
+            .any(|c| c.gate_id == "source-file-size" && c.required));
+        assert!(!plan.not_scheduled.contains(&"source-file-size".to_string()));
     }
 
     // --- per-check timeout -------------------------------------------------

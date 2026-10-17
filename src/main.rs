@@ -429,6 +429,13 @@ enum Commands {
         #[arg(long, value_name = "SECS")]
         timeout_secs: Option<u64>,
     },
+    /// Private dispatch for the bundled gate engine; use `forge gate`.
+    #[command(name = "__forge-gate-engine", hide = true)]
+    GateEngine {
+        /// Rehearse the resolved plan without executing or persisting it.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Vendor, inspect and project platform contracts into envelopes.
     Contract {
         #[command(subcommand)]
@@ -539,6 +546,28 @@ fn main() -> ExitCode {
         return cmd_gate(&db_path, args, *dry_run, *timeout_secs, cli.format);
     }
 
+    if let Commands::GateEngine { dry_run } = &cli.command {
+        let cwd = match std::env::current_dir() {
+            Ok(cwd) => cwd,
+            Err(error) => {
+                eprintln!("forge gate engine: cannot read current directory: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let args = driftwatchdog::cli::GateArgs {
+            dry_run: *dry_run,
+            format: driftwatchdog::cli::GateOutputFormat::Json,
+            subcommand: None,
+        };
+        return match driftwatchdog::commands::gate::gate_for_forge(args, &cwd) {
+            Ok(code) => ExitCode::from(code as u8),
+            Err(error) => {
+                eprintln!("forge gate engine failed: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     // Workspace sync prints its per-directory report to stdout even when
     // some directories failed, so it owns its exit code instead of using
     // the generic error path (exit 0 iff no directory failed; skips never
@@ -549,7 +578,12 @@ fn main() -> ExitCode {
 
     // `forge use` delegates to the product's own binary (inherited stdio)
     // and must return that binary's exit code, so it owns its exit code.
-    if let Commands::Use { list, product, args } = &cli.command {
+    if let Commands::Use {
+        list,
+        product,
+        args,
+    } = &cli.command
+    {
         return cmd_use(*list, product.as_deref(), args, cli.format);
     }
 
@@ -715,7 +749,7 @@ fn main() -> ExitCode {
             // arm exists only to keep the match exhaustive.
             return ExitCode::from(2);
         }
-        Commands::Gate { .. } => {
+        Commands::Gate { .. } | Commands::GateEngine { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this
             // arm exists only to keep the match exhaustive.

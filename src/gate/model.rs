@@ -7,10 +7,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::contract::{DEFAULT_GATE_TIMEOUT, GATE_BIN_ENV};
+use super::contract::DEFAULT_GATE_TIMEOUT;
 use super::rehearsal::GateRehearsal;
 
-/// One normalized check row from the sibling's `results[]`.
+/// One normalized check row from the bundled engine's `results[]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GateCheck {
     pub id: String,
@@ -56,9 +56,8 @@ pub struct ResolvedRuntime {
     pub name: String,
     pub attempts: Vec<String>,
 }
-/// The sibling's gate document has no `contract` field; it is
-/// discriminated by shape (`blocked` + `results`), the same rule the
-/// policy plane applies.
+/// The bundled engine's gate document has no `contract` field; it is
+/// discriminated by shape (`blocked` + `results`).
 pub(super) struct MappedDocument {
     pub(super) status: String,
     pub(super) blocked: bool,
@@ -93,20 +92,17 @@ impl GateFreshness {
 /// CLI input by the caller.
 #[derive(Debug, Clone)]
 pub struct GateConfig {
-    /// `FORGE_GATE_BIN` (or an explicit test path). Runs exactly as
-    /// named with no fall-through, like every other adapter override.
+    /// Explicit in-process-test seam. The Forge CLI never reads a
+    /// project setting or environment variable to choose another gate.
     pub binary: Option<OsString>,
     pub timeout: Duration,
 }
 impl GateConfig {
-    /// Resolve the override from the environment. Whitespace-only values
-    /// are ignored so `FORGE_GATE_BIN=""` keeps declared/fallback
-    /// resolution (same rule as the policy plane's override).
+    /// Build the Forge-owned gate configuration. Legacy
+    /// `FORGE_GATE_BIN` values are intentionally ignored.
     pub fn from_env() -> Self {
-        let binary =
-            std::env::var_os(GATE_BIN_ENV).filter(|v| !v.to_string_lossy().trim().is_empty());
         GateConfig {
-            binary,
+            binary: None,
             timeout: DEFAULT_GATE_TIMEOUT,
         }
     }
@@ -115,12 +111,12 @@ impl GateConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]
 pub enum GateOutcome {
-    /// A parseable status document mapped into evidence. Only a real run
+    /// A parseable status document mapped into Forge evidence. Only a real run
     /// produces this: a rehearsal document is recognised by its own shape
     /// and routed to [`GateOutcome::Rehearsal`] instead, so no aggregate
     /// or check state can ever be derived from a plan that ran nothing.
     Evidence(GateEvidence),
-    /// A `--dry-run` whose runtime answered with the sibling's
+    /// A `--dry-run` whose runtime answered with the engine's
     /// machine-readable plan rehearsal document, recognised by shape.
     /// Nothing was executed, persisted or journaled, and the rehearsal
     /// carries no aggregate, no check state and no revision binding, so

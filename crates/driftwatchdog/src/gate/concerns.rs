@@ -21,7 +21,7 @@
 //!   implementations, etc.). A pass report keeps the threshold; a
 //!   fail/review report names the offending surface in the findings.
 //! * `source-file-size` — a **built-in** concern (no project command):
-//!   Driftwatchdog discovers repository-owned source files, counts raw
+//!   Forge discovers repository-owned source files, counts raw
 //!   newline bytes like `wc -l`, and fails a required Gate when an
 //!   included file exceeds the configured (default 1,000) physical-line
 //!   maximum. The scanner lives in [`crate::gate::source_size`] and
@@ -118,17 +118,9 @@ pub fn is_source_file_size_concern(id: &str) -> bool {
 pub const GOVERNANCE_QUALITY: &str = "governance-quality";
 
 /// Every concern the `product` / `rust-product` built-in profiles
-/// schedule, sorted for deterministic plans.
-///
-/// This is a superset of [`PRODUCT_QUALITY_CONCERNS`], and it is kept
-/// separate on purpose: `is_product_quality_concern` answers "does the
-/// product-quality *envelope* adapter serve this id", and
-/// `governance-quality` is served by its own code-scoped adapter.
-/// Selection is data only and never invents a command, so a project
-/// that picks a product profile without binding
-/// `commands.governance-quality` records `UNBOUND` and fails.
+/// schedule, sorted for deterministic plans. External governance is an
+/// explicit project extension and is not a profile default.
 pub const PRODUCT_PROFILE_CONCERNS: &[&str] = &[
-    GOVERNANCE_QUALITY,
     PLACEHOLDER_THRESHOLD,
     PRODUCT_CODE_BOUNDARY,
     SOURCE_FILE_SIZE,

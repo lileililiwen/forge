@@ -41,6 +41,5 @@ pub const MAX_NOTE_CHARS: usize = 300;
 /// Bound on plan-preview lines kept from a `gate --dry-run` rehearsal.
 pub const MAX_PLAN_LINES: usize = 40;
 
-/// The only runtime names with a packaged resolution path. A declaration
-/// naming anything else is refused rather than silently probed.
-pub const SUPPORTED_GATE_RUNTIMES: &[&str] = &["driftwatchdog"];
+/// Forge is the sole runtime selected by the public `forge gate` command.
+pub const SUPPORTED_GATE_RUNTIMES: &[&str] = &["forge"];

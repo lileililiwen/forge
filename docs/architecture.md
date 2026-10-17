@@ -16,8 +16,8 @@ Deterministic assets are preferred at every reuse level: Profile → Feature →
 | Intent / Planner | Structured intent, graph validation, exact resolution and reviewable steps | CLI, later MCP/API |
 | Generator / Upgrade | Deterministic application, ownership records, preconditions and recovery | New, feature lifecycle, upgrades |
 | Policies / Doctor | Maturity assessment, local inspection and normalized external policy evidence | CLI, release, later transports |
-| Agent / Integrations | Existing PTY manager, DriftWatch, content and analytics adapters | Spec execution, quality and observations |
-| Gate Runtime Consumption | Driftwatchdog owns plan resolution, execution, blocking policy, its own run history and exit semantics; Forge owns bounded invocation, revision-bound evidence, journaling and honest surface projection; the sibling's `gate evidence-export` verb produces a versioned document that Forge consumes (vocabulary gate, revision gate, attribution, contradiction rule, atomic persistence, `forge gate evidence` read surface) | CLI (`forge gate`, `forge gate evidence`), Doctor, Release |
+| Agent / Integrations | Existing PTY manager, legacy checker adapter, content and analytics adapters | Spec execution, quality and observations |
+| Forge Gate | Forge owns plan resolution, mandatory baseline checks, project extensions, blocking policy, revision-bound evidence, journaling and honest surface projection; vendored gate code is an internal implementation dependency and writes no project history | CLI (`forge gate`), Doctor, Release, CI |
 | Distribution / Release / Deployment | Explicit external operations and durable per-stage outcomes | CLI, later mature MCP/API |
 | CLI / MCP / API / Portal | Input/output transport only; no duplicated business rules | Humans, agents, portal views |
 
@@ -39,7 +39,7 @@ Retries verify input hashes, source revisions and completed stages. Stale plans 
 
 ## Integration boundaries
 
-DriftWatch owns the quality/policy engine; its actual interface is inspected when integrating. The existing PTY manager owns process/session mechanics for OpenCode, Codex and future agents. Existing GitHub analytics and unified content systems retain their identities. The existing Codex/OpenSpec proposal workflow owns bounded semantic-change authoring.
+Forge owns project Gate policy and baseline execution. Existing external checker integrations may still use DriftWatchdog's checker protocol, but the Gate does not resolve or require a DriftWatchdog executable or sibling checkout. The existing PTY manager owns process/session mechanics for OpenCode, Codex and future agents. Existing GitHub analytics and unified content systems retain their identities. The existing Codex/OpenSpec proposal workflow owns bounded semantic-change authoring.
 
 Transport parity is delivered: CLI first, one mature stdio MCP server, an authenticated HTTP API and read-only portal views afterward, all dispatching through the same Core contracts. SSO uses standard OIDC, project-specific sessions and independent authorization; no shared cookies across unrelated apps.
 

@@ -58,6 +58,7 @@ libc.workspace = true
 argon2.workspace = true
 openidconnect.workspace = true
 reqwest.workspace = true
+driftwatchdog = { path = "crates/driftwatchdog" }
 
 [profile.release]
 lto = "thin"

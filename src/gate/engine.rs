@@ -3,7 +3,7 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use crate::core::ForgeError;
-use crate::policy::{first_binary_on_path, redact_credentials, DRIFTWATCH_BINARY_CANDIDATES};
+use crate::policy::redact_credentials;
 use chrono::{SecondsFormat, Utc};
 use std::ffi::OsStr;
 use std::fs;
@@ -14,9 +14,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use super::contract::{
-    GATE_BIN_ENV, GATE_CONTRACT_VERSION, GATE_EVIDENCE_DIR, GATE_EVIDENCE_FILE,
-    MAX_GATE_OUTPUT_BYTES, MAX_GATE_TIMEOUT_SECS, MAX_NOTE_CHARS, MAX_PLAN_LINES,
-    MIN_GATE_TIMEOUT_SECS, SUPPORTED_GATE_RUNTIMES,
+    GATE_CONTRACT_VERSION, GATE_EVIDENCE_DIR, GATE_EVIDENCE_FILE, MAX_GATE_OUTPUT_BYTES,
+    MAX_GATE_TIMEOUT_SECS, MAX_NOTE_CHARS, MAX_PLAN_LINES, MIN_GATE_TIMEOUT_SECS,
 };
 use super::model::{
     DeclaredRuntime, GateAggregate, GateCheck, GateCheckState, GateConfig, GateEvidence,
@@ -123,85 +122,30 @@ pub fn declared_project_id(dir: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Ordered runtime resolution (design chain):
-///
-/// 1. `FORGE_GATE_BIN` names an explicit binary, run exactly as given.
-/// 2. `.project.json` `verification.gate_runtime` maps a declared name to
-///    its probe vocabulary; an unknown declared name is refused rather
-///    than silently probed.
-/// 3. With no declaration, the ordered policy-binary probe
-///    (`driftwatchdog` → `driftwatch`) is the fallback.
-///
-/// Every branch records its attempts so an unavailable result names what
-/// was tried. A resolved-but-nonexistent explicit override is reported
-/// like the policy plane does (the spawn failure or the missing file is
-/// named, never replaced by probing).
+/// Resolve Forge's own executable as the private gate-engine transport.
+/// Legacy project runtime declarations and `FORGE_GATE_BIN` do not select
+/// another implementation.
 pub fn resolve_runtime(dir: &Path, config: &GateConfig) -> Result<ResolvedRuntime, String> {
-    let mut attempts: Vec<String> = Vec::new();
+    let mut attempts: Vec<String> = vec!["Forge owns gate execution".to_string()];
     if let Some(binary) = &config.binary {
-        attempts.push(format!("{GATE_BIN_ENV}={}", Path::new(binary).display()));
+        // This field is only used by unit tests to exercise hostile and
+        // unavailable process boundaries. The CLI never populates it.
+        attempts.push("test-only gate executable override".to_string());
         return Ok(ResolvedRuntime {
             binary: PathBuf::from(binary),
             name: binary_name(binary),
             attempts,
         });
     }
-    match declared_gate_runtime(dir) {
-        DeclaredRuntime::Declared(name) => {
-            if !SUPPORTED_GATE_RUNTIMES.contains(&name.as_str()) {
-                attempts.push(format!(
-                    "declared gate_runtime `{name}` (no resolution path)"
-                ));
-                return Err(format!(
-                    "project declares verification.gate_runtime `{name}`, which Forge cannot \
-                     resolve; supported runtimes: {}; attempts: {}",
-                    SUPPORTED_GATE_RUNTIMES.join(", "),
-                    attempts.join("; ")
-                ));
-            }
-            attempts.push(format!("declared gate_runtime `{name}`"));
-            resolve_by_probe(&mut attempts, &format!("PATH (declared `{name}`)"))
-        }
-        DeclaredRuntime::Unreadable(path) => {
-            attempts.push(format!("declared runtime unreadable at `{path}`"));
-            resolve_by_probe(&mut attempts, "PATH (declaration unreadable)")
-        }
-        DeclaredRuntime::Undeclared => {
-            attempts.push(format!("{GATE_BIN_ENV} unset"));
-            attempts.push("no verification.gate_runtime declared".to_string());
-            resolve_by_probe(&mut attempts, "PATH (fallback probe)")
-        }
-    }
-}
-
-fn resolve_by_probe(attempts: &mut Vec<String>, label: &str) -> Result<ResolvedRuntime, String> {
-    let path_env = std::env::var_os("PATH").unwrap_or_default();
-    match first_binary_on_path(&path_env, DRIFTWATCH_BINARY_CANDIDATES) {
-        Some(found) => {
-            attempts.push(format!("{label}: {}", found.display()));
-            let name = found
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("driftwatch")
-                .to_string();
-            Ok(ResolvedRuntime {
-                binary: found,
-                name,
-                attempts: attempts.clone(),
-            })
-        }
-        None => {
-            attempts.push(format!(
-                "{label}: none of '{}'",
-                DRIFTWATCH_BINARY_CANDIDATES.join("', '")
-            ));
-            Err(format!(
-                "no gate runtime resolvable: tried {}; the gate plane stays unverified \
-                 (never a pass) and prior evidence is untouched",
-                attempts.join("; ")
-            ))
-        }
-    }
+    let binary = std::env::current_exe()
+        .map_err(|error| format!("cannot resolve the running Forge executable: {error}"))?;
+    attempts.push(format!("bundled engine: {}", binary.display()));
+    let _ = dir;
+    Ok(ResolvedRuntime {
+        binary,
+        name: "forge".to_string(),
+        attempts,
+    })
 }
 
 fn binary_name(binary: &OsStr) -> String {
@@ -257,12 +201,10 @@ pub fn run_gate(dir: &Path, project_id: &str, config: &GateConfig, dry_run: bool
         Err(reason) => return GateOutcome::Unavailable { reason },
     };
     let runtime_version = probe_version(&resolved.binary, config.timeout);
-    let mut args: Vec<&OsStr> = vec![OsStr::new("gate")];
+    let mut args: Vec<&OsStr> = vec![OsStr::new("__forge-gate-engine")];
     if dry_run {
         args.push(OsStr::new("--dry-run"));
     }
-    args.push(OsStr::new("--format"));
-    args.push(OsStr::new("json"));
     let mut command = Command::new(&resolved.binary);
     command.args(&args).current_dir(dir).stdin(Stdio::null());
     let output = match run_bounded(&mut command, config.timeout) {

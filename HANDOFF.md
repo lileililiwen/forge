@@ -5860,3 +5860,57 @@ active OpenSpec changes, so no `current_spec` pointer is present.
 The full Gate wrote `.forge/gate/forge/evidence.json` at revision
 `337c66be94dc`; its overall verdict is blocked as recorded above. Do not treat
 that run as a pass. No sibling repository, push, or deployment was performed.
+
+
+## Forge CI and pre-commit templates (2026-10-18)
+
+Implemented, archived and promoted `forge-ci-precommit-templates` as
+`2026-10-17-forge-ci-precommit-templates`. Forge now defaults all six current
+profiles to receipt-backed templates: service profiles use
+`baseline-service@1.3.0` with their language verifier; React and Flutter use
+`baseline-client@1.0.0` with Forge Gate only. Generated GitHub Actions and
+pre-commit entry points both invoke repository-wide `forge gate .`; project
+Gate extensions remain active. Legacy install and upgrade use existing
+conflict-safe snapshot operations. GitHub Actions installs immutable Forge
+revision `d7c5f96c16fab8c50a9b40f80e55783b25a729af` with read-only permissions.
+
+Implementation, tests, templates, docs, archive and promoted spec are
+committed as `a118103` (`feat: distribute Forge Gate CI and hooks`). No sibling
+checkout was changed. Nothing was pushed.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Workspace build | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo build --workspace --all-features`. |
+| Standard pack unit tests | PASS, 20/20 | `cargo test --lib standard::snapshot_tests::tests -- --test-threads=1`; covers both packs, receipts, conflicts, and CI/hook parity. |
+| Generation unit tests | PASS, 15/15; one native test isolated | `cargo test --lib generate::generate_tests::tests -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --test-threads=1`; all six profile rendering passed. The included Rust native scaffold test separately failed at linking with `ld` signal 7 (Bus error) in `/tmp`. |
+| Standard contract tests | PASS, 16/16 | `cargo test --test standard_contract -- --test-threads=1`. |
+| Generation contract tests | PASS, 11/11; Flutter tool test excluded | `cargo test --test generate_contract -- --skip flutter_scaffold_tests_pass_without_forge --skip rust_scaffold_builds_and_tests_with_native_toolchain --test-threads=1`. The Flutter test stalled in the installed Flutter tool and was stopped; non-Flutter generated-project contracts passed. |
+| Formatting | PASS | `rustfmt --check --config skip_children=true` over changed Rust files. Workspace-wide formatting was avoided because it rewrites unrelated legacy files. |
+| OpenSpec/name/diff checks | PASS | Name preflight; `openspec validate --all --strict --no-interactive` **108/0** after archive; `git diff --check`. |
+| `forge gate --dry-run` | PASS | Eight checks resolved; no checks executed or evidence written. |
+| Full Forge Gate | BLOCKED, pre-existing | Run `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 660 ./target/debug/forge gate --timeout-secs 600`. Build, repository, quality, security and source-size pass. Test and declared-verification fail on the same 10 existing tests in untouched `crates/driftwatchdog` (718 passed, 10 failed); reproduce with `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 600 scripts/check-tests.sh`. Security reports unmaintained `paste` and `unsafe-libyaml` advisories. Remediation is roadmap package `forge-driftwatchdog-test-reconciliation`; these failures are not attributable to this change. Evidence revision: `73bbe74f80bc`. |
+
+## Remaining consolidation work
+
+The dependency-ordered queue is in [ROADMAP.md](ROADMAP.md#forge-source-consolidation-and-retirement):
+
+1. **Distribution and reliability:** publish checksummed Forge binaries for
+   CI, then reconcile the 10 in-tree DriftWatchdog test failures.
+2. **Ownership consolidation:** internalize selected workspace-governance
+   sources and actively consumed platform schemas/validators; remove sibling
+   checkout and mirrored-schema maintenance dependencies.
+3. **Local runtime:** support projects with multiple services across Compose
+   and local processes, integrating `gitrunbykaru` behind Forge commands.
+4. **Library monorepo:** relocate Rust and .NET platform libraries as ordinary
+   workspace directories while retaining package identities and independent
+   publication.
+5. **Developer workflow facade:** define stable end-to-end Forge workflows and
+   reconcile whether Forge's product boundary includes broader CI/CD
+   orchestration.
+6. **Origin retirement:** after each migration and consumer verification, make
+   the source repositories read-only/archive them. This remains the final
+   external operation.
+
+These are roadmap packages, not active OpenSpec changes. `openspec list` is
+empty, so this HANDOFF has no `current_spec` pointer. Before each migration,
+refresh the sibling HANDOFF, Git state, source, build and publication evidence.

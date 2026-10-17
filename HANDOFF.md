@@ -1,8 +1,131 @@
 # Forge handoff
 
-current_spec: interface-declaration-consumption
-
 ## Current state
+
+### `interface-declaration-consumption` delivered and archived (2026-10-17)
+
+Forge no longer keeps a private description of the workspace's boundaries
+without saying so. A plugin's kind and capabilities now resolve from the
+project's **own declaration** first — the `interfaces[]` / `capabilities` /
+`integrations` blocks `workspace-governance` owns — and every row reports
+which source answered it (`descriptor` | `declared` | `manifest` |
+`builtin`). A declaration Forge cannot read is refused by field, never
+silently ignored.
+
+**Why.** `src/plugins/mod.rs` resolved kind and capabilities from a table
+written in Rust (`driftwatchdog=gate`, `cargo-*=quality`, …), consulting
+only `kits/manifest.json` first. The workspace declares the same facts in
+`.project.json`, and Forge read none of it: a provider's capability change
+needed a Forge edit and a release, and `forge plugins list` could not tell a
+declaration from a compiled-in guess. Forge also held copies it never
+declared (`scripts/governance/**`, `scripts/vocabulary.json`, `contracts/**`,
+`kits/**`, and the third copy of the secret-field vocabulary).
+
+**What changed.**
+
+- **Resolution order and provenance.** `plugins::list(config, descriptors,
+  project_dir)` reads the inspected project's declaration and resolves
+  descriptor → declared → manifest → builtin, reporting `PluginSource` per
+  row. A lower rank never overrides a higher one; a field the answering rank
+  does not state is *filled* from the next rank that states one — which is
+  what makes a declared row behaviourally equal to the builtin row for the
+  same id. An id nothing declares still resolves through the builtin table
+  and reports `builtin`.
+- **Typed refusals** (`ForgeError::PluginBoundaryRefused`, code
+  `plugin-boundary-refused`; HTTP 400): `declaration-invalid` (naming the
+  file and the parse error, or the offending field), `mechanism-unknown`
+  (naming the value and `invoke, consume, observe, sibling`),
+  `contract-unversioned` (non-`sibling` interface with no versioned
+  contract), `digest-missing` (`consume`/`observe`/`sibling` without a
+  digest), and `definition-conflict` (a configured descriptor contradicting
+  the declaration — naming the id, both kinds and both capability lists; no
+  row is rendered). An absent or empty `interfaces` array stays silent.
+- **The declaration is read, never written.** `src/plugins/declaration.rs`
+  (split out with the tests to stay under the 1000-line cap) is the first
+  *validating* reader of `.project.json`; `contract::emit_capability` is
+  unchanged. Nothing is fetched, so the no-sibling invariant holds.
+- **Forge declares its own boundaries.** `forge/.project.json` gains 15
+  `interfaces[]` entries — 6 `provides` (`gate-result`
+  `platform.gate-result/1.0.0`, `contract-envelope`
+  `platform-contract-consumption/0.1.0`, `mcp-surface`
+  `mature-mcp-surface/0.1.0`, `publish-provider`
+  `forge-publish-provider/0.1.0`, `deploy-executor`
+  `forge-deploy-executor/0.1.0`, `checker-document` `forge-checker/0.1.0`)
+  and 9 `consumes` (`policy-checker-report` `driftwatch-checker/0.1.0` from
+  driftwatchdog, `governance-observation`
+  `governance-provider-contract/0.1.0`, and the retained copies:
+  `contracts/manifest.json` + `kits/manifest.json` named as the pin documents
+  that record every copied file's sha256, plus `scripts/governance/
+  {product_code_quality.py,vocabulary.py}`, `scripts/vocabulary.json`,
+  `contracts/vocabulary/governance-vocabulary.json` and the third-copy
+  `contracts/vocabulary/secret-field-substrings.json`). Eight digests are
+  declared; each equals the bytes it names, and the two manifest edges pin
+  the documents that record the rest. Every declared version is derived from
+  `CONTRACTS`, `PLATFORM_FAMILY_VERSIONS` or an adapter constant, asserted by
+  a test that fails if the two drift.
+- **No invented version.** `ariadex` and `sisyphusfy` have no contract
+  version on either side, so they are declared as optional `integrations[]`
+  entries with an `evidence_ref` — never as interfaces with a fabricated
+  version. `docs/architecture.md` states why (and why `publish-provider`/
+  `deploy-executor` are `provides`: the constants are this repository's, and
+  a consumption must name one provider that no single project is).
+- **Surfaces.** `forge plugins list` renders a `source:` column and the JSON
+  `source` field; `forge cap inspect` names the source beside each Ready
+  plugin (`cap list` counts unchanged, asserted); the API
+  `GET /v1/admin/projects/{id}/plugins` and the maintainer projection carry
+  `source`, and a refused declaration is a typed response rather than an
+  empty list. The SPA's scalar renderer shows the new field with no frontend
+  change. No command was added, so the command-catalog counts are unchanged.
+
+Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all -- --check` | clean |
+| `cargo build --workspace` | 0 errors |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | clean, 0 warnings |
+| `cargo test --lib plugins` | **28 passed / 0 failed** (was 7; +21) |
+| `cargo test --test plugins_declaration_contract` (new) | **17 passed / 0 failed** |
+| `cargo test --test plugins_contract` | **9 passed / 0 failed** (unchanged suite) |
+| `cargo test --test web_shipping_provider_reads_contract` | **10 passed / 0 failed** (pins `source: descriptor` and `source: builtin` over the wire) |
+| `cargo test --test catalog_contract catalog_cross_surface forge_web_command_catalog_contract web_command_reference_browser_contract web_creation_catalog_browser_contract` | 18 / 9 / 9 / 6 / 10 passed, 0 failed |
+| `cargo test --bin forge` (Clap-tree coverage) | 7 passed / 0 failed |
+| `cargo test --workspace --all-targets --no-fail-fast` with the three documented skips (`.project.json verification.command`) | **153 binaries, 2746 passed / 0 failed**, exit 0 |
+| `cargo test --workspace --all-targets` (unfiltered) | 1313 passed / 1 failed before abort: `api_contract::wrong_method_returns_405` reported `127.0.0.1:2050 is held by a process other than the api child` — a parallel-suite port collision in the repo's own listener fixture; **11/11 in isolation** immediately after, and the change adds no server or port. The unfiltered run also waits ~2200 s on the known `generate::tests::rust_scaffold_builds_and_tests_with_native_toolchain` hang, which the skip list excludes |
+| `node scripts/check-openspec-change-names.mjs` | PASS (pre- and post-archive) |
+| `openspec validate --all --strict --no-interactive` | **105 passed / 0 failed** before archive; post-archive re-run clean |
+| `git diff --check` | clean |
+| declaration vs `schemas/project.schema.json` (jsonschema Draft 2020-12) | **0 errors** |
+| `workspace_check.py --root .. --project forge --json` | exit 1 both before and after (errors 3 → 3). Delta per code: `INTERFACE_PROVIDER_UNDECLARED` 0 → **9** (WARNING), `STANDALONE_OPTIONAL` 0 → 2 (WARNING), `STANDALONE_BLOCKED` 0 → 1 (WARNING); **zero** `INTERFACE_DECLARATION_INVALID`, `INTERFACE_MECHANISM_UNKNOWN`, `INTERFACE_CONTRACT_UNVERSIONED`, `INTERFACE_CONSUMED_UNUSED`, `INTERFACE_VENDORED_WITHOUT_DIGEST`, `INTERFACE_SIBLING_PATH_UNPINNED` |
+| `forge gate --dry-run` | plan rendered: 9 required checks, `max_lines=1000`, `declared-verification`/`tests` 600000 ms |
+| `forge gate --timeout-secs 1800` | **blocked, 0 attributable**: `build`, `declared-verification`, `governance-quality`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `tests` **pass**; `source-file-size` fails on `src/api/admin/assurance.rs` **1003 lines vs 1000** — untouched by `94ca0b9` (last changed by `37e8824`) and **pre-existing**; remediation path: a size split following the repo's established `*-size-split` pattern. (`security` passes on the known `unsafe-libyaml` advisory) |
+| `openspec archive interface-declaration-consumption -y` | archived as `2026-10-17-interface-declaration-consumption`, **no `--skip-specs`**: canonical `forge-publish-plugin-orchestration` **+2 added, ~1 modified** (9 → 11 requirements); the delta's two kept scenarios (`Builtin maps known ids`, `Descriptor overrides builtin`) were restored to the MODIFIED block because the archiver refuses a modification that drops them |
+
+**Honest notes.** (1) **`INTERFACE_*` is not zero, and cannot be yet**: the
+nine `INTERFACE_PROVIDER_UNDECLARED` warnings are the *provider* halves of
+Forge's consumption edges — driftwatchdog, workspace-governance (×4),
+platform-contracts (×2) and dotnet-platform-libs declare no `provides` entry
+for their interfaces, and no sibling may be written by this change. The
+edge-counts-as-declared rule names each provider and its remediation: the
+provider declares its own `provides` entry, and the warning clears.
+(2) **`STANDALONE_BLOCKED` +1** is a consequence of declaring
+`integrations[]`: the audit then asks for a `standalone` block to classify the
+project's donation posture ("standalone block absent; cannot classify",
+WARNING). Adding one is a governance statement about Forge that this change is
+not authorised to make, so it is reported with its remediation rather than
+invented. (3) Two spec-delta sentences were reconciled with the schema before
+archiving: resolution order now matches the design's rank table (descriptor
+first), and "record the interface without a version" now says "record the
+boundary ... as an `integrations[]` provider", because the schema requires a
+versioned contract on every interface. (4) `publish-provider` and
+`deploy-executor` are declared `provides`, not the design table's `consumes`,
+for the reason in `docs/architecture.md`. (5) The untracked `.dagger/`,
+`dagger.lock` and `dagger.toml` in the worktree are not this change's and were
+not staged.
+
+Commits on `main`: implementation + specs + tests (`94ca0b9`) + this handoff.
+Nothing pushed. No OpenSpec change remains active, so this handoff carries no
+`current_spec` pointer.
 
 ### `standard-pack-shared-assets-and-install` delivered (2026-10-16)
 

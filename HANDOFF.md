@@ -2,6 +2,41 @@
 
 ## Current state
 
+### `forge-governance-consumer-migration` delivered and archived (2026-10-18)
+
+Forge now exposes `forge concern check <id> [project-root]` for the seven
+supported generic and product-quality checks. Source and installed binaries
+resolve Forge-bundled checker resources. The consolidated Driftwatchdog and
+`cargo-*` projects use `forge-baseline/1.0.0`; their live Gate manifests and
+concern wrappers no longer depend on Workspace Governance paths or provider
+identity. Native build, test, security and product-specific checks remain in
+their Gates. Forge retains Workspace Governance as an internal module and
+keeps its self-check runnable.
+
+**Evidence.** Concern CLI contracts **7/7**; all four consolidated crate Gate
+dry-runs resolved their required checks with no unbound entries. The Workspace
+Governance self-check passed with 0 errors/warnings and its Python suite passed
+**1,013 tests / 2 skipped**. `scripts/package.sh` built
+`dist/forge-0.1.0-x86_64-unknown-linux-gnu.tar.gz` (SHA-256
+`9280aaffc61dbef624962820db45ecb0f27ca2bc1d01e8612e9104a4a4425695`); checksum
+verification, install, installed smoke, and installed product-quality check
+passed. Forge Gate dry-run resolved 8 required checks with no unbound entries.
+The full Gate passed **8/8**, including build, both test bindings, security,
+concern checks and source-size (**421/421 candidates**) at
+`2026-10-18T06:42:29Z`, on revision `61badfd298b1335e91bfe863a9555449db45c945`.
+Security reported the existing unmaintained `paste` and `unsafe-libyaml`
+advisories without failing. OpenSpec name preflight passed; strict validation
+passed **112/112**; the import verifier matched **400 source paths** with 20
+declared adaptations; `git diff --check` passed. The change was archived without
+`--skip-specs` and promoted to `openspec/specs/forge-governance-consumer-migration/`.
+
+The implementation/archive commit is `753b400` (`feat: hide governance
+internals behind Forge`). External sibling repositories remain unchanged; the
+next package is `forge-governance-consumer-portability`. The separate
+Workspace Governance source-size conformance package remains required before
+the origin repository can be archived. No external sibling repository was
+changed, pushed, or archived.
+
 ### `forge-runtime-template-internalization` delivered and archived (2026-10-18)
 
 Forge owns the version-1 runtime template renderer and ten template families

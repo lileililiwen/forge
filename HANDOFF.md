@@ -2,6 +2,43 @@
 
 ## Latest delivery
 
+### `forge-hosted-ci-evidence-ingest` implemented and archived (2026-10-18)
+
+Generated service/client workflows now submit authenticated Gate observations
+to Forge. A dependent upload job receives GitHub OIDC permission only for
+configured branch pushes with a terminal Gate artifact. Forge verifies the
+fixed issuer/audience and signed repository, workflow, run, attempt and SHA
+claims against an operator-bound immutable GitHub repository ID, then stores
+append-only, replay-safe observations. The Quality checks panel supports
+binding and reads hosted history with freshness and run links. Hosted records
+remain observations: they do not replace local Gate evidence or satisfy the
+delivery precondition. Existing project snapshots require an explicit upgrade.
+
+The CI/CD model now describes the complete hosted evidence path and no longer
+claims hosted results are absent or that delivery has no local Gate check.
+The next roadmap gap is a unified read-only delivery timeline joining GitHub
+runs, Gate evidence, release operations, provider delivery and post-publish
+enrollment without merging their owners' status semantics.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Hosted OIDC, registry, API, standard and metadata contracts | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --test hosted_ci_oidc_contract --test hosted_ci_registry_contract --test hosted_ci_api_contract --test standard_contract --test standard_cross_surface --test workspace_metadata_contract`: **46 passed / 0 failed**. |
+| Standard catalog and generation | PASS | `cargo test --lib standard::snapshot_tests::`: **20 passed**; `cargo test --lib generate::generate_tests::tests::compatible_generation_defaults_to_gate_pack_and_explicit_versions_stay_pinned`: **1 passed**. |
+| Uploader / browser / syntax | PASS | `python3 tests/hosted_ci_uploader_contract.py`: **2 passed**; `cargo test --test forge_web_workbench_deep_link_browser`: **1 passed**; `node --check frontend/app.js` and `node --check tests/browser/workbench-deep-link-check.mjs` passed. |
+| Changed Rust formatting and whitespace | PASS | Rustfmt 1.10.0, edition 2021, `--check --config skip_children=true` on **28 changed Rust files**; `git diff --check` passed. |
+| OpenSpec | PASS | Name preflight passed; strict validation **115/115** after archive; archive promoted `hosted-ci-evidence-ingest` without `--skip-specs`. |
+| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; 8/8 required checks resolved and no checks unbound. |
+| Full Forge Gate | BLOCKED by a reproduced pre-existing governance failure | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; evidence `.forge/gate/forge/evidence.json`, revision `083f542ef860803a690dbfb144736a83f6a57154`, observed `2026-10-18T12:50:37Z`. Build, repository, security, placeholder, product boundary and source-size passed; source-size evaluated **428/428** candidates under 1,000 lines. Both test-bearing checks exit 101 on `governance_cross_surface::broken_preset_adapter_never_renders_healthy_in_checker_or_portal` (`tests/governance_cross_surface.rs:191`): expected `unavailable`, got `unknown`. `scripts/check-tests.sh` and the isolated test reproduce it; it predates this change. Remediation: correct the broken preset status mapping through `src/governance/engine.rs` and checker/portal projections in a separate OpenSpec change. Security reports existing unmaintained `paste` and `unsafe-libyaml` warnings without failing. |
+
+The change was archived at
+`openspec/changes/archive/2026-10-18-forge-hosted-ci-evidence-ingest/`,
+promoting `openspec/specs/hosted-ci-evidence-ingest/`. Implementation/archive
+commit: `d561d6f` (`feat: ingest authenticated hosted CI evidence`). No active
+changes remain, so the `current_spec` pointer is removed. This is the separate
+HANDOFF-only commit. No sibling project was changed and nothing was pushed.
+
+### `forge-hosted-ci-evidence-envelope` implemented and archived (2026-10-18)
+
 ### `forge-hosted-ci-evidence-envelope` implemented and archived (2026-10-18)
 
 Forge now owns the versioned `forge-hosted-ci-evidence/1.0` Rust contract in

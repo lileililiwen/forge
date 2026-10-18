@@ -273,7 +273,10 @@ fn install_provider_stub(dir: &Path, project_dir: &Path) -> PathBuf {
 fn run_with_fixtures(db: &Path, fixture_path: &Path, args: &[&str]) -> std::process::Output {
     let mut cmd = clean_cmd();
     cmd.arg("--registry").arg(db);
-    cmd.env("PATH", fixture_path);
+    let mut path = std::ffi::OsString::from(fixture_path);
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    cmd.env("PATH", path);
     for a in args {
         cmd.arg(a);
     }
@@ -433,6 +436,36 @@ fn delivery_routes_do_not_change_the_registry_when_they_refuse() {
 }
 
 #[test]
+fn project_api_preflight_refuses_without_gate_evidence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_identity_project(&proj, "delivery-cross-gate-required");
+    let reg = run(&db, &["register", proj.to_str().unwrap()]);
+    assert!(reg.status.success(), "register: {}", lossy(&reg.stderr));
+    let session = mint_session_token(&db, &proj);
+    let (port, mut child) = start_api(&db);
+    let (status, json) = http_request(
+        "POST",
+        &format!("127.0.0.1:{port}"),
+        "/v1/projects/delivery-cross-gate-required/delivery/preflight",
+        &[("Authorization", &format!("Bearer {session}"))],
+        b"{}",
+    );
+    stop_api(&mut child);
+    assert_eq!(status, 409);
+    assert_eq!(json["error"]["code"], "delivery-conflict");
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("forge gate")
+    );
+    let report = run_json(&db, &["delivery", "status", "delivery-cross-gate-required"]);
+    assert!(report["preflight"]["op_id"].is_null());
+}
+
+#[test]
 fn a_successful_preflight_writes_a_journal_row_visible_on_both_transports() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
@@ -440,6 +473,25 @@ fn a_successful_preflight_writes_a_journal_row_visible_on_both_transports() {
     write_identity_project(&proj, "delivery-cross-preflight");
     let reg = run(&db, &["register", proj.to_str().unwrap()]);
     assert!(reg.status.success());
+    let inspect = run_json(&db, &["inspect", "delivery-cross-preflight"]);
+    let revision = inspect["last_commit"].as_str().unwrap();
+    let evidence_path = proj.join(".forge/gate/delivery-cross-preflight/evidence.json");
+    std::fs::create_dir_all(evidence_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &evidence_path,
+        serde_json::json!({
+            "contract": "0.1.0",
+            "project_id": "delivery-cross-preflight",
+            "runtime": "forge",
+            "revision": revision,
+            "aggregate": "passed",
+            "checks": [],
+            "observed_at": "2026-10-18T00:00:00Z",
+            "dry_run": false
+        })
+        .to_string(),
+    )
+    .unwrap();
     let session = mint_session_token(&db, &proj);
 
     let fixture = install_provider_stub(&tmp.path().join("fx"), &proj);

@@ -25,9 +25,9 @@ use std::process::Command;
 use std::sync::Mutex;
 
 use chrono::Utc;
-use forge::api::{command_catalog, handle, ApiConfig, ApiRequest};
+use forge::api::{ApiConfig, ApiRequest, command_catalog, handle};
 use forge::registry::{OperationEntry, Registry};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tempfile::tempdir;
 
 /// `FORGE_HERMORA_BIN` and `FORGE_PUBLISH_PROVIDER_CONFIG` are process-global
@@ -218,6 +218,31 @@ fn git_head(dir: &Path) -> String {
 fn register_project(db: &Path, dir: &Path) {
     let mut registry = Registry::open(db).unwrap();
     registry.register(dir, None).unwrap();
+    let revision = registry
+        .inspect("delivery-web")
+        .unwrap()
+        .last_commit
+        .unwrap();
+    let evidence_path = dir
+        .join(".forge/gate")
+        .join("delivery-web")
+        .join("evidence.json");
+    fs::create_dir_all(evidence_path.parent().unwrap()).unwrap();
+    fs::write(
+        evidence_path,
+        json!({
+            "contract": forge::gate::GATE_CONTRACT_VERSION,
+            "project_id": "delivery-web",
+            "runtime": "forge",
+            "revision": revision,
+            "aggregate": "passed",
+            "checks": [],
+            "observed_at": "2026-10-18T00:00:00Z",
+            "dry_run": false
+        })
+        .to_string(),
+    )
+    .unwrap();
 }
 
 fn write_stub(dir: &Path, name: &str, body: &str) -> PathBuf {
@@ -872,9 +897,11 @@ fn unhealthy_stage_blocks_promotion_without_a_second_provider_call() {
     assert_eq!(promote.status, 409, "unhealthy stage blocks promote");
     assert_eq!(body_json(&promote)["error"]["code"], "delivery-conflict");
     assert_eq!(provider_calls(&fx.provider_log), 2);
-    assert!(delivery_rows(&fx.db, "delivery-web")
-        .iter()
-        .all(|row| row.kind != "delivery.promote"));
+    assert!(
+        delivery_rows(&fx.db, "delivery-web")
+            .iter()
+            .all(|row| row.kind != "delivery.promote")
+    );
 }
 
 #[test]
@@ -923,12 +950,14 @@ fn missing_hermora_adapter_preserves_the_healthy_deployment() {
     assert_eq!(hermora.status, 503, "missing adapter unavailable");
     assert_eq!(body_json(&hermora)["error"]["code"], "delivery-unavailable");
     let rows = delivery_rows(&fx.db, "delivery-web");
-    assert!(rows
-        .iter()
-        .any(|row| row.kind == "delivery.promote" && row.state == "done"));
-    assert!(rows
-        .iter()
-        .any(|row| row.kind == "delivery.hermora" && row.state == "failed"));
+    assert!(
+        rows.iter()
+            .any(|row| row.kind == "delivery.promote" && row.state == "done")
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.kind == "delivery.hermora" && row.state == "failed")
+    );
 }
 
 #[test]

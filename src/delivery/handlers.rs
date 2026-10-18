@@ -11,21 +11,25 @@
 //! existing `operations` table.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
 use crate::core::ForgeError;
+use crate::gate::{
+    GATE_CONTRACT_VERSION, GateAggregate, GateFreshness, evidence_freshness, load_latest_evidence,
+};
 use crate::publish::providers::{
-    load_config as load_provider_config, select_provider, ProviderEntry,
+    ProviderEntry, load_config as load_provider_config, select_provider,
 };
 use crate::registry::{OperationEntry, Registry, ReservationOutcome};
 
+use super::DeliveryEnvironment;
 use super::hermora::{self, HermoraOutcome, HermoraRequest};
 use super::invoke as provider_invoke;
 use super::projection::DeliveryReport;
-use super::state::{idempotency_key, request_hash, scrub_detail, DeliveryVerb};
-use super::DeliveryEnvironment;
+use super::state::{DeliveryVerb, idempotency_key, request_hash, scrub_detail};
 
 /// Outcome of one delivery verb invocation. The CLI renders the
 /// `DeliveryReport`; the API returns the JSON envelope.
@@ -103,6 +107,78 @@ fn resolve_project(registry: &Registry, project_id: &str) -> Result<(PathBuf, St
     Ok((path, revision))
 }
 
+fn verify_registered_head(
+    project_dir: &Path,
+    project_id: &str,
+    registered_revision: &str,
+) -> Result<(), ForgeError> {
+    let head = Command::new("git")
+        .arg("rev-parse")
+        .arg("HEAD")
+        .current_dir(project_dir)
+        .output()
+        .map_err(|err| ForgeError::DeliveryUnavailable {
+            reason: format!(
+                "delivery: cannot read current Git HEAD for `{project_id}`: {err}; install Git and retry"
+            ),
+        })?;
+    if !head.status.success() {
+        return Err(ForgeError::DeliveryConflict {
+            reason: format!(
+                "delivery: current Git HEAD for `{project_id}` is unavailable; commit the intended source and re-run `forge register`"
+            ),
+        });
+    }
+    let current = String::from_utf8_lossy(&head.stdout).trim().to_string();
+    if current.len() != 40 || !current.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ForgeError::DeliveryConflict {
+            reason: format!(
+                "delivery: current Git HEAD for `{project_id}` is not a full source revision; re-run `forge register`"
+            ),
+        });
+    }
+    if current != registered_revision {
+        return Err(ForgeError::DeliveryConflict {
+            reason: format!(
+                "delivery: registered revision for `{project_id}` differs from current Git HEAD; commit the intended source, then run `forge register` and `forge gate` from the project directory"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn require_fresh_passing_gate(
+    project_dir: &Path,
+    project_id: &str,
+    revision: &str,
+) -> Result<(), ForgeError> {
+    let evidence = load_latest_evidence(project_dir)?.ok_or_else(|| ForgeError::DeliveryConflict {
+        reason: format!(
+            "delivery: Forge Gate evidence is absent for `{project_id}`; run `forge gate` from the project directory and retry preflight"
+        ),
+    })?;
+    let freshness = evidence_freshness(&evidence, Some(revision));
+    if evidence.project_id != project_id
+        || evidence.contract != GATE_CONTRACT_VERSION
+        || freshness != GateFreshness::Fresh
+        || evidence.aggregate != GateAggregate::Passed
+        || evidence.dry_run
+    {
+        return Err(ForgeError::DeliveryConflict {
+            reason: format!(
+                "delivery: Forge Gate evidence for `{project_id}` must use contract {}, be fresh and passed for revision {}; observed contract={}, project={}, aggregate={}, freshness={}; run `forge gate` from the project directory and retry preflight",
+                GATE_CONTRACT_VERSION,
+                &revision[..12],
+                evidence.contract,
+                evidence.project_id,
+                evidence.aggregate.label(),
+                freshness.label()
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Build the projection after a single mutation by re-reading the
 /// journal. The `Registry` methods we call are all `&self` so
 /// multiple immutable borrows are safe.
@@ -121,6 +197,8 @@ pub fn run_preflight(
     now: DateTime<Utc>,
 ) -> Result<DeliveryOutcome, ForgeError> {
     let (project_dir, revision) = resolve_project(registry, project_id)?;
+    verify_registered_head(&project_dir, project_id, &revision)?;
+    require_fresh_passing_gate(&project_dir, project_id, &revision)?;
     let provider = resolve_provider(&project_dir)?;
     let key = idempotency_key(DeliveryVerb::Preflight, project_id, &revision)?;
     let hash = request_hash(&revision, None, "preflight");

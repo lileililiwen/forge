@@ -16,6 +16,9 @@
 // is unavailable (`UNVERIFIED`). The Rust caller reports exit 2 as
 // UNVERIFIED, never a pass.
 
+import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
 const [
   webBase,
   email,
@@ -146,6 +149,42 @@ try {
       .waitFor({ state: 'attached', timeout: 30000 });
     note(`${name} confirmed`);
   };
+
+  // Prove the operator-facing refusal and recovery path first. The first
+  // confirmed attempt must announce why Gate evidence is required and how to
+  // create it; only then does this fixture record a passing Gate result for
+  // the exact committed revision so the full delivery flow can proceed.
+  const preflightCard = await openAction('preflight');
+  await preflightCard.getByRole('button', { name: /^preview preflight$/i }).click();
+  await preflightCard.getByRole('checkbox').check();
+  await preflightCard.getByRole('button', { name: 'Run confirmed action' }).click();
+  const refusal = preflightCard.locator('.wb-plan-result');
+  await refusal.getByText(/Gate evidence is absent/i).waitFor({ timeout: 30000 });
+  if (!(await refusal.getAttribute('role'))?.includes('alert')) {
+    fail('missing Gate evidence refusal was not announced as an alert');
+  }
+  const refusalText = await refusal.innerText();
+  if (!refusalText.includes('forge gate')) {
+    fail(`Gate refusal did not give a recovery command: ${refusalText}`);
+  }
+  note('missing Gate evidence refusal announced with recovery command');
+
+  const projectRoot = `${fixtureRoot}/project`;
+  const revision = execFileSync('git', ['-C', projectRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const evidencePath = `${projectRoot}/.forge/gate/${projectId}/evidence.json`;
+  fs.mkdirSync(evidencePath.slice(0, evidencePath.lastIndexOf('/')), { recursive: true });
+  fs.writeFileSync(evidencePath, JSON.stringify({
+    contract: '0.1.0',
+    project_id: projectId,
+    runtime: 'forge',
+    revision,
+    aggregate: 'passed',
+    checks: [],
+    observed_at: '2026-10-18T00:00:00Z',
+    dry_run: false,
+  }));
+  await page.getByRole('button', { name: 'Open project' }).click();
+  await delivery.getByText('Phase: draft', { exact: false }).waitFor({ timeout: 30000 });
 
   await previewAndRun('preflight');
   await delivery.getByText('Phase: awaiting-stage-confirmation', { exact: false }).waitFor({ timeout: 30000 });

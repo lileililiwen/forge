@@ -133,7 +133,7 @@ fn install_provider(
     std::fs::create_dir_all(&provider_dir).unwrap();
     let script = provider_dir.join("forge-openpanel-stub");
     let branched = format!(
-        "#!/bin/sh\nOP=$1\nif [ \"$OP\" = \"preflight\" ]; then STATUS=\"{preflight_status}\"; else STATUS=\"{publish_status}\"; fi\nQUEUE=$(printf '%s\\n' \"$@\" | grep '^delivery-' | head -1)\nif [ -z \"$QUEUE\" ]; then QUEUE=delivery-default; fi\nprintf '{{\"contract\":\"forge-publish-provider/0.1.0\",\"provider\":\"openpanel\",\"operation_id\":\"stub-op\",\"status\":\"%s\",\"health\":\"healthy\",\"evidence\":[\"provider stub\"],\"recovery\":[],\"build_status\":\"succeeded\",\"run_status\":\"succeeded\",\"container_identity\":\"forge-stub-0123456789ab\",\"queue_id\":\"%s\"}}\\n' \"$STATUS\" \"$QUEUE\"\n"
+        "#!/bin/sh\ntouch \"$(dirname \"$0\")/provider-called\"\nOP=$1\nif [ \"$OP\" = \"preflight\" ]; then STATUS=\"{preflight_status}\"; else STATUS=\"{publish_status}\"; fi\nQUEUE=$(printf '%s\\n' \"$@\" | grep '^delivery-' | head -1)\nif [ -z \"$QUEUE\" ]; then QUEUE=delivery-default; fi\nprintf '{{\"contract\":\"forge-publish-provider/0.1.0\",\"provider\":\"openpanel\",\"operation_id\":\"stub-op\",\"status\":\"%s\",\"health\":\"healthy\",\"evidence\":[\"provider stub\"],\"recovery\":[],\"build_status\":\"succeeded\",\"run_status\":\"succeeded\",\"container_identity\":\"forge-stub-0123456789ab\",\"queue_id\":\"%s\"}}\\n' \"$STATUS\" \"$QUEUE\"\n"
     );
     std::fs::write(&script, branched).unwrap();
     let mut perms = std::fs::metadata(&script).unwrap().permissions();
@@ -172,11 +172,30 @@ fn install_hermora(dir: &Path) -> PathBuf {
 fn run_with_fixtures(db: &Path, fixture_path: &Path, args: &[&str]) -> std::process::Output {
     let mut cmd = clean_cmd();
     cmd.arg("--registry").arg(db);
-    cmd.env("PATH", fixture_path);
+    let mut path = std::ffi::OsString::from(fixture_path);
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    cmd.env("PATH", path);
     for a in args {
         cmd.arg(a);
     }
     cmd.output().expect("run forge with fixtures")
+}
+
+fn write_gate_evidence(proj: &Path, id: &str, revision: &str, aggregate: &str) {
+    let evidence = serde_json::json!({
+        "contract": "0.1.0",
+        "project_id": id,
+        "runtime": "forge",
+        "revision": revision,
+        "aggregate": aggregate,
+        "checks": [],
+        "observed_at": "2026-10-18T00:00:00Z",
+        "dry_run": false
+    });
+    let path = proj.join(".forge/gate").join(id).join("evidence.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
 }
 
 fn seed_register(db: &Path, proj: &Path, id: &str) {
@@ -189,7 +208,8 @@ fn seed_register(db: &Path, proj: &Path, id: &str) {
     // confirm it via `registered_revision`.
     let reg = run(db, &["register", proj.to_str().unwrap()]);
     assert!(reg.status.success(), "register: {}", lossy(&reg.stderr));
-    let _ = id;
+    let revision = registered_revision(db, id);
+    write_gate_evidence(proj, id, &revision, "passed");
 }
 
 fn registered_revision(db: &Path, id: &str) -> String {
@@ -316,6 +336,166 @@ fn promote_with_a_stale_confirm_revision_is_delivery_conflict() {
         stderr.contains("delivery-stale"),
         "stderr must name the project: {stderr}"
     );
+}
+
+#[test]
+fn preflight_without_gate_evidence_refuses_before_provider_or_journal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_project(&proj, "delivery-gate-required");
+    let reg = run(&db, &["register", proj.to_str().unwrap()]);
+    assert!(reg.status.success(), "register: {}", lossy(&reg.stderr));
+    let fx = tmp.path().join("fx");
+    let fixture = install_provider(&fx, &proj, "succeeded", "succeeded");
+
+    let out = run_with_fixtures(
+        &db,
+        &fixture,
+        &["delivery", "preflight", "delivery-gate-required"],
+    );
+    assert!(
+        !out.status.success(),
+        "missing Gate evidence must refuse preflight"
+    );
+    let stderr = lossy(&out.stderr);
+    assert!(
+        stderr.contains("delivery-conflict"),
+        "expected typed refusal: {stderr}"
+    );
+    assert!(
+        stderr.contains("forge gate"),
+        "refusal must explain recovery: {stderr}"
+    );
+    assert!(
+        !fx.join("bin/provider-called").exists(),
+        "provider must not run"
+    );
+    let report = run_json(&db, &["delivery", "status", "delivery-gate-required"]);
+    assert!(
+        report["preflight"]["op_id"].is_null(),
+        "refusal must not journal"
+    );
+}
+
+#[test]
+fn preflight_rejects_nonpassing_and_stale_gate_evidence_before_provider() {
+    for (index, aggregate, evidence_revision) in [
+        (0, "blocked", None),
+        (1, "failed", None),
+        (2, "unknown", None),
+        (
+            3,
+            "passed",
+            Some("ffffffffffffffffffffffffffffffffffffffff"),
+        ),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("registry.db");
+        let proj = tmp.path().join("proj");
+        let id = format!("delivery-gate-reject-{index}");
+        write_project(&proj, &id);
+        seed_register(&db, &proj, &id);
+        let revision = evidence_revision
+            .map(str::to_owned)
+            .unwrap_or_else(|| registered_revision(&db, &id));
+        write_gate_evidence(&proj, &id, &revision, aggregate);
+        let fx = tmp.path().join("fx");
+        let fixture = install_provider(&fx, &proj, "succeeded", "succeeded");
+
+        let out = run_with_fixtures(&db, &fixture, &["delivery", "preflight", &id]);
+        assert!(!out.status.success(), "aggregate={aggregate} must refuse");
+        assert!(lossy(&out.stderr).contains("delivery-conflict"));
+        assert!(
+            !fx.join("bin/provider-called").exists(),
+            "provider ran for aggregate={aggregate}"
+        );
+        let report = run_json(&db, &["delivery", "status", &id]);
+        assert!(
+            report["preflight"]["op_id"].is_null(),
+            "refusal journaled for aggregate={aggregate}"
+        );
+    }
+}
+
+#[test]
+fn preflight_rejects_wrong_gate_contract_project_or_dry_run() {
+    for (index, key, value) in [
+        (0, "contract", serde_json::json!("0.0.1")),
+        (1, "project_id", serde_json::json!("another-project")),
+        (2, "dry_run", serde_json::json!(true)),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("registry.db");
+        let proj = tmp.path().join("proj");
+        let id = format!("delivery-gate-invalid-{index}");
+        write_project(&proj, &id);
+        seed_register(&db, &proj, &id);
+        let path = proj.join(".forge/gate").join(&id).join("evidence.json");
+        let mut evidence: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        evidence[key] = value;
+        std::fs::write(&path, serde_json::to_vec(&evidence).unwrap()).unwrap();
+        let fx = tmp.path().join("fx");
+        let fixture = install_provider(&fx, &proj, "succeeded", "succeeded");
+
+        let out = run_with_fixtures(&db, &fixture, &["delivery", "preflight", &id]);
+        assert!(
+            !out.status.success(),
+            "invalid Gate field {key} must refuse"
+        );
+        assert!(lossy(&out.stderr).contains("delivery-conflict"));
+        assert!(
+            !fx.join("bin/provider-called").exists(),
+            "provider ran for {key}"
+        );
+        let report = run_json(&db, &["delivery", "status", &id]);
+        assert!(
+            report["preflight"]["op_id"].is_null(),
+            "refusal journaled for {key}"
+        );
+    }
+}
+
+#[test]
+fn preflight_rejects_registered_revision_when_git_head_moves() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    let id = "delivery-git-head-moved";
+    write_project(&proj, id);
+    seed_register(&db, &proj, id);
+    std::fs::write(proj.join("README.md"), "changed after registration\n").unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&proj)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git command failed: {}",
+            lossy(&out.stderr)
+        );
+    };
+    git(&["add", "README.md"]);
+    git(&[
+        "-c",
+        "user.name=Forge",
+        "-c",
+        "user.email=forge@example.com",
+        "commit",
+        "-m",
+        "move head",
+    ]);
+    let fx = tmp.path().join("fx");
+    let fixture = install_provider(&fx, &proj, "succeeded", "succeeded");
+
+    let out = run_with_fixtures(&db, &fixture, &["delivery", "preflight", id]);
+    assert!(!out.status.success());
+    assert!(lossy(&out.stderr).contains("delivery-conflict"));
+    assert!(!fx.join("bin/provider-called").exists());
+    let report = run_json(&db, &["delivery", "status", id]);
+    assert!(report["preflight"]["op_id"].is_null());
 }
 
 #[test]

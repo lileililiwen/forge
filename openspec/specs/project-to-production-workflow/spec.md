@@ -5,17 +5,32 @@ Evidence-gated staged delivery with explicit production promotion, optional post
 ## Requirements
 ### Requirement: Evidence-gated staged delivery
 
-Forge SHALL coordinate project checks, provider preflight, stage publication, and health verification through the existing publish provider contract (`forge-publish-provider/0.1.0`).
+Forge SHALL coordinate project checks, provider preflight, stage publication, and health verification through the existing publish provider contract (`forge-publish-provider/0.1.0`). Before invoking a delivery preflight provider, Forge SHALL require that the registered 40-character source revision equals the source repository's current Git `HEAD` and that persisted Gate evidence has the supported Gate evidence contract, matches the registered project, is a real non-dry-run record, is classified as `fresh` against that revision, and has aggregate `passed`. These checks SHALL complete before provider resolution, operation reservation, or provider invocation. Forge SHALL NOT run Gate implicitly.
 
 #### Scenario: Preflight succeeds
 
-- **WHEN** the project is registered, the provider's `preflight` operation returns `status=succeeded` for the current source revision
-- **THEN** Forge records the terminal preflight evidence under `kind=delivery.preflight` and advances `phase` to `preflighted`
+- **WHEN** the project is registered at the current Git `HEAD`, Gate evidence for that project is fresh and has aggregate `passed`, and the provider's `preflight` returns `status=succeeded`
+- **THEN** Forge records terminal provider evidence under `kind=delivery.preflight` and advances `phase` to `preflighted`
+
+#### Scenario: Preflight refuses missing or non-passing Gate evidence
+
+- **WHEN** the user invokes preflight and the Gate evidence is absent, stale, blocked, failed, or unknown
+- **THEN** Forge refuses with `delivery-conflict`, gives the Gate state and recovery command, and writes no delivery operation row or provider call
+
+#### Scenario: Preflight refuses a changed registered revision
+
+- **WHEN** the repository `HEAD` differs from the registered source revision or cannot be resolved
+- **THEN** Forge refuses with a typed delivery error before reading provider configuration, reserving an operation, or invoking the provider; the error instructs the operator to register the current source and run Gate again
+
+#### Scenario: Gate evidence is invalid
+
+- **WHEN** the Gate evidence file exists but cannot be read or parsed
+- **THEN** Forge preserves the typed Gate error and does not reserve a delivery operation or invoke the provider
 
 #### Scenario: Preflight fails
 
-- **WHEN** the provider returns `status != succeeded` or the binary is missing
-- **THEN** Forge records the failure under `delivery.preflight` with `state=failed`, surfaces `delivery-unavailable`, and refuses the next stage
+- **WHEN** current source and fresh passing Gate evidence satisfy preflight checks but the provider returns `status != succeeded` or the binary is missing
+- **THEN** Forge records the failure under `delivery.preflight` with `state=failed`, surfaces the existing provider error, and refuses the next stage
 
 #### Scenario: Stage is healthy
 

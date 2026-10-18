@@ -1,0 +1,8 @@
+{
+  "id": "governance",
+  "required_files": ["README.md", "ROADMAP.md", "HANDOFF.md", "AGENTS.md", ".ai-rules/workflow.md", ".ai-rules/completion.md", ".project.json"],
+  "requires_ci": true,
+  "requires_openspec": false,
+  "requires_verification_command": true,
+  "supported_capabilities": ["registry", "policy", "evidence", "release", "telemetry", "rate-limiting", "idempotency", "feature-flags"]
+}

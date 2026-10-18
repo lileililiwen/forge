@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "replace-with-project-id",
+  "kind": "product",
+  "profile": "replace-with-profile",
+  "lifecycle": "active",
+  "verification": {
+    "command": "./scripts/verify.sh",
+    "gate_runtime": "driftwatchdog",
+    "evidence_status": "planned"
+  },
+  "deployment": {
+    "deployable": false,
+    "jenkins_job": null,
+    "compose_file": null
+  },
+  "discoverability": {
+    "description": "replace with a source-backed project description",
+    "keywords": ["replace", "with", "keywords"],
+    "topics": ["replace-with-topic"],
+    "audience": ["replace with audience"],
+    "use_cases": ["replace with use case"],
+    "search_phrases": ["replace with search phrase"],
+    "homepage": "https://example.invalid",
+    "license_spdx": "MIT",
+    "visibility": "private"
+  }
+}

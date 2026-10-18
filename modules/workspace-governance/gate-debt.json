@@ -1,0 +1,10 @@
+{
+  "generator": "scripts/bind_gate_commands.py",
+  "note": "Every check listed here is one the gate would report as UNBOUND: a check this repository's .ai-gate/gate.yaml selects under `checks:`, or one its `profile:` schedules by default, with no command bound under `commands:`. The gate reports UNBOUND for these and fails the project. A wrong command is worse than a listed gap: resolve these by hand, then re-run the generator.",
+  "totals": {
+    "repositories_with_debt": 0,
+    "unresolved_checks": 0
+  },
+  "by_reason": [],
+  "repositories": []
+}

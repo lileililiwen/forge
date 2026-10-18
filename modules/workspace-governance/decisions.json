@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "decisions": [
+    {
+      "id": "D1",
+      "title": "Agent runtime of record",
+      "status": "accepted",
+      "date": "2026-09-30",
+      "owner_project": "workspace-governance",
+      "decision": "Adopt a declared split between the two agent runtimes: ariadex owns interactive long-running developer sessions, while sisyphusfy owns headless per-task loops with independent verification. Each runtime is registered in projects.json and ships its own profile; the split is a workspace-level policy so the two runtimes are not interchangeable and shared code is forbidden across them without an explicit supersede.",
+      "downstream": []
+    },
+    {
+      "id": "D2",
+      "title": "Self-hosted identity provider",
+      "status": "accepted",
+      "date": "2026-09-30",
+      "owner_project": "workspace-governance",
+      "decision": "Adopt Zitadel as the self-hosted identity provider, run as a shared workspace runtime on jenkins-local, and exposed to product repositories as the single workspace SSO seam.",
+      "policy_boundary": "The shared identity provider covers internal workspace products only. The public GitHub Pages catalog (lileililiwen-site and any sibling published as a static site) remains excluded from shared login and must not consume workspace SSO, shared analytics, or any cross-product identity data; that exclusion is restated from the root HANDOFF ownership table and is the binding interpretation of this decision.",
+      "downstream": [
+        {
+          "repo": "dotnet-platform-libs",
+          "change": "identity-oidc-client"
+        }
+      ]
+    },
+    {
+      "id": "D3",
+      "title": "Capability registry home",
+      "status": "accepted",
+      "date": "2026-09-30",
+      "owner_project": "workspace-governance",
+      "decision": "Split the capability registry between two owners. platform-contracts owns the entry schema (the shape of a capability declaration). workspace-governance owns the registered instances (the live records of which projects declare which capabilities, kept next to projects.json).",
+      "policy_boundary": "Capability entry schemas are owned by platform-contracts; registered capability instances are owned by workspace-governance. Consumers must read the schema from platform-contracts and the instances from this repository; the two are never merged into a single file.",
+      "downstream": [
+        {
+          "repo": "platform-contracts",
+          "change": "capability-registry-v1"
+        }
+      ]
+    },
+    {
+      "id": "D4",
+      "title": "Crate publication mode",
+      "status": "accepted",
+      "date": "2026-09-30",
+      "owner_project": "workspace-governance",
+      "decision": "Publish the rust-platform-libs crates to crates.io instead of vendoring them as path dependencies. The repository is Apache-2.0 so the legal preconditions for public publication are satisfied; consumer adoption migrates off path dependencies only after the new registry-publication change lands.",
+      "downstream": [
+        {
+          "repo": "rust-platform-libs",
+          "change": "registry-publication"
+        }
+      ]
+    },
+    {
+      "id": "D5",
+      "title": "The rules drift report stays unwired in this change",
+      "status": "accepted",
+      "date": "2026-10-03",
+      "owner_project": "workspace-governance",
+      "decision": "The work-on-main clause added to rules_drift.py CLAUSES is REPORTED, not ENFORCED. rules_drift.py is wired into no gate: workspace_check.py imports only scaffold_handoff, and the drift() clause report is invoked by neither workspace_check.py, auto_gate.py, nor CI. Under ruling D18 (a verifier that no gate runs does not gate) this change therefore claims no enforcement, and adding a clause to an unwired report must not be described as a gate. Wiring it is tracked separately as rules-drift-gate-wiring: call rules_drift.check() from workspace_check.run and block on it through the existing auto_gate.py --fail-on-warnings path. That wiring is deliberately NOT delivered by work-on-main-baseline-rule, because it turns a 148-finding triage report into a fleet-wide gate in one step.",
+      "downstream": [
+        {
+          "repo": "workspace-governance",
+          "change": "rules-drift-gate-wiring"
+        }
+      ]
+    },
+    {
+      "id": "D6",
+      "title": "Project identity is immutable; classification is two axes",
+      "status": "accepted",
+      "date": "2026-10-03",
+      "owner_project": "workspace-governance",
+      "decision": "A project is identified by an immutable registry `id` plus two independent classification axes, `role` (what the repository is for) and `stack` (what it is written in), both carried by the registry entry and by the declaration. `kind` is retired as an authored value and retained permanently as a derived, deprecated composite: `<stack>-<role>`, or the bare `<role>` when the stack is `none`. `shared-library` is not a seventh role: platform-contracts, rust-platform-libs and dotnet-platform-libs take `role: platform`, because the library-versus-service distinction that carries weight already lives in the frozen `profile` values and no consumer branches on the role. `stack` stays single-valued (lexora, opendockify and trippify resolve to `stack: dotnet`). lileililiwen-site takes `role: deployment`; it is a Hugo static site and keeps its id, because it is one of the eight entries whose registry `path` resolves the directory. `TAXONOMY_MISMATCH` is ERROR and is not enabled until the migration is applied: the audit is held off the fleet by the committed constant TAXONOMY_AUDIT_ENABLED, the severity is never softened to WARNING, and the migration is applied by `scripts/axis_migration.py` as a separately authorized fleet write. The measured disagreement the migration resolves is 30 of 77 comparable repositories where the registry `profile` differs from the declaration `kind`, plus 4 unregistered active repositories and 1 ghost entry that resolves to no directory.",
+      "policy_boundary": "The registry `id` is the identity key and is never derived from, renamed to, or normalized to match the registry `path`; the eight `campusMesh`-style entries are correct and MUST NOT be churned. A rename breaks DECLARATION_ID, the capability-adoption provider bindings, the decisions register reference check and the promotion ledger simultaneously, so it is rejected rather than repaired by updating the reference sites. The two axes are descriptive: they never drive a required file, a CI requirement, a verification command, or any evidence, deployment, or promotion state, and `profile_requirements` continues to read the registry `profile` only. `TAXONOMY_AXIS_UNKNOWN` and `TAXONOMY_LEGACY_VALUE` stay WARNING so a new repository can precede a vocabulary addition, and no new finding code is introduced for the unregistered repositories or the ghost: DISCOVERED_UNREGISTERED and PROJECT_MISSING already fire.",
+      "downstream": [
+        {
+          "repo": "workspace-governance",
+          "change": "identity-and-taxonomy-axis-split"
+        }
+      ]
+    },
+    {
+      "id": "D7",
+      "title": "Unpinned interface edges escalate to FAIL on 2027-01-15",
+      "status": "accepted",
+      "date": "2026-10-17",
+      "owner_project": "workspace-governance",
+      "decision": "`INTERFACE_SIBLING_PATH_UNPINNED` and `INTERFACE_VENDORED_WITHOUT_DIGEST` are reported at WARNING, and become blocking (FAIL, which this audit's vocabulary spells ERROR) from 2027-01-15 on. The date is recorded in the `escalates` field of this entry and the audit reads it from there, so the ramp is an owner decision that stays visible and revocable rather than a silent tightening, and nothing becomes blocking before the fleet has had a release cycle in which to declare its interfaces. `mechanism: sibling` — the relative-path invocation a repository's gate uses to reach another checkout — is lawful only when the consuming project also declares that provider `required: true` and pins the edge with a digest of the invocation it wrote; the two lawful alternatives to an unpinned sibling edge are a digest-pinned copy declared as `mechanism: consume`, or a published artifact consumed by version. Outside `decisions.json` the ramp has no switch: no environment variable and no project-controlled flag can start it early or hold it back.",
+      "escalates": {
+        "finding_codes": [
+          "INTERFACE_SIBLING_PATH_UNPINNED",
+          "INTERFACE_VENDORED_WITHOUT_DIGEST"
+        ],
+        "effective": "2027-01-15"
+      },
+      "downstream": [
+        {
+          "repo": "workspace-governance",
+          "change": "interface-declaration-and-boundary-findings"
+        }
+      ]
+    },
+    {
+      "id": "D8",
+      "title": "A Python security audit audits the project, not the host interpreter",
+      "status": "accepted",
+      "date": "2026-10-17",
+      "owner_project": "workspace-governance",
+      "decision": "The binder derives `security: 'pip-audit'` for Python repositories, and a bare `pip-audit` audits the ambient interpreter environment, so the concern reports advisories for packages the repository does not declare (measured: platform-contracts, alethefy, ariadex, jenkins-local, metiscope, workspace-governance). A security concern that reports the host is not that repository's evidence and cannot be gated. The derived command SHALL therefore audit the project's own declared dependency set (a requirements/lock file, or the project path) and SHALL be omitted — leaving the concern UNBOUND with a reason, never a passing or host-scoped substitute — when the repository declares no Python dependency set to audit. Implementation is owed in the change `python-security-audit-scoping`, which is queued behind the active change.",
+      "downstream": [
+        {
+          "repo": "workspace-governance",
+          "change": "python-security-audit-scoping"
+        },
+        {
+          "repo": "platform-contracts",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "alethefy",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "ariadex",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "jenkins-local",
+          "change": "rebind-security-concern"
+        },
+        {
+          "repo": "metiscope",
+          "change": "rebind-security-concern"
+        }
+      ]
+    }
+  ]
+}

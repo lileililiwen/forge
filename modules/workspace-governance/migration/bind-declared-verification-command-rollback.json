@@ -1,0 +1,367 @@
+{
+ "actoria": {
+  "after": "642a3c00f0d60458a033d74f04171c935b994b81",
+  "before": "bdb32f5fb6478b3a5c41503f0c776c2a37d8792b",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "aegify": {
+  "after": "6ad586133b08e5bf7ebe7db1f0e5fb7becc23f94",
+  "before": "3f92d207aeab64f24c821a2b4b9352b6a854dbfb",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "aesthra": {
+  "after": "77804a5aad2f311724759d2dd107498eae10553f",
+  "before": "e965b24b6825d0687257fd551478188a643cfe99",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "alethefy": {
+  "after": "14571274d566191ba78df1ce100cd1a689d16ff8",
+  "before": "9353bffd1c52f548e6c35fc262dc7aa2fe6ff15e",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "alltools-platform": {
+  "after": "4d9ce2d2345f067fa0212748f1ca7b62420b25c4",
+  "before": "9623d387bd575f83ea2a38b113d78a6c7aa3c35d",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "argoscope": {
+  "after": "c139e59244d5d858dbf2128980283a0949bc8e54",
+  "before": "829d60ebcd60fbceb07747996aa9b84722733539",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "argoset": {
+  "after": "c115ad7b4eab90f5e37749b3e6a3a121943ed2b1",
+  "before": "61024a5db518df40d5402d563edab6e13c0b41e7",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "ariadex": {
+  "after": "69e38f3ed55196a4abe3b4c6d4c3e7208f01c3af",
+  "before": "fd855fcf9a4b86f28f3dc8693da4cb6ca8a6b037",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "arivio": {
+  "after": "a72b8a5e7f7844e8b8f8f3ab5007285164f26050",
+  "before": "f3075e12e5277748fe3442f72d82a547fcfa8b05",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "bargora": {
+  "after": "b10d1c83897ee476ac8ca190c6dab12c9995ee93",
+  "before": "e050296fc538dee7957ec549ee08fbaabf00ff7c",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "byok-translator": {
+  "after": "16f0cb2b8548c20de4c97a310cf9161103b14a47",
+  "before": "e24e2ba74e34b54c20ee3d2e9cca795cfd752038",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "campusMesh": {
+  "after": "9acdae86658299f86a4be8b8f75b5ab295334509",
+  "before": "8248ebd78854551278b6378943dc6c7bd9ff2f68",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "careBridge": {
+  "after": "cf3b955f9c898fcf0cc8874214d3d0246e248e5d",
+  "before": "f2e6a5bddb85cae4d4a51af95aa5ba9c3043a9d7",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "cargo-audit-boost": {
+  "after": "f07efc09507c6bf5d206274b2fc9c5170879cd99",
+  "before": "e9356a8251c1a4433ed5e2a46bf94778da267e2b",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "cargo-matrix-boost": {
+  "after": "9ab9bf7285dad5ad362cd99905ec42a0d98bd1e3",
+  "before": "d1ac89338ab09d0f3b9791e6a173b0e6fe4eda73",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "cargo-sonar": {
+  "after": "c188f193b6a2b5a51ce9f6bf45a851e05e4d975c",
+  "before": "cf22265809435486d1e1a442a351707ed90648e1",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "catchen": {
+  "after": "d8eb46f1d4b22dae08d2685da9ccfde8ce49e6ae",
+  "before": "8c6d98823dcc58d80e82265d9a7f2939a60f8d3d",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "chinago": {
+  "after": "2c0f92982388351f2e86b76f1d3a25d2d234e969",
+  "before": "e0c79faf4f8e1115f103382999320550c4ff35b8",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "citylens": {
+  "after": "49f3be069a5aed56d3e597fab549344a2c826ed7",
+  "before": "0752d658cc38e6f75b15177cd0849615a608a7bf",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "crossalheart": {
+  "after": "a2d1665c0f0ea9d08cc4ac9380e76149366a3688",
+  "before": "586de32330ebae6918c2d0c8ca7424bb547e6328",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "crossify": {
+  "after": "c24bc8541814ff467506402f41dc181b38ac9090",
+  "before": "64322e4691451f9c058716f1585cc6b51aab3774",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "cvunify": {
+  "after": "bb830cb00a87ea8da1c7f2f5f1b5689deeeb1388",
+  "before": "7c329347a2d7cefec4836f41cceeefef7c305d92",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "dharmatlas": {
+  "after": "b927be4b5e306e216bf023e0fdcc9aebaa701795",
+  "before": "819a26c99f49c9f27082a01fe801bc0d9be960a9",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "dotnet-platform-libs": {
+  "after": "253e83373d7cfa554282d7eaffaa4af4329d4304",
+  "before": "52ef70b28ed1cd5621c67a4cdd765acbde4880b0",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "forge": {
+  "after": "19a623fad92f2bd432ad220d045467f5e7b615b9",
+  "before": "5019d129fce91b488e6a1208b24bdb8045c1a134",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "fotofy": {
+  "after": "9d3524910b9d42769800d161b6111f8a782db846",
+  "before": "79ec60a47c0fa23562188394a386a3cc0cc04811",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "gradevia": {
+  "after": "86fde4d3ae72d704513288b6c19f276dd21e005e",
+  "before": "aabc07f09c9de3ba02f7a4ef46f437401f06bc3a",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "hermexa": {
+  "after": "d23c06a781516a1dae991ebb56514a4ae9975587",
+  "before": "76c2a652b686a7d1a8f002086f496ba312a9470b",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "hermora": {
+  "after": "2b19138111c7f935e00e8fd5ac9d6be033115095",
+  "before": "26ceeef17ae91331bc7cf9e34f733ec3a301978e",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "hestiaLab": {
+  "after": "ede4dad01f3a340375394ed087c76cebf49ddda8",
+  "before": "8d937442c17ecd96c8f7f97365dd19d57596ae61",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "hookit": {
+  "after": "5d7895033758bb4c442ff1b9ad02c24133052f89",
+  "before": "745a3f9356fb85656f999a3e29607349c0e9ddd5",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "hypora": {
+  "after": "e3fc8d2829a8dd520a64837225a9c94a948e536d",
+  "before": "9e36d30df0db2c2e677027ac99e5c2b7546fdc38",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "jenkins-local": {
+  "after": "a40b293c67d8bdaa46f32b2820487b373dcc1986",
+  "before": "547d91aea9f04acba54ddc928f87516868334ff6",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "kairion": {
+  "after": "60f58c4a70c6a3118b5e4974ae4e7abf74458951",
+  "before": "0e40b1bc02b734ab9d77d17be92c631cdc48ae1e",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "kairosa": {
+  "after": "47192a8349b9e89ae84bd2214f3f5bd5ed2a3f41",
+  "before": "2c5540d0e4d68799edc117400fb02c6d944d1b17",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "labrys": {
+  "after": "d139806268e3fd52d5d98ab7f9a6b93acc15d0d3",
+  "before": "49d3ff2a4c66bea460efc7eac1b89bb052bd1bc9",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "lexora": {
+  "after": "c475b46dc7c19102fc3af897bda26a2d6b353637",
+  "before": "794594586c5991ec09b1ad0b684abb2432e485e6",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "linglitch": {
+  "after": "1a31575ea4bdec75b1b2c62c0f6c6e240442a0cb",
+  "before": "7df21bf7f11549f8c164fc2563a8fdea4278db7f",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "loreMix": {
+  "after": "b48bd3aa506c07302b00a9a1c74ebe3c16fa6fe1",
+  "before": "8674efc692bc023a7019c1471021b425165db56a",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "mewo": {
+  "after": "88cc7a8c6bb4503469b3751412872e51ad9af6e6",
+  "before": "b3226dac6633313b55ac26460339352d536d6d5e",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "mnemyx": {
+  "after": "d43a944828a7d853a432883fa37663cc5f173477",
+  "before": "dc911d6ccb18cfc503a8f7634381fa341eba9969",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "mortalect": {
+  "after": "9707f1a777fdf7a5968b88b7861262d12644de66",
+  "before": "d8f117da83d9f7dcab912216d7d003ea0296310d",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "namevia": {
+  "after": "b16a730159bd3583eb9379e623535742e356b331",
+  "before": "96631700099efbcd244c104d4d5ca958bbe0eeb9",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "openTeacherKit": {
+  "after": "87d70403bc39866aa04ddd6102b69113b3e01ed3",
+  "before": "1bc5feb0ce0aef9a654a31d08426c7b167f520e8",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "openaccounting": {
+  "after": "ee3706cfcd5f0a671a0e8722a0f8aa9ed2f9bea2",
+  "before": "c8df10068a4092527fbe9742fd4914f1d24440ea",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "opendockify": {
+  "after": "246b3eeff4b6394149f9f354580fa02d064a973c",
+  "before": "46e7178b8ea193420c8bf7608cc8b722fbc7c7e8",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "openlearning": {
+  "after": "8912a632fa4752f7fd86dbc25f5e0dc6fc7f0e9e",
+  "before": "9c5d0bee97f0f305111b3e437f5f4e3db525dc74",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "openpanel": {
+  "after": "6083e20839b01553542adeb429d589748d3f8ffd",
+  "before": "f9b88f3d28b0ff43c5c4385ac2a5846201f0583e",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "orphevia": {
+  "after": "65cf717ff6a0eb28cb1bde0ad0166901ce7253c8",
+  "before": "eabef4bdecdee03ba7004f5ef2cc3c2a86b480b5",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "pangoman": {
+  "after": "27a0b212b2ef18d5d75ff909c7d279fd549cdd45",
+  "before": "1fc912a0d93233818c7e5fb64848783d1d99e0ff",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "platform-contracts": {
+  "after": "f6c310f6885f57be027a09370e171bae6d8888ea",
+  "before": "8de01aeca460fd94056a08410b46d84c424802b4",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "ploutify": {
+  "after": "081671b6cdaf939217cb13aee8a2ba7c0df3f6fa",
+  "before": "94189b20333ed3717ae731ceca83b653af3c730e",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "pluggify": {
+  "after": "00781ceb7c400f738e1e5ca6168632fa5966f765",
+  "before": "6844315816d64a63cb3d92c38fd6f38245cc6bd4",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "reelio": {
+  "after": "8bf9be3465b26a38d74514317acc520bbb509842",
+  "before": "8f0979cb9d76cc80be2bf1d4b73caaf8355b8da6",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "retakeKit": {
+  "after": "91de6557405c41ffa345df16a9290678f020eba7",
+  "before": "5705828840fba92f6d83dfdd1d2e68f0aeb9b860",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "rostera": {
+  "after": "8820c9db404593a3d416b79d89c96047af652a9b",
+  "before": "05e8adf574b50c7bcdf26b9ba0fd4402070a864d",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "rust-ecommerce": {
+  "after": "95ba14bfac83d47ca3c3b6cabef3029f83cb0715",
+  "before": "1778839f8b8ddba89456e95ba5bdb11f836aa794",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "rust-platform-libs": {
+  "after": "f3a6469581461ce192da2c114476db57cbde2e97",
+  "before": "1129a6218ec56cb1fc3dad740988abc7af5b3156",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "shopifireman": {
+  "after": "8bc56056f6ac58b474c19c16804aa056696a6a15",
+  "before": "7f7418a13209bf185c31d9913a84234794e1b353",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "singleatee": {
+  "after": "9f3b5baa9869a7fe3292c39c15a18a9a8e313e8d",
+  "before": "036afad3a01671fb8c2d5a160497cb0a3ef00319",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "sisyphusfy": {
+  "after": "3bd1ad23c2d12a275bc80dcc3745fea0b0be006c",
+  "before": "928e2bad96cf2acde1000ffdec96712d95b0281b",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "smotoox": {
+  "after": "b27548404f43bd041ae7ce710e42e10fdec8f84d",
+  "before": "055625df68810afcc074c1a35d11a7202ec36736",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "somodanote": {
+  "after": "354234a2f3ed2903f44520d856831be7492e84f4",
+  "before": "64134f52a5891813ff2995e001ed83cfec3953e9",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "stylify": {
+  "after": "8acf8ae344f104a2ee314ead8e349a9071355696",
+  "before": "1352a58a1dc94fe5b9a56c2d84b6e9b339b0feec",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "sutravia": {
+  "after": "c955ab8f9b0977336ce7e22039194a0cbac99cd2",
+  "before": "bc38d135e12c02ac6d11bd72a30528fa17358986",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "tantalyn": {
+  "after": "7ee700f864f29831a7f12a016b3a33c821d770ce",
+  "before": "c63f20a402edae42a951f2127e2eb7cd63cc3b29",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "testify": {
+  "after": "d32abd7e66e4798200d438525927b254a46b1ebd",
+  "before": "5a744452fbd64c31bdd70b3dc1645ef9fed1458f",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "therapist-commons": {
+  "after": "7a85607f83ba1de303361b98581cd41247c6ac85",
+  "before": "36b3b64a5a36c09307c6e0cdfb90740d0f30e9a4",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "trailCrew": {
+  "after": "4057e3bbdd5ec76a568a23a0dd4975ac90139802",
+  "before": "8edd11b9c155f90db3b3be042e14a2e1a81eb62a",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "transitfy": {
+  "after": "09facb2770333db4e92f4cd7c266bda470b45c06",
+  "before": "ee2cdc5d9b4fa0d69ada97eaeeed6f274b8cf49f",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "triplanify": {
+  "after": "e29e9b17bb753dadfdfb4259be99d708b756b755",
+  "before": "b693bffb10cb72761418ee6ab6aa88e3168bfb95",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "trippify": {
+  "after": "d01db3811768701448b0722063d77dee63c67357",
+  "before": "3df554be3f08ba0c1919600f24fb454c049cdadd",
+  "manifest": ".ai-gate/gate.yaml"
+ },
+ "vowra": {
+  "after": "d896ac9ff7bf01ea08bad81658e04f568d0ad4c4",
+  "before": "30d9e6dc467a0589e35a0fa2e06ded50e0f5834d",
+  "manifest": ".ai-gate/gate.yaml"
+ }
+}

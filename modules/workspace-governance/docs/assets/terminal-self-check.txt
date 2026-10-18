@@ -1,0 +1,5 @@
+$ python3 scripts/workspace_check.py --self-check
+Summary: errors=0 warnings=0
+
+Source revision: b05e5d4
+Captured: 2026-10-12 UTC

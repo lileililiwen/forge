@@ -1,0 +1,39 @@
+{
+  "id": "dotnet-product",
+  "required_files": [
+    "README.md",
+    "ROADMAP.md",
+    "HANDOFF.md",
+    "AGENTS.md",
+    ".ai-rules/workflow.md",
+    ".ai-rules/completion.md",
+    ".project.json"
+  ],
+  "requires_ci": true,
+  "requires_openspec": true,
+  "requires_verification_command": true,
+  "supported_capabilities": [
+    "identity",
+    "admin",
+    "tenancy",
+    "billing",
+    "jobs",
+    "storage",
+    "release",
+    "telemetry",
+    "rate-limiting",
+    "idempotency",
+    "feature-flags"
+  ],
+  "required_release_evidence_fields_for_deployment": [
+    "revision",
+    "version",
+    "toolchain",
+    "artifacts",
+    "digests",
+    "sbom",
+    "provenance",
+    "checks",
+    "publication"
+  ]
+}

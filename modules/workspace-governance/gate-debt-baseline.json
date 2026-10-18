@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "generator": "scripts/gate_debt_baseline.py",
+  "recorded_at": "generated",
+  "note": "The OpenSpec changes that were already open on the repositories in gate-debt.json when QUALITY_NEW_CHANGE_WITH_GATE_DEBT landed. A pair listed here is pre-existing legacy work and is not new work, so the precondition stays silent for it; every change opened after this snapshot is reported. The list only shrinks: as a change is archived its entry becomes dead weight, and as a repository discharges its debt it leaves gate-debt.json and is not consulted at all.",
+  "findings": []
+}

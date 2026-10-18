@@ -1,0 +1,1771 @@
+{
+  "schema_version": 1,
+  "change": "identity-and-taxonomy-axis-split",
+  "generated_from": {
+    "design": "openspec/changes/identity-and-taxonomy-axis-split/design.md",
+    "sections": [
+      "5.1",
+      "5.2",
+      "5.3",
+      "5.4",
+      "5.5"
+    ],
+    "registry": "projects.json"
+  },
+  "status": {
+    "applied": false,
+    "authority": "scripts/axis_migration.py --check reads the live fleet; this block is a record, not the source of truth.",
+    "note": "The fleet write is a cross-repo source edit and is not applied by the change that ships the schema and the validators. Apply it with `python3 scripts/axis_migration.py --apply` under explicit authorization, then set TAXONOMY_AUDIT_ENABLED = True in scripts/workspace_check.py in the same commit (design.md §10, ruling 2)."
+  },
+  "totals": {
+    "declarations": 81,
+    "registry_axes": 77,
+    "registry_added": 4,
+    "registry_removed": 1,
+    "existing_ids_unchanged": 77
+  },
+  "roles": {
+    "deployment": 2,
+    "governance": 1,
+    "inventory": 1,
+    "platform": 6,
+    "product": 65,
+    "tooling": 6
+  },
+  "stacks": {
+    "dotnet": 45,
+    "flutter": 1,
+    "python": 9,
+    "rust": 17,
+    "typescript": 9
+  },
+  "declarations": [
+    {
+      "directory": "actoria",
+      "id": "actoria",
+      "declaration": "actoria/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "aegify",
+      "id": "aegify",
+      "declaration": "aegify/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 34; role word of the declaration kind",
+      "census": {
+        "dotnet": 34
+      }
+    },
+    {
+      "directory": "aesthra",
+      "id": "aesthra",
+      "declaration": "aesthra/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "alethefy",
+      "id": "alethefy",
+      "declaration": "alethefy/.project.json",
+      "declared_kind": "python-product",
+      "role": "product",
+      "stack": "python",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "alltools-platform",
+      "id": "alltools-platform",
+      "declaration": "alltools-platform/.project.json",
+      "declared_kind": "platform",
+      "role": "platform",
+      "stack": "python",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: python 2810, rust 1176, typescript 58; role word of the declaration kind",
+      "census": {
+        "python": 2810,
+        "rust": 1176,
+        "typescript": 58
+      }
+    },
+    {
+      "directory": "argoscope",
+      "id": "argoscope",
+      "declaration": "argoscope/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3 rule 2: 2"
+    },
+    {
+      "directory": "argoset",
+      "id": "argoset",
+      "declaration": "argoset/.project.json",
+      "declared_kind": "rust-product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "ariadex",
+      "id": "ariadex",
+      "declaration": "ariadex/.project.json",
+      "declared_kind": "tooling",
+      "role": "tooling",
+      "stack": "python",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "directory": "arivio",
+      "id": "arivio",
+      "declaration": "arivio/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 275, typescript 30; role word of the declaration kind",
+      "census": {
+        "dotnet": 275,
+        "typescript": 30
+      }
+    },
+    {
+      "directory": "bargora",
+      "id": "bargora",
+      "declaration": "bargora/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 45; role word of the declaration kind",
+      "census": {
+        "dotnet": 45
+      }
+    },
+    {
+      "directory": "byok-translator",
+      "id": "byok-translator",
+      "declaration": "byok-translator/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "campusMesh",
+      "id": "campus-mesh",
+      "declaration": "campusMesh/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 127, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 127,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "careBridge",
+      "id": "care-bridge",
+      "declaration": "careBridge/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 32, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 32,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "cargo-audit-boost",
+      "id": "cargo-audit-boost",
+      "declaration": "cargo-audit-boost/.project.json",
+      "declared_kind": "tooling",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: rust 6; role word of the declaration kind",
+      "census": {
+        "rust": 6
+      }
+    },
+    {
+      "directory": "cargo-matrix-boost",
+      "id": "cargo-matrix-boost",
+      "declaration": "cargo-matrix-boost/.project.json",
+      "declared_kind": "tooling",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: rust 7; role word of the declaration kind",
+      "census": {
+        "rust": 7
+      }
+    },
+    {
+      "directory": "cargo-sonar",
+      "id": "cargo-sonar",
+      "declaration": "cargo-sonar/.project.json",
+      "declared_kind": "tooling",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: rust 5; role word of the declaration kind",
+      "census": {
+        "rust": 5
+      }
+    },
+    {
+      "directory": "catchen",
+      "id": "catchen",
+      "declaration": "catchen/.project.json",
+      "declared_kind": "inventory",
+      "role": "inventory",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 236, flutter 43, python 3; role word of the declaration kind",
+      "census": {
+        "dotnet": 236,
+        "flutter": 43,
+        "python": 3
+      }
+    },
+    {
+      "directory": "chinago",
+      "id": "chinago",
+      "declaration": "chinago/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 160, typescript 42; role word of the declaration kind",
+      "census": {
+        "dotnet": 160,
+        "typescript": 42
+      }
+    },
+    {
+      "directory": "chronicleaf",
+      "id": "chronicleaf",
+      "declaration": "chronicleaf/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3 rule 2: 2"
+    },
+    {
+      "directory": "citylens",
+      "id": "citylens",
+      "declaration": "citylens/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 231, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 231,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "crossalheart",
+      "id": "crossalheart",
+      "declaration": "crossalheart/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "crossify",
+      "id": "crossify",
+      "declaration": "crossify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "cvunify",
+      "id": "cvunify",
+      "declaration": "cvunify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "devloom",
+      "id": "devloom",
+      "declaration": "devloom/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3 rule 2: 2"
+    },
+    {
+      "directory": "dharmatlas",
+      "id": "dharmatlas",
+      "declaration": "dharmatlas/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 179, typescript 23; role word of the declaration kind",
+      "census": {
+        "dotnet": 179,
+        "typescript": 23
+      }
+    },
+    {
+      "directory": "dotnet-platform-libs",
+      "id": "dotnet-platform-libs",
+      "declaration": "dotnet-platform-libs/.project.json",
+      "declared_kind": "shared-library",
+      "role": "platform",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 2: 2 — decided, §10 ruling 1",
+      "source": "design.md §5.2 rule 2: 2 — decided, §10 ruling 1"
+    },
+    {
+      "directory": "driftwatchdog",
+      "id": "driftwatchdog",
+      "declaration": "driftwatchdog/.project.json",
+      "declared_kind": "tooling",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "directory": "forge",
+      "id": "forge",
+      "declaration": "forge/.project.json",
+      "declared_kind": "platform",
+      "role": "platform",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "directory": "fotofy",
+      "id": "fotofy",
+      "declaration": "fotofy/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "gradevia",
+      "id": "gradevia",
+      "declaration": "gradevia/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "hermexa",
+      "id": "hermexa",
+      "declaration": "hermexa/.project.json",
+      "declared_kind": "rust-product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "hermora",
+      "id": "hermora",
+      "declaration": "hermora/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "hestiaLab",
+      "id": "hestia-lab",
+      "declaration": "hestiaLab/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "hookit",
+      "id": "hookit",
+      "declaration": "hookit/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.2 rule 3: 3 — census: 87 `.rs`",
+      "source": "design.md §5.2 rule 3: 3 — census: 87 `.rs`"
+    },
+    {
+      "directory": "hypora",
+      "id": "hypora",
+      "declaration": "hypora/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "jenkins-local",
+      "id": "jenkins-local",
+      "declaration": "jenkins-local/.project.json",
+      "declared_kind": "deployment",
+      "role": "deployment",
+      "stack": "python",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: python 18; role word of the declaration kind",
+      "census": {
+        "python": 18
+      }
+    },
+    {
+      "directory": "kairion",
+      "id": "kairion",
+      "declaration": "kairion/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "directory": "kairosa",
+      "id": "kairosa",
+      "declaration": "kairosa/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 27, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 27,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "kairovia",
+      "id": "kairovia",
+      "declaration": "kairovia/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3 rule 2: 2"
+    },
+    {
+      "directory": "labrys",
+      "id": "labrys",
+      "declaration": "labrys/.project.json",
+      "declared_kind": "platform",
+      "role": "platform",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "directory": "lexora",
+      "id": "lexora",
+      "declaration": "lexora/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1 — also ships 24 `.dart`; single-valued `stack`, §10 ruling 3",
+      "source": "design.md §5.2 rule 1: 1 — also ships 24 `.dart`; single-valued `stack`, §10 ruling 3"
+    },
+    {
+      "directory": "lileililiwen.github.io",
+      "id": "lileililiwen-site",
+      "declaration": "lileililiwen.github.io/.project.json",
+      "declared_kind": "product",
+      "role": "deployment",
+      "stack": "none",
+      "rule": "§5.2 rule 4: 4 — decided, §10 rulings 4 and 9; the census counts build-time validators, not shipped code, so `stack` is `none`",
+      "source": "design.md §5.2 rule 4: 4 — decided, §10 rulings 4 and 9; the census counts build-time validators, not shipped code, so `stack` is `none`"
+    },
+    {
+      "directory": "linglitch",
+      "id": "linglitch",
+      "declaration": "linglitch/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "loreMix",
+      "id": "lore-mix",
+      "declaration": "loreMix/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "metiscope",
+      "id": "metiscope",
+      "declaration": "metiscope/.project.json",
+      "declared_kind": "python-product",
+      "role": "product",
+      "stack": "python",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "mewo",
+      "id": "mewo",
+      "declaration": "mewo/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 240, flutter 32, typescript 2, python 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 240,
+        "flutter": 32,
+        "python": 1,
+        "typescript": 2
+      }
+    },
+    {
+      "directory": "mnemyx",
+      "id": "mnemyx",
+      "declaration": "mnemyx/.project.json",
+      "declared_kind": "rust-product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "mortalect",
+      "id": "mortalect",
+      "declaration": "mortalect/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "namevia",
+      "id": "namevia",
+      "declaration": "namevia/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 70, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 70,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "openTeacherKit",
+      "id": "open-teacher-kit",
+      "declaration": "openTeacherKit/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: rust 100, typescript 1; role word of the declaration kind",
+      "census": {
+        "rust": 100,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "openaccounting",
+      "id": "openaccounting",
+      "declaration": "openaccounting/.project.json",
+      "declared_kind": "rust-product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "opendockify",
+      "id": "opendockify",
+      "declaration": "opendockify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1 — also ships 75 `.dart`; single-valued `stack`, §10 ruling 3",
+      "source": "design.md §5.2 rule 1: 1 — also ships 75 `.dart`; single-valued `stack`, §10 ruling 3"
+    },
+    {
+      "directory": "openlearning",
+      "id": "openlearning",
+      "declaration": "openlearning/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 1221, python 8, typescript 5; role word of the declaration kind",
+      "census": {
+        "dotnet": 1221,
+        "python": 8,
+        "typescript": 5
+      }
+    },
+    {
+      "directory": "openpanel",
+      "id": "openpanel",
+      "declaration": "openpanel/.project.json",
+      "declared_kind": "rust-product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "orphevia",
+      "id": "orphevia",
+      "declaration": "orphevia/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 70, typescript 28; role word of the declaration kind",
+      "census": {
+        "dotnet": 70,
+        "typescript": 28
+      }
+    },
+    {
+      "directory": "pangoman",
+      "id": "pangoman",
+      "declaration": "pangoman/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 155; role word of the declaration kind",
+      "census": {
+        "dotnet": 155
+      }
+    },
+    {
+      "directory": "platform-contracts",
+      "id": "platform-contracts",
+      "declaration": "platform-contracts/.project.json",
+      "declared_kind": "shared-library",
+      "role": "platform",
+      "stack": "python",
+      "rule": "§5.2 rule 4: 4 — decided, §10 ruling 1; 14 `.py` tooling, JSON-schema artifact",
+      "source": "design.md §5.2 rule 4: 4 — decided, §10 ruling 1; 14 `.py` tooling, JSON-schema artifact",
+      "evidence": "the decided cell offers 'python' or 'none'; chosen 'python' on the census evidence, owner confirmation required",
+      "census": {
+        "python": 16,
+        "typescript": 1
+      },
+      "owner_confirmation_required": true
+    },
+    {
+      "directory": "ploutify",
+      "id": "ploutify",
+      "declaration": "ploutify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "pluggify",
+      "id": "pluggify",
+      "declaration": "pluggify/.project.json",
+      "declared_kind": "typescript-monorepo",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "§9 defers a layout axis: 'monorepo' is a layout, not a role"
+    },
+    {
+      "directory": "reelio",
+      "id": "reelio",
+      "declaration": "reelio/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 60, flutter 3, python 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 60,
+        "flutter": 3,
+        "python": 1
+      }
+    },
+    {
+      "directory": "retakeKit",
+      "id": "retake-kit",
+      "declaration": "retakeKit/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: typescript 70, dotnet 50, python 23; role word of the declaration kind",
+      "census": {
+        "dotnet": 50,
+        "python": 23,
+        "typescript": 70
+      }
+    },
+    {
+      "directory": "rostera",
+      "id": "rostera",
+      "declaration": "rostera/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 316, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 316,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "rust-ecommerce",
+      "id": "rust-ecommerce",
+      "declaration": "rust-ecommerce/.project.json",
+      "declared_kind": "rust-product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "rust-platform-libs",
+      "id": "rust-platform-libs",
+      "declaration": "rust-platform-libs/.project.json",
+      "declared_kind": "shared-library",
+      "role": "platform",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2 — decided, §10 ruling 1",
+      "source": "design.md §5.2 rule 2: 2 — decided, §10 ruling 1"
+    },
+    {
+      "directory": "shopifireman",
+      "id": "shopifireman",
+      "declaration": "shopifireman/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "singleatee",
+      "id": "singleatee",
+      "declaration": "singleatee/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "sisyphusfy",
+      "id": "sisyphusfy",
+      "declaration": "sisyphusfy/.project.json",
+      "declared_kind": "tooling",
+      "role": "tooling",
+      "stack": "python",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "directory": "smotoox",
+      "id": "smotoox",
+      "declaration": "smotoox/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 129, flutter 49, python 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 129,
+        "flutter": 49,
+        "python": 1
+      }
+    },
+    {
+      "directory": "somodanote",
+      "id": "somodanote",
+      "declaration": "somodanote/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "stylify",
+      "id": "stylify",
+      "declaration": "stylify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "sutravia",
+      "id": "sutravia",
+      "declaration": "sutravia/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "tantalyn",
+      "id": "tantalyn",
+      "declaration": "tantalyn/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "directory": "testify",
+      "id": "testify",
+      "declaration": "testify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "role word of the declaration kind"
+    },
+    {
+      "directory": "therapist-commons",
+      "id": "therapist-commons",
+      "declaration": "therapist-commons/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 488, typescript 21; role word of the declaration kind",
+      "census": {
+        "dotnet": 488,
+        "typescript": 21
+      }
+    },
+    {
+      "directory": "trailCrew",
+      "id": "trail-crew",
+      "declaration": "trailCrew/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: rust 26; role word of the declaration kind",
+      "census": {
+        "rust": 26
+      }
+    },
+    {
+      "directory": "transitfy",
+      "id": "transitfy",
+      "declaration": "transitfy/.project.json",
+      "declared_kind": "typescript-product",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.2 rule 1: 1 — registry stack is wrong; 56 `.ts`, 0 `.rs`",
+      "source": "design.md §5.2 rule 1: 1 — registry stack is wrong; 56 `.ts`, 0 `.rs`"
+    },
+    {
+      "directory": "triplanify",
+      "id": "triplanify",
+      "declaration": "triplanify/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: dotnet 87, typescript 1; role word of the declaration kind",
+      "census": {
+        "dotnet": 87,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "trippify",
+      "id": "trippify",
+      "declaration": "trippify/.project.json",
+      "declared_kind": "dotnet-product",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1 — also ships 23 `.dart`; single-valued `stack`, §10 ruling 3",
+      "source": "design.md §5.2 rule 1: 1 — also ships 23 `.dart`; single-valued `stack`, §10 ruling 3"
+    },
+    {
+      "directory": "vowra",
+      "id": "vowra",
+      "declaration": "vowra/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: rust 81, typescript 19; role word of the declaration kind",
+      "census": {
+        "rust": 81,
+        "typescript": 19
+      }
+    },
+    {
+      "directory": "workspace-governance",
+      "id": "workspace-governance",
+      "declaration": "workspace-governance/.project.json",
+      "declared_kind": "governance",
+      "role": "governance",
+      "stack": "python",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: python 37, typescript 1; role word of the declaration kind",
+      "census": {
+        "python": 37,
+        "typescript": 1
+      }
+    },
+    {
+      "directory": "ziban",
+      "id": "ziban",
+      "declaration": "ziban/.project.json",
+      "declared_kind": "product",
+      "role": "product",
+      "stack": "flutter",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration",
+      "evidence": "census: flutter 104, typescript 1; role word of the declaration kind",
+      "census": {
+        "flutter": 104,
+        "typescript": 1
+      }
+    }
+  ],
+  "registry": [
+    {
+      "id": "actoria",
+      "path": "actoria",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "aegify",
+      "path": "aegify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "aesthra",
+      "path": "aesthra",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "alethefy",
+      "path": "alethefy",
+      "action": "axes",
+      "role": "product",
+      "stack": "python",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "alltools-platform",
+      "path": "alltools-platform",
+      "action": "axes",
+      "role": "platform",
+      "stack": "python",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "argoscope",
+      "path": "argoscope",
+      "action": "add",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3: register 'argoscope' (clears DISCOVERED_UNREGISTERED)"
+    },
+    {
+      "id": "argoset",
+      "path": "argoset",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "ariadex",
+      "path": "ariadex",
+      "action": "axes",
+      "role": "tooling",
+      "stack": "python",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "id": "arivio",
+      "path": "arivio",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "bargora",
+      "path": "bargora",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "byok-translator",
+      "path": "byok-translator",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "campus-mesh",
+      "path": "campusMesh",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "care-bridge",
+      "path": "careBridge",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "cargo-audit-boost",
+      "path": "cargo-audit-boost",
+      "action": "axes",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "cargo-matrix-boost",
+      "path": "cargo-matrix-boost",
+      "action": "axes",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "cargo-sonar",
+      "path": "cargo-sonar",
+      "action": "axes",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "catchen",
+      "path": "catchen",
+      "action": "axes",
+      "role": "inventory",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "chinago",
+      "path": "chinago",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "chronicleaf",
+      "path": "chronicleaf",
+      "action": "add",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3: register 'chronicleaf' (clears DISCOVERED_UNREGISTERED)"
+    },
+    {
+      "id": "citylens",
+      "path": "citylens",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "crossalheart",
+      "path": "crossalheart",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "crossify",
+      "path": "crossify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "cvunify",
+      "path": "cvunify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "devloom",
+      "path": "devloom",
+      "action": "add",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3: register 'devloom' (clears DISCOVERED_UNREGISTERED)"
+    },
+    {
+      "id": "dharmatlas",
+      "path": "dharmatlas",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "dotnet-platform-libs",
+      "path": "dotnet-platform-libs",
+      "action": "axes",
+      "role": "platform",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 2: 2 — decided, §10 ruling 1",
+      "source": "design.md §5.2 rule 2: 2 — decided, §10 ruling 1"
+    },
+    {
+      "id": "driftwatchdog",
+      "path": "driftwatchdog",
+      "action": "axes",
+      "role": "tooling",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "id": "forge",
+      "path": "forge",
+      "action": "axes",
+      "role": "platform",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "id": "fotofy",
+      "path": "fotofy",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "gradevia",
+      "path": "gradevia",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "hermexa",
+      "path": "hermexa",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "hermora",
+      "path": "hermora",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "hestia-lab",
+      "path": "hestiaLab",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "hookit",
+      "path": "hookit",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.2 rule 3: 3 — census: 87 `.rs`",
+      "source": "design.md §5.2 rule 3: 3 — census: 87 `.rs`"
+    },
+    {
+      "id": "hypora",
+      "path": "hypora",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "jenkins-local",
+      "path": "jenkins-local",
+      "action": "axes",
+      "role": "deployment",
+      "stack": "python",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "kairion",
+      "path": "kairion",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "id": "kairosa",
+      "path": "kairosa",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "kairovia",
+      "path": "kairovia",
+      "action": "add",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.3 rule 2: 2",
+      "source": "design.md §5.3: register 'kairovia' (clears DISCOVERED_UNREGISTERED)"
+    },
+    {
+      "id": "labrys",
+      "path": "labrys",
+      "action": "axes",
+      "role": "platform",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "id": "lexora",
+      "path": "lexora",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1 — also ships 24 `.dart`; single-valued `stack`, §10 ruling 3",
+      "source": "design.md §5.2 rule 1: 1 — also ships 24 `.dart`; single-valued `stack`, §10 ruling 3"
+    },
+    {
+      "id": "lileililiwen-site",
+      "path": "lileililiwen.github.io",
+      "action": "axes",
+      "role": "deployment",
+      "stack": "none",
+      "rule": "§5.2 rule 4: 4 — decided, §10 rulings 4 and 9; the census counts build-time validators, not shipped code, so `stack` is `none`",
+      "source": "design.md §5.2 rule 4: 4 — decided, §10 rulings 4 and 9; the census counts build-time validators, not shipped code, so `stack` is `none`"
+    },
+    {
+      "id": "linglitch",
+      "path": "linglitch",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "lore-mix",
+      "path": "loreMix",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "metiscope",
+      "path": "metiscope",
+      "action": "axes",
+      "role": "product",
+      "stack": "python",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "mewo",
+      "path": "mewo",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "mnemyx",
+      "path": "mnemyx",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "mortalect",
+      "path": "mortalect",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "namevia",
+      "path": "namevia",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "open-teacher-kit",
+      "path": "openTeacherKit",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "openaccounting",
+      "path": "openaccounting",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "opendockify",
+      "path": "opendockify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1 — also ships 75 `.dart`; single-valued `stack`, §10 ruling 3",
+      "source": "design.md §5.2 rule 1: 1 — also ships 75 `.dart`; single-valued `stack`, §10 ruling 3"
+    },
+    {
+      "id": "openlearning",
+      "path": "openlearning",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "openpanel",
+      "path": "openpanel",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "orphevia",
+      "path": "orphevia",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "pangoman",
+      "path": "pangoman",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "platform-contracts",
+      "path": "platform-contracts",
+      "action": "axes",
+      "role": "platform",
+      "stack": "python",
+      "rule": "§5.2 rule 4: 4 — decided, §10 ruling 1; 14 `.py` tooling, JSON-schema artifact",
+      "source": "design.md §5.2 rule 4: 4 — decided, §10 ruling 1; 14 `.py` tooling, JSON-schema artifact"
+    },
+    {
+      "id": "ploutify",
+      "path": "ploutify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "pluggify",
+      "path": "pluggify",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "reelio",
+      "path": "reelio",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "retake-kit",
+      "path": "retakeKit",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "rostera",
+      "path": "rostera",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "rust-ecommerce",
+      "path": "rust-ecommerce",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "rust-platform-libs",
+      "path": "rust-platform-libs",
+      "action": "axes",
+      "role": "platform",
+      "stack": "rust",
+      "rule": "§5.2 rule 2: 2 — decided, §10 ruling 1",
+      "source": "design.md §5.2 rule 2: 2 — decided, §10 ruling 1"
+    },
+    {
+      "id": "shopifireman",
+      "path": "shopifireman",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "singleatee",
+      "path": "singleatee",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "sisyphusfy",
+      "path": "sisyphusfy",
+      "action": "axes",
+      "role": "tooling",
+      "stack": "python",
+      "rule": "§5.2 rule 2: 2",
+      "source": "design.md §5.2 rule 2: 2"
+    },
+    {
+      "id": "smotoox",
+      "path": "smotoox",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "somodanote",
+      "path": "somodanote",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "stylify",
+      "path": "stylify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "sutravia",
+      "path": "sutravia",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "tantalyn",
+      "path": "tantalyn",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1",
+      "source": "design.md §5.2 rule 1: 1"
+    },
+    {
+      "id": "testify",
+      "path": "testify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rules 1-3: stack-qualified kind, else declaration profile, else registry profile",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "therapist-commons",
+      "path": "therapist-commons",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "trail-crew",
+      "path": "trailCrew",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "transitfy",
+      "path": "transitfy",
+      "action": "axes",
+      "role": "product",
+      "stack": "typescript",
+      "rule": "§5.2 rule 1: 1 — registry stack is wrong; 56 `.ts`, 0 `.rs`",
+      "source": "design.md §5.2 rule 1: 1 — registry stack is wrong; 56 `.ts`, 0 `.rs`"
+    },
+    {
+      "id": "triplanify",
+      "path": "triplanify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "trippify",
+      "path": "trippify",
+      "action": "axes",
+      "role": "product",
+      "stack": "dotnet",
+      "rule": "§5.2 rule 1: 1 — also ships 23 `.dart`; single-valued `stack`, §10 ruling 3",
+      "source": "design.md §5.2 rule 1: 1 — also ships 23 `.dart`; single-valued `stack`, §10 ruling 3"
+    },
+    {
+      "id": "vowra",
+      "path": "vowra",
+      "action": "axes",
+      "role": "product",
+      "stack": "rust",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "workspace-governance",
+      "path": "workspace-governance",
+      "action": "axes",
+      "role": "governance",
+      "stack": "python",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "ziban",
+      "path": "ziban",
+      "action": "axes",
+      "role": "product",
+      "stack": "flutter",
+      "rule": "§5.1 rule 4: bounded offline census (advisory; confirm before applying)",
+      "source": "design.md §5.1 resolution order applied to the declaration"
+    },
+    {
+      "id": "jenkins-bootstrap",
+      "path": "jenkins-bootstrap",
+      "action": "remove",
+      "role": null,
+      "stack": null,
+      "rule": "§5.4",
+      "source": "design.md §5.4: no directory at 'jenkins-bootstrap' (clears PROJECT_MISSING)"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "dotnet-template",
+  "required_files": ["README.md", "AGENTS.md", ".project.json"],
+  "requires_ci": true,
+  "requires_openspec": false,
+  "requires_verification_command": true
+}

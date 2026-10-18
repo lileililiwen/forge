@@ -1,0 +1,19 @@
+# Development and test dependencies for this repository.
+#
+# The gate's `security` check runs `pip-audit` over what is declared here, and
+# the binder derives that command from this file. Before it existed the
+# repository imported `jsonschema` and `PyYAML` in its tests with nothing
+# declaring them, so the dependency set the gate would have audited was not the
+# one the tests actually used. Declaring them is what makes the audit mean
+# something.
+#
+# Pinned to the versions this workspace is verified against. The gate's `tests`
+# check is `python3 -m unittest discover -s tests -v` and runs against these.
+
+jsonschema==4.19.2
+PyYAML==6.0.3
+
+# The security tool itself. It is declared here so `bind_gate_commands.py` can
+# derive the `security` command rather than refusing to guess one — a Python
+# dependency audit is not in the standard library.
+pip-audit==2.10.1

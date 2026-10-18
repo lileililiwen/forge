@@ -64,8 +64,8 @@ keeps a declared row behaviourally equal to the builtin row for the same
 id. An id nothing declares keeps resolving through the builtin table,
 unchanged.
 
-The declaration format is `workspace-governance`'s
-(`schemas/project.schema.json`). Forge reads a project's `.project.json`
+The declaration format is maintained at
+`modules/workspace-governance/schemas/project.schema.json`. Forge reads a project's `.project.json`
 from the directory it inspects, fetches nothing and writes no declaration
 into another project, so the no-sibling invariant holds. A declaration is
 **readable or refused**: an unparseable file, a `mechanism` outside the

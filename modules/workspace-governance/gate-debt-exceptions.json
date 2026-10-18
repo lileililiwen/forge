@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-05",
+  "note": "Deliberate exceptions to the rule QUALITY_NEW_CHANGE_WITH_GATE_DEBT: a repository that carries unresolved gate debt in gate-debt.json may not open a new OpenSpec change, except where that exact (project, change) pair is listed here with the reason it is allowed. An entry is a decision a reviewer can see, not a switch that hides a finding: scripts/workspace_check.py reports every satisfied pair at WARNING with the reason quoted, and only ERROR moves the exit code. There is no environment variable and no flag. Remove an entry as soon as the debt it rode on is closed; a stale entry is a decision nobody re-reads.",
+  "exceptions": []
+}

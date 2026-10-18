@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "source_revision": "2c766c64eb54560fa898115dec27c32abbf4968e",
+  "workspace_root": "../../../",
+  "reason": "The four tooling origins are now ordinary Forge Cargo workspace members; preserve their project ids while pointing the portfolio registry at their current in-tree declarations.",
+  "changes": [
+    {
+      "id": "cargo-audit-boost",
+      "from": "cargo-audit-boost",
+      "to": "forge/crates/cargo-audit-boost",
+      "declaration": "forge/crates/cargo-audit-boost/.project.json"
+    },
+    {
+      "id": "cargo-matrix-boost",
+      "from": "cargo-matrix-boost",
+      "to": "forge/crates/cargo-matrix-boost",
+      "declaration": "forge/crates/cargo-matrix-boost/.project.json"
+    },
+    {
+      "id": "cargo-sonar",
+      "from": "cargo-sonar",
+      "to": "forge/crates/cargo-sonar",
+      "declaration": "forge/crates/cargo-sonar/.project.json"
+    },
+    {
+      "id": "driftwatchdog",
+      "from": "driftwatchdog",
+      "to": "forge/crates/driftwatchdog",
+      "declaration": "forge/crates/driftwatchdog/.project.json"
+    }
+  ]
+}

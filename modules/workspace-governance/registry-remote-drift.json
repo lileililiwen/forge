@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "id": "registry-remote-drift",
+  "title": "Registered projects with no GitHub origin remote",
+  "status": "planned",
+  "created": "2026-10-06",
+  "owner": "workspace-governance",
+  "method": "for each of the 81 projects in projects.json, run `git -C <path> remote get-url origin`; a non-zero exit means no origin is configured. Then probe GitHub for a repository of the same name under the lileililiwen account.",
+  "summary": {
+    "registered_projects": 81,
+    "with_origin_remote": 71,
+    "without_origin_remote": 10,
+    "missing_directory": 0
+  },
+  "findings": [
+    {
+      "id": "crossalheart",
+      "path": "crossalheart",
+      "github_repo_exists": true,
+      "github_slug": "crossalheart",
+      "github_visibility": "PUBLIC",
+      "diagnosis": "remote-not-configured",
+      "remedy": "add the origin remote pointing at the existing public repository; no creation needed"
+    },
+    {
+      "id": "smotoox",
+      "path": "smotoox",
+      "github_repo_exists": true,
+      "github_slug": "smotoox",
+      "github_visibility": "PUBLIC",
+      "diagnosis": "remote-not-configured",
+      "remedy": "add the origin remote pointing at the existing public repository; no creation needed"
+    },
+    {
+      "id": "platform-contracts",
+      "path": "platform-contracts",
+      "github_repo_exists": false,
+      "github_slug": null,
+      "github_visibility": null,
+      "diagnosis": "never-published",
+      "remedy": "create the repository and add the origin remote. It already carries discoverability metadata, so `scripts/github_metadata.py <path> --publish` would apply description and topics once the remote exists.",
+      "note": "This is the cause of the HTTP 404 seen when publishing metadata, not a metadata defect. The discoverability block is present and valid."
+    },
+    {
+      "id": "rust-platform-libs",
+      "path": "rust-platform-libs",
+      "github_repo_exists": false,
+      "github_slug": null,
+      "github_visibility": null,
+      "diagnosis": "never-published",
+      "remedy": "create the repository and add the origin remote, same as platform-contracts.",
+      "note": "Its README records that registry publication of the crates is BLOCKED on owner approval, tracked in docs/publication.md. Creating the GitHub repository is a separate decision from publishing the crates."
+    },
+    {
+      "id": "aesthra",
+      "path": "aesthra",
+      "github_repo_exists": false,
+      "diagnosis": "never-published"
+    },
+    {
+      "id": "care-bridge",
+      "path": "careBridge",
+      "github_repo_exists": false,
+      "diagnosis": "never-published",
+      "note": "directory name careBridge differs from registered id care-bridge; a publication step must pass --repository explicitly"
+    },
+    {
+      "id": "chronicleaf",
+      "path": "chronicleaf",
+      "github_repo_exists": false,
+      "diagnosis": "never-published"
+    },
+    {
+      "id": "mewo",
+      "path": "mewo",
+      "github_repo_exists": false,
+      "diagnosis": "never-published"
+    },
+    {
+      "id": "testify",
+      "path": "testify",
+      "github_repo_exists": false,
+      "diagnosis": "never-published"
+    },
+    {
+      "id": "trail-crew",
+      "path": "trailCrew",
+      "github_repo_exists": false,
+      "diagnosis": "never-published",
+      "note": "directory name trailCrew differs from registered id trail-crew; a publication step must pass --repository explicitly"
+    }
+  ],
+  "why_it_matters": [
+    "workspace-governance/scripts/github_metadata.py resolves the target repository from `git remote get-url origin`. With no origin, it fails with GITHUB_REMOTE_MISSING and refuses to publish, even when the local discoverability block is valid.",
+    "A repository with no remote cannot be backed up, cannot receive a release, and cannot be recovered from GitHub if the working copy is lost.",
+    "For the 8 never-published projects, discoverability metadata exists locally but can never reach GitHub, so they are effectively invisible to search."
+  ],
+  "not_done": [
+    "No remote was added and no repository was created. Creating a GitHub repository and pushing are publish actions the owner performs.",
+    "The public/private intent for the 8 unpublished projects is undecided; do not assume public."
+  ]
+}

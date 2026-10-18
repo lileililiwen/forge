@@ -1,0 +1,24 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_PROJECT: {{app_project}}
+    image: {{project_name}}:local
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      PGHOST: $${PGHOST:?set PGHOST in .env}
+      PGPORT: $${PGPORT:-5432}
+      PGUSER: $${PGUSER:?set PGUSER in .env}
+      PGDATABASE: $${PGDATABASE:?set PGDATABASE in .env}
+      PGPASSWORD: $${PGPASSWORD:?set PGPASSWORD in .env}
+      ConnectionStrings__Default: Host=$${PGHOST};Port=$${PGPORT:-5432};Database=$${PGDATABASE};Username=$${PGUSER};Password=$${PGPASSWORD}
+    ports:
+      - "{{port}}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080{{health_path}} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s

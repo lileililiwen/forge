@@ -1,0 +1,708 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-03",
+  "source": "python3 scripts/rules_drift.py --root .. --check",
+  "note": "Ratchet snapshot of clause-level RULES_DRIFT findings. The gate blocks only on a finding whose (project, file, label) is absent from this list; a repository may legitimately document the rules in its own words only via the per-file <!-- workspace-governance:rules-customized --> marker in that repository, never by editing this file. Entries may be removed as repositories fix drift; adding one to silence new drift is a review-visible diff.",
+  "findings": [
+    {
+      "project": "actoria",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "actoria",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "actoria",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "actoria",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "aegify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "aesthra",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "aesthra",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "aesthra",
+      "file": ".ai-rules/workflow.md",
+      "label": "OpenSpec name preflight"
+    },
+    {
+      "project": "aesthra",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "aesthra",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "alethefy",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "alltools-platform",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "argoset",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "argoset",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "argoset",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "argoset",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "ariadex",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "ariadex",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "ariadex",
+      "file": ".ai-rules/workflow.md",
+      "label": "BFS workflow model"
+    },
+    {
+      "project": "ariadex",
+      "file": ".ai-rules/workflow.md",
+      "label": "OpenSpec name preflight"
+    },
+    {
+      "project": "ariadex",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "ariadex",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "arivio",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "bargora",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "byok-translator",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "byok-translator",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "byok-translator",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "byok-translator",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "campus-mesh",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "campus-mesh",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "cargo-audit-boost",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "cargo-matrix-boost",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "cargo-sonar",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "catchen",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "chinago",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "citylens",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "citylens",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "citylens",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "citylens",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "crossify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "cvunify",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "cvunify",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "cvunify",
+      "file": ".ai-rules/workflow.md",
+      "label": "OpenSpec name preflight"
+    },
+    {
+      "project": "cvunify",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "cvunify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "dotnet-platform-libs",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "driftwatchdog",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "forge",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "forge",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "forge",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "forge",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "fotofy",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "gradevia",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "hermexa",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "hermora",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "hestia-lab",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "hypora",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "jenkins-local",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "kairion",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "kairion",
+      "file": ".ai-rules/workflow.md",
+      "label": "OpenSpec name preflight"
+    },
+    {
+      "project": "kairion",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "kairosa",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "kairosa",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "kairosa",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "kairosa",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "labrys",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "labrys",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "labrys",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "labrys",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "lexora",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "lexora",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "lexora",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "lexora",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "linglitch",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "lore-mix",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "lore-mix",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "lore-mix",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "lore-mix",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "metiscope",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "metiscope",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "mewo",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "mewo",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "mnemyx",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "mnemyx",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "mnemyx",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "mnemyx",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "mortalect",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "namevia",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "namevia",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "namevia",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "namevia",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "open-teacher-kit",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "openaccounting",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "openaccounting",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "opendockify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "openlearning",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "openpanel",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "orphevia",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "pangoman",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "platform-contracts",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "ploutify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "pluggify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "reelio",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "reelio",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "reelio",
+      "file": ".ai-rules/workflow.md",
+      "label": "OpenSpec name preflight"
+    },
+    {
+      "project": "reelio",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "reelio",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "retake-kit",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "retake-kit",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "retake-kit",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "retake-kit",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "rostera",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "rostera",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "rostera",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "rostera",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "rust-ecommerce",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "rust-platform-libs",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "shopifireman",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "singleatee",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "sisyphusfy",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "smotoox",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "somodanote",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "stylify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "sutravia",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "tantalyn",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "testify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "therapist-commons",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "trail-crew",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "trail-crew",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "trail-crew",
+      "file": ".ai-rules/workflow.md",
+      "label": "OpenSpec name preflight"
+    },
+    {
+      "project": "transitfy",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "triplanify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "trippify",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "vowra",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "vowra",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    },
+    {
+      "project": "workspace-governance",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "ziban",
+      "file": ".ai-rules/completion.md",
+      "label": "evidence boundary"
+    },
+    {
+      "project": "ziban",
+      "file": ".ai-rules/completion.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "ziban",
+      "file": ".ai-rules/workflow.md",
+      "label": "two-commit rule"
+    },
+    {
+      "project": "ziban",
+      "file": ".ai-rules/workflow.md",
+      "label": "work-on-main rule"
+    }
+  ]
+}

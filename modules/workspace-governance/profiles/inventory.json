@@ -1,0 +1,7 @@
+{
+  "id": "inventory",
+  "required_files": [".project.json"],
+  "requires_ci": false,
+  "requires_openspec": false,
+  "requires_verification_command": false
+}

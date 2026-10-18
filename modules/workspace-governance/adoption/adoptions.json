@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "note": "Append-only adoption ledger. One row per repoint executed under an `adoption_grant` declared in the consumer's own .project.json. Each row carries a content_hash over its own body and a prev_hash over the row before it, so a hand-edited or hand-inserted row is refused by the audit. A rollback is a second `kind: \"rollback\"` row referencing the original; it never edits or deletes it. Adoption is not promotion and is never a path to deployable: true.",
+  "records": []
+}

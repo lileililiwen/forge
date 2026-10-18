@@ -1,0 +1,508 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/project.schema.json",
+  "title": "Workspace Governance project declaration",
+  "type": "object",
+  "required": ["schema_version", "id", "kind", "profile", "lifecycle", "verification", "deployment"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+    "kind": {"type": "string", "minLength": 1, "description": "Deprecated, derived composite: the value is stack + '-' + role, or the bare role when stack is 'none'. Never authored by hand and never newly required. It stays in `required` only so an undocumented consumer of the composite keeps parsing. A stack-qualified value present alongside two declared axes, or a kind that disagrees with the value derived from its own axes, is WARNING TAXONOMY_LEGACY_VALUE. A kind that is neither in the legacy 'kinds' vocabulary nor the value derived from its own two declared axes is KIND_UNKNOWN. Kind never drives profile requirements."},
+    "role": {"$ref": "#/$defs/taxonomy_role", "description": "What the project is for. Independent of `stack`; every role/stack combination is legal. Must use a canonical value from vocabulary.json roles; absent or non-canonical is WARNING TAXONOMY_AXIS_UNKNOWN. Descriptive: never drives required files, CI, verification, or any evidence state."},
+    "stack": {"$ref": "#/$defs/taxonomy_stack", "description": "What the project is written in. Single-valued by owner ruling; there is no `stacks` array. Must use a canonical value from vocabulary.json stacks; absent or non-canonical is WARNING TAXONOMY_AXIS_UNKNOWN. Descriptive: never drives required files, CI, verification, or any evidence state."},
+    "profile": {"type": "string", "minLength": 1, "description": "Governance profile driving required files, CI, OpenSpec and verification requirements. Must use a canonical value from vocabulary.json profiles."},
+    "lifecycle": {"enum": ["active", "planning", "reference", "inventory", "archived"]},
+    "verification": {
+      "type": "object",
+      "required": ["command", "gate_runtime", "evidence_status"],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "gate_runtime": {"type": "string", "minLength": 1},
+        "evidence_status": {"type": "string", "minLength": 1}
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "required": ["deployable", "jenkins_job", "compose_file"],
+      "properties": {
+        "deployable": {"type": "boolean"},
+        "jenkins_job": {"type": ["string", "null"]},
+        "compose_file": {"type": ["string", "null"], "pattern": "^(null|[^/][^\\u0000]*)$"},
+        "template_type": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+        "template_version": {"type": "integer", "minimum": 1},
+        "rendered_files": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"},
+          "uniqueItems": true
+        },
+        "template_state": {"enum": ["configured", "verified", "blocked"]},
+        "database_source": {"enum": ["container", "external"], "description": "How the runtime reaches PostgreSQL. 'container' (default for *-postgres templates) starts a per-project container; 'external' (for *-postgres-external templates) reads a connection from a gitignored .env or host secret source and starts no database container."}
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Optional capability declarations. Each key is a capability name (e.g. identity, admin, tenancy, billing, jobs, storage, release). Declarations are intent, not implementation evidence.",
+      "additionalProperties": {"$ref": "#/$defs/capability"},
+      "propertyNames": {"pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"}
+    },
+    "declines": {
+      "type": "array",
+      "description": "Optional evidence-backed non-adoption records. A decline is the lawful exit from a capability adoption finding other than adopting the provider. See docs/capabilities.md.",
+      "items": {"$ref": "#/$defs/decline"}
+    },
+    "adoption_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A bounded, single-use, expiring permission for one named actor to repoint THIS repository onto one registered shared provider for one capability, without separate cross-repo authorization. The provider repository is read-only at all times. The executed outcome is appended to adoption/adoptions.json. See docs/adoption-grant.md.",
+      "required": ["capability", "provider", "package", "actor", "issued_at", "expires_at", "write_set"],
+      "properties": {
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "A capability id that must ALREADY be bound to this provider in capabilities.json. A grant may not create the binding it consumes."
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Registered project id of the shared provider. The provider root is never writable under this grant."
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The published package the consumer is permitted to pin, e.g. 'Platform.Idempotency'."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact provider version this grant authorizes. Consuming a different version is a provider change and is refused as ADOPTION_GRANT_SCOPE_VIOLATION."
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The single agent session the grant binds, e.g. 'agent:<session-id>'."
+        },
+        "issued_at": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Issue timestamp (ISO 8601). A grant is not active before this time."
+        },
+        "expires_at": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Mandatory expiry (ISO 8601) so a grant cannot silently become standing authorization. A past expiry is ADOPTION_GRANT_STALE and does not retroactively legalize a repoint."
+        },
+        "write_set": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Repository-relative glob patterns the grant may write. Every pattern must resolve inside this repository's root. Patterns naming the provider, the promotion ledger, or a source-level coupling are refused.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"
+          }
+        },
+        "rollback_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to undo the repoint, e.g. an OpenSpec change id. Recorded verbatim in the adoption row."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "revoked"],
+          "description": "Defaults to 'active'. A revoked grant is ADOPTION_GRANT_STALE for any further repoint."
+        }
+      }
+    },
+    "release_evidence": {
+      "type": "object",
+      "description": "Optional release evidence record. Each field is one of revision, version, toolchain, artifacts, digests, sbom, provenance, checks, publication. Missing or unverified fields do not satisfy a deployable gate.",
+      "additionalProperties": {"$ref": "#/$defs/evidence_field"},
+      "propertyNames": {
+        "enum": ["revision", "version", "toolchain", "artifacts", "digests", "sbom", "provenance", "checks", "publication"]
+      }
+    },
+    "quality": {
+      "type": "object",
+      "description": "Optional product-code quality policy consumed by scripts/product_code_quality.py. Declares product source roots, supported languages, exclusions, and the placeholder marker threshold.",
+      "required": ["product_roots", "languages"],
+      "additionalProperties": false,
+      "properties": {
+        "product_roots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "description": "Repository-relative directories that count as product source. Each must exist and be a directory."
+        },
+        "languages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/language"},
+          "uniqueItems": true
+        },
+        "exclude": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "description": "Repository-relative paths under any product root to exclude (generated, vendor, fixture, etc.). Exclusions must not escape the project root."
+        },
+        "placeholder_threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Maximum number of placeholder markers (TODO, FIXME, etc.) tolerated across all product files before the check fails."
+        },
+        "placeholder_markers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "description": "Override the default placeholder marker vocabulary. Words are matched case-insensitively with word boundaries."
+        }
+      }
+    },
+    "discoverability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "keywords", "topics", "audience", "use_cases", "search_phrases", "homepage", "license_spdx", "visibility"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "keywords": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "topics": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,49}$"}},
+        "audience": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "use_cases": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "search_phrases": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "homepage": {"type": "string", "format": "uri", "pattern": "^https?://"},
+        "license_spdx": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9.+-]*$"},
+        "visibility": {"enum": ["public", "private", "internal"]}
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "owner", "repository", "default_branch", "state", "evidence_ref"],
+      "properties": {
+        "provider": {"const": "github"},
+        "owner": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "minLength": 1},
+        "default_branch": {"type": "string", "minLength": 1},
+        "state": {"enum": ["unverified", "metadata_verified", "blocked"]},
+        "evidence_ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "standalone": {
+      "type": "object",
+      "description": "Optional declaration of how a project operates without sibling checkouts or private external services. Declarations are intent, not implementation evidence; the audit uses the shape to derive a classification but never executes project commands.",
+      "additionalProperties": false,
+      "required": ["status", "local_defaults", "required_external_services", "required_sibling_projects"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/standalone_status",
+          "description": "One of the six canonical statuses from vocabulary.json.standalone_statuses."
+        },
+        "local_defaults": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"},
+          "description": "Repository-relative entries the project uses to satisfy its baseline (e.g. 'sqlite', 'local-fixtures'). Each must be a non-empty, portable, repository-relative path or identifier; absolute paths and '..' segments are rejected."
+        },
+        "required_external_services": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"},
+          "description": "Service identifiers required for the baseline (e.g. 'postgres', 's3'). Each must be a portable, repository-relative identifier; absolute paths and '..' segments are rejected."
+        },
+        "required_sibling_projects": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+          "description": "Sibling project ids required for the baseline. Each must match a canonical project id (kebab-case). The audit does not verify the sibling exists; it only records the donation-readiness signal."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$",
+          "description": "Repository-relative path to the native evidence artefact (e.g. docs/standalone.md). Absolute paths and '..' segments are rejected. Required when evidence_state is 'configured' or 'verified'."
+        },
+        "evidence_state": {
+          "enum": ["declared", "configured", "verified", "unverified"],
+          "default": "declared",
+          "description": "Lifecycle state of the standalone block. The audit enforces the same shape rules as for release_evidence."
+        }
+      }
+    },
+    "integrations": {
+      "type": "array",
+      "description": "Optional list of named external providers the project optionally or mandatorily integrates with. Each entry is a JSON object; absolute paths in 'evidence_ref' are rejected.",
+      "items": {"$ref": "#/$defs/integration"},
+      "uniqueItems": false
+    },
+    "interfaces": {
+      "type": "array",
+      "description": "Optional declaration of the boundaries this project provides and consumes. Each entry names one reachable interface: a stable kebab-case 'id', exactly one of 'provides'/'consumes', a 'mechanism' from the closed set invoke|consume|observe|sibling, and an 'entry' in that mechanism's vocabulary. An absent array means 'nothing declared' and produces no finding, so a project that declares nothing is never charged for a boundary it did not claim. Interface ids must be unique within the project; uniqueness is enforced by the audit because JSON Schema cannot express it. See docs/capabilities.md.",
+      "items": {"$ref": "#/$defs/interface"}
+    }
+  },
+  "$defs": {
+    "taxonomy_role": {
+      "type": "string",
+      "enum": ["product", "platform", "tooling", "governance", "deployment", "inventory"],
+      "description": "Canonical role axis. The vocabulary.json.roles list is the source of truth; this enum mirrors it so editors that consult the schema see the same values. `shared-library` is NOT a role: by owner ruling the repositories that wrote it take role 'platform'."
+    },
+    "taxonomy_stack": {
+      "type": "string",
+      "enum": ["dotnet", "rust", "typescript", "python", "flutter", "none"],
+      "description": "Canonical stack axis. The vocabulary.json.stacks list is the source of truth; this enum mirrors it so editors that consult the schema see the same values. Single-valued by owner ruling; `none` means contracts/documents/schemas with no implementation language."
+    },
+    "standalone_status": {
+      "type": "string",
+      "enum": [
+        "standalone",
+        "standalone-with-optional-integrations",
+        "library-dependent",
+        "workspace-dependent",
+        "service-dependent",
+        "blocked"
+      ],
+      "description": "Canonical standalone classification. The vocabulary.json.standalone_statuses list is the source of truth; this enum mirrors it so editors that consult the schema see the same values."
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "required"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Kebab-case provider identifier (e.g. 'workspace-governance', 'github-actions')."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "true ⇒ the provider is part of the project's baseline; false ⇒ the provider is optional and the baseline still works without it."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$",
+          "description": "Repository-relative path to the native evidence artefact. Required when 'required' is true; the audit emits STANDALONE_INTEGRATION_PENDING if the file is missing."
+        }
+      }
+    },
+    "interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One declared boundary of a project. The entry says which side of the edge this project is on, how the other side is reached, and what the contract is; the audit charges an undeclared or unpinned edge.",
+      "required": ["id", "mechanism", "entry"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Stable kebab-case interface id, unique within the project."
+        },
+        "provides": {
+          "type": "boolean",
+          "description": "true when this project provides the interface."
+        },
+        "consumes": {
+          "type": "boolean",
+          "description": "true when this project consumes the interface. `provider` is then required, and the provider must declare a matching `provides` entry."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Kebab-case id of the project (or sibling checkout) that provides the consumed interface. A consumes entry whose provider declares no matching `provides` entry is a one-sided edge reported as INTERFACE_PROVIDER_UNDECLARED."
+        },
+        "mechanism": {"$ref": "#/$defs/interface_mechanism"},
+        "entry": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)[^\\u0000]+$",
+          "description": "The interface's entry point in its mechanism's vocabulary: an argv invocation (invoke, sibling), a published package coordinate (consume), or a repository-relative document path (observe). An absolute path is never lawful."
+        },
+        "contract": {"$ref": "#/$defs/interface_contract"},
+        "digest": {"$ref": "#/$defs/interface_digest"},
+        "required": {
+          "type": "boolean",
+          "description": "Consumer side: true when the consumed interface is part of the project's baseline. For `mechanism: sibling` it is also the pinning flag — a sibling edge without it is INTERFACE_SIBLING_PATH_UNPINNED."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$",
+          "description": "Repository-relative path to the consumer's own evidence that it uses this interface. A consumption edge whose evidence_ref is absent or does not resolve is INTERFACE_CONSUMED_UNUSED."
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["provides"],
+          "properties": {"provides": {"const": true}}
+        },
+        {
+          "required": ["consumes"],
+          "properties": {"consumes": {"const": true}}
+        }
+      ],
+      "allOf": [
+        {
+          "description": "A consumption names the provider it consumes from.",
+          "if": {
+            "required": ["consumes"],
+            "properties": {"consumes": {"const": true}}
+          },
+          "then": {"required": ["provider"]}
+        },
+        {
+          "description": "Every mechanism except `sibling` names a versioned contract: \"<name>/<major>.<minor>.<patch>\".",
+          "if": {
+            "required": ["mechanism"],
+            "properties": {"mechanism": {"const": "sibling"}}
+          },
+          "then": true,
+          "else": {"required": ["contract"]}
+        },
+        {
+          "description": "`consume`, `observe` and `sibling` are digest-pinned.",
+          "if": {
+            "required": ["mechanism"],
+            "properties": {"mechanism": {"enum": ["consume", "observe", "sibling"]}}
+          },
+          "then": {"required": ["digest"]}
+        },
+        {
+          "description": "An `observe` entry is a document at a path inside the repository: no `..` segment may escape it.",
+          "if": {
+            "required": ["mechanism"],
+            "properties": {"mechanism": {"const": "observe"}}
+          },
+          "then": {
+            "properties": {
+              "entry": {"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"}
+            }
+          }
+        }
+      ]
+    },
+    "interface_mechanism": {
+      "type": "string",
+      "enum": ["invoke", "consume", "observe", "sibling"],
+      "description": "The closed mechanism set. `invoke`: bounded argv plus one versioned JSON document. `consume`: a published artifact pinned by version and digest. `observe`: a read-only document at a declared path, digest-pinned. `sibling`: a repository-relative invocation of another checkout, lawful only when the consuming project declares that provider `required: true` and pins the edge with a digest."
+    },
+    "interface_contract": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@/-]*/[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "A contract identifier with its version: \"<name>/<major>.<minor>.<patch>\", where the name is kebab-case, dotted or scoped. Required for every mechanism except `sibling`. A contract that names no version is reported as INTERFACE_CONTRACT_UNVERSIONED."
+    },
+    "interface_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "A sha256 digest of the pinned bytes or invocation. Required for `consume`, `observe` and `sibling`; a retained copy whose declared digest is not the retained bytes is INTERFACE_VENDORED_WITHOUT_DIGEST."
+    },
+    "language": {
+      "type": "string",
+      "enum": ["rust", "python", "typescript", "javascript", "csharp", "go", "generic"],
+      "description": "A language profile supported by the product-code quality checker."
+    },
+    "evidence_state": {
+      "type": "string",
+      "enum": ["declared", "configured", "verified", "unverified", "blocked"],
+      "description": "Lifecycle state of a capability or evidence field. declared: project intends to provide it. configured: artefacts exist locally. verified: native evidence recorded with a ref. unverified: missing or invalid evidence. blocked: explicit non-goal."
+    },
+    "release_evidence_state": {
+      "type": "string",
+      "enum": ["declared", "configured", "verified", "unverified"],
+      "description": "Lifecycle state of a release-evidence field. The 'blocked' state is reserved for capability declarations."
+    },
+    "capability": {
+      "type": "object",
+      "required": ["owner", "evidence_state"],
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who owns the implementation: a platform repo id, a product name, or 'shared'."
+        },
+        "evidence_state": {"$ref": "#/$defs/evidence_state"},
+        "evidence_ref": {
+          "type": "string",
+          "description": "Repository-relative path to the native evidence artefact when evidence_state is 'configured' or 'verified'."
+        },
+        "consumes": {
+          "type": "array",
+          "description": "Additive consumer-side consumption edges. The audit joins this record with capabilities.json and the project's own manifests; all three must agree before the capability counts as adopted. A declaration is intent, not a verification of behaviour.",
+          "items": {"$ref": "#/$defs/capability_consumes_entry"}
+        }
+      }
+    },
+    "capability_consumes_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "package", "evidence_ref"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "Registered project id providing the package. Must match the provider the capability binds to in capabilities.json."
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Published package name the consumer pins, e.g. 'Platform.Idempotency'."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact pinned version. A floating range is not a consumption edge."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$",
+          "description": "Repository-relative path to the consumer's own evidence for the edge. An absolute or '..'-bearing value is refused and never normalized; a value that stops resolving emits CAPABILITY_ADOPTION_EVIDENCE_STALE."
+        },
+        "local_implementation": {
+          "description": "Repository-relative path, or list of paths, of a local implementation this adoption would replace. Bounded to declaration-supplied paths: the audit never infers an undeclared duplicate.",
+          "anyOf": [
+            {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"},
+            {"type": "array", "items": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$"}}
+          ]
+        }
+      }
+    },
+    "decline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "rationale", "evidence_ref"],
+      "description": "An evidence-backed decision not to adopt a capability. A decline exempts this project for this capability only; it never suppresses a finding in another project or for another capability.",
+      "properties": {
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "description": "A capability id registered in capabilities.json."
+        },
+        "rationale": {
+          "type": "string",
+          "enum": ["ownership", "privacy", "lifecycle", "dependency-direction", "naming-symmetry", "not-applicable", "provider-unavailable"],
+          "description": "Closed boundary vocabulary. Any other value emits CAPABILITY_ADOPTION_DECLINE_UNRECORDED and does not exempt the capability."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$",
+          "description": "Repository-relative document stating the boundary. Required: an assertion is not a boundary argument, and a decline without a resolving document is reported."
+        },
+        "review_by": {
+          "type": "string",
+          "description": "Advisory review date. It never auto-expires a decline; a stale decline is a governance conversation, not a machine decision."
+        }
+      }
+    },
+    "evidence_field": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {"$ref": "#/$defs/release_evidence_state"},
+        "value": {
+          "description": "Field value: a string for revision/version/toolchain/provenance, an array of strings for checks, a list of digest references for digests/sbom, or omitted when only state is known."
+        },
+        "evidence_ref": {
+          "type": "string",
+          "description": "Repository-relative path to the native evidence artefact when state is 'configured' or 'verified'."
+        }
+      }
+    }
+  }
+}

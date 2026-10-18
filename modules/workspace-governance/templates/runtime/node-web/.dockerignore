@@ -1,0 +1,8 @@
+.git
+.dockerignore
+node_modules/
+npm-debug.log*
+dist/
+build/
+.next/
+coverage/

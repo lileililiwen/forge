@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "workspace_root", "discovery", "projects"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "workspace_root": {"type": ["string", "null"]},
+    "discovery": {
+      "type": "object",
+      "required": ["mode", "unregistered_policy"],
+      "properties": {
+        "mode": {"enum": ["explicit", "immediate-directories", "explicit-plus-immediate-directories"]},
+        "unregistered_policy": {"enum": ["report", "fail"]},
+        "exclude": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "profile", "lifecycle"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"},
+          "path": {"type": "string", "minLength": 1},
+          "profile": {"type": "string", "minLength": 1},
+          "lifecycle": {"type": "string"}
+        }
+      }
+    }
+  }
+}

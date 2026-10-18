@@ -1,0 +1,26 @@
+{
+  "id": "tooling",
+  "required_files": [
+    "README.md",
+    ".project.json"
+  ],
+  "requires_ci": false,
+  "requires_openspec": false,
+  "requires_verification_command": true,
+  "supported_capabilities": [
+    "identity",
+    "admin",
+    "tenancy",
+    "billing",
+    "jobs",
+    "storage",
+    "release",
+    "registry",
+    "policy",
+    "evidence",
+    "telemetry",
+    "rate-limiting",
+    "idempotency",
+    "feature-flags"
+  ]
+}

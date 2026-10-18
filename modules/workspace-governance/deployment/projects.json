@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "generated_by": "workspace-governance/scripts/jenkins_manifest.py",
+  "generated_at": "2026-10-05T14:35:46.893179+00:00",
+  "projects": [
+    {
+      "id": "alethefy",
+      "path": "alethefy",
+      "jenkins_job": "alethefy",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "bash scripts/container-smoke-test.sh"
+    },
+    {
+      "id": "crossify",
+      "path": "crossify",
+      "jenkins_job": "crossify",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "./scripts/verify.sh"
+    },
+    {
+      "id": "cvunify",
+      "path": "cvunify",
+      "jenkins_job": "cvunify",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "CVUNIFY_TEST_ADMIN_CONNECTION=\"${CVUNIFY_TEST_ADMIN_CONNECTION:-Host=127.0.0.1;Port=5432;Username=postgres;Password=postgres;Database=cvunify_ci}\" dotnet test"
+    },
+    {
+      "id": "hermexa",
+      "path": "hermexa",
+      "jenkins_job": "hermexa",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "cargo test --workspace"
+    },
+    {
+      "id": "hypora",
+      "path": "hypora",
+      "jenkins_job": "hypora",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "dotnet test Hypora.sln"
+    },
+    {
+      "id": "lexora",
+      "path": "lexora",
+      "jenkins_job": "lexora",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "dotnet test"
+    },
+    {
+      "id": "openaccounting",
+      "path": "openaccounting",
+      "jenkins_job": "openaccounting",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "[ -n \"${DATABASE_URL:-}\" ] || { set -a; . ./.env.test; set +a; }; cargo test --features test-support"
+    },
+    {
+      "id": "argoscope",
+      "path": "argoscope",
+      "jenkins_job": "argoscope",
+      "compose_file": "docker-compose.yml",
+      "verification_command": "python3 scripts/verify_bootstrap.py && openspec validate --all --strict --no-interactive"
+    }
+  ]
+}

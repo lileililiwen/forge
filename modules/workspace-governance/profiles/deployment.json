@@ -1,0 +1,7 @@
+{
+  "id": "deployment",
+  "required_files": ["README.md", ".project.json"],
+  "requires_ci": false,
+  "requires_openspec": false,
+  "requires_verification_command": true
+}

@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "id": "ui-adoption-migration",
+  "title": "Migrate hand-rolled auth and UI surfaces onto the shared ui layer",
+  "status": "in-progress",
+  "created": "2026-10-06",
+  "owner": "workspace-governance",
+  "problem": "44 hand-written login/register/logout page files are spread across 17 repositories, and 22 repositories each implement their own theme switching. Meanwhile dotnet-platform-libs/ui is a complete, tested design-token and component layer whose adoption count is zero. The workspace pays for the same pages repeatedly and has no single place to change them.",
+  "evidence": {
+    "auth_page_files": 44,
+    "auth_page_repositories": 17,
+    "repos_with_own_theme_switching": 22,
+    "ui_layer_adoption": 0,
+    "undeclared_ui_repos": 55,
+    "divergent_color_primitive_repos": 15,
+    "flutter_repos_with_no_shared_path": 8,
+    "media_query_baseline_values": 24,
+    "baseline_source": "dotnet-platform-libs/ui/legacy-divergent.json (frozen 2026-10-03)",
+    "counted_by": "find/grep across /home/paul/code, excluding target, node_modules, obj, bin, dist, build, coverage, *.test.*, *.spec.*, e2e, and tests/"
+  },
+  "the_shared_layer": {
+    "home": "dotnet-platform-libs/ui",
+    "assets_already_present": [
+      "ui/tokens/tokens.json — single DTCG token source, light and dark",
+      "ui/scripts/generate-tokens.mjs — generator, no code change needed to add a token",
+      "ui/scripts/verify-ui.mjs — accessibility oracle; fails on orphan color literals",
+      "ui/scripts/pack-ui.mjs — deterministic npm-pack equivalent writing feed/*.tgz",
+      "ui/packages/react-ui — Button, Field, Card, Badge, State, Dialog, Pagination",
+      "ui/packages/react-shell — AppShell with nav, AuthBoundary",
+      "ui/packages/react-auth — LoginForm, RegisterForm, ForgotPasswordForm, logout control, ThemeProvider, branding loader (added on branch feature/platform-shared-auth-pages)"
+    ],
+    "not_yet_present": [
+      "no branding.json consumption outside react-auth",
+      "no Django, Hugo, or maud path",
+      "no Dart token artifact, so the 8 Flutter repos have no shared route"
+    ]
+  },
+  "waves": [
+    {
+      "wave": 0,
+      "name": "Make the layer consumable",
+      "blocked_by": null,
+      "rationale": "Nothing can be migrated until the package is on the feed and the schema is published.",
+      "tasks": [
+        "Regenerate ui/feed so @platform/react-auth is externally consumable",
+        "Add a row to eng/package-manifest.json for the new package",
+        "Decide whether ui/feed tarballs are published to a public npm scope or vendored per repo"
+      ],
+      "exit_criteria": [
+        "verify-ui-feed.mjs passes",
+        "a scratch repo can install the feed and import Button without copying source"
+      ]
+    },
+    {
+      "wave": 1,
+      "name": "Prove it on one repository",
+      "blocked_by": "wave 0",
+      "rationale": "Adoption is currently zero. One real consumer proves the feed, the tokens, and the components work outside the owning repo; zero consumers proves nothing.",
+      "candidate": "somodanote",
+      "candidate_rationale": "Selected by measuring bespoke UI across all 34 dotnet repos in the undeclared-UI list. somodanote is the smallest that actually has auth pages to replace: 12 razor files, with hand-written Login.cshtml (42 lines) and Logout.cshtml (5 lines). Smaller repos were rejected because they have no auth surface to prove the replacement: singleatee (5 files, no auth), citylens (9, none), testify (11, none). The largest, openlearning at 234 razor files, is far too big for a first adopter because a failure there would be impossible to attribute.",
+      "candidate_state": {
+        "stack": "dotnet",
+        "role": "product",
+        "branch": "main",
+        "auth_files_to_replace": [
+          "src/SomadaNote.Web/Pages/Login.cshtml",
+          "src/SomadaNote.Web/Pages/Logout.cshtml"
+        ],
+        "verification_command": "dotnet test SomadaNote.sln",
+        "blocker": "The working tree has one modified tracked file, src/SomadaNote.Api/Dockerfile, which is leftover .NET 8 to 10 migration work (sdk:8.0 to 10.0, aspnet:8.0 to 10.0, plus ENV HUSKY=0). It is unverified and was not written by this effort, so the standard no-uncommitted-tracked-changes guard would block the migration. The owner must land or discard it first."
+      },
+      "tasks": [
+        "Adopt the feed in a single chosen repository",
+        "Replace its hand-written Login/Register/Logout with the shared pages",
+        "Wire branding.json for logo, navigation, and footer links",
+        "Record measured contrast, reflow at 320px, and keyboard-only results"
+      ],
+      "exit_criteria": [
+        "the repository no longer ships its own auth pages",
+        "workspace_check reports no adoption gap for that project"
+      ],
+      "note": "Pick the repository deliberately. Prefer the one with the least bespoke UI so a failure points at the layer and not at the consumer."
+    },
+    {
+      "wave": 2,
+      "name": "Migrate the .NET cohort",
+      "blocked_by": "wave 1",
+      "rationale": "The .NET cohort is the best served: Platform.UI.Razor, the application starter template, and the react packages all target it directly.",
+      "tasks": [
+        "Wire Platform.UI.Razor's platform-tokens.css to the generated tokens so its 5 duplicated dark hexes disappear",
+        "Extend the .template.config template so new projects get auth pages by default",
+        "Migrate repositories one at a time, smallest first"
+      ],
+      "exit_criteria": [
+        "the frozen 15-repo divergent-primitive list is empty",
+        "the 24 baselined media-query values have collapsed to the documented scale"
+      ]
+    },
+    {
+      "wave": 3,
+      "name": "Migrate the React and Next.js cohort",
+      "blocked_by": "wave 0",
+      "rationale": "Covers crossify, arivio, hestiaLab, fotofy, argoset, gradevia, linglitch, and the other typescript-product projects.",
+      "tasks": [
+        "Add the feed to each repo's package manager",
+        "Replace Login/SignUp pages with the react-auth components",
+        "Move hardcoded colors onto tokens so dark mode works"
+      ],
+      "exit_criteria": [
+        "each migrated repo no longer hardcodes a login form"
+      ]
+    },
+    {
+      "wave": 4,
+      "name": "Cover the remaining stacks",
+      "blocked_by": "wave 0",
+      "rationale": "These have no shared path today and will otherwise stay divergent forever.",
+      "tasks": [
+        "Django/Jinja (openaccounting, alltools-platform): a Jinja partial set reading branding.json",
+        "Rust maud (openpanel, argo projects): generate from the same token source",
+        "Hugo (lileililiwen.github.io): layouts already exist; wire tokens only",
+        "Flutter/Dart (8 repos): decide whether to emit a Dart token artifact or accept these as permanently divergent and record that decision"
+      ],
+      "exit_criteria": [
+        "each stack either consumes the shared layer or has a recorded exemption"
+      ]
+    },
+    {
+      "wave": 5,
+      "name": "Close the forge loop",
+      "blocked_by": "waves 1-4",
+      "rationale": "forge already catalogs login, register, forgot-password, and navigation as Certified patterns, but its generated artifact is a placeholder <section> wrapper with no inputs, no theme, and no responsive rules. Until the artifact is real, forge cannot install what the ui layer ships.",
+      "tasks": [
+        "Replace artifact_source in forge/src/ui_pattern/mod.rs with the real shared pages",
+        "Start openspec/changes/portal-browser-sign-in (0/19 tasks)",
+        "Start openspec/changes/portal-accessible-responsive-ui (0/18 tasks)"
+      ],
+      "blocked_note": "forge currently has 12 uncommitted files under active development. This wave waits until that work lands and the tree is clean.",
+      "exit_criteria": [
+        "forge ui-pattern install login produces a working login page, not a wrapper"
+      ]
+    }
+  ],
+  "open_decisions": [
+    {
+      "id": "D1",
+      "question": "Publish the feed to a public npm scope, or vendor per repository?",
+      "why_it_matters": "dotnet-platform-libs is now PUBLIC on GitHub, but the feed tarballs are committed to the repo rather than published. Vendoring keeps the packages private but means every consumer copies tarballs and no version bump propagates.",
+      "default_if_unanswered": "vendor, because publishing a package under the user's npm identity is an account-level action the owner should take deliberately",
+      "ruling": {
+        "decision": "vendor",
+        "decided": "2026-10-06",
+        "reason": "The feed tarballs are already committed under ui/feed/ and verified by verify-ui-feed.mjs. Publishing to a public npm scope is an account-level action under the owner's npm identity; a vendored feed with a sync script keeps every install offline-reproducible and digest-pinned, which is what the layer was built for. A consumer syncs with one script and never needs credentials."
+      }
+    },
+    {
+      "id": "D2",
+      "question": "Does the auth page set include a username/password form, or only provider redirects?",
+      "why_it_matters": "forge's portal-browser-sign-in designs OIDC with PKCE only. The React pages assume a local form. The two must agree or consumers will get the wrong page.",
+      "default_if_unanswered": "support both; a local form for site users, a provider redirect for operators",
+      "ruling": {
+        "decision": "both",
+        "decided": "2026-10-06",
+        "reason": "react-auth ships a local username/password form for site users; forge's portal-browser-sign-in ships a provider redirect for operators. These are different actors, not competing designs. A site user logs in with a local credential; an operator authenticates to the control plane through OIDC with PKCE."
+      }
+    },
+    {
+      "id": "D3",
+      "question": "Are the 8 Flutter repositories in scope at all?",
+      "why_it_matters": "There is no Dart token artifact. Supporting them means writing and maintaining a fourth consumer path.",
+      "default_if_unanswered": "out of scope, recorded as a permanent exemption so they stop being counted as drift",
+      "ruling": {
+        "decision": "out of scope, permanent exemption",
+        "decided": "2026-10-06",
+        "reason": "There is no Dart token artifact and writing a fourth consumer path for 8 repositories is not justified against the measured benefit. Record these as exempt so they stop being counted as drift rather than carrying an open gap forever."
+      }
+    },
+    {
+      "id": "D4",
+      "question": "Who owns branding.json — the repo, or the workspace registry?",
+      "why_it_matters": "If the registry owns it, a product cannot change its own logo without a governance round trip. If the repo owns it, 70+ files drift again and nothing enforces a schema.",
+      "default_if_unanswered": "repo owns it, schema validated at build time by verify-ui.mjs",
+      "ruling": {
+        "decision": "repo owns branding.json",
+        "decided": "2026-10-06",
+        "reason": "A product must be able to change its own logo without a governance round trip. The schema in ui/schemas/branding.schema.json and the loader in react-auth/src/branding.ts already implement this; verify-ui.mjs validates the shape at build time, so 70+ files cannot silently drift."
+      }
+    }
+  ],
+  "not_done": [
+    "No wave has been executed. This is a plan, not a result.",
+    "The 8 no-remote repositories are untouched; see registry-remote-drift.json.",
+    "forge wave 5 has not started; its working tree is dirty."
+  ]
+}

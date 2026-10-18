@@ -1,0 +1,1046 @@
+{
+  "schema_version": 1,
+  "generator": "scripts/generate_ui_conformance_baseline.py",
+  "recorded_at": "generated",
+  "note": "The UI findings that were already true of every registered repository when ui-convention-check landed. A code listed here for a project is a measured pre-existing state, so the gate goes live without turning the whole fleet red on day one; the finding is still reported and counted as baselined. The list only shrinks: a repository that adopts the shared ui layer, declares its scan scope, or resolves its branding and contrast artefacts drops the corresponding code, and a repository that clears every code leaves this file and is not consulted at all. An entry that no longer matches the measured state is dead weight and --check reports it. This file is not a switch: a run without --baseline fails closed on every finding, and a code that is not listed here fails normally.",
+  "entries": [
+    {
+      "project": "argoset",
+      "role": "consumer",
+      "ui_files": 39,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [
+        "UI_AUTH_HANDROLLED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 3
+      }
+    },
+    {
+      "project": "byok-translator",
+      "role": "consumer",
+      "ui_files": 11,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "openpanel",
+      "role": "consumer",
+      "ui_files": 2,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "pluggify",
+      "role": "consumer",
+      "ui_files": 16,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "hermora",
+      "role": "consumer",
+      "ui_files": 2,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "hestiaLab",
+      "role": "consumer",
+      "ui_files": 85,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [
+        "UI_AUTH_HANDROLLED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 3
+      }
+    },
+    {
+      "project": "loreMix",
+      "role": "consumer",
+      "ui_files": 25,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "metiscope",
+      "role": "consumer",
+      "ui_files": 4,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "mortalect",
+      "role": "consumer",
+      "ui_files": 37,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 6,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "opendockify",
+      "role": "consumer",
+      "ui_files": 80,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 4,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "alethefy",
+      "role": "consumer",
+      "ui_files": 5,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "crossify",
+      "role": "consumer",
+      "ui_files": 36,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [
+        "UI_AUTH_HANDROLLED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 4
+      }
+    },
+    {
+      "project": "cvunify",
+      "role": "consumer",
+      "ui_files": 72,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 4,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "hermexa",
+      "role": "consumer",
+      "ui_files": 17,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "hypora",
+      "role": "consumer",
+      "ui_files": 27,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 1,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "lexora",
+      "role": "consumer",
+      "ui_files": 64,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 4,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "alltools-platform",
+      "role": "tooling",
+      "ui_files": 2067,
+      "scope_ceiling": 400,
+      "scope_oversize": true,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 24,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "openaccounting",
+      "role": "consumer",
+      "ui_files": 125,
+      "scope_ceiling": 200,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [
+        "UI_AUTH_HANDROLLED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 4
+      }
+    },
+    {
+      "project": "ariadex",
+      "role": "consumer",
+      "ui_files": 1,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "arivio",
+      "role": "consumer",
+      "ui_files": 23,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 3,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "catchen",
+      "role": "consumer",
+      "ui_files": 47,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 9,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "chinago",
+      "role": "consumer",
+      "ui_files": 16,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "crossalheart",
+      "role": "consumer",
+      "ui_files": 14,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "dharmatlas",
+      "role": "consumer",
+      "ui_files": 7,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "dotnet-platform-libs",
+      "role": "provider",
+      "ui_files": 30,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 5,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "forge",
+      "role": "consumer",
+      "ui_files": 4,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 1,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "fotofy",
+      "role": "consumer",
+      "ui_files": 123,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [
+        "UI_AUTH_HANDROLLED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 5
+      }
+    },
+    {
+      "project": "gradevia",
+      "role": "consumer",
+      "ui_files": 11,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "hookit",
+      "role": "consumer",
+      "ui_files": 2,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "kairion",
+      "role": "consumer",
+      "ui_files": 11,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "labrys",
+      "role": "consumer",
+      "ui_files": 12,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "lileililiwen.github.io",
+      "role": "consumer",
+      "ui_files": 15,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "linglitch",
+      "role": "consumer",
+      "ui_files": 14,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "openlearning",
+      "role": "consumer",
+      "ui_files": 239,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 11,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "orphevia",
+      "role": "consumer",
+      "ui_files": 10,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "pangoman",
+      "role": "consumer",
+      "ui_files": 75,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 3,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "ploutify",
+      "role": "consumer",
+      "ui_files": 1,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "reelio",
+      "role": "consumer",
+      "ui_files": 3,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "rust-ecommerce",
+      "role": "consumer",
+      "ui_files": 305,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 4,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "shopifireman",
+      "role": "consumer",
+      "ui_files": 10,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "singleatee",
+      "role": "consumer",
+      "ui_files": 21,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "smotoox",
+      "role": "consumer",
+      "ui_files": 55,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 5,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "somodanote",
+      "role": "consumer",
+      "ui_files": 17,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 3,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "stylify",
+      "role": "consumer",
+      "ui_files": 70,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 2,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "tantalyn",
+      "role": "consumer",
+      "ui_files": 24,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "testify",
+      "role": "consumer",
+      "ui_files": 12,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "transitfy",
+      "role": "consumer",
+      "ui_files": 11,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "triplanify",
+      "role": "consumer",
+      "ui_files": 30,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_AUTH_HANDROLLED",
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 2,
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "trippify",
+      "role": "consumer",
+      "ui_files": 28,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "ziban",
+      "role": "consumer",
+      "ui_files": 105,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "citylens",
+      "role": "consumer",
+      "ui_files": 10,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "mewo",
+      "role": "consumer",
+      "ui_files": 36,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "retakeKit",
+      "role": "consumer",
+      "ui_files": 9,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "therapist-commons",
+      "role": "consumer",
+      "ui_files": 13,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "vowra",
+      "role": "consumer",
+      "ui_files": 12,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "argoscope",
+      "role": "consumer",
+      "ui_files": 21,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "chronicleaf",
+      "role": "consumer",
+      "ui_files": 66,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": false,
+      "codes": [
+        "UI_BRANDING_ABSENT",
+        "UI_CONTRAST_UNMEASURED",
+        "UI_SCOPE_UNDECLARED",
+        "UI_TOKEN_NOT_CONSUMED"
+      ],
+      "counts": {
+        "UI_BRANDING_ABSENT": 1,
+        "UI_CONTRAST_UNMEASURED": 1,
+        "UI_SCOPE_UNDECLARED": 1,
+        "UI_TOKEN_NOT_CONSUMED": 1
+      }
+    },
+    {
+      "project": "devloom",
+      "role": "consumer",
+      "ui_files": 68,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [],
+      "counts": {}
+    },
+    {
+      "project": "kairovia",
+      "role": "consumer",
+      "ui_files": 56,
+      "scope_ceiling": 400,
+      "scope_oversize": false,
+      "scope_declared": true,
+      "codes": [
+        "UI_AUTH_HANDROLLED"
+      ],
+      "counts": {
+        "UI_AUTH_HANDROLLED": 2
+      }
+    }
+  ]
+}

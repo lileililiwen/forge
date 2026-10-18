@@ -16,7 +16,7 @@ preserving each project's original name:
 - `crates/cargo-audit-boost/`, `crates/cargo-matrix-boost/`, `crates/cargo-sonar/` — the quality/audit tooling crates.
 
 These are registered as workspace members via `members = ["crates/*"]` in
-`Cargo.toml`. `workspace-governance` remains an external sibling. Build the
+`Cargo.toml`. `workspace-governance` is maintained as an ordinary Python project under `modules/workspace-governance/`; see [the import boundary](docs/workspace-governance-import.md). Forge consumer migration and origin retirement remain queued separately. Build the
 whole workspace with `cargo build --workspace` (or `cargo check --workspace`).
 
 ## Facade: `forge use <product>`

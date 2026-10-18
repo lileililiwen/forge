@@ -1,0 +1,7 @@
+{
+  "id": "worker-postgres-external",
+  "version": 1,
+  "required_variables": ["project_name", "worker_command", "database_name", "db_user", "db_host"],
+  "optional_variables": ["db_port"],
+  "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md", ".env.example"]
+}

@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "graduation_audits": 3,
+  "note": "Capability adoption registry. Each entry binds one capability id to exactly one provider and assigns a posture. The audit joins this registry, the consumer's own manifests, and the consumer's capabilities[].consumes[] declaration; all three must agree before a capability counts as adopted. See docs/capabilities.md and openspec/changes/capability-adoption-gate/.",
+  "capabilities": {
+    "idempotency": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.Idempotency",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Provider ships the package but declares no `verified` capability entry, so there is no verified provider evidence to charge consumers against yet. 34 repositories need it and 2 pin it.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "rate-limiting": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.RateLimiting",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Provider ships the package but declares no `verified` capability entry. 28 repositories need it and 2 pin it.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "telemetry": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.Web.Telemetry",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Provider ships the package but declares no `verified` capability entry. 28 repositories need shared logging/redaction and 0 pin it.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "feature-flags": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.FeatureManagement",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Provider ships the package but declares no `verified` capability entry. 0 repositories currently bind a flag consumer.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "identity": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.Identity.AspNetCore",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Published coordinates are already pinned by careBridge and others; the provider capability is not yet `verified`, so the gate is not yet charged to consumers.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "persistence-postgres": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.Persistence.Postgres",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Provider ships the package but declares no `verified` capability entry.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "web-application-factory": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.Testing.AspNetCore",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "One shared WebApplicationFactory harness exists in the provider; 58 local subclasses across 25 repositories remain unmeasured because the provider capability is not yet `verified`.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "health-checks": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.AspNetCore",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "21 repositories need shared health-check wiring, but the provider publishes no dedicated health-check package, so charging 21 consumers for a provider gap would be noise.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    },
+    "postgres-test-fixture": {
+      "provider": "dotnet-platform-libs",
+      "package": "Platform.Testing",
+      "posture": "exempt",
+      "reason": "provider-unavailable",
+      "note": "Platform.Testing publishes no database fixtures. 12 repositories hand-roll them; that is a provider gap, not 12 consumer gaps.",
+      "expected_since": "2026-10-02",
+      "audit_count": 0
+    }
+  },
+  "graduations": []
+}

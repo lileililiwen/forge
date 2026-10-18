@@ -1,0 +1,16 @@
+version: 1
+runtime: driftwatchdog
+profile: __PROFILE__
+rule_pack: workspace-governance@1
+checks:
+  repository: true
+  build: true
+  tests: true
+  security: true
+  product_quality: false
+blocking:
+  - FAIL
+  - REVIEW_REQUIRED
+notes:
+  - Set `product_quality: true` only after adding a `quality` block to `.project.json`; see docs/product-code-quality.md.
+  - The local OpenSpec name preflight remains mandatory.

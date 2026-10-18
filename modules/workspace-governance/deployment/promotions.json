@@ -1,0 +1,115 @@
+{
+  "schema": "promotions/1",
+  "entries": [
+    {
+      "project_id": "alethefy",
+      "decided_at": "2026-09-24T07:52:33.506272+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "da625855334e3431118be6ccdaa78e351feb8465",
+      "evidence_ref": "local:HEAD:da625855334e3431118be6ccdaa78e351feb8465",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "alethefy"
+    },
+    {
+      "project_id": "crossify",
+      "decided_at": "2026-09-24T07:52:33.558670+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "d179b5cb45024e0659ea4139acd018b2516a3302",
+      "evidence_ref": "local:HEAD:d179b5cb45024e0659ea4139acd018b2516a3302",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "crossify"
+    },
+    {
+      "project_id": "cvunify",
+      "decided_at": "2026-09-24T07:52:33.609976+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "eb471a12fe8c3035ee5c67e0c4c50b67b43515e5",
+      "evidence_ref": "local:HEAD:eb471a12fe8c3035ee5c67e0c4c50b67b43515e5",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "cvunify"
+    },
+    {
+      "project_id": "hermexa",
+      "decided_at": "2026-09-24T07:52:33.663080+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "2228cd7e9d404c178990e31e339ac45e81b16448",
+      "evidence_ref": "local:HEAD:2228cd7e9d404c178990e31e339ac45e81b16448",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "hermexa"
+    },
+    {
+      "project_id": "hypora",
+      "decided_at": "2026-09-24T07:52:33.714546+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "c525e4fa28593ec679450fa351f9419be21e30fe",
+      "evidence_ref": "local:HEAD:c525e4fa28593ec679450fa351f9419be21e30fe",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "hypora"
+    },
+    {
+      "project_id": "lexora",
+      "decided_at": "2026-09-24T07:52:33.766819+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "5bec5daef93a58e2663b079c4363be0996f4006e",
+      "evidence_ref": "local:HEAD:5bec5daef93a58e2663b079c4363be0996f4006e",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "lexora"
+    },
+    {
+      "project_id": "openaccounting",
+      "decided_at": "2026-09-24T07:52:33.822519+00:00",
+      "actor": "workspace-governance/batch",
+      "revision": "bb35b310354ed0d66f63d2222360288ebb9d2e6e",
+      "evidence_ref": "local:HEAD:bb35b310354ed0d66f63d2222360288ebb9d2e6e",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "openaccounting"
+    },
+    {
+      "project_id": "argoscope",
+      "decided_at": "2026-10-05T14:25:56.589059+00:00",
+      "actor": "paul",
+      "revision": "9d5e35f07883a51af8c9fb43ed3b39ac04113073",
+      "evidence_ref": "local:HEAD:9d5e35f07883a51af8c9fb43ed3b39ac04113073",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "argoscope"
+    },
+    {
+      "project_id": "argoscope",
+      "decided_at": "2026-10-05T14:28:40.201122+00:00",
+      "actor": "paul",
+      "revision": "068372f7743f08dcbf8919630ec84a4faf98a12e",
+      "evidence_ref": "local:HEAD:068372f7743f08dcbf8919630ec84a4faf98a12e",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "argoscope"
+    },
+    {
+      "project_id": "argoscope",
+      "decided_at": "2026-10-05T14:35:46.322752+00:00",
+      "actor": "paul",
+      "revision": "4198e3a9db116607b05d2c213683b7ebf3a30669",
+      "evidence_ref": "local:HEAD:4198e3a9db116607b05d2c213683b7ebf3a30669",
+      "manifest_generated": true,
+      "kind": "promote",
+      "compose_file": "docker-compose.yml",
+      "jenkins_job": "argoscope"
+    }
+  ]
+}

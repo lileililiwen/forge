@@ -1,0 +1,16 @@
+schema: spec-driven
+
+created: 2026-09-28
+status: proposed
+name: standalone-project-boundary
+title: Standalone project boundary classification
+description: |
+  Classify a discovered project as standalone, library-dependent,
+  workspace-dependent, service-dependent, or blocked without executing
+  project commands. Additive optional `standalone` and `integrations`
+  declaration fields, repository-relative audit, and normalized Forge
+  adapter observations. No schema migration; existing declarations
+  remain valid.
+capability: standalone-project-boundary
+owner: workspace-governance
+profiles: [governance]

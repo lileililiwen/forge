@@ -5923,9 +5923,10 @@ checkout was changed. Nothing was pushed.
 The dependency-ordered queue is in [ROADMAP.md](ROADMAP.md#forge-source-consolidation-and-retirement):
 
 1. **Distribution and reliability:** publish checksummed Forge binaries for CI.
-2. **Ownership consolidation:** internalize selected workspace-governance
-   sources and actively consumed platform schemas/validators; remove sibling
-   checkout and mirrored-schema maintenance dependencies.
+2. **Ownership consolidation:** Workspace Governance is now an ordinary
+   in-tree project with its local-only history. Forge
+   adapter/registry/sync consumers and generated sibling shims remain to be
+   migrated; active schema and validator ownership follows separately.
 3. **Local runtime:** support projects with multiple services across Compose
    and local processes, integrating `gitrunbykaru` behind Forge commands.
 4. **Library monorepo:** relocate Rust and .NET platform libraries as ordinary
@@ -5968,3 +5969,51 @@ push the matching `v0.1.0` tag after publishing this commit.
 Implementation/archive commit: `2bfe6c7` (`feat: distribute Forge release binaries`).
 This HANDOFF-only commit records completion. Nothing was pushed or published.
 No active OpenSpec change remains, so there is no `current_spec` pointer.
+
+## Workspace Governance consolidation — archived OpenSpec change (2026-10-18)
+
+`forge-workspace-governance-in-tree` is archived at
+`openspec/changes/archive/2026-10-18-forge-workspace-governance-in-tree/`; its
+three requirements are promoted to
+`openspec/specs/forge-workspace-governance-in-tree/spec.md`. The complete
+Workspace Governance repository is now ordinary in-tree project content at
+`modules/workspace-governance/`. Its six source-only commits are ancestors of
+the import merge commit, `be806476a74aa2cf11cf9ae1508af7b426f6b0c9`, whose
+second parent is source revision `2c766c64eb54560fa898115dec27c32abbf4968e`.
+No Git submodule or nested repository was introduced.
+
+The import retains 400 source paths. The verifier permits 20 documented
+adaptations (15 whitespace-only) and two monorepo additions; it checks paths,
+file modes, blob content and source ancestry. Four registered project paths
+were rebased to `forge/crates/{cargo-audit-boost,cargo-matrix-boost,
+cargo-sonar,driftwatchdog}` while their registry IDs remain stable. The
+original `/home/paul/code/workspace-governance` checkout was clean after the
+import and remains untouched; no remote repository was archived or changed.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Forge build | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo build --workspace --all-features`. |
+| Workspace Governance tests | PASS, 989 tests; 7 skipped | Python 3.11 suite from the imported module. |
+| Workspace Governance self-check | PASS | `python3 scripts/workspace_check.py --self-check` from the module. |
+| Workspace Governance Gate | PASS, 7 checks | `timeout 180 ../../target/debug/driftwatchdog gate`; local state was initialized first. Its source-size check finds zero candidates because implementation lives under `scripts/`. |
+| Axis migration | PASS | `scripts/axis_migration.py --root /home/paul/code --governance-root /home/paul/code/forge/modules/workspace-governance --check`. |
+| Workspace audit | PASS for registration integrity | 322 errors and 45 warnings across the existing workspace, with zero `PROJECT_MISSING` findings. |
+| Import parity/history | PASS | `python3 scripts/check-workspace-governance-import.py`; 400 source paths, 20 declared adaptations, 2 additions, all six source commits reachable. |
+| OpenSpec and repository hygiene | PASS | Name preflight; strict validation 111/111 after archive; `git diff --check` and `git diff --cached --check`. |
+| Forge Gate dry-run | PASS | All eight required checks resolved; no unbound required checks. |
+| Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; aggregate PASS at observed time `2026-10-18T05:16:53Z`. All eight checks passed; source-size evaluated 420/420 candidates. Existing unmaintained `paste` and `unsafe-libyaml` advisories remain informational. |
+
+The module Gate currently misses Python files under `scripts/`, and four
+production scripts exceed Forge's 1,000-line baseline. This is recorded as
+`forge-workspace-governance-gate-conformance`, the next migration prerequisite;
+the passing module Gate is not evidence that those source-size requirements
+are met. Forge-owned adapters and generated sibling shims still contain
+sibling-layout references, so consumer migration and portability remain
+separate roadmap work. The Workspace Governance origin must remain available
+until those consumers are migrated and verified; origin retirement is the
+final, explicit remote operation.
+
+Implementation/archive commit: `be806476a74aa2cf11cf9ae1508af7b426f6b0c9`
+(`feat: consolidate workspace governance into forge`). This HANDOFF-only
+commit records the completed import. Nothing was pushed. No active OpenSpec
+change remains, so there is no `current_spec` pointer.

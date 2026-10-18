@@ -2,6 +2,34 @@
 
 ## Latest delivery
 
+### `gate-profile-portal-controls` implemented and archived (2026-10-18)
+
+Forge's authenticated project workbench now shows the profile on local Gate
+evidence and hosted CI observations. Operators can choose `fast` or `full` in
+the Quality checks card; Full is selected by default. The existing Gate run API
+validates the typed profile, preserves the full default for older empty-object
+clients, and rejects malformed or unsupported requests before execution or
+journaling. The change keeps the existing evidence contract and hosted full-only
+policy. A narrow viewport layout correction lets the Quality evidence facts wrap
+inside the card. ROADMAP order 7 is complete. No sibling project changed, and
+nothing was published or pushed.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Profile request parser/config | PASS, 2/2 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test --lib api::admin::gate::profile_request_tests -- --test-threads=1`; empty object defaults to full, both profiles parse, invalid shapes/values/oversize bodies refuse, and typed config retains fast selection. |
+| Gate workbench API/UI contract | PASS, 8/8 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test --test web_gate_controls_contract -- --test-threads=1`; invalid requests add no evidence or Gate journal entry; local/hosted profile rendering and controls are pinned. |
+| Chromium workbench flow | PASS, 1/1 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test --test forge_web_gate_profile_browser -- --nocapture`; real Forge API/web processes, keyboard profile selection, real fast Gate run, evidence display, error recovery preserving prior evidence, visible focus and 320px Quality-card reflow. |
+| Syntax and formatting | PASS for changed files | `node --check frontend/app.js`; `node --check tests/browser/gate-profile-workbench-check.mjs`; Rustfmt edition 2021 `--config skip_children=true --check` on changed Rust files. `cargo fmt --all -- --check` still reports pre-existing formatting drift in untouched files including `src/cli/use_cmd.rs`, `tests/delivery_cross_surface.rs` and vendored tooling crates. |
+| OpenSpec and whitespace | PASS | Name preflight; strict validation **117/117** after archive; `git diff --check`; canonical `forge-web-project-workbench` requirement promoted without `--skip-specs`. |
+| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; all 8 required checks resolved, none unbound. |
+| Full Forge Gate | PASS, fresh at run time | `timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; all 8 checks passed at pre-implementation revision `4fbf577910ae`, observed `2026-10-18T22:43:05Z`; source-size evaluated 428/428 candidates within 1,000 lines. `paste` and `unsafe-libyaml` advisories remain informational. |
+
+The change is archived at
+`openspec/changes/archive/2026-10-18-gate-profile-portal-controls/`.
+Implementation/archive commit: `1612d9d` (`feat: expose gate profiles in
+workbench`). No active OpenSpec change remains, so this file has no
+`current_spec` pointer. This HANDOFF-only update is the second commit.
+
 ### `gate-local-hosted-profiles` implemented and archived (2026-10-18)
 
 Forge Gate now supports explicit `fast` and `full` execution profiles. Fast

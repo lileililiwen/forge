@@ -61,9 +61,30 @@ if [ ! -d "$RESOURCE_DIR" ]; then
   echo "install blocked: archive is missing share/forge/runtime-templates" >&2
   exit 1
 fi
+GOVERNANCE_RESOURCE="$(dirname "$BIN")/share/forge/governance/check_concern.py"
+QUALITY_RESOURCE="$(dirname "$BIN")/share/forge/governance/product_code_quality.py"
+VOCABULARY_MODULE="$(dirname "$BIN")/share/forge/governance/vocabulary.py"
+VOCABULARY_DATA="$(dirname "$BIN")/share/forge/vocabulary.json"
+if [ ! -f "$GOVERNANCE_RESOURCE" ]; then
+  echo "install blocked: archive is missing share/forge/governance/check_concern.py" >&2
+  exit 1
+fi
+if [ ! -f "$QUALITY_RESOURCE" ]; then
+  echo "install blocked: archive is missing share/forge/governance/product_code_quality.py" >&2
+  exit 1
+fi
+if [ ! -f "$VOCABULARY_MODULE" ] || [ ! -f "$VOCABULARY_DATA" ]; then
+  echo "install blocked: archive is missing Forge governance vocabulary resources" >&2
+  exit 1
+fi
 mkdir -p "$PREFIX/bin" "$PREFIX/share/forge"
 cp "$BIN" "$PREFIX/bin/forge"
 chmod +x "$PREFIX/bin/forge"
 mkdir -p "$PREFIX/share/forge/runtime-templates"
 cp -R "$RESOURCE_DIR/." "$PREFIX/share/forge/runtime-templates/"
+mkdir -p "$PREFIX/share/forge/governance"
+cp "$GOVERNANCE_RESOURCE" "$PREFIX/share/forge/governance/check_concern.py"
+cp "$QUALITY_RESOURCE" "$PREFIX/share/forge/governance/product_code_quality.py"
+cp "$VOCABULARY_MODULE" "$PREFIX/share/forge/governance/vocabulary.py"
+cp "$VOCABULARY_DATA" "$PREFIX/share/forge/vocabulary.json"
 echo "install: $PREFIX/bin/forge"

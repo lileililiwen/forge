@@ -611,6 +611,23 @@ impl CatalogBuilder {
             REASON_NATIVE,
             caps_native,
         );
+        self.group(
+            None,
+            "concern",
+            "Run a Forge-owned read-only project concern check.",
+            Quality,
+            Project,
+        );
+        self.cli_only(
+            Some("concern"),
+            "check",
+            "Run one Forge-owned concern check against a project directory.",
+            Quality,
+            Project,
+            Read,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
         self.cli_only(
             None,
             "test",

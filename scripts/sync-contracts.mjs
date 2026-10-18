@@ -17,13 +17,11 @@ function resolveSource() {
   process.exit(1);
 }
 
-function resolveGovernanceSource() {
-  const envDir = process.env.GOVERNANCE_DIR;
-  if (envDir && existsSync(envDir)) return resolve(envDir);
-  const sibling = resolve(ROOT, "../workspace-governance");
-  if (existsSync(sibling)) return sibling;
+function resolveForgeVocabularySource() {
+  const inTree = resolve(ROOT, "modules/workspace-governance");
+  if (existsSync(inTree)) return inTree;
   console.error(
-    "sync-contracts: cannot resolve workspace-governance source. Set GOVERNANCE_DIR or place a sibling checkout at ../workspace-governance"
+    "sync-contracts: Forge's bundled vocabulary source is missing from its internal modules"
   );
   process.exit(1);
 }
@@ -95,8 +93,8 @@ try {
 // Governance vocabulary: consumed verbatim through the same digest-pinned
 // mechanism, with its own source and revision. The file is data, never
 // executable input; Forge validates values against it and never edits it.
-const govSrc = resolveGovernanceSource();
-console.log(`sync-contracts: governance source ${govSrc}`);
+const govSrc = resolveForgeVocabularySource();
+console.log("sync-contracts: loading Forge's bundled vocabulary");
 const govFile = join(govSrc, "vocabulary.json");
 if (!existsSync(govFile)) {
   console.error("sync-contracts: missing source file vocabulary.json");
@@ -113,10 +111,10 @@ if (govDoc.schema_version !== 1 || !Array.isArray(govDoc.profiles) || !Array.isA
 }
 cpSync(govFile, join(vocabDir, "governance-vocabulary.json"));
 console.log("  copied vocabulary/governance-vocabulary.json");
-let govRevision = "unknown";
+let forgeRevision = "unknown";
 try {
   const { execSync } = await import("node:child_process");
-  govRevision = execSync("git rev-parse HEAD", { cwd: govSrc }).toString().trim();
+  forgeRevision = execSync("git rev-parse HEAD", { cwd: ROOT }).toString().trim();
 } catch {}
 
 const entries = [];
@@ -126,12 +124,12 @@ function collect(dir, prefix) {
     const rel = prefix ? `${prefix}/${name}` : name;
     if (statSync(full).isDirectory()) collect(full, rel);
     else if (name !== "manifest.json") {
-      const govOwned = rel === "vocabulary/governance-vocabulary.json";
+      const forgeOwned = rel === "vocabulary/governance-vocabulary.json";
       entries.push({
         path: rel,
         sha256: sha256(full),
-        source: govOwned ? "workspace-governance" : "platform-contracts",
-        revision: govOwned ? govRevision : revision,
+        source: forgeOwned ? "forge" : "platform-contracts",
+        revision: forgeOwned ? forgeRevision : revision,
       });
     }
   }

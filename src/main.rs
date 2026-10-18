@@ -14,10 +14,10 @@ use forge::registry::default_registry_path;
 use cli::agent::cmd_agent;
 use cli::cap::cmd_cap;
 use cli::commands::{
-    AgentCommands, CapCommands, ClassifyCommands, ContractCommands, DeliveryCommands, DocsCommands,
-    GovernanceCommands, GraduationCommands, IntentCommands, PluginsCommands, PortalCommands,
-    ProcedureCommands, PublishCommands, RemediateCommands, StudioCommands, UiPatternCommands,
-    WorkspaceCommands,
+    AgentCommands, CapCommands, ClassifyCommands, ConcernCommands, ContractCommands,
+    DeliveryCommands, DocsCommands, GovernanceCommands, GraduationCommands, IntentCommands,
+    PluginsCommands, PortalCommands, ProcedureCommands, PublishCommands, RemediateCommands,
+    StudioCommands, UiPatternCommands, WorkspaceCommands,
 };
 use cli::commands_ops::{
     AnalyticsCommands, ComponentCommands, DeployCommands, DescribeCommands, FleetCommands,
@@ -29,6 +29,7 @@ use cli::commands_services::{
     ApiCommands, FeatureCommands, IdentityCommands, McpCommands, ReleaseCommands, WebCommands,
 };
 use cli::component::cmd_component;
+use cli::concern::cmd_concern;
 use cli::delivery::{cmd_delivery, cmd_studio};
 use cli::feature::{cmd_feature, cmd_spec, cmd_upgrade, cmd_upgrade_fleet, render_error};
 use cli::fleet_exec::cmd_fleet;
@@ -403,6 +404,11 @@ enum Commands {
         #[command(subcommand)]
         command: GovernanceCommands,
     },
+    /// Run Forge-owned generic quality concerns without exposing their implementation.
+    Concern {
+        #[command(subcommand)]
+        command: ConcernCommands,
+    },
     /// List, render, or validate Forge's bundled runtime templates.
     RuntimeTemplate {
         /// Renderer operation and arguments, forwarded unchanged.
@@ -528,6 +534,10 @@ fn main() -> ExitCode {
 
     if let Commands::RuntimeTemplate { args } = &cli.command {
         return cli::runtime_template::cmd_runtime_template(args);
+    }
+
+    if let Commands::Concern { command } = &cli.command {
+        return cmd_concern(command);
     }
 
     // Fleet runs print their per-project report to stdout even when the
@@ -740,6 +750,7 @@ fn main() -> ExitCode {
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
         Commands::Plugins { command } => cmd_plugins(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
+        Commands::Concern { .. } => unreachable!("concern checker owns child exit"),
         Commands::RuntimeTemplate { .. } => unreachable!("runtime template owns child exit"),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
         Commands::Project { command } => cmd_project(&db_path, command, cli.format),

@@ -16,8 +16,11 @@ preserving each project's original name:
 - `crates/cargo-audit-boost/`, `crates/cargo-matrix-boost/`, `crates/cargo-sonar/` — the quality/audit tooling crates.
 
 These are registered as workspace members via `members = ["crates/*"]` in
-`Cargo.toml`. `workspace-governance` is maintained as an ordinary Python project under `modules/workspace-governance/`; see [the import boundary](docs/workspace-governance-import.md). Forge consumer migration and origin retirement remain queued separately. Build the
-whole workspace with `cargo build --workspace` (or `cargo check --workspace`).
+`Cargo.toml`. Forge owns governance checks internally; concrete projects use
+Forge commands and do not need a separate governance checkout. The in-tree
+owner and remaining migration work are documented in [the import boundary](docs/workspace-governance-import.md).
+Build the whole workspace with `cargo build --workspace` (or
+`cargo check --workspace`).
 
 ## Facade: `forge use <product>`
 
@@ -58,7 +61,7 @@ See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](do
 
 Forge bundles the versioned runtime template renderer for Docker and Compose
 files. The CLI delegates to the bundled Python 3 renderer and template assets;
-it does not require a Workspace Governance checkout:
+it does not require a separate governance checkout:
 
 ```sh
 forge runtime-template list
@@ -100,7 +103,7 @@ binary — see the real-run [quickstart transcript](docs/quickstart.md).
   `error[unknown-project]`.
 - `forge new <PATH> --profile <id>` — scaffold a project deterministically
   from pinned profile assets (manifest, build definition, container
-  definition, workspace-governance `.project.json` declaration plus its
+  definition, Forge project declaration plus its
   ownership receipt). Rendering is verified against the asset version;
   native build/test still require the profile toolchain
   (`forge profile preflight <id>` names what is missing). `--feature` may

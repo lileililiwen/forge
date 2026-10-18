@@ -127,7 +127,7 @@
       "provider": "platform-contracts",
       "mechanism": "consume",
       "entry": "contracts/manifest.json",
-      "digest": "sha256:b52fb89d97dbacc75eae2d98597a2c40ed2c37c01ef3f91a8e553f72f09d56b0",
+      "digest": "sha256:90542c6c3483ed21eb4a3fece213124959a3f316d38a718a8af8d4282d33bd55",
       "contract": "platform-contract-copy/1.0.0",
       "evidence_ref": "src/contract/mod.rs",
       "required": true
@@ -182,7 +182,7 @@
       "provider": "workspace-governance",
       "mechanism": "consume",
       "entry": "contracts/vocabulary/governance-vocabulary.json",
-      "digest": "sha256:95d1f4d1dc69603d99f90f353f96441470d5a940d45e5b52866c2c69ab36c727",
+      "digest": "sha256:86fad88208ad3038458a2b879b72151d1de4af0699ffe104cec2b7f24fb8927c",
       "contract": "governance-vocabulary/1.0.0",
       "evidence_ref": "src/vocabulary.rs",
       "required": true

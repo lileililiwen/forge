@@ -17,7 +17,7 @@
 //! No route writes state, journals, runs an adapter or contacts a
 //! provider, and no response ever serializes the absolute project
 //! path. Static-token pins cover the five catalog rows (`web`, count
-//! stays at 245 rows) and the Delivery history card (no new dependency, no
+//! stays at 247 rows) and the Delivery history card (no new dependency, no
 //! `innerHTML` in the added controls).
 
 use std::collections::BTreeMap;
@@ -533,7 +533,7 @@ fn catalog_reports_the_five_history_rows_as_web() {
     );
     assert_eq!(
         rows.len(),
-        245,
+        247,
         "catalog conversion row count ({} found)",
         rows.len()
     );

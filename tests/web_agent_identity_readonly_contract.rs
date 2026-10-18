@@ -20,7 +20,7 @@
 //! provider. No route writes state, journals, builds a challenge,
 //! mints or revokes anything, and no response ever serializes the
 //! absolute project path or secret material. Static-token pins cover
-//! the five catalog rows (`web`, catalog count 245), the
+//! the five catalog rows (`web`, catalog count 247), the
 //! `session-terminate` → `cli_only` conversion, the untouched
 //! lifecycle/secret/transport verbs, and the Workbench card (no new
 //! dependency, no `innerHTML` in the added controls).
@@ -514,7 +514,7 @@ fn refused_reads_create_no_state_or_journal_rows() {
 #[test]
 fn catalog_names_the_reads_and_keeps_writes_cli_only() {
     let rows = command_catalog::rows();
-    assert_eq!(rows.len(), 245, "catalog conversion keeps row count");
+    assert_eq!(rows.len(), 247, "catalog conversion keeps row count");
     assert!(
         command_catalog::problems().is_empty(),
         "catalog problems: {:?}",

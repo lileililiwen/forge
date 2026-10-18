@@ -363,6 +363,19 @@ pub(crate) enum GovernanceCommands {
         timeout_ms: u64,
     },
 }
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ConcernCommands {
+    /// Run a Forge-owned, read-only concern check against a project.
+    Check {
+        /// Stable concern identifier.
+        #[arg(value_parser = ["accessibility", "fixtures", "placeholder-threshold", "product-code-boundary", "privacy", "provenance", "schemas"])]
+        id: String,
+        /// Project directory (default: current directory).
+        #[arg(default_value = ".")]
+        project_root: PathBuf,
+    },
+}
 #[derive(Debug, Subcommand)]
 pub(crate) enum ClassifyCommands {
     /// Suggest a bounded classification for the named project.

@@ -579,14 +579,11 @@ fn documented_aigate_template() -> String {
     )
 }
 
-/// Task 3.2: the template names the concern, selects it, binds a command,
-/// and keeps `blocking: [FAIL, REVIEW_REQUIRED]`.
+/// The product template selects Forge's public concern command and keeps the
+/// existing fail-closed blocking policy.
 #[test]
-fn the_documented_template_selects_and_binds_the_governance_concern() {
+fn the_documented_template_selects_and_binds_a_forge_concern() {
     let template = documented_aigate_template();
-
-    // A `commands` entry that names no `checks` entry is a parse error, so
-    // the selection half is load-bearing, not decoration.
     let doc = driftwatchdog::gate::aigate::parse_document(&template)
         .expect("the documented template is a manifest the Gate accepts");
     let manifest = &doc.manifest;
@@ -594,123 +591,23 @@ fn the_documented_template_selects_and_binds_the_governance_concern() {
     let check = manifest
         .checks
         .iter()
-        .find(|c| c.id == CONCERN)
-        .unwrap_or_else(|| panic!("the template does not select `{CONCERN}`"));
+        .find(|check| check.id == "accessibility")
+        .expect("the template selects the Forge accessibility check");
     assert!(check.enabled, "the template must not disable the concern");
-    assert!(check.required, "the concern is required by default");
-    let command = check
-        .command
-        .as_deref()
-        .unwrap_or_else(|| panic!("the template binds no command for `{CONCERN}`"));
-    assert!(
-        command.contains("workspace_check.py"),
-        "the binding names the governance checker: {command}"
+    assert!(!check.required, "the example keeps its optional setting");
+    assert_eq!(
+        check.command.as_deref(),
+        Some("forge concern check accessibility .")
     );
-    assert!(
-        command.contains("--root .."),
-        "`--root` is load-bearing; without it the checker audits its own \
-         repository: {command}"
-    );
-    assert!(
-        command.contains("--project"),
-        "`--project` is load-bearing; without it this concern is charged \
-         other repositories' findings, because it filters by code and not \
-         by project: {command}"
-    );
-    assert!(
-        command.contains(r#"$(basename "$PWD")"#),
-        "the template cannot know the project's own name, so it derives it \
-         from the working directory: {command}"
-    );
-
-    // `blocking: [FAIL, REVIEW_REQUIRED]` — the template's own list, which
-    // makes a matching WARNING fail-closed rather than advisory.
-    assert!(
-        manifest.blocking.review_required_blocks,
-        "the template's blocking list must include REVIEW_REQUIRED"
-    );
-
-    // The profile does not add it implicitly; the explicit manifest check
-    // above is what selects this project-owned extension.
-    let selected = driftwatchdog::gate::manifest::profile_defaults_for(manifest, &manifest.profile)
-        .expect("the template's profile resolves");
-    assert!(
-        selected.iter().all(|id| id != CONCERN),
-        "the profile unexpectedly adds `{CONCERN}`: {selected:?}"
-    );
-    assert!(
-        manifest.checks.iter().any(|check| check.id == CONCERN),
-        "the template must explicitly schedule `{CONCERN}`",
-    );
+    assert!(manifest.blocking.review_required_blocks);
 }
 
-/// Task 3.2, executed: the template's self-scoping expansion is real.
-///
-/// The template substitutes `$(basename "$PWD")` for a project name it
-/// cannot know, which is the one thing in the shipped binding that no other
-/// test exercises. This runs the identical flag and expansion shape through
-/// the real binary in the fleet's own layout — a repository beside a
-/// `workspace-governance/` sibling — and records what the checker was
-/// actually invoked with.
-///
-/// `sh` stands in for the template's `python3` so the assertion is about the
-/// expansion and the working directory rather than about which interpreter
-/// is installed; the flag shape is byte-identical to the one
-/// `the_documented_template_selects_and_binds_the_governance_concern` pins.
+/// Product templates expose Forge's interface without naming its internal
+/// governance module or requiring a sibling checkout.
 #[test]
-fn the_template_command_scopes_its_own_audit_to_the_repository() {
-    let workspace = tempfile::tempdir().unwrap();
-    let checker_dir = workspace.path().join("workspace-governance/scripts");
-    std::fs::create_dir_all(&checker_dir).unwrap();
-    let argv_log = workspace.path().join("argv.txt");
-    let checker = checker_dir.join("workspace_check.sh");
-    std::fs::write(
-        &checker,
-        format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > {log}\nprintf '%s' '{report}'\n",
-            log = argv_log.display(),
-            report = r#"{"findings": [], "summary": {"errors": 0, "warnings": 0}}"#,
-        ),
-    )
-    .unwrap();
-
-    // The project is a *sibling* of `workspace-governance`, exactly as every
-    // repository in the fleet is, and its directory name is what
-    // `--project` has to carry. The enclosing `TempDir` removes the whole
-    // workspace, so the project directory can be named rather than random.
-    let project_root = workspace.path().join("some-browser-extension");
-    std::fs::create_dir_all(project_root.join(".ai-gate")).unwrap();
-    driftwatch()
-        .arg("init")
-        .current_dir(&project_root)
-        .assert()
-        .success();
-    std::fs::write(
-        project_root.join(".ai-gate/gate.yaml"),
-        format!(
-            "version: 1\nruntime: driftwatchdog\nprofile: browser-extension\n\
-             checks:\n  build: true\n  {CONCERN}: true\n\
-             commands:\n  build: \"true\"\n  \
-             {CONCERN}: 'sh ../workspace-governance/scripts/workspace_check.sh \
-             --root .. --project \"$(basename \"$PWD\")\" --json'\n\
-             blocking: [FAIL, REVIEW_REQUIRED]\n"
-        ),
-    )
-    .unwrap();
-
-    run_gate_in(&project_root).success();
-
-    let argv = std::fs::read_to_string(&argv_log).expect("the bound command ran");
-    assert_eq!(
-        argv.lines().collect::<Vec<_>>(),
-        vec![
-            "--root",
-            "..",
-            "--project",
-            "some-browser-extension",
-            "--json"
-        ],
-        "the template's expansion must scope the audit to this repository \
-         and the workspace root, with no project name hard-coded: {argv}"
-    );
+fn the_documented_template_hides_forge_governance_internals() {
+    let template = documented_aigate_template();
+    assert!(template.contains("forge concern check accessibility ."));
+    assert!(!template.contains("workspace-governance"));
+    assert!(!template.contains("governance-quality"));
 }

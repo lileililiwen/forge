@@ -1,104 +1,104 @@
 {
   "schema_version": 1,
   "source": "platform-contracts",
-  "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f",
-  "synced_at": "2026-10-12T15:02:29.496Z",
+  "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a",
+  "synced_at": "2026-10-18T05:40:11.312Z",
   "files": [
     {
       "path": "registry.json",
       "sha256": "963272540beaa27710fd98356add13c61c2da7b4d5f910a6ccbd17ba17e062d6",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/audit-event.schema.json",
       "sha256": "c16487861114a2f82b1b43c32b4a4adb47239b29276b0bb09e7b89c177f9eaa5",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/capability.schema.json",
       "sha256": "5ef3390f4099418cf8fbe7bb2d74da85a48a112763bbc26d994eb58d01260631",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/envelope.schema.json",
       "sha256": "9fc64a7631b8410e516b5463485bb7effeda521ed0e5453a99ac03ee635ee26d",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/gate-result.schema.json",
       "sha256": "49e7583cce9e2febc44af5b4bf45cbe46f724bf76d420be5d77989eb8e7d1a5a",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/identity-subject.schema.json",
       "sha256": "1750fe0b4b5620c4bbf70ed23f5c6d7dcdcb6554270258b7d90ab6cc9938ac91",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/job-outcome.schema.json",
       "sha256": "4e4808b642da189abc4aa5b2df7a32274b51e55476d6b2a66aae2a4a1f4a7a81",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/permission-decision.schema.json",
       "sha256": "be200609ef3e92c2781ddbb340ce4779fa8249e3f33523609da938897b976994",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/public-portfolio-manifest.schema.json",
       "sha256": "07a3c47769da8923998273cda602ddffb195f983e3dcf344fb1d86540c6bc986",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/readiness.schema.json",
       "sha256": "d267a1825fcf3c40af9e2f0e0d30cdd21ffe3b479a5f6c8549c4aaef99f7fdda",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/registry.schema.json",
       "sha256": "4655866e9640068be06f8c7194becbf8a6b4e1c0711a85d02374841734fb6b0e",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/release-evidence.schema.json",
       "sha256": "66941485ba807939e74c1421591ac7e47515bf54546a9f70033d35d89ccedae5",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "schemas/tenant-context.schema.json",
       "sha256": "bebd521e67048b2c521f152991dc4cd22048a84572f4c9879faa4fd24a559334",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "vocabulary/governance-vocabulary.json",
-      "sha256": "95d1f4d1dc69603d99f90f353f96441470d5a940d45e5b52866c2c69ab36c727",
-      "source": "workspace-governance",
-      "revision": "0301ee88864d37957f5a6688005d5758b201cbe7"
+      "sha256": "86fad88208ad3038458a2b879b72151d1de4af0699ffe104cec2b7f24fb8927c",
+      "source": "forge",
+      "revision": "61badfd298b1335e91bfe863a9555449db45c945"
     },
     {
       "path": "vocabulary/README.md",
-      "sha256": "5aed1e2fa143c8c3338760d06602c8bffc370c477909a0c258308744b87244f2",
+      "sha256": "ba5f584f03c133492ec7c7ae5384bc71dbad52e55f376cc4680f394732e896c6",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     },
     {
       "path": "vocabulary/secret-field-substrings.json",
       "sha256": "edd871391f8770533ff750db018a16bb9405a57c8d604cf420282f3ec7c6fa7d",
       "source": "platform-contracts",
-      "revision": "5e8a6ca705cb48c2900f75b59abd97fe6e47576f"
+      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
     }
   ]
 }

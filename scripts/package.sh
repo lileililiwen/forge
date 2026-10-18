@@ -54,6 +54,11 @@ mkdir -p "$STAGE/forge-$VERSION-$TARGET/share/forge"
 cp -R scripts/governance/runtime-templates "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates"
 find "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates" -type f -name '*.pyc' -delete
+mkdir -p "$STAGE/forge-$VERSION-$TARGET/share/forge/governance"
+cp modules/workspace-governance/scripts/check_concern.py "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/check_concern.py"
+cp modules/workspace-governance/scripts/product_code_quality.py "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/product_code_quality.py"
+cp modules/workspace-governance/scripts/vocabulary.py "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/vocabulary.py"
+cp modules/workspace-governance/vocabulary.json "$STAGE/forge-$VERSION-$TARGET/share/forge/vocabulary.json"
 tar -czf "$ARCHIVE" -C "$STAGE" "forge-$VERSION-$TARGET"
 rm -rf "$STAGE"
 

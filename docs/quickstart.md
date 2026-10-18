@@ -172,7 +172,7 @@ $ forge publish provider enable openpanel
 $ forge publish provider disable jenkins
 $ forge publish --project my-project --provider openpanel
 $ forge publish --folder /workspace/my-project --provider jenkins --dry-run
-$ forge publish fleet --provider jenkins --registry /home/paul/code/workspace-governance/deployment/projects.json --workspace-root /home/paul/code
+$ forge publish fleet --provider jenkins --inventory /path/to/forge-project-inventory.json --dry-run
 ```
 
 An enabled provider is selected per request. A disabled provider is refused

@@ -6,7 +6,7 @@ came from.
 
 | File | Source | Governs |
 | --- | --- | --- |
-| `governance-vocabulary.json` | Workspace Governance `vocabulary.json` (pinned in `../manifest.json` with source revision + sha256) | Declaration values: `kind`, `profile`, repository-check words (`placeholder_markers`) |
+| `governance-vocabulary.json` | Forge's bundled project vocabulary (pinned in `../manifest.json` with Forge revision + sha256) | Declaration values: `kind`, `profile`, repository-check words (`placeholder_markers`) |
 | `secret-field-substrings.json` | `platform-contracts` `schemas/registry.json` `secret_field_substrings` (extracted by `scripts/sync-contracts.mjs`) | Contract field names in shared documents |
 
 Role split, enforced by the consumer:
@@ -15,7 +15,7 @@ Role split, enforced by the consumer:
   `platform-contracts` (`secret-field-substrings.json` here). They name
   fields, never values.
 - **Repository-check words** (what the product-code quality checker
-  counts) come from governance `vocabulary.json`
+  counts) come from Forge's bundled vocabulary
   (`placeholder_markers`). A project may narrow them with an explicit
   `placeholder_markers` override in its `.project.json` `quality`
   block, with the reason recorded in `.ai-rules/completion.md` — never

@@ -47,4 +47,5 @@ step "$BIN" new "$SCRATCH/smoke-probe" --profile rust-web > /dev/null
 step "$BIN" doctor "$SCRATCH/smoke-probe" > /dev/null
 step "$BIN" readiness artifact > /dev/null
 step "$BIN" check "$SCRATCH/smoke-probe" --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
+step "$BIN" concern check privacy "$SCRATCH/smoke-probe" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["schema_version"] == 1 and d["concern"] == "privacy", sorted(d.keys())'
 echo "smoke: OK ($BIN)"

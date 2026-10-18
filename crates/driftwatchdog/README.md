@@ -175,20 +175,19 @@ match `src/gate/concerns.rs`; the code is authoritative — if a name
 here ever disagrees with the code, the code wins and the doc is
 corrected.
 
-| Built-in or workspace profile | Stable concern IDs scheduled | Default | Exit-code authority | Text-mode fallback |
+| Profile | Profile-specific concern IDs | Default | Exit-code authority | Text-mode fallback |
 | --- | --- | --- | --- | --- |
-| `minimal` | `governance-quality` | required | code-scoped governance report | **no** (a report it cannot read must not pass silently) |
-| `backend` | `a11y`, `api-contract`, `governance-quality`, `migration`, `responsive`, `secret-scan` | required | governance report for `governance-quality`; as above for project-runtime checks | yes for project-runtime checks; no for governance quality |
-| `frontend` | `a11y`, `governance-quality`, `responsive`, `secret-scan` | required | governance report for `governance-quality`; as above for project-runtime checks | yes for project-runtime checks; no for governance quality |
-| `full` | `a11y`, `api-contract`, `governance-quality`, `migration`, `responsive`, `secret-scan` | required | governance report for `governance-quality`; as above for project-runtime checks | yes for project-runtime checks; no for governance quality |
-| `product` (alias `rust-product`) | `governance-quality`, `placeholder-threshold`, `product-code-boundary`, `source-file-size` (built-in, no command) | required | envelope wire version `1` for the two project-owned concerns; in-process normalized result for the built-in scanner; **code-scoped report** for `governance-quality`, whose status comes from the matching findings' levels and not from the checker's exit code | yes for the two project-owned concerns; **no** for `governance-quality` (a report it cannot read must not pass silently); n/a for the built-in scanner |
-| `release` | `capability-conformance`, `governance-quality`, `release-evidence` | required | governance report for `governance-quality`; as above for release envelopes | no for governance quality; no for release envelopes |
-| `deployable` | `ci-contract`, `compose-contract`, `governance-quality` | required | governance report for `governance-quality`; project-runtime exit status for the two project checks | no for governance quality; yes for project checks |
-| Workspace profiles `typescript-product`, `python-product`, `dotnet-product`, `dotnet-library`, `typescript-monorepo`, `rust-platform`, `tooling`, `deployment`, `inventory`, `governance` | `governance-quality` | required | code-scoped governance report | **no** (a report it cannot read must not pass silently) |
+| `minimal` | none | — | — | — |
+| `backend` | `api-contract`, `migration`, `secret-scan` | required | project-runtime exit status | yes |
+| `frontend` | `a11y`, `api-contract`, `responsive` | required | project-runtime exit status | yes |
+| `full` | `a11y`, `api-contract`, `migration`, `responsive`, `secret-scan` | required | project-runtime exit status | yes |
+| `product` (alias `rust-product`) | `placeholder-threshold`, `product-code-boundary`, `source-file-size` (built-in, no command) | required | versioned envelope for project checks; in-process normalized result for the built-in scanner | yes for project checks; n/a for the built-in scanner |
+| `release` | `capability-conformance`, `release-evidence` | required | versioned project-runtime envelope | no |
+| `deployable` | `ci-contract`, `compose-contract` | required | project-runtime exit status | yes |
+| Legacy names `typescript-product`, `python-product`, `dotnet-product`, `dotnet-library`, `typescript-monorepo`, `rust-platform`, `tooling`, `deployment`, `inventory`, `governance` | none | — | — | — |
 
-Every built-in and supported workspace profile schedules `governance-quality`
-as a required check. Project-defined profiles keep their declared concerns
-and also receive that required check. Unknown profile names remain errors.
+Project profiles select checks without adding an implicit workspace audit.
+Unknown profile names remain errors.
 Other built-in concerns can be adjusted per concern with `required = false`
 (or the `checks:` map `false` / `"optional"` in `.ai-gate/gate.yaml`).
 
@@ -207,7 +206,7 @@ make that absence explicit instead:
   manifest, and every declaration spends one — including one on an
   optional check. At the budget the run records a warning that the
   headroom is exhausted; over it the run **fails**. `build`, `tests`,
-  `security`, `repository`, `governance-quality`, and
+  `security`, `repository`, and
   `declared-verification` are never exempable at any budget, so an
   exemption naming one of them fails the run
   outright. The spine is matched
@@ -460,7 +459,7 @@ before every relevant change is archived or completed:
     driftwatch gate --dry-run --format json  # machine-readable rehearsal document (a plan, never a verdict)
     driftwatch gate --format json  # machine-readable status document
     driftwatch gate --format platform  # platform.gate-result 1.0.0 document; refuses rather than coerces
-    driftwatch gate evidence-export                  # completed-run -> Workspace Governance vocabulary
+    driftwatch gate evidence-export                  # completed-run -> versioned portfolio evidence
     driftwatch gate evidence-export --format json    # versioned `EvidenceExport` document
 
 `driftwatch gate` resolves the plan (profile, explicit checks, blocking
@@ -553,11 +552,11 @@ Validation against the contract belongs to the consumer, which already
 vendors the schema; driftwatchdog asserts the constraints it depends on
 and refuses rather than validating its own output.
 
-### Exporting a run for the Workspace Governance audit
+### Exporting a run for Forge portfolio evidence
 
 `driftwatch gate evidence-export` reads the latest completed
-`gate_runs` row and prints a versioned evidence record in the
-Workspace Governance `release_evidence` vocabulary. The export is a
+`gate_runs` row and prints a versioned evidence record in Forge’s
+`release_evidence` vocabulary. The export is a
 pure read: it never mutates the run, the project, or any registry,
 and it never invokes an LLM, signer, SBOM generator, or publisher.
 One entry is emitted per governance field (`revision`, `version`,
@@ -568,9 +567,8 @@ field is `verified` only when a scheduled check actually ran and
 passed and the run's revision matches the project's current
 revision; a check that failed, was not scheduled, or could not
 execute stays `unverified` or `blocked`. When no run exists, the
-export refuses with a non-zero exit and emits no document. The
-governance-side acceptance of the record belongs to
-`workspace-governance`, not to this repository.
+export refuses with a non-zero exit and emits no document. Forge owns portfolio-level acceptance; projects only export the stable
+evidence record and do not depend on Forge’s internal governance module.
 
 ### Business-project policy at `.ai-gate/gate.yaml`
 
@@ -590,20 +588,11 @@ checks:                           # true | false | "optional"
   build: true
   tests: true
   accessibility: optional
-  governance-quality: true        # every profile schedules it; a `commands`
-                                  # entry must name a `checks` entry
 commands:                         # bind a selected concern to a command
   build: "npm run build"
   tests: "npm test"
-  # The governance checker is not defaulted: it lives in a sibling
-  # repository, so the path is written down here rather than inferred.
-  # Both flags are load-bearing. Without `--root` the checker audits its
-  # own repository instead of the workspace; without `--project` this
-  # concern is charged *other* repositories' findings, because it filters
-  # by code and not by project. `basename "$PWD"` names this repository
-  # without the template having to know it: the command runs as
-  # `sh -c` with the repository root as its working directory.
-  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project "$(basename "$PWD")" --json'
+  # Forge supplies generic read-only concern checkers through its CLI.
+  accessibility: "forge concern check accessibility ."
 timeouts:                         # optional; per-check deadline in ms
   tests: 600000                   # a suite that needs longer than 60s
 blocking: [FAIL, REVIEW_REQUIRED]
@@ -612,8 +601,6 @@ project_commands:
 contexts: [git, openspec]
 governance_quality:               # optional; narrows a code scope, never widens it
   codes: [RULES_DRIFT_NEW]
-# Leaving `governance-quality` unbound records `UNBOUND` and fails the
-# run, exactly like any other unbound required check.
 ```
 
 A `profile` that is not a built-in name selects exactly its declared
@@ -635,11 +622,6 @@ check killed by its deadline reports `REVIEW_REQUIRED` with
 non-zero exit produces, so "ran out of time" never reads as "failed".
 
 A check with no entry under `commands:` is `UNBOUND` and fails the run.
-That includes `governance-quality`, which the `product` profile
-schedules but cannot default: its checker lives in a sibling repository,
-so there is no path to bind for it, and binding one is a decision each
-project makes for itself. See
-[Governance-quality Gate concern](#governance-quality-gate-concern).
 
 Local verification comes first: a change that has not passed its local
 Gate must not be represented as complete merely because CI is
@@ -649,11 +631,9 @@ configured. CI templates repeat the same command as a second layer.
 
 The `product` and `rust-product` built-in profiles schedule the
 product-quality concerns — `product-code-boundary`,
-`placeholder-threshold`, the built-in `source-file-size`, and
-`governance-quality` (documented on its own below, because its
-wire shape and status mapping differ). The profiles are aliases:
+`placeholder-threshold`, and the built-in `source-file-size`. The profiles are aliases:
 `rust-product` exists for projects that want a Rust-flavored name
-without changing the concern set. All four are required by default;
+without changing the concern set. All three are required by default;
 relax an individual concern to `required = false`, or remove it with
 `enabled = false`, when a project cannot meet it yet.
 
@@ -726,128 +706,6 @@ oversized producer cannot break the Gate's output invariants. The
 `rust-product` profile is a strict alias for `product`; the two names
 select the same concerns with the same default severity model.
 
-### Governance-quality Gate concern
-
-`governance-quality` makes a **code-scoped** slice of an external
-governance check reportable as a Gate concern. The governance checks
-live outside this repository; the concern binds no checker path of its
-own, so a project that does not bind a command for it records
-`UNBOUND` and fails, exactly like any other unbound required check.
-
-The report is project-owned data, not a Gate envelope: a top-level JSON
-object with `findings` and `summary`, where each finding carries a
-`code`, a `level` (`ERROR` or `WARNING`), a `message`, and a
-`project`.
-
-```yaml
-# .ai-gate/gate.yaml
-checks:
-  governance-quality: true
-commands:
-  governance-quality: "python3 ../workspace-governance/scripts/workspace_check.py --json"
-```
-
-```toml
-# gate.toml
-[[checks]]
-id = "governance-quality"
-command = "python3 ../workspace-governance/scripts/workspace_check.py --json"
-```
-
-#### Envelope mapping
-
-The status comes from the **matching** findings' levels, never from the
-checker's exit code: the checker reports the whole portfolio audit, so a
-run that exits `1` on a backlog this concern does not own must still
-read `PASS` here. The checker's exit status is recorded in the
-diagnostic, and `0`/`1` are its two expected values.
-
-| Matching findings | Status | Exit |
-| --- | --- | --- |
-| none | `PASS` | 0 |
-| one or more `WARNING` | `REVIEW_REQUIRED` | 2 |
-| one or more `ERROR` | `FAIL` | 1 |
-
-`ERROR` dominates a mixed run. The reported finding count is the
-**filtered** count; the checker's total is quoted beside it in the
-diagnostic and is never substituted for it.
-
-#### Failure path
-
-No case in which the checker could not produce a trustworthy answer
-reports `PASS`.
-
-| Condition | Status | Exit |
-| --- | --- | --- |
-| the bound command could not start (missing checker, or the shell's not-found status) | `UNBOUND` | 1 |
-| an exit status other than `0`/`1` and the shell's not-found status | `REVIEW_REQUIRED` | 2 |
-| unparseable or truncated report | `REVIEW_REQUIRED` | 2 |
-| timeout | `REVIEW_REQUIRED` | 2 |
-| a matching finding with a level the concern does not define | `REVIEW_REQUIRED` | 2 |
-
-`UNBOUND` is reserved for "nothing ran". A checker that started and
-could not finish is a review condition, and the two are never collapsed
-— collapsing them would let a broken checker present as a missing one.
-
-#### Scope versus exemption
-
-The concern declares which finding codes it owns, and that set is the
-ceiling:
-
-| Code | Meaning |
-| --- | --- |
-| `QUALITY_README_CLAIM_CONTRADICTED` | a README claim is contradicted by the repository |
-| `QUALITY_README_CLAIM_UNSCOPED` | a README claim is not scoped to what it covers |
-| `RULES_DRIFT_NEW` | a new clause gap against the rule baseline |
-| `RULES_DRIFT_BASELINE_STALE` | the rule baseline itself is stale |
-| `SPEC_PURPOSE_PLACEHOLDER` | a spec's `## Purpose` section is still the placeholder |
-
-A declared code is a code the concern **owns**, not one it has necessarily
-seen. `SPEC_PURPOSE_PLACEHOLDER` is declared ahead of the producing checker
-shipping it, so the concern can report the finding the moment it exists
-instead of filtering it out. Until the checker emits it, it contributes no
-finding and no mention in the result — the status is derived only from
-findings actually observed.
-
-A project **may narrow** the set for its run:
-
-```toml
-[governance_quality]
-codes = ["RULES_DRIFT_NEW"]
-```
-
-A project **must not widen** it: a code the concern does not declare is
-refused as `REVIEW_REQUIRED`, naming the code, before any command runs.
-An **empty** set while the concern is enabled is also `REVIEW_REQUIRED`,
-naming the empty scope — never `PASS`, because a scope reporting
-nothing is indistinguishable from a silently disabled check. (The same
-block works in `.ai-gate/gate.yaml` as
-`governance_quality: {codes: [RULES_DRIFT_NEW]}`.)
-
-Scope is not exemption. A scope declares *what the concern looks at*; an
-exemption (`not_applicable.<id>`) *removes the check from the gate*.
-`governance-quality` is never exempable at any budget, because an
-exemption here would remove the report of a contradicted claim and leave
-nothing behind. Narrowing a scope is a recorded decision about the codes
-in force; it cannot be used to silence a code the concern owns.
-
-#### Where this is live
-
-The concern is **wired and bound in this repository**: `.ai-gate/gate.yaml`
-carries the sibling checker under `commands.governance-quality`, scoped with
-`--project driftwatchdog` so this repository is not charged other
-repositories' findings. Its behaviour is proved twice over — by this
-repository's own run, and by `tests/gate_governance_quality.rs` plus the unit
-tests in `src/gate/governance/`.
-
-The other **70 workspace repositories** gain the concern only when the
-fleet migration recorded in `workspace-fleet-check-sweep` item 3.1 lands (it
-moves each unbound repository to binding, exempting, or relaxing its own
-checks). Until then the concern is live here and inert elsewhere. The 76
-repositories that select a product profile without binding
-`commands.governance-quality` report `UNBOUND` in the meantime — a real
-result, reported as one.
-
 ### Declared-verification Gate concern
 
 `declared-verification` runs a repository's **own declared** verification
@@ -869,17 +727,14 @@ selected is a parse error, so a binding with no selection would never run.
 The concern is deliberately in **no** closed concern vocabulary, so the Gate
 routes it to the project-runtime **text** adapter and the exit code is the
 verdict: `0` is `PASS`, a non-zero exit is `FAIL`, and a timeout or a failed
-spawn is `REVIEW_REQUIRED` with missing evidence. It is not the
-`governance-quality` concern and deliberately cannot be: that concern requires
-its command to emit a governance report and derives status from the *levels of
-matching findings*, so binding ordinary test output there would produce
-`REVIEW_REQUIRED` about the checker rather than `FAIL` about the command.
+spawn is `REVIEW_REQUIRED` with missing evidence. This keeps a project's
+verification command independent from report-producing extension checks.
 
 **The binding is never templated.** A profile cannot know a sibling
 repository's verification command, and `profile_defaults` selects concern ids
 only and never invents a command. The value is generated per repository from
 that repository's own declaration by
-`workspace-governance/scripts/bind_verification_command.py`, which refuses
+`Forge’s project-verification binding workflow`, which refuses
 rather than invents: no `.project.json`, an unparseable one, or no non-empty
 string `command` is a named refusal, and a second run over an already-bound
 repository writes nothing. The concern is **non-exemptable** — a repository

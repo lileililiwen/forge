@@ -14,6 +14,7 @@ pub mod commands_ops;
 pub mod commands_portfolio;
 pub mod commands_services;
 pub mod component;
+pub mod concern;
 pub mod constants;
 pub mod delivery;
 pub mod feature;

@@ -2,6 +2,34 @@
 
 ## Latest delivery
 
+### `web-project-delivery-timeline` implemented and archived (2026-10-18)
+
+The Delivery page now provides an authenticated read-only timeline joining
+Forge's latest local Gate evidence, hosted CI observations received by Forge,
+persisted release/deploy records, and delivery/publish/Hermora journal events.
+Events retain source owner, stage, status vocabulary, time, revision and
+immutable source identity; validated GitHub Actions links are rendered as
+external links. Source coverage and bounds are visible. No source is polled,
+mutated, or converted into an overall green status. The CI/CD model gap
+register now marks this timeline complete; next is local/hosted check parity.
+
+| Check | Result | Evidence |
+|---|---|---|
+| API and source contract | PASS, 10/10 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --test web_release_deploy_history_contract -- --test-threads=1`; session boundary, project ID, source projection and path exclusion. |
+| Browser flow | PASS, 1/1 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --test forge_web_project_delivery_browser -- --test-threads=1`; Chromium verified empty/populated/partial states, 390px layout and keyboard focus in the Delivery timeline journey. |
+| Build and syntax | PASS | `cargo check --all-targets`; `node --check frontend/app.js`; `node --check tests/browser/delivery-workbench-check.mjs`. |
+| Formatting and whitespace | PASS | Rustfmt edition 2021 checks on changed Rust modules/contracts; `git diff --check`. |
+| OpenSpec | PASS | Name preflight; strict validation **117/117** after archive; canonical spec promoted without `--skip-specs`. |
+| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; all 8 required checks resolved, none unbound. |
+| Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; all 8 checks passed at revision `993f12ec39ed`, observed `2026-10-18T15:00:07Z`; source-size evaluated 428/428 candidates within 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
+
+Archived as `openspec/changes/archive/2026-10-18-web-project-delivery-timeline/`,
+promoting `openspec/specs/web-project-delivery-timeline/`. Implementation and
+archive commit: `a1eca48` (`feat: add unified project delivery timeline`). No
+sibling project changed and nothing was pushed. No active OpenSpec changes
+remain, so there is no `current_spec` pointer. This HANDOFF-only update is the
+second commit.
+
 ### `governance-status-surface-regression` implemented and archived (2026-10-18)
 
 The recurring Gate failure was traced to an obsolete assertion in

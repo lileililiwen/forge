@@ -5914,3 +5914,30 @@ The dependency-ordered queue is in [ROADMAP.md](ROADMAP.md#forge-source-consolid
 These are remaining roadmap packages; the Gate regression reconciliation is
 complete and archived. Before each sibling migration, refresh the sibling
 HANDOFF, Git state, source, build and publication evidence.
+
+## Portable Forge binary distribution — archived OpenSpec change (2026-10-18)
+
+Change `forge-portable-binary-distribution` was archived as
+`openspec/changes/archive/2026-10-18-forge-portable-binary-distribution/`.
+Canonical requirements were promoted for `artifact-and-ci-baseline`,
+`standard-pack-registry-and-snapshots`, and the new
+`forge-portable-binary-distribution` capability. The roadmap marks this item
+complete. No sibling repository, tag, GitHub Release, credential or remote
+state was changed. The first actual release still requires the operator to
+push the matching `v0.1.0` tag after publishing this commit.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Linux release package/install/smoke | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 scripts/package.sh`; `scripts/checksum.sh --verify dist/forge-0.1.0-x86_64-unknown-linux-gnu.tar.gz`; `scripts/install.sh` into a scratch prefix; `scripts/smoke.sh --bin <scratch-prefix>/bin/forge`. Existing ignored `dist/` archive and sidecar were restored after rehearsal. |
+| Release and installer contracts | PASS | Release contract (4), installer contract (3), and artifact baseline contract (6) all passed with `--test-threads=1`. |
+| Standard and generation contracts | PASS | Snapshot tests (20), standard contracts (17), cross-surface contracts (3), workspace metadata contracts (12), and generation default regression passed. |
+| Workspace test suite | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 600 scripts/check-tests.sh`; the final Forge Gate also passed its `declared-verification` and `tests` checks. |
+| Build and formatting | PASS | Gate `build` check (`cargo build --workspace`); `rustfmt --check --edition 2021 --config skip_children=true` over all changed Rust files; `sh -n` over the release tag and generated installer/verifier scripts. |
+| Workflow syntax | PASS | Python YAML parser loaded Forge CI and both new generated CI workflows. `actionlint` was unavailable locally. |
+| OpenSpec and diff | PASS | Name preflight; `openspec validate --all --strict --no-interactive` **109/0**; `git diff --cached --check` before implementation commit. No active OpenSpec changes remain. |
+| `forge gate --dry-run` | PASS | Eight checks resolved; no checks executed or evidence written. |
+| Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; aggregate PASS at revision `2620530df298`, observed `2026-10-18T00:54:33Z`. The 600-second attempt timed out because Gate runs both full test bindings serially; the 1,200-second bounded run completed every check. Existing unmaintained `paste` and `unsafe-libyaml` advisories remain informational. |
+
+Implementation/archive commit: `2bfe6c7` (`feat: distribute Forge release binaries`).
+This HANDOFF-only commit records completion. Nothing was pushed or published.
+No active OpenSpec change remains, so there is no `current_spec` pointer.

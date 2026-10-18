@@ -355,6 +355,7 @@
                   <div id="wb-gate-status" class="wb-health wb-gate-status" role="status" aria-live="polite">Loading gate status…</div>
                   <p id="wb-gate-next-step" class="muted" role="status" aria-live="polite">Loading the next step…</p>
                   <div class="wb-plan-tools wb-gate-tools">
+                    <label class="field wb-gate-profile-field" for="wb-gate-profile"><span class="field-label">Gate profile</span><select id="wb-gate-profile" aria-describedby="wb-gate-profile-hint"><option value="full" selected>Full — baseline and enabled project checks</option><option value="fast">Fast — required baseline only</option></select><span class="field-hint" id="wb-gate-profile-hint">Fast always runs Forge's required baseline. Full also runs enabled project checks.</span></label>
                     <button id="wb-gate-rerun" class="button button-quiet wb-gate-rerun" type="button">Re-run gate</button>
                   </div>
                   <hr>

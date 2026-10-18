@@ -457,6 +457,20 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
   #ws-table-wrap input[type=checkbox]{flex:none;width:20px;height:20px}
   #ws-table-wrap input[type=text]{flex:none;width:auto;min-width:120px;min-height:44px}
 }
+
+/* Keep project workbench grids and lifecycle facts inside a narrow viewport.
+ * The minmax(0, …) tracks allow long project values to wrap rather than set
+ * the page's intrinsic width. */
+@media (max-width:720px){
+  .workbench-grid{grid-template-columns:minmax(0,1fr)}
+  .workbench-grid>*{min-width:0}
+  .lifecycle-list{grid-template-columns:minmax(0,140px) minmax(0,1fr)}
+  .lifecycle-list dd{min-width:0;overflow-wrap:anywhere}
+  .wb-gate-profile-field{min-width:0;max-width:100%}
+  .wb-gate-status,.wb-gate-status .detail-list{min-width:0;max-width:100%}
+  .wb-gate-status .detail-list{grid-template-columns:minmax(0,1fr)}
+  .wb-gate-status .detail-list dt,.wb-gate-status .detail-list dd,.wb-gate-status .wb-findings{min-width:0;overflow-wrap:anywhere}
+}
 .wb-hosted-ci-bind{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-top:12px}
 .wb-hosted-ci-bind .field{flex:1 1 240px}
 .wb-hosted-ci-bind input{width:100%;min-height:44px}

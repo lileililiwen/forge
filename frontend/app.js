@@ -2309,6 +2309,7 @@
       facts.append(name, detail);
     }
     addFact("Aggregate", GATE_AGGREGATE_LABELS[aggregate] || aggregate);
+    addFact("Profile", gate.profile === "fast" || gate.profile === "full" ? gate.profile : "Profile unavailable");
     addFact("Freshness", GATE_FRESHNESS_LABELS[freshness] || freshness);
     addFact("Revision", gate.revision || (freshness === "absent" ? "unbound" : "—"));
     addFact("Observed at", gate.observed_at || "—");
@@ -2385,7 +2386,8 @@
       const envelope = row.envelope || {}; const run = envelope.run || {}; const gate = envelope.gate || {};
       const item = document.createElement("li");
       const title = document.createElement("strong");
-      title.textContent = `${gate.aggregate || "Unknown"} · ${row.freshness || "unknown freshness"}`;
+      const profile = gate.profile === "fast" || gate.profile === "full" ? gate.profile : "Profile unavailable";
+      title.textContent = `${gate.aggregate || "Unknown"} · ${row.freshness || "unknown freshness"} · ${profile}`;
       const details = document.createElement("p"); details.className = "muted";
       details.textContent = `${run.workflow || "workflow"} · ${run.job || "job"} · run ${run.run_id || "—"} attempt ${run.run_attempt || "—"} · ${String(envelope.source_revision || "").slice(0, 12)} · received ${row.received_at || "unknown time"}`;
       const link = document.createElement("a"); link.href = run.url || "#"; link.textContent = "Open GitHub run"; link.rel = "noopener noreferrer";
@@ -2431,6 +2433,8 @@
   async function runGate(id) {
     if (!id) return;
     const button = document.getElementById("wb-gate-rerun");
+    const profile = document.getElementById("wb-gate-profile");
+    const selectedProfile = profile && (profile.value === "fast" || profile.value === "full") ? profile.value : "full";
     if (button) { button.disabled = true; button.textContent = "Re-running gate…"; }
     clearWorkbenchNotice();
     let result;
@@ -2438,7 +2442,7 @@
       result = await requestStatus(`/v1/admin/projects/${encodeURIComponent(id)}/gate/run`, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ profile: selectedProfile }),
       });
     } catch (err) {
       if (button) { button.disabled = false; button.textContent = "Re-run gate"; }

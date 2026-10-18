@@ -192,6 +192,21 @@ pub(in crate::api) fn gate_run(
         config,
         request,
         guarded(db_path, request, |_| {
+            let profile = match parse_gate_run_profile(&request.body) {
+                Ok(profile) => profile,
+                Err(message) => {
+                    return ApiResponse::json(
+                        400,
+                        json!({
+                            "error": {
+                                "code": "gate-profile-invalid",
+                                "message": message,
+                            },
+                            "contract": API_CONTRACT_VERSION,
+                        }),
+                    );
+                }
+            };
             let project_dir = match resolve_project(db_path, id) {
                 Ok(dir) => dir,
                 Err(response) => return response,
@@ -211,7 +226,7 @@ pub(in crate::api) fn gate_run(
                     );
                 }
             };
-            let config = crate::gate::GateConfig::from_env();
+            let config = gate_config_with_profile(profile);
             let outcome = crate::gate::run_gate(&project_dir, id, &config, false);
             match outcome {
                 crate::gate::GateOutcome::Evidence(evidence) => {
@@ -307,4 +322,69 @@ pub(in crate::api) fn gate_run(
             }
         }),
     )
+}
+
+/// Parse the typed profile request before resolving or running a project.
+/// Empty JSON objects remain compatible with older browser/API clients.
+fn parse_gate_run_profile(body: &[u8]) -> Result<crate::gate::GateProfile, &'static str> {
+    if body.len() > 8192 {
+        return Err("gate run request exceeds the 8192 byte limit");
+    }
+    let value: Value = serde_json::from_slice(body)
+        .map_err(|_| "gate run request must be a JSON object with an optional profile")?;
+    let object = value
+        .as_object()
+        .ok_or("gate run request must be a JSON object with an optional profile")?;
+    if object.keys().any(|key| key != "profile") {
+        return Err("gate run request only supports the profile field");
+    }
+    match object.get("profile") {
+        None => Ok(crate::gate::GateProfile::Full),
+        Some(Value::String(value)) if value == "fast" => Ok(crate::gate::GateProfile::Fast),
+        Some(Value::String(value)) if value == "full" => Ok(crate::gate::GateProfile::Full),
+        Some(_) => Err("profile must be either fast or full"),
+    }
+}
+
+fn gate_config_with_profile(profile: crate::gate::GateProfile) -> crate::gate::GateConfig {
+    let mut config = crate::gate::GateConfig::from_env();
+    config.profile = profile;
+    config
+}
+
+#[cfg(test)]
+mod profile_request_tests {
+    use super::{gate_config_with_profile, parse_gate_run_profile};
+    use crate::gate::GateProfile;
+
+    #[test]
+    fn profile_request_defaults_to_full_and_accepts_both_profiles() {
+        assert_eq!(parse_gate_run_profile(b"{}").unwrap(), GateProfile::Full);
+        assert_eq!(
+            parse_gate_run_profile(br#"{"profile":"fast"}"#).unwrap(),
+            GateProfile::Fast
+        );
+        assert_eq!(
+            parse_gate_run_profile(br#"{"profile":"full"}"#).unwrap(),
+            GateProfile::Full
+        );
+        assert_eq!(
+            gate_config_with_profile(GateProfile::Fast).profile,
+            GateProfile::Fast
+        );
+    }
+
+    #[test]
+    fn invalid_profile_request_is_rejected() {
+        for request in [
+            b"{".as_slice(),
+            br#"{"profile":"turbo"}"#,
+            br#"{"profile":null}"#,
+            br#"{"other":true}"#,
+            b"[]",
+        ] {
+            assert!(parse_gate_run_profile(request).is_err());
+        }
+        assert!(parse_gate_run_profile(&vec![b' '; 8193]).is_err());
+    }
 }

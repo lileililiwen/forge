@@ -151,6 +151,14 @@ fn workbench_has_a_dedicated_quality_card_with_rerun_button() {
         "Quality card reuses the existing Re-run gate button"
     );
     assert!(
+        block.contains("wb-gate-profile"),
+        "Quality card offers profile selection"
+    );
+    assert!(
+        block.contains("wb-gate-profile-hint"),
+        "profile scope is explained accessibly"
+    );
+    assert!(
         block.contains("Quality checks"),
         "the card carries a project-facing title"
     );
@@ -170,7 +178,7 @@ fn gate_block_adds_no_write_no_shell_and_no_html_interpretation() {
         .find("Project status projection")
         .or_else(|| js.find("Lifecycle series"))
         .unwrap_or(js.len());
-    let block = &js[start..end.min(start + 4000)];
+    let block = &js[start..end];
     for banned in ["innerHTML", "eval(", "Function(", "XMLHttpRequest"] {
         assert!(
             !block.contains(banned),
@@ -192,7 +200,28 @@ fn gate_block_adds_no_write_no_shell_and_no_html_interpretation() {
     }
     // The block issues exactly one POST, to the named gate route.
     assert!(block.contains("/gate/run"));
+    assert!(block.contains("JSON.stringify({ profile: selectedProfile })"));
+    assert!(block.contains("Profile unavailable"));
+    assert!(
+        block.contains("gate.profile"),
+        "local and hosted evidence read profile from the evidence envelope"
+    );
     assert!(!block.contains("/health/refresh\""));
+}
+
+#[test]
+fn hosted_ci_rows_display_the_recorded_profile_or_an_explicit_unknown() {
+    let js = app_js();
+    let start = js
+        .find("function renderHostedCi")
+        .expect("hosted CI renderer ships");
+    let end = js[start..]
+        .find("async function loadHostedCi")
+        .map(|offset| start + offset)
+        .expect("hosted CI loader follows renderer");
+    let renderer = &js[start..end];
+    assert!(renderer.contains("gate.profile"));
+    assert!(renderer.contains("Profile unavailable"));
 }
 
 #[test]
@@ -317,6 +346,42 @@ fn gate_run_post_returns_415_for_non_json_body() {
     assert_eq!(response.status, 415);
     let body = body_json(&response);
     assert_eq!(body["error"]["code"], "admin-content-type-required");
+}
+
+#[test]
+fn invalid_gate_profile_is_rejected_before_running_or_persisting() {
+    let (_tmp, db, config) = fixture();
+    let token = login_token(&config, &db);
+    for invalid in [
+        br#"{"profile":"turbo"}"#.as_slice(),
+        br#"{"other":1}"#,
+        b"{",
+    ] {
+        let response = post(
+            &config,
+            &db,
+            &token,
+            "/v1/admin/projects/alpha/gate/run",
+            invalid,
+        );
+        assert_eq!(response.status, 400);
+        let body = body_json(&response);
+        assert_eq!(body["error"]["code"], "gate-profile-invalid");
+    }
+    let evidence = _tmp.path().join("alpha/.forge/gate/alpha/evidence.json");
+    assert!(
+        !evidence.exists(),
+        "invalid profile must not persist evidence"
+    );
+    let registry = Registry::open(&_tmp.path().join("registry.db")).unwrap();
+    assert!(
+        registry
+            .operations_for_project("alpha", 10)
+            .unwrap()
+            .iter()
+            .all(|operation| operation.kind != "gate"),
+        "invalid profile must not add a journal entry"
+    );
 }
 
 #[test]

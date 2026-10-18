@@ -91,6 +91,7 @@ pub mod suite {
     pub const FORGE_WEB_WORKSPACE_ONBOARDING_BROWSER: u16 = 8;
     pub const LIFECYCLE_RAIL_BROWSER: u16 = 9;
     pub const WEB_LOGIN_CREDENTIALS_CONTRACT: u16 = 10;
+    pub const FORGE_WEB_GATE_PROFILE_BROWSER: u16 = 11;
 }
 
 /// Lowest window base. The Studio allocator's preferred candidates start at

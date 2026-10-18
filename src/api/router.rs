@@ -435,6 +435,7 @@ pub fn route_request(method: &str, path: &str) -> Option<Route> {
             id: (*id).to_string(),
         }),
         ("POST", ["v1", "publish", "github"]) => Some(Route::GitHubPush),
+        ("POST", ["v1", "ci", "github", "evidence"]) => Some(Route::HostedCiIngest),
         ("GET", ["v1", "operations", op_id]) => op_id
             .parse::<i64>()
             .ok()
@@ -681,6 +682,7 @@ pub fn handle(
         Route::AgentTransition { id } => handle_agent_transition(db_path, &id, request, now),
         Route::ApplyDeployment { id } => handle_apply_deployment(db_path, &id, request, now),
         Route::GitHubPush => handle_github_push(db_path, request),
+        Route::HostedCiIngest => super::hosted_ci::handle_ingest(db_path, request),
         Route::GetOperation { op_id } => handle_get_operation(db_path, op_id),
         Route::PortfolioProject { id } => handle_portfolio_project(db_path, &id, now),
         Route::PortfolioTag { id } => handle_portfolio_tag(db_path, request, &id),

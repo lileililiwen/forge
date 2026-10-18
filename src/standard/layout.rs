@@ -48,10 +48,10 @@ pub const CLIENT_PACK: &str = "baseline-client";
 
 /// Default snapshot for compatible new projects. Bump only when a new
 /// supported, verified pack version becomes the generation default.
-pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.4.0";
+pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.5.0";
 
 /// Default snapshot for client profiles with verified Gate-only templates.
-pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.1.0";
+pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.2.0";
 
 /// Service profiles supported by `baseline-service`.
 pub const BASELINE_PROFILES: &[&str] = &["aspnet-web", "nextjs-web", "python-service", "rust-web"];
@@ -86,6 +86,17 @@ pub(super) const RELEASE_INSTALLER_TEMPLATE: &str =
 /// Client pack installer bytes, kept under the client's immutable pack tree.
 pub(super) const RELEASE_CLIENT_INSTALLER_TEMPLATE: &str =
     include_str!("../../standards/baseline-client/1.1.0/install-forge.sh");
+
+pub(super) const HOSTED_CI_SERVICE_WORKFLOW: &str =
+    include_str!("../../standards/baseline-service/1.5.0/ci/verify.yml");
+pub(super) const HOSTED_CI_CLIENT_WORKFLOW: &str =
+    include_str!("../../standards/baseline-client/1.2.0/ci/verify.yml");
+pub(super) const HOSTED_CI_SERVICE_INSTALLER: &str =
+    include_str!("../../standards/baseline-service/1.5.0/install-forge.sh");
+pub(super) const HOSTED_CI_CLIENT_INSTALLER: &str =
+    include_str!("../../standards/baseline-client/1.2.0/install-forge.sh");
+pub(super) const HOSTED_CI_UPLOADER: &str =
+    include_str!("../../standards/baseline-service/1.5.0/upload-hosted-ci-evidence.py");
 
 /// Forge-owned pre-commit entry point for the Gate-enabled baseline version.
 pub(super) const PRE_COMMIT_TEMPLATE: &str =

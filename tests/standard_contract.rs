@@ -169,7 +169,30 @@ fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
     assert!(plain.join(".github/workflows/forge-gate.yml").is_file());
     let default_receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(plain.join(RECEIPT)).unwrap()).unwrap();
-    assert_eq!(default_receipt["version"], "1.4.0");
+    assert_eq!(default_receipt["version"], "1.5.0");
+    let service_workflow =
+        fs::read_to_string(plain.join(".github/workflows/forge-gate.yml")).unwrap();
+    let service_verify_job = service_workflow
+        .split("  upload-hosted-evidence:")
+        .next()
+        .unwrap();
+    assert!(!service_verify_job.contains("id-token: write"));
+    assert_eq!(service_workflow.matches("id-token: write").count(), 1);
+    assert!(service_workflow.contains("needs.verify.result != 'cancelled'"));
+    assert!(service_workflow.contains("run: forge gate ."));
+    assert!(service_workflow.contains("steps.gate-evidence.outputs.available"));
+    assert!(service_workflow.contains("needs.verify.outputs.gate-evidence == 'true'"));
+    assert!(service_workflow.contains("vars.FORGE_CI_EVIDENCE_URL != ''"));
+    assert!(service_workflow.contains("id-token: write"));
+    assert!(service_workflow.contains("path: .forge/gate/*/evidence.json"));
+    assert!(service_workflow.contains("include-hidden-files: true"));
+    assert!(service_workflow.contains("path: .forge/gate\n"));
+    assert!(service_workflow.contains("if: always()"));
+    assert!(
+        fs::read_to_string(plain.join(".standard/scripts/upload-hosted-ci-evidence.py"))
+            .unwrap()
+            .contains(".forge/gate/*/evidence.json")
+    );
     let value = run_json(&db, &["standard", "check", plain.to_str().unwrap()]);
     assert_eq!(value["state"], "rendered");
 
@@ -180,11 +203,32 @@ fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
         let receipt: serde_json::Value =
             serde_json::from_slice(&fs::read(client_default.join(RECEIPT)).unwrap()).unwrap();
         assert_eq!(receipt["pack"], "baseline-client");
-        assert_eq!(receipt["version"], "1.1.0");
+        assert_eq!(receipt["version"], "1.2.0");
         assert!(client_default
             .join(".github/workflows/forge-gate.yml")
             .is_file());
         assert!(client_default.join(".pre-commit-config.yaml").is_file());
+        let workflow =
+            fs::read_to_string(client_default.join(".github/workflows/forge-gate.yml")).unwrap();
+        let verify_job = workflow.split("  upload-hosted-evidence:").next().unwrap();
+        let upload_job = workflow.split("  upload-hosted-evidence:").nth(1).unwrap();
+        assert!(!verify_job.contains("id-token: write"));
+        assert_eq!(workflow.matches("id-token: write").count(), 1);
+        assert!(upload_job.contains("id-token: write"));
+        assert!(workflow.contains("needs: verify"));
+        assert!(workflow.contains("upload-hosted-ci-evidence.py"));
+        assert!(workflow.contains("if: always() && github.event_name == 'push'"));
+        assert!(workflow.contains("FORGE_CI_EVIDENCE_URL is not configured"));
+        assert!(workflow.contains("Hosted evidence upload is limited to branch pushes"));
+        assert!(workflow.contains("if: always() && github.event_name == 'pull_request'"));
+        assert!(workflow.contains("needs.verify.result != 'cancelled'"));
+        assert!(workflow.contains("steps.gate-evidence.outputs.available"));
+        assert!(workflow.contains("needs.verify.outputs.gate-evidence == 'true'"));
+        assert!(workflow.contains("vars.FORGE_CI_EVIDENCE_URL != ''"));
+        assert!(workflow.contains("run: sh .standard/scripts/verify.sh"));
+        assert!(workflow.contains("path: .forge/gate/*/evidence.json"));
+        assert!(workflow.contains("include-hidden-files: true"));
+        assert!(workflow.contains("path: .forge/gate\n"));
     }
 
     // An explicit older supported selection remains exact.
@@ -844,8 +888,8 @@ fn current_default_packs_install_the_pinned_release_and_keep_gate_parity() {
     let db = tmp.path().join("registry.db");
 
     for (profile, pack, version) in [
-        ("rust-web", "baseline-service", "1.4.0"),
-        ("react-web", "baseline-client", "1.1.0"),
+        ("rust-web", "baseline-service", "1.5.0"),
+        ("react-web", "baseline-client", "1.2.0"),
     ] {
         let project = tmp.path().join(format!("release-{profile}"));
         new_project(&db, &project, profile, &[]);
@@ -867,8 +911,8 @@ fn current_default_packs_install_the_pinned_release_and_keep_gate_parity() {
         if profile == "react-web" {
             assert!(verify.contains("forge gate ."), "{verify}");
         } else {
-            assert!(ci.contains("forge gate ."), "{ci}");
             assert!(ci.contains("sh .standard/scripts/verify.sh"), "{ci}");
+            assert!(verify.contains("verify-local.sh"), "{verify}");
         }
         assert!(installer.contains("FORGE_VERSION=0.1.0"), "{installer}");
         assert!(

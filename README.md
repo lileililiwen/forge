@@ -485,14 +485,20 @@ development use the same bundled `forge gate` command. See
 
 ### Generated CI and pre-commit
 
-New service projects receive `baseline-service@1.4.0` by default. Its GitHub
+New service projects receive `baseline-service@1.5.0` by default. Its GitHub
 Actions workflow installs the pinned Forge `0.1.0` Linux x86_64 release after
 verifying its SHA-256 sidecar, then runs the project's standard verifier and
 `forge gate .`; its pre-commit hook runs the same repository-wide Gate command.
-React and Flutter projects receive the Gate-only `baseline-client@1.1.0` pack,
+React and Flutter projects receive the Gate-only `baseline-client@1.2.0` pack,
 which installs the same pinned binary and runs Gate. All six current profiles
 get Forge's built-in checks and can add project-specific Gate extensions.
 The generated CI requires Forge's matching `v0.1.0` GitHub Release to exist.
+On branch pushes, the workflow can also upload the terminal Gate observation
+to Forge when `FORGE_CI_EVIDENCE_URL` is configured and an operator has bound
+the project's immutable GitHub repository ID. This hosted history is separate
+from local Gate evidence; a blocked Gate remains a failed CI run while its
+observation can still be recorded. Pull requests never receive the upload
+job's OIDC permission.
 
 Install the pinned Forge release locally and enable the generated hook:
 
@@ -514,21 +520,23 @@ pre-commit install
 ```
 
 The generated GitHub Actions workflow downloads the same immutable release,
-verifies its archive name and checksum before extraction, and uses read-only
-repository permissions. Legacy repositories without a standard snapshot can
+verifies its archive name and checksum before extraction, and keeps the
+verification job read-only. A dependent upload job receives `id-token: write`
+only when a terminal Gate record and `FORGE_CI_EVIDENCE_URL` are present.
+Legacy repositories without a standard snapshot can
 install the current pack matching their profile after reviewing its paths:
 
 ```sh
-forge standard install baseline-service@1.4.0 . --profile rust-web --confirm
-forge standard install baseline-client@1.1.0 . --profile react-web --confirm
-# Flutter projects use baseline-client@1.1.0 with --profile flutter-app.
+forge standard install baseline-service@1.5.0 . --profile rust-web --confirm
+forge standard install baseline-client@1.2.0 . --profile react-web --confirm
+# Flutter projects use baseline-client@1.2.0 with --profile flutter-app.
 ```
 
 Repositories with an existing snapshot can preview and then upgrade:
 
 ```sh
-forge standard diff . --against baseline-service@1.4.0
-forge standard upgrade . --to baseline-service@1.4.0 --confirm
+forge standard diff . --against baseline-service@1.5.0
+forge standard upgrade . --to baseline-service@1.5.0 --confirm
 ```
 
 Installation and upgrade refuse conflicting owned files rather than silently

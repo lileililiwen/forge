@@ -43,7 +43,7 @@ use super::ApiResponse;
 /// `src/api/router.rs::required_permission` byte-for-byte.
 pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
     match route {
-        Route::Healthz | Route::GetOperation { .. } | Route::GitHubPush => None,
+        Route::Healthz | Route::GetOperation { .. } | Route::GitHubPush | Route::HostedCiIngest => None,
         Route::AdminSessionGet
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
@@ -59,6 +59,8 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectHealthRefresh { .. }
         | Route::AdminProjectGateStatus { .. }
         | Route::AdminProjectGateRun { .. }
+        | Route::AdminHostedCiHistory { .. }
+        | Route::AdminHostedCiBind { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -220,6 +222,8 @@ pub(super) fn is_admin_dispatch(route: &Route) -> bool {
         | Route::AdminProjectHealthRefresh { .. }
         | Route::AdminProjectGateStatus { .. }
         | Route::AdminProjectGateRun { .. }
+        | Route::AdminHostedCiHistory { .. }
+        | Route::AdminHostedCiBind { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -294,6 +298,7 @@ pub(super) fn is_admin_dispatch(route: &Route) -> bool {
         | Route::AgentTransition { .. }
         | Route::ApplyDeployment { .. }
         | Route::GitHubPush
+        | Route::HostedCiIngest
         | Route::GetOperation { .. }
         | Route::StudioSpec { .. }
         | Route::StudioSpecSave { .. }
@@ -359,6 +364,8 @@ pub(super) fn is_admin_route(route: &Route) -> bool {
         | Route::AdminProjectHealthRefresh { .. }
         | Route::AdminProjectGateStatus { .. }
         | Route::AdminProjectGateRun { .. }
+        | Route::AdminHostedCiHistory { .. }
+        | Route::AdminHostedCiBind { .. }
         | Route::AdminProjectPlan { .. }
         | Route::AdminProjectApply { .. }
         | Route::AdminProjectFeature { .. }
@@ -433,6 +440,7 @@ pub(super) fn is_admin_route(route: &Route) -> bool {
         | Route::AgentTransition { .. }
         | Route::ApplyDeployment { .. }
         | Route::GitHubPush
+        | Route::HostedCiIngest
         | Route::GetOperation { .. }
         | Route::StudioSpec { .. }
         | Route::StudioSpecSave { .. }

@@ -56,7 +56,7 @@ fn existing_new_profile_inspect_and_list_contracts_stay_intact() {
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(dest.join(".standard/receipt.json")).unwrap()).unwrap();
     assert_eq!(receipt["pack"], "baseline-service");
-    assert_eq!(receipt["version"], "1.4.0");
+    assert_eq!(receipt["version"], "1.5.0");
 
     // The registry still records the generated project.
     let record = run_json(&db, &["inspect", "compat-svc"]);

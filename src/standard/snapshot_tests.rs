@@ -98,15 +98,15 @@ pub(super) mod tests {
         assert_eq!(err.code(), "standard-invalid");
         assert_eq!(
             default_for_generation("rust-web").as_deref(),
-            Some("baseline-service@1.4.0")
+            Some("baseline-service@1.5.0")
         );
         assert_eq!(
             default_for_generation("react-web").as_deref(),
-            Some("baseline-client@1.1.0")
+            Some("baseline-client@1.2.0")
         );
         assert_eq!(
             default_for_generation("flutter-app").as_deref(),
-            Some("baseline-client@1.1.0")
+            Some("baseline-client@1.2.0")
         );
         // Unknown selectors refuse by name.
         let err = select_for_generation("rust-web", "nope@1.0.0").expect_err("must refuse");

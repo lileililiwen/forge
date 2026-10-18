@@ -52,6 +52,10 @@ impl Registry {
     pub(crate) fn registry_conn(&self) -> &Connection {
         &self.conn
     }
+    /// Mutable registry connection for transaction-owning domain modules.
+    pub(crate) fn registry_conn_mut(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
     /// Open (creating) the registry database and reconcile stale journal
     /// entries left by interrupted runs.
     pub fn open(path: &Path) -> Result<Self, ForgeError> {

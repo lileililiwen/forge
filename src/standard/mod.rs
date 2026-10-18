@@ -35,6 +35,7 @@
 pub mod layout;
 pub mod model;
 pub mod snapshot;
+mod snapshot_hosted_ci;
 pub mod snapshot_tests;
 
 // Re-export all types

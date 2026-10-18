@@ -286,6 +286,8 @@ pub enum Route {
         id: String,
     },
     GitHubPush,
+    /// Public workload route authenticated only by a validated GitHub Actions ID token.
+    HostedCiIngest,
     GetOperation {
         op_id: i64,
     },
@@ -407,6 +409,12 @@ pub enum Route {
     /// unparseable / rehearsal-on-real-run leaves the persisted
     /// evidence byte-identical.
     AdminProjectGateRun {
+        id: String,
+    },
+    AdminHostedCiHistory {
+        id: String,
+    },
+    AdminHostedCiBind {
         id: String,
     },
     /// `GET /v1/admin/projects/{id}/plan` — side-effect-free upgrade plan

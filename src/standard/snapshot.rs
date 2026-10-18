@@ -25,7 +25,7 @@ use super::model::{
     RenderedSnapshot, SnapshotReport, SnapshotState, UpgradeReport,
 };
 
-fn build_pack(
+pub(super) fn build_pack(
     id: &str,
     version: &str,
     support_state: PackSupportState,
@@ -77,7 +77,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn profile_declaration() -> &'static str {
+pub(super) fn profile_declaration() -> &'static str {
     "schema: {schema}\npack: {pack}\nversion: {version}\nprofile: {profile}\nproject: {id}\n"
 }
 
@@ -136,6 +136,7 @@ pub fn all_packs() -> Vec<PackDescriptor> {
                 (QUALITY_PATH, QUALITY_TEMPLATE),
             ],
         ),
+        super::snapshot_hosted_ci::client_1_2(),
         build_pack(
             BASELINE_PACK,
             "0.9.0",
@@ -241,6 +242,7 @@ pub fn all_packs() -> Vec<PackDescriptor> {
                 (PRIVACY_CHECK_PATH, SHARED_PRIVACY_CHECK),
             ],
         ),
+        super::snapshot_hosted_ci::service_1_5(),
         build_pack(
             BASELINE_PACK,
             "2.0.0",
@@ -484,7 +486,7 @@ fn read_receipt(dir: &Path) -> Result<Option<Receipt>, ForgeError> {
         Err(err) => {
             return Err(ForgeError::StandardInvalid {
                 reason: format!("cannot read standard receipt '{}': {err}", path.display()),
-            })
+            });
         }
     };
     let receipt: Receipt =
@@ -785,7 +787,7 @@ fn resolve_install_identity(
                      forge.yaml declares '{from_manifest}' and --id asked for '{explicit}'; \
                      nothing was changed"
                 ),
-            })
+            });
         }
         (Some(from_manifest), _) => from_manifest.to_string(),
         (None, Some(explicit)) => explicit.to_string(),
@@ -823,7 +825,7 @@ fn resolve_install_identity(
                      forge.yaml declares '{from_manifest}' and --profile asked for '{explicit}'; \
                      nothing was changed"
                 ),
-            })
+            });
         }
         (Some(from_manifest), _) => from_manifest.to_string(),
         (None, Some(explicit)) => explicit.to_string(),
@@ -834,7 +836,7 @@ fn resolve_install_identity(
                      rendered without a profile; nothing was changed",
                     dir.display()
                 ),
-            })
+            });
         }
     };
     Ok((project_id, project_profile))

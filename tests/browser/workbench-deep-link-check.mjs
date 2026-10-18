@@ -74,6 +74,40 @@ async function expectFleetReady(page, id) {
   await page.locator(`#workbench-project option[value="${id}"]`).first().waitFor({ state: 'attached', timeout: 30000 });
 }
 
+async function checkHostedCiPanel(page) {
+  const status = page.locator('#wb-hosted-ci');
+  await page.getByRole('heading', { name: 'Hosted CI observations' }).waitFor({ timeout: 30000 });
+  await page.getByText(/No trusted GitHub repository ID is bound/).waitFor({ timeout: 30000 });
+  await page.getByText('No hosted CI observations have been received.').waitFor({ timeout: 30000 });
+  if (await page.locator('#wb-hosted-ci-bind').isHidden()) fail('unbound project hides the repository binding form');
+  if (await status.getAttribute('aria-live') !== 'polite') fail('hosted CI status is not announced politely');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fits = await page.locator('.wb-quality').evaluate((node) => node.scrollWidth <= node.clientWidth + 1);
+  if (!fits) fail('hosted CI Quality card overflows at 390px');
+  const input = page.locator('#wb-hosted-ci-repo-id');
+  await input.focus();
+  await page.keyboard.press('Tab');
+  if (await page.evaluate(() => document.activeElement?.id) !== 'wb-hosted-ci-bind-submit') {
+    fail('keyboard tab order skips the hosted CI bind button');
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+  note('hosted CI panel shows empty/bind states with keyboard access at 390px');
+}
+
+async function checkHostedCiRecord(page) {
+  await page.getByText(/Bound to owner\/repository \(GitHub repository ID 12345\)/).waitFor({ timeout: 30000 });
+  await page.locator('#wb-hosted-ci-history').getByText(/stale/).waitFor({ timeout: 30000 });
+  const link = page.getByRole('link', { name: 'Open GitHub run' });
+  await link.waitFor({ timeout: 30000 });
+  if (await link.getAttribute('href') !== 'https://github.com/owner/repository/actions/runs/123456789') {
+    fail('hosted CI row does not link to the authenticated run identity');
+  }
+  if ((await page.locator('#wb-gate-status strong').innerText()) !== 'Unverified') {
+    fail('hosted CI evidence changed the distinct local Gate status');
+  }
+  note('hosted CI history renders bound identity, run link, and stale revision');
+}
+
 let browser;
 try {
   browser = await chromium.launch({ args: ['--no-sandbox'] });
@@ -97,11 +131,13 @@ try {
   await open.click();
   await page.waitForURL(`**/workbench?project=${alpha}`, { timeout: 30000 });
   await expectBooted(page, alpha);
+  await checkHostedCiPanel(page);
   note('fleet Open boots the clicked managed project');
 
   // 2-3. Direct load boots, reload keeps.
   await page.goto(`${webBase}/workbench?project=${beta}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await expectBooted(page, beta);
+  await checkHostedCiRecord(page);
   note('direct workbench deep link boots the project');
   await page.reload({ waitUntil: 'domcontentloaded' });
   if (!page.url().includes(`/workbench?project=${beta}`)) {

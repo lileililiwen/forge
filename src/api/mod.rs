@@ -101,6 +101,7 @@ pub mod handlers_changes;
 pub mod handlers_core;
 pub mod handlers_portfolio;
 pub mod handlers_studio;
+mod hosted_ci;
 /// Web lifecycle execution (`web-lifecycle-execution/0.1.0`): graduation,
 /// intent, remediate and next-idea preview + confirm/digest-bound routes
 /// through the same in-process Core functions the CLI runs.

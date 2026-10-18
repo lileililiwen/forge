@@ -2361,6 +2361,73 @@
     renderGateStatus(envelope);
   }
 
+  function renderHostedCi(data) {
+    const status = document.getElementById("wb-hosted-ci");
+    const history = document.getElementById("wb-hosted-ci-history");
+    const form = document.getElementById("wb-hosted-ci-bind");
+    if (!status || !history || !form) return;
+    status.replaceChildren(); history.replaceChildren();
+    if (data.binding) {
+      const p = document.createElement("p");
+      p.textContent = `Bound to ${data.binding.repository} (GitHub repository ID ${data.binding.repository_id}).`;
+      status.append(p); form.hidden = true;
+    } else {
+      const p = document.createElement("p"); p.textContent = "No trusted GitHub repository ID is bound. Bind the ID before this project can accept hosted CI evidence.";
+      status.append(p); form.hidden = false;
+    }
+    const records = Array.isArray(data.observations) ? data.observations : [];
+    if (!records.length) {
+      const p = document.createElement("p"); p.className = "muted";
+      p.textContent = "No hosted CI observations have been received."; history.append(p); return;
+    }
+    const list = document.createElement("ol"); list.className = "wb-hosted-ci-list";
+    for (const row of records) {
+      const envelope = row.envelope || {}; const run = envelope.run || {}; const gate = envelope.gate || {};
+      const item = document.createElement("li");
+      const title = document.createElement("strong");
+      title.textContent = `${gate.aggregate || "Unknown"} · ${row.freshness || "unknown freshness"}`;
+      const details = document.createElement("p"); details.className = "muted";
+      details.textContent = `${run.workflow || "workflow"} · ${run.job || "job"} · run ${run.run_id || "—"} attempt ${run.run_attempt || "—"} · ${String(envelope.source_revision || "").slice(0, 12)} · received ${row.received_at || "unknown time"}`;
+      const link = document.createElement("a"); link.href = run.url || "#"; link.textContent = "Open GitHub run"; link.rel = "noopener noreferrer";
+      item.append(title, details, link); list.append(item);
+    }
+    history.append(list);
+  }
+
+  async function loadHostedCi(id) {
+    const status = document.getElementById("wb-hosted-ci");
+    const form = document.getElementById("wb-hosted-ci-bind");
+    const history = document.getElementById("wb-hosted-ci-history");
+    if (!status || !form || !history) return;
+    status.textContent = "Loading hosted CI history…"; history.replaceChildren();
+    try {
+      const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/ci/hosted`, { headers: { Accept: "application/json" } });
+      if (workbench.id !== id) return;
+      renderHostedCi(data);
+    } catch (err) {
+      if (workbench.id !== id) return;
+      status.textContent = err.status === 401 ? "Sign in to view hosted CI history." : "Hosted CI history is unavailable. Check the Forge API connection and retry.";
+      form.hidden = true;
+    }
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("wb-hosted-ci-repo-id");
+      const button = document.getElementById("wb-hosted-ci-bind-submit");
+      if (!input || !input.reportValidity()) return;
+      button.disabled = true; button.textContent = "Binding…";
+      try {
+        await request(`/v1/admin/projects/${encodeURIComponent(id)}/ci/repository`, {
+          method: "PUT", headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ repository_id: input.value.trim() }),
+        });
+        input.value = ""; status.textContent = "GitHub repository identity bound.";
+        await loadHostedCi(id);
+      } catch (err) {
+        status.textContent = err.message || "Repository identity could not be bound.";
+      } finally { button.disabled = false; button.textContent = "Bind repository ID"; }
+    };
+  }
+
   async function runGate(id) {
     if (!id) return;
     const button = document.getElementById("wb-gate-rerun");
@@ -3497,6 +3564,7 @@
     loadProjectStatus(id);
     loadProjectDelivery(id);
     loadGateStatus(id);
+    loadHostedCi(id);
     const gateButton = document.getElementById("wb-gate-rerun");
     if (gateButton) {
       gateButton.onclick = () => { runGate(workbench.id); };

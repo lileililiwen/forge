@@ -25,6 +25,10 @@ mod listener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use forge::ci_evidence::{HostedCiEvidenceEnvelope, HostedCiRun};
+use forge::gate::{GateAggregate, GateCheck, GateCheckState, GateEvidence};
+use forge::hosted_ci::{bind_repository_id, ingest, GitHubActionsClaims, IngestOutcome};
+
 const EMAIL: &str = "operator@example.test";
 const PASSWORD: &str = "a-long-test-password";
 const ALPHA: &str = "wb-link-alpha";
@@ -71,6 +75,93 @@ fn write_manifest(dir: &Path, id: &str) {
     .expect("manifest");
 }
 
+fn init_hosted_repo(project: &Path) -> String {
+    let run = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(project)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run(&["init", "-q"]);
+    run(&["config", "user.email", "browser@example.test"]);
+    run(&["config", "user.name", "Forge Browser Test"]);
+    run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/owner/repository.git",
+    ]);
+    run(&["add", "forge.yaml"]);
+    run(&["commit", "-qm", "fixture"]);
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(project)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+fn seed_hosted_observation(db: &Path, project_id: &str) {
+    bind_repository_id(db, project_id, "12345").expect("bind hosted GitHub repository");
+    let sha = "a".repeat(40);
+    let envelope = HostedCiEvidenceEnvelope {
+        contract: "forge-hosted-ci-evidence/1.0".into(),
+        project_id: project_id.into(),
+        repository: "owner/repository".into(),
+        run: HostedCiRun {
+            provider: "github-actions".into(),
+            workflow: "owner/repository/.github/workflows/forge-gate.yml@refs/heads/main".into(),
+            run_id: "123456789".into(),
+            run_attempt: 1,
+            job: "upload-hosted-evidence".into(),
+            url: "https://github.com/owner/repository/actions/runs/123456789".into(),
+        },
+        source_revision: sha.clone(),
+        gate: GateEvidence {
+            contract: forge::gate::GATE_CONTRACT_VERSION.into(),
+            project_id: project_id.into(),
+            runtime: "forge".into(),
+            runtime_version: Some("0.1.0".into()),
+            revision: Some(sha.clone()),
+            manifest_digest: None,
+            rule_pack_version: None,
+            aggregate: GateAggregate::Passed,
+            checks: vec![GateCheck {
+                id: "baseline".into(),
+                state: GateCheckState::Pass,
+                note: None,
+            }],
+            observed_at: "2026-10-18T10:00:00Z".into(),
+            dry_run: false,
+            note: None,
+        },
+        observed_at: "2026-10-18T10:01:00Z".into(),
+    };
+    let claims = GitHubActionsClaims {
+        repository: "owner/repository".into(),
+        repository_id: "12345".into(),
+        run_id: "123456789".into(),
+        run_attempt: "1".into(),
+        workflow_ref: envelope.run.workflow.clone(),
+        sha,
+        event_name: "push".into(),
+        git_ref: "refs/heads/main".into(),
+    };
+    assert!(matches!(
+        ingest(db, envelope, &claims).unwrap(),
+        IngestOutcome::Inserted(_)
+    ));
+}
+
 #[test]
 fn fleet_open_action_boots_that_project_in_chromium() {
     if !node_available() {
@@ -89,6 +180,7 @@ fn fleet_open_action_boots_that_project_in_chromium() {
     write_manifest(&root, ALPHA);
     write_manifest(&root, BETA);
     write_manifest(&root, GAMMA);
+    init_hosted_repo(&root.join(BETA));
     let mut registry = forge::registry::Registry::open(&db).expect("open registry");
     registry
         .register(&root.join(ALPHA), None)
@@ -96,6 +188,7 @@ fn fleet_open_action_boots_that_project_in_chromium() {
     registry
         .register(&root.join(BETA), None)
         .expect("register beta");
+    seed_hosted_observation(&db, BETA);
 
     // Both listeners are claimed before either one starts: the API child's
     // CORS origin names the web port and the web root's `config.js` names the

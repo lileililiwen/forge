@@ -457,3 +457,10 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
   #ws-table-wrap input[type=checkbox]{flex:none;width:20px;height:20px}
   #ws-table-wrap input[type=text]{flex:none;width:auto;min-width:120px;min-height:44px}
 }
+.wb-hosted-ci-bind{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-top:12px}
+.wb-hosted-ci-bind .field{flex:1 1 240px}
+.wb-hosted-ci-bind input{width:100%;min-height:44px}
+.wb-hosted-ci-list{list-style:none;margin:8px 0;padding:0}
+.wb-hosted-ci-list li{padding:12px 0;border-top:1px solid var(--line-strong);overflow-wrap:anywhere}
+.wb-hosted-ci-list li p{margin:6px 0}
+.wb-hosted-ci-list a{display:inline-flex;min-height:44px;align-items:center}

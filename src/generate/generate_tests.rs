@@ -522,7 +522,7 @@ pub(super) mod tests {
             .expect("compatible generation stages the default standard receipt");
         let baseline_receipt: crate::standard::Receipt =
             serde_json::from_str(&baseline_receipt).unwrap();
-        assert_eq!(baseline_receipt.version, "1.4.0");
+        assert_eq!(baseline_receipt.version, "1.5.0");
         assert!(baseline
             .iter()
             .any(|(p, _)| p == crate::standard::PRE_COMMIT_PATH));

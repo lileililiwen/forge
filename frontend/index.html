@@ -357,6 +357,15 @@
                   <div class="wb-plan-tools wb-gate-tools">
                     <button id="wb-gate-rerun" class="button button-quiet wb-gate-rerun" type="button">Re-run gate</button>
                   </div>
+                  <hr>
+                  <h4>Hosted CI observations</h4>
+                  <p class="muted">GitHub Actions results are authenticated separately and never replace local Gate evidence.</p>
+                  <div id="wb-hosted-ci" role="status" aria-live="polite">Loading hosted CI history…</div>
+                  <form id="wb-hosted-ci-bind" class="wb-hosted-ci-bind" hidden>
+                    <label class="field" for="wb-hosted-ci-repo-id"><span class="field-label">GitHub repository ID</span><input id="wb-hosted-ci-repo-id" inputmode="numeric" pattern="[1-9][0-9]*" required maxlength="20" aria-describedby="wb-hosted-ci-repo-id-hint"><span class="field-hint" id="wb-hosted-ci-repo-id-hint">Find the numeric ID with <code>gh api repos/OWNER/REPO --jq .id</code>. Binding is immutable.</span></label>
+                    <button id="wb-hosted-ci-bind-submit" class="button button-quiet" type="submit">Bind repository ID</button>
+                  </form>
+                  <div id="wb-hosted-ci-history" class="wb-hosted-ci-history"></div>
                 </section>
                 <section class="wb-card" aria-labelledby="wb-status-title">
                   <h3 id="wb-status-title">Project status</h3>

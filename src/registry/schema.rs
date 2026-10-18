@@ -51,4 +51,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS operations_idempotency_uniq
 CREATE INDEX IF NOT EXISTS operations_queue_project_state_idx
     ON operations (queue_id, project_id, state)
     WHERE queue_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS hosted_ci_project_bindings (
+    project_id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL UNIQUE,
+    repository TEXT NOT NULL UNIQUE,
+    bound_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS hosted_ci_evidence (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    run_attempt INTEGER NOT NULL,
+    job TEXT NOT NULL,
+    workflow TEXT NOT NULL,
+    source_revision TEXT NOT NULL,
+    aggregate TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    envelope_json TEXT NOT NULL,
+    UNIQUE (project_id, run_id, run_attempt)
+);
+CREATE INDEX IF NOT EXISTS hosted_ci_evidence_project_received_idx
+    ON hosted_ci_evidence (project_id, received_at DESC);
 ";

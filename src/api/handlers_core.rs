@@ -36,7 +36,10 @@ pub(super) fn authorize(
     request: &ApiRequest,
     now: DateTime<Utc>,
 ) -> Result<String, ApiResponse> {
-    if matches!(route, Route::Healthz | Route::GitHubPush) {
+    if matches!(
+        route,
+        Route::Healthz | Route::GitHubPush | Route::HostedCiIngest
+    ) {
         return Ok(String::new());
     }
     // The browser fleet filter row calls the read-only catalog query with
@@ -104,6 +107,7 @@ pub(super) fn authorize(
     let result: Result<String, ApiResponse> = match route {
         Route::Healthz => Ok(String::new()),
         Route::GitHubPush => Ok(String::new()),
+        Route::HostedCiIngest => Ok(String::new()),
         Route::AdminSessionGet
         | Route::AdminSessionPost
         | Route::AdminSessionDelete
@@ -184,6 +188,8 @@ pub(super) fn authorize(
         | Route::AdminIdentityChangePassword
         | Route::AdminProjectGateStatus { .. }
         | Route::AdminProjectGateRun { .. }
+        | Route::AdminHostedCiHistory { .. }
+        | Route::AdminHostedCiBind { .. }
         | Route::AdminPortfolioInterestList { .. }
         | Route::AdminPortfolioInterestShow { .. }
         | Route::AdminPortfolioInterestTrend { .. } => Ok(String::new()),

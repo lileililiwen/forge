@@ -1,0 +1,68 @@
+# Forge client snapshot CI (baseline-client@1.2.0).
+name: verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    outputs:
+      gate-evidence: ${{ steps.gate-evidence.outputs.available }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install pinned Forge release
+        run: sh .standard/scripts/install-forge.sh
+      - name: Forge Gate
+        run: sh .standard/scripts/verify.sh
+      - name: Check for terminal Forge Gate evidence
+        id: gate-evidence
+        if: always()
+        run: |
+          if find .forge/gate -type f -name evidence.json -print -quit 2>/dev/null | grep -q .; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No terminal Forge Gate evidence was produced."
+          fi
+      - name: Preserve Forge Gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-gate-evidence
+          path: .forge/gate/*/evidence.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Explain hosted evidence pull request policy
+        if: always() && github.event_name == 'pull_request'
+        run: echo "Hosted evidence upload is limited to branch pushes; pull requests do not receive an ID token."
+      - name: Explain unconfigured hosted evidence endpoint
+        if: always() && github.event_name == 'push' && vars.FORGE_CI_EVIDENCE_URL == ''
+        run: echo "Hosted Forge evidence upload skipped: FORGE_CI_EVIDENCE_URL is not configured."
+  upload-hosted-evidence:
+    if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && needs.verify.result != 'cancelled' && needs.verify.outputs.gate-evidence == 'true' && vars.FORGE_CI_EVIDENCE_URL != ''
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install pinned Forge release
+        run: sh .standard/scripts/install-forge.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-gate-evidence
+          path: .forge/gate
+      - name: Upload authenticated Forge Gate evidence
+        env:
+          FORGE_CI_EVIDENCE_URL: ${{ vars.FORGE_CI_EVIDENCE_URL }}
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: python3 .standard/scripts/upload-hosted-ci-evidence.py

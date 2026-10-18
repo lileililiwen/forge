@@ -1,7 +1,3 @@
-//! Auto-generated module
-//!
-//! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
-
 use super::super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
 use crate::core::manifest::Manifest;
 use crate::deploy::{
@@ -20,6 +16,7 @@ use super::gateway::{
     parse_feature_query, project_delivery_write, projects, scrub_json, scrub_response, scrub_text,
     session_state, sign_in, sign_out,
 };
+use super::hosted_ci::{bind as hosted_ci_bind, history as hosted_ci_history};
 use super::identity::change_password as identity_change_password;
 use super::interest::{handle_interest_trend as interest_trend, interest_list, interest_show};
 use super::model::{Authoring, DeliveryAction};
@@ -100,6 +97,8 @@ pub(in crate::api) fn handle(
         }),
         Route::AdminProjectGateStatus { id } => gate_status(config, db_path, request, id),
         Route::AdminProjectGateRun { id } => gate_run(config, db_path, request, id),
+        Route::AdminHostedCiHistory { id } => hosted_ci_history(config, db_path, request, id),
+        Route::AdminHostedCiBind { id } => hosted_ci_bind(config, db_path, request, id),
         Route::AdminProjectClassifyApprove { id } => {
             classify_decide(config, db_path, request, id, true)
         }
@@ -987,7 +986,7 @@ pub(super) fn parse_release_version(raw: Option<&str>) -> Result<Semver, ApiResp
                 400,
                 "admin-invalid-version",
                 "a semver `version` is required (for example 1.2.3).",
-            ))
+            ));
         }
     };
     Semver::parse(raw).map_err(|_| {

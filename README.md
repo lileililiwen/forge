@@ -57,6 +57,9 @@ v0.2 adds features and upgrades; v0.3 integrates Forge Gate, specs and existing 
 
 See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](docs/requirements-coverage.md), [architecture](docs/architecture.md), and [current handoff](HANDOFF.md).
 
+For the current CI/CD command model, evidence ownership, local/hosted flow
+boundaries, and prioritized handoff gaps, see the [Forge CI/CD system model](docs/ci-cd-system-model.md).
+
 ## Runtime templates
 
 Forge bundles the versioned runtime template renderer for Docker and Compose
@@ -474,8 +477,10 @@ Doctor's `gate-evidence` finding, the release `gate` check kind and the
 provider matrix consume the same record: stale evidence never
 satisfies a verification claim, an absent one reads `unverified` and never
 a pass, and captured output is credential-redacted and host-path-scrubbed.
-No gate tool is exposed over MCP or the API. CI and local development use
-the same bundled `forge gate` command. See
+No Gate tool is exposed over MCP. The authenticated admin API provides
+project-scoped status and explicit re-run routes, which the workbench Quality
+card uses; these call the same Core Gate path as the CLI. CI and local
+development use the same bundled `forge gate` command. See
 [docs/provider-evidence.md](docs/provider-evidence.md) for provider boundaries.
 
 ### Generated CI and pre-commit

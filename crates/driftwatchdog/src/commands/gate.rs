@@ -130,9 +130,11 @@ fn gate_inner(args: GateArgs, cwd: &Path, persist: bool) -> Result<i32, Error> {
             })
         }
     };
-    let resolved = manifest::resolve(&manifest, &[]).map_err(|e| Error::ConfigInvalid {
-        path: gate_toml,
-        message: e.to_string(),
+    let resolved = manifest::resolve_for_profile(&manifest, &[], args.profile).map_err(|e| {
+        Error::ConfigInvalid {
+            path: gate_toml,
+            message: e.to_string(),
+        }
     })?;
 
     if args.dry_run {
@@ -397,7 +399,9 @@ fn execute_plan(
     // are reused deliberately, so no render, persistence, or evidence
     // consumer needs a new arm.
     let budget_verdict = resolved.exemption_budget.verdict();
-    if budget_verdict != ExemptionVerdict::Within {
+    if resolved.gate_profile == manifest::GateExecutionProfile::Full
+        && budget_verdict != ExemptionVerdict::Within
+    {
         // Never collide with a project-declared concern of the same
         // name: a repo that declares its own `exemption-budget` check
         // must not be able to hide its budget verdict behind it.
@@ -523,8 +527,10 @@ fn print_human(outcome: &AggregateOutcome, results: &[GateResult], resolved: &Re
         outcome.blocked
     );
     println!(
-        "manifest: {} | rule-pack: {}",
-        resolved.manifest_digest, resolved.rule_pack_version
+        "execution profile: {} | manifest: {} | rule-pack: {}",
+        resolved.gate_profile.label(),
+        resolved.manifest_digest,
+        resolved.rule_pack_version
     );
     println!();
     println!(
@@ -587,6 +593,7 @@ fn print_human(outcome: &AggregateOutcome, results: &[GateResult], resolved: &Re
 fn print_json(outcome: &AggregateOutcome, results: &[GateResult], resolved: &ResolvedGatePlan) {
     let doc = serde_json::json!({
         "status": outcome.status.as_str(),
+        "execution_profile": resolved.gate_profile,
         "blocked": outcome.blocked,
         "failures": outcome.failures,
         "pending_reviews": outcome.pending_reviews,

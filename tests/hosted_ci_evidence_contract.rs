@@ -19,6 +19,7 @@ fn valid() -> HostedCiEvidenceEnvelope {
             contract: forge::gate::GATE_CONTRACT_VERSION.into(),
             project_id: "sample-service".into(),
             runtime: "forge".into(),
+            profile: forge::gate::GateProfile::Full,
             runtime_version: Some("0.1.0".into()),
             revision: Some("a".repeat(40)),
             manifest_digest: None,
@@ -58,6 +59,25 @@ fn rejects_project_revision_and_rehearsal_contradictions() {
     let mut value = valid();
     value.gate.dry_run = true;
     assert!(value.validate().is_err());
+}
+
+#[test]
+fn rejects_fast_profile_as_hosted_full_verification() {
+    let mut value = valid();
+    value.gate.profile = forge::gate::GateProfile::Fast;
+    assert!(value.validate().is_err());
+}
+
+#[test]
+fn accepts_legacy_full_evidence_without_profile_metadata() {
+    let mut value = valid();
+    value.gate.contract = "0.1.0".into();
+    value.gate.profile = forge::gate::GateProfile::Full;
+    let mut json = serde_json::to_value(value).unwrap();
+    json["gate"].as_object_mut().unwrap().remove("profile");
+    let decoded: HostedCiEvidenceEnvelope = serde_json::from_value(json).unwrap();
+    decoded.validate().unwrap();
+    assert_eq!(decoded.gate.profile, forge::gate::GateProfile::Full);
 }
 
 #[test]

@@ -130,6 +130,7 @@ fn seed_hosted_observation(db: &Path, project_id: &str) {
             contract: forge::gate::GATE_CONTRACT_VERSION.into(),
             project_id: project_id.into(),
             runtime: "forge".into(),
+            profile: forge::gate::GateProfile::Full,
             runtime_version: Some("0.1.0".into()),
             revision: Some(sha.clone()),
             manifest_digest: None,

@@ -22,6 +22,16 @@ complete record.
   `contracts/` mirror gap is closed, and that the `main`-branch git rule is now
   written in `AGENTS.md`.
 
+## [0.1.1] - 2026-10-18
+
+### Added
+
+- Forge Gate `fast` and `full` profiles with profile-scoped, revision-bound
+  evidence. Both retain the mandatory source-size baseline; delivery and
+  hosted evidence require full-profile results.
+- New service and client standard snapshots use the fast profile in local
+  pre-commit hooks and the full profile in hosted CI.
+
 ### Added
 
 - Canonical spec coverage promoted for shipped behavior: bounded external-adapter

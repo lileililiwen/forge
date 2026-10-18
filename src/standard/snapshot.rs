@@ -137,6 +137,7 @@ pub fn all_packs() -> Vec<PackDescriptor> {
             ],
         ),
         super::snapshot_hosted_ci::client_1_2(),
+        super::snapshot_hosted_ci::client_1_3(),
         build_pack(
             BASELINE_PACK,
             "0.9.0",
@@ -243,6 +244,7 @@ pub fn all_packs() -> Vec<PackDescriptor> {
             ],
         ),
         super::snapshot_hosted_ci::service_1_5(),
+        super::snapshot_hosted_ci::service_1_6(),
         build_pack(
             BASELINE_PACK,
             "2.0.0",

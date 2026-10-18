@@ -14,7 +14,7 @@ pub(super) mod tests {
     };
     use crate::gate::model::{
         DeclaredRuntime, GateAggregate, GateCheck, GateCheckState, GateConfig, GateEvidence,
-        GateFreshness, GateOutcome,
+        GateFreshness, GateOutcome, GateProfile,
     };
     use std::ffi::OsString;
     use std::fs;
@@ -56,6 +56,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: Some(OsString::from("/definitely/not/a/gate-runtime-xyz")),
             timeout: Duration::from_secs(2),
+            profile: GateProfile::Full,
         };
         let resolved = resolve_runtime(tmp.path(), &config).expect("override resolves as named");
         assert_eq!(resolved.name, "gate-runtime-xyz");
@@ -76,6 +77,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: None,
             timeout: Duration::from_secs(2),
+            profile: GateProfile::Full,
         };
         let resolved = resolve_runtime(tmp.path(), &config).expect("Forge resolves itself");
         assert_eq!(resolved.name, "forge");
@@ -92,6 +94,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: None,
             timeout: Duration::from_secs(2),
+            profile: GateProfile::Full,
         };
         let resolved = resolve_runtime(tmp.path(), &config).expect("Forge resolves itself");
         assert_eq!(resolved.name, "forge");
@@ -252,6 +255,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: Some(script.into_os_string()),
             timeout: Duration::from_secs(10),
+            profile: GateProfile::Full,
         };
         let outcome = run_gate(tmp.path(), "demo", &config, false);
         let GateOutcome::Evidence(evidence) = outcome else {
@@ -278,6 +282,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: Some(script.into_os_string()),
             timeout: Duration::from_secs(10),
+            profile: GateProfile::Full,
         };
         let outcome = run_gate(tmp.path(), "demo", &config, true);
         let GateOutcome::PlanPreview { plan, .. } = outcome else {
@@ -298,6 +303,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: Some(script.into_os_string()),
             timeout: Duration::from_secs(10),
+            profile: GateProfile::Full,
         };
         let outcome = run_gate(tmp.path(), "demo", &config, false);
         let GateOutcome::Unavailable { reason } = outcome else {
@@ -318,6 +324,7 @@ pub(super) mod tests {
         let config = GateConfig {
             binary: Some(script.into_os_string()),
             timeout: Duration::from_millis(300),
+            profile: GateProfile::Full,
         };
         let outcome = run_gate(tmp.path(), "demo", &config, false);
         let GateOutcome::Unavailable { reason } = outcome else {
@@ -351,6 +358,7 @@ pub(super) mod tests {
             contract: GATE_CONTRACT_VERSION.to_string(),
             project_id: "demo".to_string(),
             runtime: "driftwatchdog".to_string(),
+            profile: GateProfile::Full,
             runtime_version: Some("driftwatch 0.1.0".to_string()),
             revision: Some("abc123def456abc".to_string()),
             manifest_digest: None,
@@ -384,6 +392,30 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn evidence_without_profile_deserializes_as_full_for_legacy_records() {
+        let evidence = GateEvidence {
+            contract: "0.1.0".to_string(),
+            project_id: "demo".to_string(),
+            runtime: "forge".to_string(),
+            profile: GateProfile::Fast,
+            runtime_version: None,
+            revision: Some("abc".to_string()),
+            manifest_digest: None,
+            rule_pack_version: None,
+            aggregate: GateAggregate::Passed,
+            checks: Vec::new(),
+            observed_at: "now".to_string(),
+            dry_run: false,
+            note: None,
+        };
+        let mut legacy = serde_json::to_value(evidence).unwrap();
+        legacy.as_object_mut().unwrap().remove("profile");
+
+        let decoded: GateEvidence = serde_json::from_value(legacy).unwrap();
+        assert_eq!(decoded.profile, GateProfile::Full);
+    }
+
+    #[test]
     fn corrupt_evidence_names_the_file_and_never_invents_absence() {
         let tmp = project_dir();
         fs::create_dir_all(tmp.path().join(GATE_EVIDENCE_DIR).join("demo")).unwrap();
@@ -406,6 +438,7 @@ pub(super) mod tests {
             contract: GATE_CONTRACT_VERSION.to_string(),
             project_id: "demo".to_string(),
             runtime: "driftwatchdog".to_string(),
+            profile: GateProfile::Full,
             runtime_version: None,
             revision: Some("abc".to_string()),
             manifest_digest: None,
@@ -440,6 +473,7 @@ pub(super) mod tests {
                 contract: GATE_CONTRACT_VERSION.to_string(),
                 project_id: "demo".to_string(),
                 runtime: "driftwatchdog".to_string(),
+                profile: GateProfile::Full,
                 runtime_version: None,
                 revision: None,
                 manifest_digest: None,

@@ -39,6 +39,7 @@ fn assert_persisted_forge_baseline(dir: &Path) {
 fn gate_args(dry_run: bool) -> GateArgs {
     GateArgs {
         dry_run,
+        profile: crate::gate::manifest::GateExecutionProfile::Full,
         format: GateOutputFormat::Human,
         subcommand: None,
     }

@@ -78,8 +78,8 @@ sequenceDiagram
   participant Git as Git HEAD
   participant File as Project .forge evidence
   participant DB as Local Forge registry
-  Dev->>Forge: forge gate .
-  Forge->>Decl: validate + resolve baseline/extensions
+  Dev->>Forge: forge gate . --profile fast
+  Forge->>Decl: validate declaration; select fast scope
   Forge->>Git: capture HEAD
   Forge->>Forge: execute checks with bounds
   Forge->>File: atomically persist evidence (real run only)
@@ -87,30 +87,35 @@ sequenceDiagram
   Forge-->>Dev: structured result + exit code
 ```
 
-The hook runs the whole Gate at each commit attempt, not only checks related to staged filenames. That preserves repository-wide requirements, but may make commits expensive for projects whose Gate includes full builds and test suites.
+The current generated hook runs the fast profile repository-wide at each
+commit attempt. It always checks the Forge source-file line limit, validates
+the declaration, and explicitly omits project extensions. Hosted CI runs the
+full profile and remains responsible for project build, test, security and
+other declared checks. Delivery accepts only fresh passing full-profile
+evidence.
 
 ## 4. Flow B — generated project GitHub Actions
 
-Current service and client packs are `baseline-service@1.5.0` and `baseline-client@1.2.0`; the defaults are declared in [`src/standard/layout.rs`](../src/standard/layout.rs). Their workflow files live under [`standards/`](../standards/).
+Current service and client packs are `baseline-service@1.6.0` and `baseline-client@1.3.0`; the defaults are declared in [`src/standard/layout.rs`](../src/standard/layout.rs). Their workflow files live under [`standards/`](../standards/). These versions use fast local hooks and full hosted Gate runs.
 
 ### Service profiles
 
-The service workflow runs on push and pull request, grants `contents: read` to the verify job, and has a 45-minute job timeout. It checks out the source, installs Forge `0.1.0` for Linux x86_64 from a matching GitHub Release after checking the SHA-256 sidecar, runs `.standard/scripts/verify.sh` for project verification, then invokes `forge gate .` explicitly. It preserves the Gate file as an artifact even when Gate blocks. The dependent uploader job receives `id-token: write` only when a Gate record and endpoint are present, so terminal blocked observations can be recorded without turning the verify job green.
+The service workflow runs on push and pull request, grants `contents: read` to the verify job, and has a 45-minute job timeout. It checks out the source, installs Forge `0.1.1` for Linux x86_64 from a matching GitHub Release after checking the SHA-256 sidecar, runs `.standard/scripts/verify.sh` for project verification, then invokes `forge gate . --profile full`. It preserves the Gate file as an artifact even when Gate blocks. The dependent uploader job receives `id-token: write` only when a Gate record and endpoint are present, so terminal blocked observations can be recorded without turning the verify job green.
 
 The standard verifier is a generated wrapper around repository-root `verify-local.sh`; the shared script is bundled into the snapshot by Forge. The service-specific verifier and Forge Gate are separate checks. A failure in either command makes the verification job fail.
 
 ### Client profiles
 
-The client workflow also installs the pinned Forge release and runs Gate. Its verification wrapper is Gate-only at this pack version; it does not claim separate React/Flutter native build/test coverage. It uses the same artifact and OIDC uploader path as the service workflow.
+The client workflow also installs Forge `0.1.1` and runs `forge gate . --profile full`. Its verification wrapper is Gate-only at this pack version; it does not claim separate React/Flutter native build/test coverage. It uses the same artifact and OIDC uploader path as the service workflow. The generated pre-commit hook selects `fast` and enforces the built-in baseline before each commit.
 
 ### Hosted evidence boundary
 
-The `baseline-service@1.5.0` and `baseline-client@1.2.0` workflows upload only `.forge/gate/<project-id>/evidence.json` as an artifact after verification, including when Gate produces a terminal blocked record. The artifact action is explicitly allowed to include this hidden path. A dependent branch-push job requests a GitHub Actions ID token with the fixed `forge-ci-evidence` audience and runs the pinned uploader. Only this job receives `id-token: write`; pull requests display a skip notice and never receive that permission. The endpoint is configured as the repository variable `FORGE_CI_EVIDENCE_URL`.
+The `baseline-service@1.6.0` and `baseline-client@1.3.0` workflows upload only `.forge/gate/<project-id>/evidence.json` as an artifact after full-profile verification, including when Gate produces a terminal blocked record. The artifact action is explicitly allowed to include this hidden path. A dependent branch-push job requests a GitHub Actions ID token with the fixed `forge-ci-evidence` audience and runs the pinned uploader. Only this job receives `id-token: write`; pull requests display a skip notice and never receive that permission. The endpoint is configured as the repository variable `FORGE_CI_EVIDENCE_URL`. The uploader and Forge ingestion both reject fast-profile records; legacy `0.1.0` records without profile metadata retain their historical full meaning.
 
 Forge verifies the RS256 signature against GitHub's published JWKS, fixed issuer/audience and time claims, and exact repository/run/workflow/SHA identity. An operator must first bind the numeric GitHub repository ID in the project's Quality checks panel. The binding must match the project's registered GitHub remote and is immutable. Accepted records are append-only and replay-safe; their full envelope remains in Forge SQLite. The API returns at most 20 recent rows with freshness against the project's current Git revision.
 
 This is an authenticated observation import, not a remote CI executor or universal check status. It does not change local `.forge` Gate evidence, delivery readiness, GitHub branch protection, release checks, or actual deployment health. A Gate blocked result may be stored while its GitHub verification job remains failed. A missing Forge endpoint visibly skips upload; a configured endpoint failure fails the uploader job as well. Existing snapshots remain unchanged until explicitly upgraded.
-The templates currently target GitHub Actions on Ubuntu x86_64. The pinned Forge `v0.1.0` release must exist for installation to work; pack construction and release preparation do not prove that a real release asset has been published. See [portable binary distribution](../openspec/specs/forge-portable-binary-distribution/spec.md).
+The templates currently target GitHub Actions on Ubuntu x86_64. Forge `v0.1.1` must be published for the new snapshots to install in hosted CI; this repository change does not publish it. Pack construction and release preparation do not prove that a real release asset exists. See [portable binary distribution](../openspec/specs/forge-portable-binary-distribution/spec.md).
 
 ## 5. Flow C — Forge's own CI and binary release
 
@@ -210,22 +215,23 @@ Ranks describe system risk and dependency order, not a claim that all work belon
 | **Done — authenticated evidence handoff** | New baseline workflows transfer signed hosted Gate observations into Forge | OIDC verifier, immutable repository binding, append-only SQLite history, admin routes and Quality checks reader; `hosted-ci-evidence-ingest` specification | Hosted history is available to Forge operators but does not satisfy local delivery Gate evidence or prove branch protection | Implemented in `forge-hosted-ci-evidence-ingest`. Existing snapshots require an explicit upgrade; GitHub remains the scheduler and branch-protection authority. |
 | **Done — release-to-delivery Gate join** | Delivery preflight now requires current registered Git `HEAD` and fresh passing Forge Gate evidence before provider resolution or journal reservation | `run_preflight` uses the registered revision, actual Git `HEAD`, persisted Gate evidence and shared freshness classifier; `project-to-production-workflow` specifies the precondition | Local delivery cannot silently report provider acceptance as Forge Gate approval; hosted history remains separate | Complete in `forge-delivery-gate-precondition`. Forge does not run Gate automatically; operators run Gate and re-register changed commits. |
 | **Done — unified project timeline** | CI, Gate, release, delivery and optional post-publish enrollment had separate records and views | Authenticated read projection joins hosted observations, latest local Gate evidence, releases, deploys and relevant journal rows with per-source coverage | Operators can follow source-owned events by project and revision; the timeline does not query remote systems or fabricate an aggregate result | Implemented in `web-project-delivery-timeline`. GitHub rows are observations received by Forge; local Gate history is latest-only; source owners remain authoritative. |
-| **P1 — local/hosted check parity** | Pre-commit and generated CI run the full Gate, while Forge CI also has named jobs and its test Gate contains overlapping suites | `pass_filenames: false`; service CI runs verifier plus Gate; Forge `.ai-gate/gate.yaml` contains tests and declared-verification; workflow has separately named jobs | Local commit cost, duplicate tests, and differences in which checks are mandatory can surprise developers | Define fast local and full hosted profiles with the same required baseline semantics; make skipped/split checks explicit and report one final aggregate. Measure runtime on supported projects before changing defaults. |
-| **P1 — template/runtime version maintenance** | Pack workflow pins Forge `0.1.0`; local hook uses whichever `forge` is on `PATH` | Installer is exact and checksum-verified; pre-commit config invokes bare `forge gate .` | Local/hosted behavior can differ by Forge version; old snapshots do not silently receive fixes | Add a visible supported-version check to hook/CI output and a conflict-safe pack upgrade path; document version support and deprecation cadence. Keep old snapshots reproducible. |
+| **Done — local/hosted Gate profile parity** | Current generated hooks use `fast`; hosted CI and upload use `full`; both preserve the mandatory baseline | Forge profiles are explicit in CLI/evidence; new immutable service/client snapshots select fast locally and full in CI; delivery and hosted ingestion reject fast evidence | Local commits run the mandatory line-count baseline; configured extensions remain authoritative in hosted CI and delivery evidence | Implemented in `gate-local-hosted-profiles`. New workflow assets pin Forge `0.1.1`; that release must exist before hosted installation works. |
+| **P1 — duplicate test cost inside Forge CI** | Forge's `.ai-gate/gate.yaml` still binds `tests` and `declared-verification` to overlapping test suites; named CI jobs overlap further | Manifest comments identify both test-bearing Gate checks; `.github/workflows/ci.yml` separately runs named test jobs | Forge CI repeats expensive tests and can spend time rebuilding test dependencies | Measure each suite and remove only proven duplicate execution while preserving `.project.json` declared-verification and named CI coverage. |
+| **P1 — template/runtime version maintenance** | New pack workflow pins Forge `0.1.1`; local hook still resolves whichever `forge` is on `PATH` | Installer is exact and checksum-verified; pre-commit invokes the CLI from PATH | Local and hosted behavior can differ by Forge version; old snapshots do not silently receive fixes | Add a visible supported-version check to hook/CI output and a conflict-safe pack upgrade path; document version support and deprecation cadence. Keep old snapshots reproducible. |
 | **P1 — binary portability** | Current generated CI supports GitHub Actions Ubuntu x86_64 only | Installer hard-codes `x86_64-unknown-linux-gnu`; README states additional platforms need native evidence | Projects on macOS/Windows/ARM or another CI host cannot use the same generated path without adaptation | Add target-specific binary assets and installer variants only with native package, checksum, install, and smoke evidence. Keep host selection explicit. |
 | **P1 — service topology/runtime model** | CI templates and `forge.yaml` profile flow do not provide one unified multi-service Compose/local-run orchestration model | Roadmap retains `forge-multiservice-local-runtime` to model multiple services and integrate `gitrunbykaru` | Projects with API, worker, UI and dependencies have no single Forge-owned local/CI entry point across Compose and local processes | Complete the roadmap package for service graph and entry points before connecting its graph to CI checks; avoid treating a single repository as necessarily one service. |
 | **P2 — external policy proof** | Repository source cannot prove branch protection, GitHub required-check configuration, provider credentials/health, or actual deployment state | These are remote settings/runtime outcomes, not encoded as local source facts | A green workflow may not be required for merge; configured adapters may be unavailable | Capture live, read-only GitHub/provider evidence in operational readiness checks; label missing permissions/config as unknown, never infer from YAML. |
 
 ### Suggested dependency sequence
 
-1. Reduce duplicate check cost and align local/hosted profiles after runtime measurements.
+1. Reduce duplicate check cost inside Forge CI after mapping suite overlap and timing on supported CI jobs.
 2. Expand platform distribution and multi-service local/runtime support on their own acceptance paths.
 
 Do not start by building a generic Forge-hosted scheduler. GitHub Actions already schedules the generated project workflows, and Forge's existing boundary explicitly avoids becoming a generic CI replacement. Forge's useful role is to generate checks, provide the policy engine, retain trustworthy evidence, and coordinate explicit release/deployment operations.
 
 ## 11. Source map
 
-- Project-facing behavior and current template versions: [README — Forge Gate](../README.md#forge-gate), [standard layout](../src/standard/layout.rs), [service workflow](../standards/baseline-service/1.5.0/ci/verify.yml), [client workflow](../standards/baseline-client/1.2.0/ci/verify.yml), [pre-commit template](../standards/baseline-service/1.5.0/.pre-commit-config.yaml).
+- Project-facing behavior and current template versions: [README — Forge Gate](../README.md#forge-gate), [standard layout](../src/standard/layout.rs), [service workflow](../standards/baseline-service/1.6.0/ci/verify.yml), [client workflow](../standards/baseline-client/1.3.0/ci/verify.yml), [pre-commit template](../standards/baseline-service/1.6.0/.pre-commit-config.yaml).
 - Gate execution, persistence and projections: [`src/gate/engine.rs`](../src/gate/engine.rs), [`src/gate/projection.rs`](../src/gate/projection.rs), [`src/api/admin/gate.rs`](../src/api/admin/gate.rs), [Gate spec](../openspec/specs/gate-runtime-evidence/spec.md).
 - Forge CI and release boundary: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), [artifact and CI spec](../openspec/specs/artifact-and-ci-baseline/spec.md), [portable distribution spec](../openspec/specs/forge-portable-binary-distribution/spec.md).
 - Project release check: [`src/release/engine/prepare.rs`](../src/release/engine/prepare.rs), [release readiness docs](release-readiness.md).

@@ -17,19 +17,17 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 
 use crate::core::ForgeError;
-use crate::gate::{
-    GATE_CONTRACT_VERSION, GateAggregate, GateFreshness, evidence_freshness, load_latest_evidence,
-};
+use crate::gate::{evidence_freshness, load_latest_evidence, GateAggregate, GateFreshness};
 use crate::publish::providers::{
-    ProviderEntry, load_config as load_provider_config, select_provider,
+    load_config as load_provider_config, select_provider, ProviderEntry,
 };
 use crate::registry::{OperationEntry, Registry, ReservationOutcome};
 
-use super::DeliveryEnvironment;
 use super::hermora::{self, HermoraOutcome, HermoraRequest};
 use super::invoke as provider_invoke;
 use super::projection::DeliveryReport;
-use super::state::{DeliveryVerb, idempotency_key, request_hash, scrub_detail};
+use super::state::{idempotency_key, request_hash, scrub_detail, DeliveryVerb};
+use super::DeliveryEnvironment;
 
 /// Outcome of one delivery verb invocation. The CLI renders the
 /// `DeliveryReport`; the API returns the JSON envelope.
@@ -159,17 +157,18 @@ fn require_fresh_passing_gate(
     })?;
     let freshness = evidence_freshness(&evidence, Some(revision));
     if evidence.project_id != project_id
-        || evidence.contract != GATE_CONTRACT_VERSION
+        || !crate::gate::is_supported_gate_contract(&evidence.contract)
+        || evidence.profile != crate::gate::GateProfile::Full
         || freshness != GateFreshness::Fresh
         || evidence.aggregate != GateAggregate::Passed
         || evidence.dry_run
     {
         return Err(ForgeError::DeliveryConflict {
             reason: format!(
-                "delivery: Forge Gate evidence for `{project_id}` must use contract {}, be fresh and passed for revision {}; observed contract={}, project={}, aggregate={}, freshness={}; run `forge gate` from the project directory and retry preflight",
-                GATE_CONTRACT_VERSION,
+                "delivery: Forge Gate evidence for `{project_id}` must use a supported contract, full profile, and be fresh and passed for revision {}; observed contract={}, profile={}, project={}, aggregate={}, freshness={}; run `forge gate --profile full` from the project directory and retry preflight",
                 &revision[..12],
                 evidence.contract,
+                evidence.profile.label(),
                 evidence.project_id,
                 evidence.aggregate.label(),
                 freshness.label()

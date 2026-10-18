@@ -350,7 +350,7 @@ fn a_real_run_json_document_is_unchanged_and_still_a_verdict() {
     assert_eq!(doc["blocked"], Value::Bool(false));
 }
 
-/// A rehearsal and a verdict must not be confusable. They share three
+/// A rehearsal and a verdict must not be confusable. They share four
 /// keys — plan identity, which is exactly what a rehearsal *is* about — and
 /// this test pins both halves: the shared set is enumerated and contains
 /// nothing verdict-shaped, and every verdict key of the status document is
@@ -391,7 +391,12 @@ fn a_rehearsal_shares_only_plan_identity_with_a_status_document() {
     shared.sort();
     assert_eq!(
         shared,
-        vec!["exemption_budget", "manifest_digest", "rule_pack_version"],
+        vec![
+            "execution_profile",
+            "exemption_budget",
+            "manifest_digest",
+            "rule_pack_version",
+        ],
         "the only keys a rehearsal may share with a status document are plan identity"
     );
     for key in shared {
@@ -434,7 +439,7 @@ const BASELINE_MANIFEST: &str = concat!(
 
 const BASELINE_HUMAN_DRY_RUN: &str = concat!(
     "gate plan (dry-run; nothing was executed)\n",
-    "contract version: 1 | profile: minimal | rule-pack: workspace-governance@1 | manifest: sha256:bfd9057d69202767\n",
+    "contract version: 1 | profile: minimal | execution profile: full | rule-pack: workspace-governance@1 | manifest: sha256:bfd9057d69202767\n",
     "blocking: review_required_blocks=true\n",
     "execution mode: dry-run\n",
     "source_size: max_lines=1000 include=[] exclude=[]\n",

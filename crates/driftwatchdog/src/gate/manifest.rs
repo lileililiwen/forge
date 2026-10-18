@@ -286,6 +286,25 @@ pub struct GateManifest {
     pub notes: Vec<String>,
 }
 
+/// Execution scope selected by the caller. Both scopes preserve Forge's
+/// mandatory baseline; only `Full` schedules project-declared checks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum GateExecutionProfile {
+    Fast,
+    #[default]
+    Full,
+}
+
+impl GateExecutionProfile {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Full => "full",
+        }
+    }
+}
+
 /// Accepted `binding_policy` values, in diagnostic order.
 pub const BINDING_POLICIES: &[&str] = &["report", "reject"];
 
@@ -776,6 +795,8 @@ pub struct Trigger {
 pub struct ResolvedGatePlan {
     pub plan: GatePlan,
     pub profile: String,
+    #[serde(default)]
+    pub gate_profile: GateExecutionProfile,
     pub execution_mode: String,
     pub project_commands: BTreeMap<String, String>,
     pub rule_pack_version: String,
@@ -1287,6 +1308,17 @@ pub fn resolve(
     manifest: &GateManifest,
     changed_surfaces: &[String],
 ) -> Result<ResolvedGatePlan, ManifestError> {
+    resolve_for_profile(manifest, changed_surfaces, GateExecutionProfile::Full)
+}
+
+/// Resolve and validate the full manifest, then select the requested
+/// execution scope. Fast omits all extension checks while retaining an
+/// explicit not-scheduled list and the mandatory baseline.
+pub fn resolve_for_profile(
+    manifest: &GateManifest,
+    changed_surfaces: &[String],
+    gate_profile: GateExecutionProfile,
+) -> Result<ResolvedGatePlan, ManifestError> {
     validate(manifest)?;
     let mut selected = selected_without_triggers(manifest);
     for check in &manifest.checks {
@@ -1317,6 +1349,18 @@ pub fn resolve(
         SOURCE_FILE_SIZE.to_string(),
         (true, "forge-baseline".to_string()),
     );
+    let fast_omitted: Vec<String> = if gate_profile == GateExecutionProfile::Fast {
+        selected
+            .keys()
+            .filter(|id| id.as_str() != SOURCE_FILE_SIZE)
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if gate_profile == GateExecutionProfile::Fast {
+        selected.retain(|id, _| id == SOURCE_FILE_SIZE);
+    }
 
     let mut checks: Vec<PlannedCheck> = selected
         .iter()
@@ -1337,15 +1381,28 @@ pub fn resolve(
     // contribute to the plan but not to this set: a manifest-level
     // command-binding rule must not depend on observed change surfaces.
     let unbound = unbound_required_checks(manifest, &selected);
-    let exemptions: BTreeMap<String, String> = manifest
-        .not_applicable
-        .iter()
-        .map(|(id, reason)| (id.clone(), bound_text(reason, MAX_EXEMPTION_REASON_BYTES)))
-        .collect();
+    let exemptions: BTreeMap<String, String> = if gate_profile == GateExecutionProfile::Fast {
+        BTreeMap::new()
+    } else {
+        manifest
+            .not_applicable
+            .iter()
+            .map(|(id, reason)| (id.clone(), bound_text(reason, MAX_EXEMPTION_REASON_BYTES)))
+            .collect()
+    };
     // The exemption allowance is a manifest-level rule for the same
     // reason: it is derived from the manifest's own selection, never
     // from the diff being gated.
-    let exemption_budget = exemption_budget(manifest, &selected_without_triggers(manifest));
+    let exemption_budget = if gate_profile == GateExecutionProfile::Fast {
+        ExemptionBudget {
+            required_checks: 0,
+            cap: 0,
+            declared: 0,
+            non_exempable: Vec::new(),
+        }
+    } else {
+        exemption_budget(manifest, &selected_without_triggers(manifest))
+    };
 
     // Explicitly record well-known concerns that are *not* scheduled
     // so backend-only plans are self-explanatory.
@@ -1357,6 +1414,11 @@ pub fn resolve(
         .filter(|id| !scheduled.contains(id))
         .map(|s| s.to_string())
         .collect();
+    if gate_profile == GateExecutionProfile::Fast {
+        not_scheduled.extend(fast_omitted);
+        not_scheduled.sort();
+        not_scheduled.dedup();
+    }
     not_scheduled.sort();
     not_scheduled.dedup();
 
@@ -1394,6 +1456,7 @@ pub fn resolve(
     Ok(ResolvedGatePlan {
         plan,
         profile: manifest.profile.clone(),
+        gate_profile,
         execution_mode: "dry-run".to_string(),
         project_commands: manifest.project_commands.clone(),
         rule_pack_version: manifest.rule_pack_version.clone(),
@@ -1419,9 +1482,10 @@ pub fn render_plan(resolved: &ResolvedGatePlan) -> String {
     let mut out = String::new();
     out.push_str("gate plan (dry-run; nothing was executed)\n");
     out.push_str(&format!(
-        "contract version: {} | profile: {} | rule-pack: {} | manifest: {}\n",
+        "contract version: {} | profile: {} | execution profile: {} | rule-pack: {} | manifest: {}\n",
         resolved.plan.version,
         resolved.profile,
+        resolved.gate_profile.label(),
         resolved.rule_pack_version,
         resolved.manifest_digest
     ));
@@ -1612,6 +1676,48 @@ pub fn load_for_runtime(project_root: &Path) -> Result<LoadOutcome, ManifestErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fast_execution_profile_keeps_only_the_mandatory_baseline() {
+        let manifest = parse(
+            "version = 1\nprofile = \"minimal\"\n\n[[checks]]\nid = \"build\"\ncommand = \"true\"\n\n[[checks]]\nid = \"tests\"\ncommand = \"true\"\n",
+        )
+        .unwrap();
+
+        let fast = resolve_for_profile(&manifest, &[], GateExecutionProfile::Fast).unwrap();
+        let ids: Vec<&str> = fast
+            .plan
+            .checks
+            .iter()
+            .map(|check| check.gate_id.as_str())
+            .collect();
+
+        assert_eq!(ids, vec![SOURCE_FILE_SIZE]);
+        assert!(fast.unbound.is_empty());
+        assert!(fast.not_scheduled.contains(&"build".to_string()));
+        assert!(fast.not_scheduled.contains(&"tests".to_string()));
+        assert_eq!(fast.gate_profile, GateExecutionProfile::Fast);
+    }
+
+    #[test]
+    fn full_execution_profile_preserves_declared_extensions() {
+        let manifest = parse(
+            "version = 1\nprofile = \"minimal\"\n\n[[checks]]\nid = \"build\"\ncommand = \"true\"\n",
+        )
+        .unwrap();
+
+        let full = resolve_for_profile(&manifest, &[], GateExecutionProfile::Full).unwrap();
+        assert!(full
+            .plan
+            .checks
+            .iter()
+            .any(|check| check.gate_id == "build"));
+        assert!(full
+            .plan
+            .checks
+            .iter()
+            .any(|check| check.gate_id == SOURCE_FILE_SIZE));
+    }
 
     /// A `minimal` manifest with `required` required checks, each bound to
     /// a command so nothing is unbound, and the named ones exempted.

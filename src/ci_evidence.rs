@@ -6,8 +6,8 @@
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
-use crate::core::{ForgeError, validate_project_id};
-use crate::gate::{GateAggregate, GateEvidence};
+use crate::core::{validate_project_id, ForgeError};
+use crate::gate::{is_supported_gate_contract, GateAggregate, GateEvidence, GateProfile};
 use crate::policy::redact_credentials;
 
 pub const HOSTED_CI_EVIDENCE_CONTRACT: &str = "forge-hosted-ci-evidence/1.0";
@@ -46,9 +46,14 @@ impl HostedCiEvidenceEnvelope {
         if self.contract != HOSTED_CI_EVIDENCE_CONTRACT {
             return Err(invalid("unsupported hosted CI evidence contract".into()));
         }
-        if self.gate.contract != crate::gate::GATE_CONTRACT_VERSION {
+        if !is_supported_gate_contract(&self.gate.contract) {
             return Err(invalid(
                 "unsupported embedded Gate evidence contract".into(),
+            ));
+        }
+        if self.gate.profile != GateProfile::Full {
+            return Err(invalid(
+                "hosted CI evidence requires the full Gate profile".into(),
             ));
         }
         validate_project_id(&self.project_id).map_err(invalid)?;

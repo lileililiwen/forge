@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use forge::gate::GateProfile;
 use forge::registry::default_registry_path;
 
 use cli::agent::cmd_agent;
@@ -439,6 +440,10 @@ enum Commands {
         /// Bounded gate execution timeout in seconds (1..=86400; default 600).
         #[arg(long, value_name = "SECS")]
         timeout_secs: Option<u64>,
+        /// `fast` runs only Forge's mandatory baseline; `full` also runs all
+        /// declared project extensions. The default is full.
+        #[arg(long, value_enum)]
+        profile: Option<GateProfile>,
     },
     /// Private dispatch for the bundled gate engine; use `forge gate`.
     #[command(name = "__forge-gate-engine", hide = true)]
@@ -446,6 +451,9 @@ enum Commands {
         /// Rehearse the resolved plan without executing or persisting it.
         #[arg(long)]
         dry_run: bool,
+        /// Execution profile forwarded by the public Forge command.
+        #[arg(long, value_enum, default_value = "full")]
+        profile: driftwatchdog::gate::manifest::GateExecutionProfile,
     },
     /// Vendor, inspect and project platform contracts into envelopes.
     Contract {
@@ -560,12 +568,20 @@ fn main() -> ExitCode {
         args,
         dry_run,
         timeout_secs,
+        profile,
     } = &cli.command
     {
-        return cmd_gate(&db_path, args, *dry_run, *timeout_secs, cli.format);
+        return cmd_gate(
+            &db_path,
+            args,
+            *dry_run,
+            *timeout_secs,
+            *profile,
+            cli.format,
+        );
     }
 
-    if let Commands::GateEngine { dry_run } = &cli.command {
+    if let Commands::GateEngine { dry_run, profile } = &cli.command {
         let cwd = match std::env::current_dir() {
             Ok(cwd) => cwd,
             Err(error) => {
@@ -575,6 +591,7 @@ fn main() -> ExitCode {
         };
         let args = driftwatchdog::cli::GateArgs {
             dry_run: *dry_run,
+            profile: *profile,
             format: driftwatchdog::cli::GateOutputFormat::Json,
             subcommand: None,
         };

@@ -1,6 +1,6 @@
 [package]
 name = "forge"
-version = "0.1.0" # the one version source (agrees with CHANGELOG.md newest entry and `forge --version`; enforced by tests/artifact_baseline_contract.rs)
+version = "0.1.1" # the one version source (agrees with CHANGELOG.md newest entry and `forge --version`; enforced by tests/artifact_baseline_contract.rs)
 edition = "2021"
 # MSRV floor: 1.88. `OsStr::display` (src/agent) stabilized in 1.87.0, but
 # the resolved dependency tree (darling, icu, serde_with, …) requires rustc

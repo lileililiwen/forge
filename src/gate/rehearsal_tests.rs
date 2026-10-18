@@ -7,7 +7,7 @@
 pub(super) mod tests {
     use crate::gate::contract::{GATE_CONTRACT_VERSION, MAX_PLAN_LINES};
     use crate::gate::engine::{journal_verdict, run_gate};
-    use crate::gate::model::{GateAggregate, GateCheckState, GateConfig, GateOutcome};
+    use crate::gate::model::{GateAggregate, GateCheckState, GateConfig, GateOutcome, GateProfile};
     use crate::gate::rehearsal::{
         parse_rehearsal, rehearsal_envelope, render_rehearsal_human, verdict_like_keys,
         GateRehearsal,
@@ -71,6 +71,7 @@ pub(super) mod tests {
         GateConfig {
             binary: Some(OsString::from(binary)),
             timeout: Duration::from_secs(10),
+            profile: GateProfile::Full,
         }
     }
 

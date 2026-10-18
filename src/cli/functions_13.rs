@@ -11,7 +11,7 @@ use forge::analytics::{
 use forge::core::ForgeError;
 use forge::gate::{
     self, evidence_freshness, evidence_summary, load_latest_evidence, render_evidence_human,
-    GateAggregate, GateConfig, GateFreshness, GateOutcome, GATE_CONTRACT_VERSION,
+    GateAggregate, GateConfig, GateFreshness, GateOutcome, GateProfile, GATE_CONTRACT_VERSION,
 };
 use forge::registry::Registry;
 use std::path::{Path, PathBuf};
@@ -237,6 +237,7 @@ pub(crate) fn cmd_gate(
     args: &[String],
     dry_run: bool,
     timeout_secs: Option<u64>,
+    profile: Option<GateProfile>,
     format: Format,
 ) -> ExitCode {
     // Parse the `status | evidence [status] | TARGET` positional forms.
@@ -354,6 +355,15 @@ pub(crate) fn cmd_gate(
             format,
         );
     }
+    if !matches!(command, GateCommand::Run) && profile.is_some() {
+        return gate_fail(
+            &ForgeError::GateInvalid {
+                reason: "--profile applies only to a Gate run, not status or evidence commands"
+                    .to_string(),
+            },
+            format,
+        );
+    }
     let config = match timeout_secs {
         Some(raw) => {
             let parsed = match gate::parse_timeout_secs(raw) {
@@ -362,9 +372,14 @@ pub(crate) fn cmd_gate(
             };
             let mut config = GateConfig::from_env();
             config.timeout = parsed;
+            config.profile = profile.unwrap_or_default();
             config
         }
-        None => GateConfig::from_env(),
+        None => {
+            let mut config = GateConfig::from_env();
+            config.profile = profile.unwrap_or_default();
+            config
+        }
     };
     let (dir, project_id) = match resolve_gate_target(db_path, &target) {
         Ok(resolved) => resolved,

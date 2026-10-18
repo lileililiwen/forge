@@ -48,10 +48,10 @@ pub const CLIENT_PACK: &str = "baseline-client";
 
 /// Default snapshot for compatible new projects. Bump only when a new
 /// supported, verified pack version becomes the generation default.
-pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.5.0";
+pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.6.0";
 
 /// Default snapshot for client profiles with verified Gate-only templates.
-pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.2.0";
+pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.3.0";
 
 /// Service profiles supported by `baseline-service`.
 pub const BASELINE_PROFILES: &[&str] = &["aspnet-web", "nextjs-web", "python-service", "rust-web"];

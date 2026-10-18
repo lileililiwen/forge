@@ -169,7 +169,7 @@ fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
     assert!(plain.join(".github/workflows/forge-gate.yml").is_file());
     let default_receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(plain.join(RECEIPT)).unwrap()).unwrap();
-    assert_eq!(default_receipt["version"], "1.5.0");
+    assert_eq!(default_receipt["version"], "1.6.0");
     let service_workflow =
         fs::read_to_string(plain.join(".github/workflows/forge-gate.yml")).unwrap();
     let service_verify_job = service_workflow
@@ -203,7 +203,7 @@ fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
         let receipt: serde_json::Value =
             serde_json::from_slice(&fs::read(client_default.join(RECEIPT)).unwrap()).unwrap();
         assert_eq!(receipt["pack"], "baseline-client");
-        assert_eq!(receipt["version"], "1.2.0");
+        assert_eq!(receipt["version"], "1.3.0");
         assert!(client_default
             .join(".github/workflows/forge-gate.yml")
             .is_file());
@@ -888,8 +888,8 @@ fn current_default_packs_install_the_pinned_release_and_keep_gate_parity() {
     let db = tmp.path().join("registry.db");
 
     for (profile, pack, version) in [
-        ("rust-web", "baseline-service", "1.5.0"),
-        ("react-web", "baseline-client", "1.2.0"),
+        ("rust-web", "baseline-service", "1.6.0"),
+        ("react-web", "baseline-client", "1.3.0"),
     ] {
         let project = tmp.path().join(format!("release-{profile}"));
         new_project(&db, &project, profile, &[]);
@@ -914,7 +914,7 @@ fn current_default_packs_install_the_pinned_release_and_keep_gate_parity() {
             assert!(ci.contains("sh .standard/scripts/verify.sh"), "{ci}");
             assert!(verify.contains("verify-local.sh"), "{verify}");
         }
-        assert!(installer.contains("FORGE_VERSION=0.1.0"), "{installer}");
+        assert!(installer.contains("FORGE_VERSION=0.1.1"), "{installer}");
         assert!(
             installer.contains("TARGET=x86_64-unknown-linux-gnu"),
             "{installer}"

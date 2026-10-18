@@ -110,6 +110,60 @@ fn run(db: &Path, args: &[&str], gate_bin: Option<&Path>) -> std::process::Outpu
     cmd.output().expect("run forge")
 }
 
+#[test]
+fn fast_profile_runs_only_forge_baseline_and_full_runs_extensions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = project(tmp.path(), "gate-profile-project");
+    write_file(
+        &proj,
+        ".ai-gate/gate.yaml",
+        "version: 1\nruntime: forge\nprofile: minimal\nrule_pack: local\nchecks:\n  smoke: true\ncommands:\n  smoke: 'touch extension-ran'\n",
+    );
+    let db = tmp.path().join("registry.db");
+
+    let fast = Command::new(forge_bin())
+        .arg("--registry")
+        .arg(&db)
+        .args(["gate", ".", "--profile", "fast", "--format", "json"])
+        .current_dir(&proj)
+        .output()
+        .unwrap();
+    assert!(
+        fast.status.success(),
+        "fast Gate failed: {}",
+        lossy(&fast.stderr)
+    );
+    assert!(!proj.join("extension-ran").exists());
+    let evidence_path = proj.join(".forge/gate/gate-profile-project/evidence.json");
+    let fast_evidence: serde_json::Value =
+        serde_json::from_slice(&fs::read(&evidence_path).unwrap()).unwrap();
+    assert_eq!(fast_evidence["profile"], "fast");
+    assert_eq!(fast_evidence["checks"].as_array().unwrap().len(), 1);
+    assert_eq!(fast_evidence["checks"][0]["id"], "source-file-size");
+
+    let full = Command::new(forge_bin())
+        .arg("--registry")
+        .arg(&db)
+        .args(["gate", ".", "--profile", "full", "--format", "json"])
+        .current_dir(&proj)
+        .output()
+        .unwrap();
+    assert!(
+        full.status.success(),
+        "full Gate failed: {}",
+        lossy(&full.stderr)
+    );
+    assert!(proj.join("extension-ran").exists());
+    let full_evidence: serde_json::Value =
+        serde_json::from_slice(&fs::read(&evidence_path).unwrap()).unwrap();
+    assert_eq!(full_evidence["profile"], "full");
+    assert!(full_evidence["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| check["id"] == "smoke"));
+}
+
 fn json_of(out: &std::process::Output) -> serde_json::Value {
     serde_json::from_slice(&out.stdout)
         .unwrap_or_else(|err| panic!("json: {err}; stderr: {}", lossy(&out.stderr)))
@@ -714,7 +768,7 @@ fn evidence_command_produces_unchanged_gate_verdict_surface() {
     assert_eq!(out3.status.code(), Some(0), "{}", lossy(&out3.stderr));
     let value3 = serde_json::from_str::<serde_json::Value>(&lossy(&out3.stdout)).unwrap();
     // Gate verdict surface unchanged.
-    assert_eq!(value3["contract"], "0.1.0");
+    assert_eq!(value3["contract"], forge::gate::GATE_CONTRACT_VERSION);
     assert_eq!(value3["gate"]["aggregate"], "passed");
 }
 

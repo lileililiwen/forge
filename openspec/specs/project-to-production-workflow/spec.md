@@ -5,17 +5,17 @@ Evidence-gated staged delivery with explicit production promotion, optional post
 ## Requirements
 ### Requirement: Evidence-gated staged delivery
 
-Forge SHALL coordinate project checks, provider preflight, stage publication, and health verification through the existing publish provider contract (`forge-publish-provider/0.1.0`). Before invoking a delivery preflight provider, Forge SHALL require that the registered 40-character source revision equals the source repository's current Git `HEAD` and that persisted Gate evidence has the supported Gate evidence contract, matches the registered project, is a real non-dry-run record, is classified as `fresh` against that revision, and has aggregate `passed`. These checks SHALL complete before provider resolution, operation reservation, or provider invocation. Forge SHALL NOT run Gate implicitly.
+Forge SHALL coordinate project checks, provider preflight, stage publication, and health verification through the existing publish provider contract (`forge-publish-provider/0.1.0`). Before invoking a delivery preflight provider, Forge SHALL require that the registered 40-character source revision equals the source repository's current Git `HEAD` and that persisted Gate evidence uses a supported Gate evidence contract (`0.1.0` legacy or `0.2.0`), matches the registered project, is a real non-dry-run record, has profile `full`, is classified as `fresh` against that revision, and has aggregate `passed`. Legacy `0.1.0` evidence without profile metadata SHALL be treated as full. These checks SHALL complete before provider resolution, operation reservation, or provider invocation. Forge SHALL NOT run Gate implicitly.
 
 #### Scenario: Preflight succeeds
 
-- **WHEN** the project is registered at the current Git `HEAD`, Gate evidence for that project is fresh and has aggregate `passed`, and the provider's `preflight` returns `status=succeeded`
+- **WHEN** the project is registered at the current Git `HEAD`, full-profile Gate evidence for that project is fresh and has aggregate `passed`, and the provider's `preflight` returns `status=succeeded`
 - **THEN** Forge records terminal provider evidence under `kind=delivery.preflight` and advances `phase` to `preflighted`
 
 #### Scenario: Preflight refuses missing or non-passing Gate evidence
 
-- **WHEN** the user invokes preflight and the Gate evidence is absent, stale, blocked, failed, or unknown
-- **THEN** Forge refuses with `delivery-conflict`, gives the Gate state and recovery command, and writes no delivery operation row or provider call
+- **WHEN** the user invokes preflight and the Gate evidence is absent, stale, fast-profile, blocked, failed, or unknown
+- **THEN** Forge refuses with `delivery-conflict`, gives the Gate state and recovery command `forge gate --profile full`, and writes no delivery operation row or provider call
 
 #### Scenario: Preflight refuses a changed registered revision
 
@@ -29,7 +29,7 @@ Forge SHALL coordinate project checks, provider preflight, stage publication, an
 
 #### Scenario: Preflight fails
 
-- **WHEN** current source and fresh passing Gate evidence satisfy preflight checks but the provider returns `status != succeeded` or the binary is missing
+- **WHEN** current source and fresh passing full-profile Gate evidence satisfy preflight checks but the provider returns `status != succeeded` or the binary is missing
 - **THEN** Forge records the failure under `delivery.preflight` with `state=failed`, surfaces the existing provider error, and refuses the next stage
 
 #### Scenario: Stage is healthy

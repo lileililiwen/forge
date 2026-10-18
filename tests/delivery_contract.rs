@@ -184,9 +184,10 @@ fn run_with_fixtures(db: &Path, fixture_path: &Path, args: &[&str]) -> std::proc
 
 fn write_gate_evidence(proj: &Path, id: &str, revision: &str, aggregate: &str) {
     let evidence = serde_json::json!({
-        "contract": "0.1.0",
+        "contract": forge::gate::GATE_CONTRACT_VERSION,
         "project_id": id,
         "runtime": "forge",
+        "profile": "full",
         "revision": revision,
         "aggregate": aggregate,
         "checks": [],
@@ -424,6 +425,7 @@ fn preflight_rejects_wrong_gate_contract_project_or_dry_run() {
         (0, "contract", serde_json::json!("0.0.1")),
         (1, "project_id", serde_json::json!("another-project")),
         (2, "dry_run", serde_json::json!(true)),
+        (3, "profile", serde_json::json!("fast")),
     ] {
         let tmp = tempfile::tempdir().unwrap();
         let db = tmp.path().join("registry.db");

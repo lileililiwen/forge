@@ -61,6 +61,7 @@ fn envelope() -> HostedCiEvidenceEnvelope {
             contract: forge::gate::GATE_CONTRACT_VERSION.into(),
             project_id: "sample-service".into(),
             runtime: "forge".into(),
+            profile: forge::gate::GateProfile::Full,
             runtime_version: Some("0.1.0".into()),
             revision: Some(sha),
             manifest_digest: None,

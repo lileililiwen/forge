@@ -11,8 +11,8 @@ from urllib.parse import parse_qs, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVICE = ROOT / "standards/baseline-service/1.5.0/upload-hosted-ci-evidence.py"
-CLIENT = ROOT / "standards/baseline-client/1.2.0/upload-hosted-ci-evidence.py"
+SERVICE = ROOT / "standards/baseline-service/1.6.0/upload-hosted-ci-evidence.py"
+CLIENT = ROOT / "standards/baseline-client/1.3.0/upload-hosted-ci-evidence.py"
 
 
 class Response:
@@ -55,6 +55,7 @@ class HostedCiUploaderContract(unittest.TestCase):
                 "project_id": "sample-service",
                 "revision": "a" * 40,
                 "aggregate": "passed",
+                "profile": "full",
                 "dry_run": False,
             }))
             values = {
@@ -89,6 +90,22 @@ class HostedCiUploaderContract(unittest.TestCase):
             for secret in ("secret-id-token", "runner-request-token"):
                 self.assertNotIn(secret, stdout.getvalue())
                 self.assertNotIn(secret, stderr.getvalue())
+
+    def test_fast_evidence_is_refused_before_network_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_dir = root / ".forge/gate/sample-service"
+            evidence_dir.mkdir(parents=True)
+            (evidence_dir / "evidence.json").write_text(json.dumps({
+                "aggregate": "passed",
+                "profile": "fast",
+                "dry_run": False,
+            }))
+            opener = Opener()
+            with patch.dict(os.environ, {"FORGE_CI_EVIDENCE_URL": "https://forge.example.test/evidence"}, clear=True), patch("urllib.request.build_opener", return_value=opener):
+                with contextlib.chdir(root), self.assertRaisesRegex(ValueError, "full-profile"):
+                    runpy.run_path(str(SERVICE), run_name="hosted_ci_uploader_test") ["main"]()
+            self.assertEqual(opener.requests, [])
 
 
 if __name__ == "__main__":

@@ -96,6 +96,25 @@ pub struct GateConfig {
     /// project setting or environment variable to choose another gate.
     pub binary: Option<OsString>,
     pub timeout: Duration,
+    pub profile: GateProfile,
+}
+
+/// The runtime scope selected for a Forge Gate invocation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum GateProfile {
+    Fast,
+    #[default]
+    Full,
+}
+
+impl GateProfile {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Full => "full",
+        }
+    }
 }
 impl GateConfig {
     /// Build the Forge-owned gate configuration. Legacy
@@ -104,6 +123,7 @@ impl GateConfig {
         GateConfig {
             binary: None,
             timeout: DEFAULT_GATE_TIMEOUT,
+            profile: GateProfile::Full,
         }
     }
 }
@@ -147,6 +167,8 @@ pub struct GateEvidence {
     pub contract: String,
     pub project_id: String,
     pub runtime: String,
+    #[serde(default)]
+    pub profile: GateProfile,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_version: Option<String>,
     /// Git HEAD captured at invocation. Evidence without a binding can

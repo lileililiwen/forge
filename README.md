@@ -469,6 +469,8 @@ and prints the plan without running checks or writing evidence.
 ```sh
 forge gate .
 forge gate . --dry-run
+forge gate . --profile fast  # mandatory Forge baseline only
+forge gate . --profile full  # baseline plus declared project checks
 forge gate status .
 forge --format json gate <project-id-or-path>
 ```
@@ -480,19 +482,24 @@ a pass, and captured output is credential-redacted and host-path-scrubbed.
 No Gate tool is exposed over MCP. The authenticated admin API provides
 project-scoped status and explicit re-run routes, which the workbench Quality
 card uses; these call the same Core Gate path as the CLI. CI and local
-development use the same bundled `forge gate` command. See
+development use the same bundled Gate runtime and mandatory baseline;
+pre-commit selects `fast` and hosted CI selects `full`. See
 [docs/provider-evidence.md](docs/provider-evidence.md) for provider boundaries.
 
 ### Generated CI and pre-commit
 
-New service projects receive `baseline-service@1.5.0` by default. Its GitHub
-Actions workflow installs the pinned Forge `0.1.0` Linux x86_64 release after
+New service projects receive `baseline-service@1.6.0` by default. Its GitHub
+Actions workflow installs the pinned Forge `0.1.1` Linux x86_64 release after
 verifying its SHA-256 sidecar, then runs the project's standard verifier and
-`forge gate .`; its pre-commit hook runs the same repository-wide Gate command.
-React and Flutter projects receive the Gate-only `baseline-client@1.2.0` pack,
-which installs the same pinned binary and runs Gate. All six current profiles
-get Forge's built-in checks and can add project-specific Gate extensions.
-The generated CI requires Forge's matching `v0.1.0` GitHub Release to exist.
+`forge gate . --profile full`; its pre-commit hook runs
+`forge gate . --profile fast`. React and Flutter projects receive the
+Gate-only `baseline-client@1.3.0` pack, which uses the same full CI and fast
+local split. Fast always enforces Forge's built-in source-file line limit and
+omits project extensions; full runs the baseline plus every declared
+extension. Delivery and hosted evidence require full-profile evidence.
+All six current profiles can register project-specific Gate extensions. The
+generated CI requires Forge's matching `v0.1.1` GitHub Release to exist;
+creating the snapshots does not publish that release.
 On branch pushes, the workflow can also upload the terminal Gate observation
 to Forge when `FORGE_CI_EVIDENCE_URL` is configured and an operator has bound
 the project's immutable GitHub repository ID. This hosted history is separate
@@ -503,7 +510,7 @@ job's OIDC permission.
 Install the pinned Forge release locally and enable the generated hook:
 
 ```sh
-VERSION=0.1.0
+VERSION=0.1.1
 TARGET=x86_64-unknown-linux-gnu
 ARCHIVE="forge-${VERSION}-${TARGET}.tar.gz"
 BASE="https://github.com/lileililiwen/forge/releases/download/v${VERSION}"
@@ -527,16 +534,16 @@ Legacy repositories without a standard snapshot can
 install the current pack matching their profile after reviewing its paths:
 
 ```sh
-forge standard install baseline-service@1.5.0 . --profile rust-web --confirm
-forge standard install baseline-client@1.2.0 . --profile react-web --confirm
-# Flutter projects use baseline-client@1.2.0 with --profile flutter-app.
+forge standard install baseline-service@1.6.0 . --profile rust-web --confirm
+forge standard install baseline-client@1.3.0 . --profile react-web --confirm
+# Flutter projects use baseline-client@1.3.0 with --profile flutter-app.
 ```
 
 Repositories with an existing snapshot can preview and then upgrade:
 
 ```sh
-forge standard diff . --against baseline-service@1.5.0
-forge standard upgrade . --to baseline-service@1.5.0 --confirm
+forge standard diff . --against baseline-service@1.6.0
+forge standard upgrade . --to baseline-service@1.6.0 --confirm
 ```
 
 Installation and upgrade refuse conflicting owned files rather than silently

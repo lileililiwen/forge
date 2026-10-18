@@ -10,8 +10,8 @@ pub(super) mod tests {
 
     use crate::standard::layout::{
         ACCESSIBILITY_CHECK_PATH, CI_PATH, CLIENT_PACK, COMPOSE_PATH, DETERMINISTIC_TIMESTAMP,
-        GITHUB_CI_PATH, OPENSPEC_NAME_CHECK_PATH, PRE_COMMIT_PATH, PRIVACY_CHECK_PATH,
-        PROFILE_PATH, QUALITY_PATH, RECEIPT_PATH, SHARED_ACCESSIBILITY_CHECK,
+        GITHUB_CI_PATH, INSTALL_FORGE_PATH, OPENSPEC_NAME_CHECK_PATH, PRE_COMMIT_PATH,
+        PRIVACY_CHECK_PATH, PROFILE_PATH, QUALITY_PATH, RECEIPT_PATH, SHARED_ACCESSIBILITY_CHECK,
         SHARED_OPENSPEC_NAME_CHECK, SHARED_PRIVACY_CHECK, SHARED_VERIFY_SCRIPT, STANDARD_DIR,
         VERIFY_LOCAL_PATH, VERIFY_PATH,
     };
@@ -98,19 +98,58 @@ pub(super) mod tests {
         assert_eq!(err.code(), "standard-invalid");
         assert_eq!(
             default_for_generation("rust-web").as_deref(),
-            Some("baseline-service@1.5.0")
+            Some("baseline-service@1.6.0")
         );
         assert_eq!(
             default_for_generation("react-web").as_deref(),
-            Some("baseline-client@1.2.0")
+            Some("baseline-client@1.3.0")
         );
         assert_eq!(
             default_for_generation("flutter-app").as_deref(),
-            Some("baseline-client@1.2.0")
+            Some("baseline-client@1.3.0")
         );
         // Unknown selectors refuse by name.
         let err = select_for_generation("rust-web", "nope@1.0.0").expect_err("must refuse");
         assert_eq!(err.code(), "standard-invalid");
+    }
+
+    #[test]
+    fn current_baseline_templates_use_fast_hooks_and_full_ci() {
+        let service = baseline("baseline-service@1.6.0");
+        let client = baseline("baseline-client@1.3.0");
+        for pack in [&service, &client] {
+            assert!(pack.is_selectable());
+            let assets: std::collections::BTreeMap<_, _> = pack
+                .files
+                .iter()
+                .map(|asset| (asset.path.as_str(), asset.template.as_str()))
+                .collect();
+            assert!(assets[PRE_COMMIT_PATH].contains("forge gate . --profile fast"));
+            assert!(assets[PRE_COMMIT_PATH].contains("pass_filenames: false"));
+            if pack.id == "baseline-service" {
+                assert!(assets[CI_PATH].contains("--profile full"));
+            } else {
+                assert!(assets[CI_PATH].contains("sh .standard/scripts/verify.sh"));
+                assert!(assets[".standard/scripts/verify.sh"].contains("--profile full"));
+            }
+            assert!(assets[INSTALL_FORGE_PATH].contains("FORGE_VERSION=0.1.1"));
+            assert!(assets[".standard/scripts/upload-hosted-ci-evidence.py"]
+                .contains("requires a full-profile"));
+        }
+        assert!(service
+            .files
+            .iter()
+            .any(|asset| asset.path == VERIFY_LOCAL_PATH));
+        assert!(client.files.iter().any(|asset| asset.path == VERIFY_PATH));
+
+        let old_service = baseline("baseline-service@1.5.0");
+        let old_client = baseline("baseline-client@1.2.0");
+        assert!(!old_service.files.iter().any(|asset| {
+            asset.path == PRE_COMMIT_PATH && asset.template.contains("--profile fast")
+        }));
+        assert!(!old_client.files.iter().any(|asset| {
+            asset.path == PRE_COMMIT_PATH && asset.template.contains("--profile fast")
+        }));
     }
 
     #[test]

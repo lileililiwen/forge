@@ -361,6 +361,7 @@ pub fn build_document(resolved: &ResolvedGatePlan, manifest: &GateManifest) -> s
         ),
         "plan_version": resolved.plan.version,
         "profile": resolved.profile,
+        "execution_profile": resolved.gate_profile,
         "rule_pack_version": resolved.rule_pack_version,
         "manifest_digest": resolved.manifest_digest,
         "blocking_policy": resolved.plan.policy,

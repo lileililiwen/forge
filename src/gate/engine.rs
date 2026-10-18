@@ -5,7 +5,7 @@
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
 use chrono::{SecondsFormat, Utc};
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -201,9 +201,11 @@ pub fn run_gate(dir: &Path, project_id: &str, config: &GateConfig, dry_run: bool
         Err(reason) => return GateOutcome::Unavailable { reason },
     };
     let runtime_version = probe_version(&resolved.binary, config.timeout);
-    let mut args: Vec<&OsStr> = vec![OsStr::new("__forge-gate-engine")];
+    let mut args: Vec<OsString> = vec![OsString::from("__forge-gate-engine")];
+    args.push(OsString::from("--profile"));
+    args.push(OsString::from(config.profile.label()));
     if dry_run {
-        args.push(OsStr::new("--dry-run"));
+        args.push(OsString::from("--dry-run"));
     }
     let mut command = Command::new(&resolved.binary);
     command.args(&args).current_dir(dir).stdin(Stdio::null());
@@ -267,6 +269,7 @@ pub fn run_gate(dir: &Path, project_id: &str, config: &GateConfig, dry_run: bool
                 contract: GATE_CONTRACT_VERSION.to_string(),
                 project_id: project_id.to_string(),
                 runtime: resolved.name.clone(),
+                profile: config.profile,
                 runtime_version: runtime_version.clone(),
                 revision,
                 manifest_digest: mapped.manifest_digest.map(|d| capture_note(&d, dir)),
@@ -717,6 +720,7 @@ pub fn render_evidence_human(
         lines.push(format!("freshness: {}", freshness.label()));
     }
     lines.push(format!("aggregate: {}", evidence.aggregate.label()));
+    lines.push(format!("profile: {}", evidence.profile.label()));
     lines.push(format!(
         "runtime: {} ({})",
         evidence.runtime,

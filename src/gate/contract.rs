@@ -7,7 +7,18 @@ use std::time::Duration;
 /// Versioned contract for the persisted [`GateEvidence`] record. The
 /// sibling's own gate document carries no contract field and is
 /// discriminated by shape, exactly as the policy plane does.
-pub const GATE_CONTRACT_VERSION: &str = "0.1.0";
+pub const GATE_CONTRACT_VERSION: &str = "0.2.0";
+
+/// Historical full-only evidence contract. Before profile metadata existed,
+/// every real Forge run executed the full configured plan.
+pub const LEGACY_GATE_CONTRACT_VERSION: &str = "0.1.0";
+
+pub fn is_supported_gate_contract(version: &str) -> bool {
+    matches!(
+        version,
+        GATE_CONTRACT_VERSION | LEGACY_GATE_CONTRACT_VERSION
+    )
+}
 
 /// Environment override naming the gate binary explicitly. Like every
 /// other adapter override it runs exactly the named binary with no

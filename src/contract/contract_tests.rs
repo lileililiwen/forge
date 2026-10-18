@@ -12,6 +12,7 @@ fn evidence_with(
         contract: crate::gate::GATE_CONTRACT_VERSION.to_string(),
         project_id: "proj-a".to_string(),
         runtime: "driftwatchdog".to_string(),
+        profile: crate::gate::GateProfile::Full,
         runtime_version: None,
         revision: Some("a".repeat(40)),
         manifest_digest: None,
@@ -91,7 +92,13 @@ fn inventory_completeness() {
         let hit = CONTRACTS
             .iter()
             .any(|c| c.module == top && c.constant == const_part);
-        if !hit && const_part != "SUPPORTED_SCHEMA" && const_part != "TESTED_VERSION" {
+        let documented_legacy_gate_contract =
+            rel == "gate.contract" && const_part == "LEGACY_GATE_CONTRACT_VERSION";
+        if !hit
+            && !documented_legacy_gate_contract
+            && const_part != "SUPPORTED_SCHEMA"
+            && const_part != "TESTED_VERSION"
+        {
             missing.push(key.clone());
         }
     }

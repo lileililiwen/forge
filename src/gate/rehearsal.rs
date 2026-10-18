@@ -133,6 +133,8 @@ struct WireRehearsal {
     #[serde(default)]
     profile: String,
     #[serde(default)]
+    execution_profile: String,
+    #[serde(default)]
     rule_pack_version: String,
     #[serde(default)]
     manifest_digest: String,
@@ -288,6 +290,8 @@ pub struct GateRehearsal {
     pub execution_mode: String,
     pub plan_version: u64,
     pub profile: String,
+    #[serde(default)]
+    pub execution_profile: String,
     pub rule_pack_version: String,
     pub manifest_digest: String,
     pub default_timeout_ms: u64,
@@ -352,6 +356,7 @@ pub fn parse_rehearsal(value: &serde_json::Value, dir: &Path) -> Option<GateRehe
         execution_mode: clean(&wire.execution_mode),
         plan_version: wire.plan_version,
         profile: clean(&wire.profile),
+        execution_profile: clean(&wire.execution_profile),
         rule_pack_version: clean(&wire.rule_pack_version),
         manifest_digest: clean(&wire.manifest_digest),
         default_timeout_ms: wire.default_timeout_ms,
@@ -435,9 +440,10 @@ pub fn rehearsal_plan_lines(rehearsal: &GateRehearsal) -> Vec<String> {
             rehearsal.contract, rehearsal.document_kind, rehearsal.execution_mode
         ),
         format!(
-            "plan: version {} | profile {} | rule pack {} | manifest {}",
+            "plan: version {} | profile {} | execution profile {} | rule pack {} | manifest {}",
             rehearsal.plan_version,
             word_or_unknown(&rehearsal.profile),
+            word_or_unknown(&rehearsal.execution_profile),
             word_or_unknown(&rehearsal.rule_pack_version),
             word_or_unknown(&rehearsal.manifest_digest)
         ),

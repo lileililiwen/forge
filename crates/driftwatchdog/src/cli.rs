@@ -234,6 +234,10 @@ pub struct GateArgs {
     /// Show the resolved plan without child execution or persistence.
     #[arg(long)]
     pub dry_run: bool,
+    /// Select the Forge mandatory baseline only (`fast`) or the baseline
+    /// plus declared project checks (`full`).
+    #[arg(long, value_enum, default_value_t = crate::gate::manifest::GateExecutionProfile::Full)]
+    pub profile: crate::gate::manifest::GateExecutionProfile,
     /// Output format. `human` prints a table; `json` prints a
     /// machine-readable status document to stdout; `platform` prints a
     /// `platform.gate-result` 1.0.0 document and refuses, rather than

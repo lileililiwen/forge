@@ -1,5 +1,7 @@
 # Forge handoff
 
+current_spec: forge-platform-schema-ownership
+
 ## Latest delivery
 
 ### `gate-profile-portal-controls` implemented and archived (2026-10-18)
@@ -29,6 +31,35 @@ The change is archived at
 Implementation/archive commit: `1612d9d` (`feat: expose gate profiles in
 workbench`). No active OpenSpec change remains, so this file has no
 `current_spec` pointer. This HANDOFF-only update is the second commit.
+
+### `forge-workspace-governance-gate-conformance` implemented and archived (2026-10-19)
+
+The consolidated Workspace Governance module now opts its Python scripts into
+Forge's mandatory source-size baseline through a module-owned `gate.toml`.
+The existing Forge-wide scanner defaults remain unchanged. Four oversized
+checkers were split into adjacent implementation modules while their original
+paths remain executable/import-compatible facades. Forge's archive and
+installer now carry the product-quality helper modules beside the checker, so
+installed `forge concern check product-code-boundary` works without the source
+checkout. The new module manifest retains its six existing checks and commands.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Workspace Governance Python suite | PASS, 1015 tests / 2 skipped | `python3 -m unittest discover -s tests` from `modules/workspace-governance`; includes syntax validation for every script, manifest contract and the existing behavior suite. |
+| Governance self-check and CLI compatibility | PASS | `python3 scripts/workspace_check.py --self-check` reports 0 errors / 0 warnings; `bind_gate_commands.py --help`, `product_code_quality.py --help`, and `ui_conformance.py --help` exit successfully. |
+| Source-size scanner | PASS, 18/18 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test -p driftwatchdog gate::source_size::tests -- --test-threads=1`; scanner implementation/default roots remain unchanged. |
+| Package, installer and installed checker contracts | PASS, 14/14 | `cargo test --test artifact_baseline_contract -- --test-threads=1` (7/7) and `cargo test --test governance_concern_cli -- --test-threads=1` (7/7); `sh -n scripts/package.sh scripts/install.sh`; Rustfmt check on both changed Rust test files. |
+| Module Gate dry-run and full Gate | PASS, 7 planned/executed checks | `./target/debug/forge gate --dry-run modules/workspace-governance --format json` resolves six declared checks plus `source-file-size`; final full Gate at source revision `b0de4ca8ed8857ff484da1e61aec62125fb45363`, observed `2026-10-18T23:44:36Z`, reports all checks PASS and 41/41 Python script candidates evaluated under the 1,000-line limit. |
+| Forge Gate dry-run and full Gate | PASS, 8/8 | `./target/debug/forge gate --dry-run --format json`; `timeout 1260 ./target/debug/forge gate --timeout-secs 1200 --format json` at source revision `b0de4ca8ed8857ff484da1e61aec62125fb45363`, observed `2026-10-18T23:42:25Z`; source-size evaluated 428/428. `paste` and `unsafe-libyaml` advisories remain informational. |
+| OpenSpec and whitespace | PASS | Name preflight; strict validation **118/118** after archive; canonical `source-file-size-gate` requirement promoted without `--skip-specs`; `git diff --check` and staged diff check pass. |
+
+Roadmap order 9 is complete. No sibling repository changed, and nothing was
+published or pushed. Archived as
+`openspec/changes/archive/2026-10-18-forge-workspace-governance-gate-conformance/`.
+Implementation/archive commit: `c867a08` (`feat: conform workspace governance
+to Forge Gate`). This completed delivery record and the active pointer for
+`forge-platform-schema-ownership` are the separate HANDOFF-only commit. Roadmap
+order 8 remains deferred; order 10 is now active.
 
 ### `gate-local-hosted-profiles` implemented and archived (2026-10-18)
 

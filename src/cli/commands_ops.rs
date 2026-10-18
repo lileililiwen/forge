@@ -256,7 +256,7 @@ pub(crate) enum StandardCommands {
     },
     /// Materialize a snapshot into a project that has none; never replaces an existing file.
     Install {
-        /// Pack selector, e.g. `baseline-service@1.3.0`.
+        /// Pack selector, e.g. `baseline-service@1.4.0`.
         pack: String,
         /// Project directory (default: current directory).
         #[arg(default_value = ".")]

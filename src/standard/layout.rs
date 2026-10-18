@@ -19,6 +19,9 @@ pub const RECEIPT_PATH: &str = ".standard/receipt.json";
 /// Verification entry point the project (and its CI) runs locally.
 pub const VERIFY_PATH: &str = ".standard/scripts/verify.sh";
 
+/// Checksummed Forge release installer carried by current baseline packs.
+pub const INSTALL_FORGE_PATH: &str = ".standard/scripts/install-forge.sh";
+
 /// CI workflow definition carried by the snapshot.
 pub const CI_PATH: &str = ".standard/ci/verify.yml";
 
@@ -45,10 +48,10 @@ pub const CLIENT_PACK: &str = "baseline-client";
 
 /// Default snapshot for compatible new projects. Bump only when a new
 /// supported, verified pack version becomes the generation default.
-pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.3.0";
+pub const DEFAULT_BASELINE_PACK_SPEC: &str = "baseline-service@1.4.0";
 
 /// Default snapshot for client profiles with verified Gate-only templates.
-pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.0.0";
+pub const DEFAULT_CLIENT_PACK_SPEC: &str = "baseline-client@1.1.0";
 
 /// Service profiles supported by `baseline-service`.
 pub const BASELINE_PROFILES: &[&str] = &["aspnet-web", "nextjs-web", "python-service", "rust-web"];
@@ -67,6 +70,22 @@ pub(super) const CI_TEMPLATE: &str = "# Forge standard snapshot CI ({pack}@{vers
 /// Forge-owned service CI template for the Gate-enabled baseline version.
 pub(super) const GATE_CI_TEMPLATE: &str =
     include_str!("../../standards/baseline-service/1.3.0/ci/verify.yml");
+
+/// Release-backed service CI asset for the current baseline pack.
+pub(super) const RELEASE_CI_TEMPLATE: &str =
+    include_str!("../../standards/baseline-service/1.4.0/ci/verify.yml");
+
+/// Release-backed client CI asset for the current baseline pack.
+pub(super) const RELEASE_CLIENT_CI_TEMPLATE: &str =
+    include_str!("../../standards/baseline-client/1.1.0/ci/verify.yml");
+
+/// Pinned Forge release installer carried by both current baseline packs.
+pub(super) const RELEASE_INSTALLER_TEMPLATE: &str =
+    include_str!("../../standards/baseline-service/1.4.0/install-forge.sh");
+
+/// Client pack installer bytes, kept under the client's immutable pack tree.
+pub(super) const RELEASE_CLIENT_INSTALLER_TEMPLATE: &str =
+    include_str!("../../standards/baseline-client/1.1.0/install-forge.sh");
 
 /// Forge-owned pre-commit entry point for the Gate-enabled baseline version.
 pub(super) const PRE_COMMIT_TEMPLATE: &str =

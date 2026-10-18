@@ -169,7 +169,7 @@ fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
     assert!(plain.join(".github/workflows/forge-gate.yml").is_file());
     let default_receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(plain.join(RECEIPT)).unwrap()).unwrap();
-    assert_eq!(default_receipt["version"], "1.3.0");
+    assert_eq!(default_receipt["version"], "1.4.0");
     let value = run_json(&db, &["standard", "check", plain.to_str().unwrap()]);
     assert_eq!(value["state"], "rendered");
 
@@ -180,7 +180,7 @@ fn new_defaults_to_current_pack_and_explicit_versions_remain_pinned() {
         let receipt: serde_json::Value =
             serde_json::from_slice(&fs::read(client_default.join(RECEIPT)).unwrap()).unwrap();
         assert_eq!(receipt["pack"], "baseline-client");
-        assert_eq!(receipt["version"], "1.0.0");
+        assert_eq!(receipt["version"], "1.1.0");
         assert!(client_default
             .join(".github/workflows/forge-gate.yml")
             .is_file());
@@ -836,6 +836,49 @@ fn generated_gate_pack_renders_matching_ci_and_precommit_entry_points() {
         .unwrap()
         .iter()
         .any(|f| { f["path"] == ".pre-commit-config.yaml" }));
+}
+
+#[test]
+fn current_default_packs_install_the_pinned_release_and_keep_gate_parity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+
+    for (profile, pack, version) in [
+        ("rust-web", "baseline-service", "1.4.0"),
+        ("react-web", "baseline-client", "1.1.0"),
+    ] {
+        let project = tmp.path().join(format!("release-{profile}"));
+        new_project(&db, &project, profile, &[]);
+        let ci = fs::read_to_string(project.join(".standard/ci/verify.yml")).unwrap();
+        let github_ci =
+            fs::read_to_string(project.join(".github/workflows/forge-gate.yml")).unwrap();
+        let verify = fs::read_to_string(project.join(VERIFY)).unwrap();
+        let installer =
+            fs::read_to_string(project.join(".standard/scripts/install-forge.sh")).unwrap();
+        let hook = fs::read_to_string(project.join(".pre-commit-config.yaml")).unwrap();
+        let receipt: serde_json::Value =
+            serde_json::from_slice(&fs::read(project.join(RECEIPT)).unwrap()).unwrap();
+
+        assert_eq!(receipt["pack"], pack);
+        assert_eq!(receipt["version"], version);
+        assert_eq!(ci, github_ci);
+        assert!(ci.contains("Install pinned Forge release"), "{ci}");
+        assert!(ci.contains("sh .standard/scripts/install-forge.sh"), "{ci}");
+        if profile == "react-web" {
+            assert!(verify.contains("forge gate ."), "{verify}");
+        } else {
+            assert!(ci.contains("forge gate ."), "{ci}");
+            assert!(ci.contains("sh .standard/scripts/verify.sh"), "{ci}");
+        }
+        assert!(installer.contains("FORGE_VERSION=0.1.0"), "{installer}");
+        assert!(
+            installer.contains("TARGET=x86_64-unknown-linux-gnu"),
+            "{installer}"
+        );
+        assert!(installer.contains("sha256sum"), "{installer}");
+        assert!(installer.contains("GITHUB_PATH"), "{installer}");
+        assert!(hook.contains("entry: forge gate ."), "{hook}");
+    }
 }
 
 #[test]

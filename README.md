@@ -460,44 +460,56 @@ the same bundled `forge gate` command. See
 
 ### Generated CI and pre-commit
 
-New service projects receive `baseline-service@1.3.0` by default. Its GitHub
-Actions workflow runs the project's standard verifier and `forge gate .`; its
-pre-commit hook runs the same repository-wide Gate command. React and Flutter
-projects receive the Gate-only `baseline-client@1.0.0` pack. All six current
-profiles therefore get Forge's built-in checks and can add project-specific
-Gate extensions.
+New service projects receive `baseline-service@1.4.0` by default. Its GitHub
+Actions workflow installs the pinned Forge `0.1.0` Linux x86_64 release after
+verifying its SHA-256 sidecar, then runs the project's standard verifier and
+`forge gate .`; its pre-commit hook runs the same repository-wide Gate command.
+React and Flutter projects receive the Gate-only `baseline-client@1.1.0` pack,
+which installs the same pinned binary and runs Gate. All six current profiles
+get Forge's built-in checks and can add project-specific Gate extensions.
+The generated CI requires Forge's matching `v0.1.0` GitHub Release to exist.
 
-Install Forge and the pre-commit framework locally, then enable the generated
-hook:
+Install the pinned Forge release locally and enable the generated hook:
 
 ```sh
-cargo install --git https://github.com/lileililiwen/forge.git --rev d7c5f96c16fab8c50a9b40f80e55783b25a729af --locked forge
+VERSION=0.1.0
+TARGET=x86_64-unknown-linux-gnu
+ARCHIVE="forge-${VERSION}-${TARGET}.tar.gz"
+BASE="https://github.com/lileililiwen/forge/releases/download/v${VERSION}"
+TMP="$(mktemp -d)"
+curl --fail --location --output "$TMP/$ARCHIVE" "$BASE/$ARCHIVE"
+curl --fail --location --output "$TMP/$ARCHIVE.sha256" "$BASE/$ARCHIVE.sha256"
+(cd "$TMP" && sha256sum --check "$ARCHIVE.sha256")
+tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
+mkdir -p "$HOME/.local/bin"
+install -m 755 "$TMP/forge-${VERSION}-${TARGET}/forge" "$HOME/.local/bin/forge"
+rm -rf "$TMP"
 python -m pip install pre-commit
 pre-commit install
 ```
 
-The generated GitHub Actions workflow installs the same immutable Forge
-revision with read-only repository permissions. Legacy repositories without a
-standard snapshot can install the pack matching their profile after reviewing
-its paths:
+The generated GitHub Actions workflow downloads the same immutable release,
+verifies its archive name and checksum before extraction, and uses read-only
+repository permissions. Legacy repositories without a standard snapshot can
+install the current pack matching their profile after reviewing its paths:
 
 ```sh
-forge standard install baseline-service@1.3.0 . --profile rust-web --confirm
-forge standard install baseline-client@1.0.0 . --profile react-web --confirm
-# Flutter projects use baseline-client@1.0.0 with --profile flutter-app.
+forge standard install baseline-service@1.4.0 . --profile rust-web --confirm
+forge standard install baseline-client@1.1.0 . --profile react-web --confirm
+# Flutter projects use baseline-client@1.1.0 with --profile flutter-app.
 ```
 
 Repositories with an existing snapshot can preview and then upgrade:
 
 ```sh
-forge standard diff . --against baseline-service@1.3.0
-forge standard upgrade . --to baseline-service@1.3.0 --confirm
+forge standard diff . --against baseline-service@1.4.0
+forge standard upgrade . --to baseline-service@1.4.0 --confirm
 ```
 
 Installation and upgrade refuse conflicting owned files rather than silently
-replacing a project's existing workflow or hook. The CI template currently
-targets GitHub Actions; release-based Forge installation awaits Forge's
-published release distribution.
+replacing a project's existing workflow or hook. The binary release currently
+targets GitHub Actions on Ubuntu x86_64; additional OS and architecture assets
+require their own native build and smoke evidence.
 
 ## Product boundaries
 

@@ -1,0 +1,17 @@
+# Forge client snapshot CI (baseline-client@1.1.0).
+name: verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Forge release
+        run: sh .standard/scripts/install-forge.sh
+      - name: Forge Gate
+        run: sh .standard/scripts/verify.sh

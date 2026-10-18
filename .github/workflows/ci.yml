@@ -1,10 +1,11 @@
 name: ci
 
 # Forge's own verification (`artifact-and-ci-baseline`). Each job names only
-# the checks it runs. No job pushes, tags, publishes or deploys; the
-# `artifact` job uploads the packaged archive plus digests as CI artifacts
-# only. A required tool that is absent fails its job loudly — never a skip
-# to green. Local parity: `scripts/release-check.sh` runs the same contract.
+# the checks it runs. The `artifact` job uploads the packaged archive and
+# digest as a workflow artifact; only a matching pushed version tag can run
+# the final release job, after every verification job passes. A required tool
+# that is absent fails loudly — never a skip to green. Local parity:
+# `scripts/release-check.sh` runs the same contract.
 
 on:
   push:
@@ -180,16 +181,34 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Contract parity walk (needs the platform-contracts sibling source)
+      - name: Resolve pinned platform-contracts revision
+        id: contracts-pin
         run: |
-          if [ -n "${PLATFORM_CONTRACTS_DIR:-}" ] && [ -d "$PLATFORM_CONTRACTS_DIR" ]; then
-            scripts/contract-parity.sh
-          elif [ -d "$GITHUB_WORKSPACE/../platform-contracts" ]; then
-            PLATFORM_CONTRACTS_DIR="$GITHUB_WORKSPACE/../platform-contracts" scripts/contract-parity.sh
-          else
-            echo "contract-parity blocked: platform-contracts source is unavailable; set PLATFORM_CONTRACTS_DIR or check out the sibling at ../platform-contracts" >&2
+          revision="$(python3 -c 'import json; print(json.load(open("contracts/manifest.json", encoding="utf-8"))["revision"])')"
+          case "$revision" in
+            ''|*[!0-9a-f]*) echo "contract-parity blocked: invalid pinned revision '$revision'" >&2; exit 1 ;;
+          esac
+          [ "${#revision}" -eq 40 ] || {
+            echo "contract-parity blocked: revision must be a full 40-character commit, got '$revision'" >&2
             exit 1
-          fi
+          }
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - name: Fetch contract source at pinned revision
+        env:
+          CONTRACTS_REVISION: ${{ steps.contracts-pin.outputs.revision }}
+        run: |
+          set -eu
+          source_dir="$RUNNER_TEMP/platform-contracts"
+          git init "$source_dir"
+          git -C "$source_dir" remote add origin https://github.com/lileililiwen/platform-contracts.git
+          git -C "$source_dir" fetch --depth=1 origin "$CONTRACTS_REVISION"
+          git -C "$source_dir" checkout --detach FETCH_HEAD
+          actual="$(git -C "$source_dir" rev-parse HEAD)"
+          [ "$actual" = "$CONTRACTS_REVISION" ] || {
+            echo "contract-parity blocked: requested $CONTRACTS_REVISION but checked out $actual" >&2
+            exit 1
+          }
+          PLATFORM_CONTRACTS_DIR="$source_dir" scripts/contract-parity.sh
 
   gate:
     runs-on: ubuntu-latest
@@ -216,6 +235,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Validate version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: scripts/validate-release-tag.sh "$GITHUB_REF_NAME"
       - name: Package, verify digest, install to scratch prefix, smoke-test
         run: |
           scripts/package.sh
@@ -226,10 +248,57 @@ jobs:
           scripts/smoke.sh --bin /tmp/opencode/forge-install/bin/forge
           tar -tzf "$ARCHIVE" | grep -v '^forge-[^/]*/[^/]*$' && { echo "artifact blocked: archive carries unexpected paths" >&2; exit 1; } || true
           tar -tzf "$ARCHIVE" | grep '^/' && { echo "artifact blocked: archive carries absolute host paths" >&2; exit 1; } || echo "artifact: no absolute host paths"
-      - name: Upload archive and digest (CI artifacts only, never published)
+      - name: Upload archive and digest as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: forge-package
           path: |
             dist/forge-*.tar.gz
             dist/forge-*.tar.gz.sha256
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - fmt
+      - clippy
+      - test
+      - native-scaffold
+      - msrv
+      - deny
+      - governance
+      - readiness
+      - surfaces
+      - contract-parity
+      - gate
+      - artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-package
+          path: dist
+      - name: Verify release payload
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -eu
+          version="${RELEASE_VERSION#v}"
+          archive="dist/forge-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          [ -f "$archive" ] || { echo "release blocked: expected asset $archive is missing" >&2; exit 1; }
+          [ -f "$archive.sha256" ] || { echo "release blocked: expected checksum $archive.sha256 is missing" >&2; exit 1; }
+          basename="${archive#dist/}"
+          (cd dist && sha256sum --check "$basename.sha256")
+      - name: Publish verified GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -eu
+          version="${RELEASE_VERSION#v}"
+          archive="dist/forge-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          gh release create --repo lileililiwen/forge "$RELEASE_VERSION" "$archive" "$archive.sha256" \
+            --verify-tag \
+            --title "Forge $version" \
+            --generate-notes

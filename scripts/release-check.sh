@@ -21,9 +21,8 @@
 #
 # The parity step runs when `PLATFORM_CONTRACTS_DIR` or the
 # `../platform-contracts` sibling checkout resolves, and a mismatch there blocks
-# this run. Only an absent source prints a note and continues (CI's
-# `contract-parity` job blocks instead — the one documented local/CI
-# divergence).
+# this run. Only an absent source prints a note and continues. Hosted CI fetches
+# the immutable source revision recorded in `contracts/manifest.json`.
 #
 # Exit status: 0 only when every required check and every selected matrix
 # row passes. Anything else (including an unavailable `openspec`,
@@ -98,9 +97,8 @@ fi
 # Contract parity: runs when the platform-contracts source resolves. The step
 # compares the vendored contract bytes against the source and exits non-zero on
 # any mismatch, so under `set -eu` a mismatch aborts this run — it is a block,
-# not a note. Only an absent source prints a note and continues, which is the
-# one documented local/CI divergence: CI's `contract-parity` job blocks without
-# it instead.
+# not a note. Only an absent local source prints a note and continues; hosted
+# CI checks out the immutable source revision recorded in the contract mirror.
 PARITY_SRC="${PLATFORM_CONTRACTS_DIR:-}"
 if [ -z "$PARITY_SRC" ] && [ -d "../platform-contracts" ]; then
   PARITY_SRC="../platform-contracts"
@@ -108,7 +106,7 @@ fi
 if [ -n "$PARITY_SRC" ] && [ -d "$PARITY_SRC" ]; then
   step env PLATFORM_CONTRACTS_DIR="$PARITY_SRC" sh scripts/contract-parity.sh
 else
-  echo "release-check note: platform-contracts source absent, parity not run (CI contract-parity job blocks without it)" >&2
+  echo "release-check note: platform-contracts source absent, parity not run (hosted CI fetches the pinned source revision)" >&2
 fi
 
 # Full matrix: evidence for every supported profile. Informational on its

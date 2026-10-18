@@ -168,15 +168,27 @@ fn ci_jobs_honest_and_bounded() {
         !ci.contains("auto-tag"),
         "no tag automation (explicit non-goal)"
     );
-    for forbidden in [
-        "crates.io",
-        "npm publish",
-        "docker push",
-        "gh release",
-        "release.yml",
-    ] {
+    let release_job = ci
+        .split_once("\n  release:\n")
+        .expect("tag-gated release job is present")
+        .1;
+    assert!(
+        release_job
+            .contains("if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"),
+        "publishing is limited to pushed version tags"
+    );
+    assert!(
+        release_job.contains("permissions:\n      contents: write")
+            && release_job.contains("gh release create"),
+        "release publishing has a narrowly scoped write token"
+    );
+    let verification_ci = ci
+        .split_once("\n  release:\n")
+        .expect("tag-gated release job is present")
+        .0;
+    for forbidden in ["crates.io", "npm publish", "docker push", "release.yml"] {
         assert!(
-            !ci.contains(forbidden),
+            !verification_ci.contains(forbidden),
             "CI must not publish or promote ({forbidden})"
         );
     }
@@ -201,6 +213,12 @@ fn ci_jobs_honest_and_bounded() {
     }
     assert!(jobs.len() >= 10, "CI carries the full job graph");
     for job in &jobs {
+        let name = job.lines().next().unwrap_or("");
+        if name.trim() == "release:" {
+            assert!(job.contains("permissions:") && job.contains("contents: write"));
+            assert!(job.contains("timeout-minutes:"));
+            continue;
+        }
         assert!(
             job.contains("permissions:") && job.contains("contents: read"),
             "job sets explicit read permissions: {job:.40}"

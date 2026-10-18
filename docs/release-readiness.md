@@ -7,10 +7,11 @@ local as one script, CI split across named jobs (`fmt`, `clippy`, `test`,
 `native-scaffold`, `msrv`, `deny`, `governance`, `readiness`, `surfaces`,
 `contract-parity`, `gate`, `artifact`) — and both block (non-zero exit
 with the exact failed or unavailable check named) instead of representing
-a gap as release-ready. The one documented divergence: the parity walk
-runs locally only when the `platform-contracts` source resolves
-(`PLATFORM_CONTRACTS_DIR` or the `../platform-contracts` sibling
-checkout); CI's `contract-parity` job blocks without it.
+a gap as release-ready. The local parity walk runs only when the
+`platform-contracts` source resolves (`PLATFORM_CONTRACTS_DIR` or the
+`../platform-contracts` sibling checkout). Hosted CI obtains the immutable
+source revision recorded by `contracts/manifest.json` into `$RUNNER_TEMP` and
+passes that path to the same parity script.
 
 ## Gate steps
 
@@ -50,7 +51,7 @@ The release artifact is the platform-native Forge binary plus `LICENSE`,
 `README.md` and `CHANGELOG.md`, packaged by `scripts/package.sh` into
 `dist/forge-<version>-<target>.tar.gz` with a `.sha256` digest file
 (`dist/` is gitignored output, never committed state). Verify and
-install it with:
+install it locally with:
 
 ```sh
 scripts/package.sh
@@ -62,10 +63,15 @@ scripts/smoke.sh --bin <dir>/bin/forge
 `forge readiness artifact` still reports the platform-native binary
 evidence (path, SHA-256, version smoke) for the locally built tree;
 installation is not a second code path — the packaged binary runs the
-same contract suites. Packaging formats beyond the tarball and any
-publication destination stay bounded by the existing
-release/distribution contracts; this package claims no remote
-publication, and no workflow pushes, tags, releases or deploys.
+same contract suites. Only a push of `v< Cargo.toml version >` triggers
+publication. The release job waits for every CI verification job, rechecks the
+workflow artifact checksum, and uses the built-in `gh` CLI to publish the exact
+archive and sidecar as a GitHub Release. The job has `contents: write`; all
+other jobs and generated consumer workflows keep `contents: read`. It refuses
+an existing release and never creates or pushes the tag. The current asset is
+`forge-0.1.0-x86_64-unknown-linux-gnu.tar.gz`; standard packs pin that exact
+version and target. Publishing this initial tag/release remains an explicit
+operator action.
 
 ## Known gaps (not release evidence)
 

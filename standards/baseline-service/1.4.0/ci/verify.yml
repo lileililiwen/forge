@@ -1,0 +1,20 @@
+# Forge standard snapshot CI (baseline-service@1.4.0).
+name: verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned Forge release
+        run: sh .standard/scripts/install-forge.sh
+      - name: Standard verification
+        run: sh .standard/scripts/verify.sh
+      - name: Forge Gate
+        run: forge gate .

@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: forge-gate
+        name: Forge Gate
+        entry: forge gate .
+        language: system
+        pass_filenames: false

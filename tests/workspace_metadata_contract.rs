@@ -232,7 +232,7 @@ fn default_output_reports_metadata_without_notes() {
     // The standard-pack note is expected; workspace metadata adds no note.
     assert_eq!(
         value["notes"],
-        serde_json::json!(["standard snapshot: rendered baseline-service@1.3.0 into .standard/"]),
+        serde_json::json!(["standard snapshot: rendered baseline-service@1.4.0 into .standard/"]),
         "{value}"
     );
     let human = run(

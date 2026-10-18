@@ -89,20 +89,24 @@ pub(super) mod tests {
             select_for_generation("react-web", "baseline-client@1.0.0").unwrap(),
             "baseline-client@1.0.0"
         );
+        assert_eq!(
+            select_for_generation("react-web", "baseline-client@1.1.0").unwrap(),
+            "baseline-client@1.1.0"
+        );
         let err = select_for_generation("react-web", "baseline-service@1.1.0")
             .expect_err("incompatible profile must refuse");
         assert_eq!(err.code(), "standard-invalid");
         assert_eq!(
             default_for_generation("rust-web").as_deref(),
-            Some("baseline-service@1.3.0")
+            Some("baseline-service@1.4.0")
         );
         assert_eq!(
             default_for_generation("react-web").as_deref(),
-            Some("baseline-client@1.0.0")
+            Some("baseline-client@1.1.0")
         );
         assert_eq!(
             default_for_generation("flutter-app").as_deref(),
-            Some("baseline-client@1.0.0")
+            Some("baseline-client@1.1.0")
         );
         // Unknown selectors refuse by name.
         let err = select_for_generation("rust-web", "nope@1.0.0").expect_err("must refuse");

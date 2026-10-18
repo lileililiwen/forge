@@ -171,7 +171,7 @@ enum Commands {
         #[arg(long)]
         no_workspace_metadata: bool,
         /// Render a versioned standard-pack snapshot, including owned root paths
-        /// (e.g. `baseline-service@1.3.0`). Compatible profiles receive the
+        /// (e.g. `baseline-service@1.4.0`). Compatible profiles receive the
         /// current baseline pack by default; this flag pins another version.
         #[arg(long, value_name = "PACK@VERSION")]
         standard_pack: Option<String>,

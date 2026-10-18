@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "dotnet-web-postgres",
+      "version": 1,
+      "description": ".NET web service with a PostgreSQL dependency",
+      "required_variables": ["project_name", "port", "health_path", "app_project", "database_name"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md"]
+    },
+    {
+      "id": "rust-web-postgres",
+      "version": 1,
+      "description": "Rust web service with a PostgreSQL dependency",
+      "required_variables": ["project_name", "port", "health_path", "app_project", "database_name"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md"]
+    },
+    {
+      "id": "python-web-postgres",
+      "version": 1,
+      "description": "Python ASGI web service with a PostgreSQL dependency",
+      "required_variables": ["project_name", "port", "health_path", "entrypoint", "database_name"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md"]
+    },
+    {
+      "id": "node-web",
+      "version": 1,
+      "description": "Node web service with an install, build, and start lifecycle",
+      "required_variables": ["project_name", "port", "health_path", "build_command", "start_command", "output_dir"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md"]
+    },
+    {
+      "id": "static-site",
+      "version": 1,
+      "description": "Prebuilt static site served by nginx",
+      "required_variables": ["project_name", "port", "health_path", "output_dir"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md"]
+    },
+    {
+      "id": "worker-postgres",
+      "version": 1,
+      "description": "Python background worker with a PostgreSQL dependency",
+      "required_variables": ["project_name", "worker_command", "database_name"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md"]
+    },
+    {
+      "id": "dotnet-web-postgres-external",
+      "version": 1,
+      "description": ".NET web service that connects to an external PostgreSQL service (no local db container)",
+      "required_variables": ["project_name", "port", "health_path", "app_project", "database_name", "db_user", "db_host"],
+      "optional_variables": ["db_port"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md", ".env.example"]
+    },
+    {
+      "id": "rust-web-postgres-external",
+      "version": 1,
+      "description": "Rust web service that connects to an external PostgreSQL service (no local db container)",
+      "required_variables": ["project_name", "port", "health_path", "app_project", "database_name", "db_user", "db_host"],
+      "optional_variables": ["db_port"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md", ".env.example"]
+    },
+    {
+      "id": "python-web-postgres-external",
+      "version": 1,
+      "description": "Python ASGI web service that connects to an external PostgreSQL service (no local db container)",
+      "required_variables": ["project_name", "port", "health_path", "entrypoint", "database_name", "db_user", "db_host"],
+      "optional_variables": ["db_port"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md", ".env.example"]
+    },
+    {
+      "id": "worker-postgres-external",
+      "version": 1,
+      "description": "Python background worker that connects to an external PostgreSQL service (no local db container)",
+      "required_variables": ["project_name", "worker_command", "database_name", "db_user", "db_host"],
+      "optional_variables": ["db_port"],
+      "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md", ".env.example"]
+    }
+  ]
+}

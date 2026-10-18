@@ -403,6 +403,12 @@ enum Commands {
         #[command(subcommand)]
         command: GovernanceCommands,
     },
+    /// List, render, or validate Forge's bundled runtime templates.
+    RuntimeTemplate {
+        /// Renderer operation and arguments, forwarded unchanged.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Observe the portfolio declared by an external workspace registry, read-only.
     Fleet {
         #[command(subcommand)]
@@ -518,6 +524,10 @@ fn main() -> ExitCode {
         unsafe {
             std::env::set_var(forge::vocabulary::VOCABULARY_ENV, vocab.as_os_str());
         }
+    }
+
+    if let Commands::RuntimeTemplate { args } = &cli.command {
+        return cli::runtime_template::cmd_runtime_template(args);
     }
 
     // Fleet runs print their per-project report to stdout even when the
@@ -730,6 +740,7 @@ fn main() -> ExitCode {
         Commands::Provider { command } => cmd_provider(&db_path, command, cli.format),
         Commands::Plugins { command } => cmd_plugins(&db_path, command, cli.format),
         Commands::Governance { command } => cmd_governance(command, cli.format),
+        Commands::RuntimeTemplate { .. } => unreachable!("runtime template owns child exit"),
         Commands::Fleet { command } => cmd_fleet(&db_path, command, cli.format),
         Commands::Project { command } => cmd_project(&db_path, command, cli.format),
         Commands::Contract { command } => cmd_contract(&db_path, command, cli.format),

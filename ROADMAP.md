@@ -141,12 +141,14 @@ repositories are archived only after the final row's consumer evidence:
 | 1 | `forge-ci-precommit-templates` | Versioned baseline templates; compatible new-project default; legacy install/upgrade; same Forge Gate in local hook and CI | Complete; archived 2026-10-17 |
 | 2 | `forge-driftwatchdog-test-reconciliation` | Reconcile in-tree DriftWatchdog Gate tests with Forge's authoritative behavior; the previously failing 10 tests pass in the serial workspace suite | Complete; archived 2026-10-18 |
 | 3 | `forge-portable-binary-distribution` | Publish versioned, checksummed Forge binaries so generated CI can install a pinned release without a source checkout | Complete; archived 2026-10-18 |
-| 4 | `forge-workspace-governance-internalization` | Move selected bootstrap, workspace-check and runtime-template sources into Forge; remove sibling-checkout runtime dependencies; resolve registry/provider ownership | Remaining |
-| 5 | `forge-platform-schema-ownership` | Move only actively consumed schema sources and validators under Forge maintenance; remove sibling-path parity requirements; list unsupported schema families explicitly | Remaining |
-| 6 | `forge-multiservice-local-runtime` | Represent multiple services and entry points across Compose and local processes; expose the existing `gitrunbykaru` process manager through Forge | Remaining |
-| 7 | `forge-platform-libraries-monorepo` | Relocate .NET and Rust libraries as ordinary subdirectories/workspaces while preserving package identity, independent builds and publication | Remaining |
-| 8 | `forge-developer-workflow-facade` | Stable end-to-end Forge workflows across consolidated modules; reconcile the current product boundary that excludes generic CI/CD replacement | Remaining |
-| 9 | `forge-origin-repository-retirement` | Verify Forge's in-tree DriftWatchdog and `cargo-*` sources plus all migrated consumers, then make each origin repository read-only/archive it; requires explicit remote operation after migration evidence | Remaining |
+| 4 | `forge-runtime-template-internalization` | Move the versioned runtime template registry, renderer and assets into Forge; keep template IDs and `.project.json` behavior compatible; package assets with Forge | Complete; archived 2026-10-18 |
+| 5 | `forge-project-bootstrap-internalization` | Bring project metadata/bootstrap templates and initialization workflow under Forge; preserve conflict-safe writes and profile/Gate bindings | Remaining; depends on 4 |
+| 6 | `forge-workspace-audit-internalization` | Migrate workspace audit policy, inputs and findings into Forge; reconcile Forge registry with the legacy portfolio registry and optional governance provider | Remaining; depends on 5 |
+| 7 | `forge-platform-schema-ownership` | Move only actively consumed schema sources and validators under Forge maintenance; remove sibling-path parity requirements; list unsupported schema families explicitly | Remaining |
+| 8 | `forge-multiservice-local-runtime` | Represent multiple services and entry points across Compose and local processes; expose the existing `gitrunbykaru` process manager through Forge | Remaining |
+| 9 | `forge-platform-libraries-monorepo` | Relocate .NET and Rust libraries as ordinary subdirectories/workspaces while preserving package identity, independent builds and publication | Remaining |
+| 10 | `forge-developer-workflow-facade` | Stable end-to-end Forge workflows across consolidated modules; reconcile the current product boundary that excludes generic CI/CD replacement | Remaining |
+| 11 | `forge-origin-repository-retirement` | Verify Forge's in-tree DriftWatchdog and `cargo-*` sources plus all migrated consumers, then make each origin repository read-only/archive it; requires explicit remote operation after migration evidence | Remaining |
 
 Before each sibling migration, recheck its live HANDOFF, Git state, build and
 publication instructions. Do not overwrite pre-existing sibling work during

@@ -48,7 +48,6 @@ fi
 
 sh scripts/checksum.sh --verify "$ARCHIVE"
 
-mkdir -p "$PREFIX/bin"
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT INT TERM
 tar -xzf "$ARCHIVE" -C "$TMPD"
@@ -57,6 +56,14 @@ if [ -z "$BIN" ]; then
   echo "install blocked: archive $ARCHIVE contains no forge binary" >&2
   exit 1
 fi
+RESOURCE_DIR="$(dirname "$BIN")/share/forge/runtime-templates"
+if [ ! -d "$RESOURCE_DIR" ]; then
+  echo "install blocked: archive is missing share/forge/runtime-templates" >&2
+  exit 1
+fi
+mkdir -p "$PREFIX/bin" "$PREFIX/share/forge"
 cp "$BIN" "$PREFIX/bin/forge"
 chmod +x "$PREFIX/bin/forge"
+mkdir -p "$PREFIX/share/forge/runtime-templates"
+cp -R "$RESOURCE_DIR/." "$PREFIX/share/forge/runtime-templates/"
 echo "install: $PREFIX/bin/forge"

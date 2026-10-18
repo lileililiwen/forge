@@ -1,0 +1,7 @@
+{
+  "id": "python-web-postgres-external",
+  "version": 1,
+  "required_variables": ["project_name", "port", "health_path", "entrypoint", "database_name", "db_user", "db_host"],
+  "optional_variables": ["db_port"],
+  "files": ["Dockerfile", "compose.yaml", ".dockerignore", "README.md", ".env.example"]
+}

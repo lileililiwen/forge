@@ -54,6 +54,23 @@ v0.2 adds features and upgrades; v0.3 integrates Forge Gate, specs and existing 
 
 See the [dependency-ordered roadmap](ROADMAP.md), [complete section coverage](docs/requirements-coverage.md), [architecture](docs/architecture.md), and [current handoff](HANDOFF.md).
 
+## Runtime templates
+
+Forge bundles the versioned runtime template renderer for Docker and Compose
+files. The CLI delegates to the bundled Python 3 renderer and template assets;
+it does not require a Workspace Governance checkout:
+
+```sh
+forge runtime-template list
+forge runtime-template inspect --root /path/to/project
+forge runtime-template render --root /path/to/project --type rust-web-postgres --var project_name=example --var app_project=.
+forge runtime-template check --root /path/to/project
+```
+
+Release archives install the bundle under `share/forge/runtime-templates`.
+`FORGE_RUNTIME_TEMPLATES_HOME` may select an alternate compatible bundle; an
+invalid explicit path is an error and does not trigger fallback discovery.
+
 ## v0.1 command map
 
 Each managed project carries a versioned `forge.yaml` manifest (schema,

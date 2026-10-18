@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "path": "PROVENANCE.md",
+      "sha256": "sha256:ae2bf508e95283ef4a59970db74710ea3c8ea123ced9a808e71a96531de4dd1b"
+    },
+    {
+      "path": "runtime_templates.py",
+      "sha256": "sha256:643f6e27cd1779996e6b2bc290696db4df8466d0a4dd8c0211a34c8954bc20a4"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres/.dockerignore",
+      "sha256": "sha256:48f0dd521f9b92e6aac7e0e425014e22f9ca8448f348d748974f93af500c327a"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres/Dockerfile",
+      "sha256": "sha256:de780673603c605dd04e0d30f7d8e12e14bd323adb3c4e772d04a1e793ffc847"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres/README.md",
+      "sha256": "sha256:d9e9f52fbf637c3a6f4e0d4408f2e08205e4b3c9b93516133b8b12ed07845967"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres/compose.yaml",
+      "sha256": "sha256:4cbbce78a8fba8d0b0fbe62d58b7b069630ea44090775764296c1cd7e70aac3b"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres/template.json",
+      "sha256": "sha256:d7cf9330ff7a475dbfcd9b72aa3884f08b94b5b8b2cd048b55e4cf4c05bf3191"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres-external/.dockerignore",
+      "sha256": "sha256:7a4ec7c1b2dffb7e459a7247c21d76a95e76627381c94c8ce960b67f744d9265"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres-external/.env.example",
+      "sha256": "sha256:76027340083629403bedc0c9636cf532e3b9ca024416ee3d2af60b48f73e3dfd"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres-external/Dockerfile",
+      "sha256": "sha256:de780673603c605dd04e0d30f7d8e12e14bd323adb3c4e772d04a1e793ffc847"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres-external/README.md",
+      "sha256": "sha256:dbb06a1d895ab6a73440efbebf58add810c286a50d40722d0e6bc0e86ed883e8"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres-external/compose.yaml",
+      "sha256": "sha256:63209387b6a7b5e3023fd3225dcd0a46f1b74418f2628e834ae247c774d3ca5b"
+    },
+    {
+      "path": "templates/runtime/dotnet-web-postgres-external/template.json",
+      "sha256": "sha256:0b5dc9430e1a18f17b3ff850183cd6274c9d95ae048673e85da085cfc850ab9c"
+    },
+    {
+      "path": "templates/runtime/node-web/.dockerignore",
+      "sha256": "sha256:9d97074aabce8b9785d387b7ef42187af3fb9d5f9d3a10e073e5d1f8029b1a67"
+    },
+    {
+      "path": "templates/runtime/node-web/Dockerfile",
+      "sha256": "sha256:330d902f1d50e6133d71503cf3b57302415f85be91c8f93a9e4a35166ffc14fc"
+    },
+    {
+      "path": "templates/runtime/node-web/README.md",
+      "sha256": "sha256:2275d5f67d408d07cb9f664d6bbad9f679357b50a3911390fe4a088a6ee2d3fc"
+    },
+    {
+      "path": "templates/runtime/node-web/compose.yaml",
+      "sha256": "sha256:7673396c8b7b62820387f637bc53ae872b22d2d4e76a6cf1039cbc4aeca0a37b"
+    },
+    {
+      "path": "templates/runtime/node-web/template.json",
+      "sha256": "sha256:55f386d82f39b3c5d01912d8a8f7fc074be7f98534fc6cec95be483e1655c4fa"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres/.dockerignore",
+      "sha256": "sha256:9320fda0f37ed682818ac229d5ff5baf5d28faa7ab685b0c625cb683726d4fe5"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres/Dockerfile",
+      "sha256": "sha256:bd2f33f2b673d3b6e6dd7c684340ce1793367a24685ddb677a00387227cefd51"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres/README.md",
+      "sha256": "sha256:b5c61eb21a1f0c813fd1d07570e3e18e527df48fcb727a30021401cd3e309af8"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres/compose.yaml",
+      "sha256": "sha256:a08f07abbbfec444bd88d7bf95721c8f8c965bb8e7a1d2b07ebea5d2e6d6f19e"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres/template.json",
+      "sha256": "sha256:854812c4bdc8904913c4dd817982ec853a0f38c5730ea11643ddf6035cb62993"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres-external/.dockerignore",
+      "sha256": "sha256:694aab29b9ec017816ddd82f061ceddc9a681b5ba40ce692c9de3b6f393ce925"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres-external/.env.example",
+      "sha256": "sha256:76027340083629403bedc0c9636cf532e3b9ca024416ee3d2af60b48f73e3dfd"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres-external/Dockerfile",
+      "sha256": "sha256:bd2f33f2b673d3b6e6dd7c684340ce1793367a24685ddb677a00387227cefd51"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres-external/README.md",
+      "sha256": "sha256:75b1c8abd0605dd5b4d85ed9080a530c96f29c5b7065375e71c37e8c8230134a"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres-external/compose.yaml",
+      "sha256": "sha256:fd67e89f0dedbfdb81de0d6e89bc78e4d850d6b6593ebfec91e59c1f6787239e"
+    },
+    {
+      "path": "templates/runtime/python-web-postgres-external/template.json",
+      "sha256": "sha256:ebe6407bf0412f419f3706eaff8ed81f88484c6d447c75dd8ebc6f3544aaaefa"
+    },
+    {
+      "path": "templates/runtime/registry.json",
+      "sha256": "sha256:b95fc5a06b53aed062aa60aea52d6425bc7bb077f3329873abd7091fcdb77872"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres/.dockerignore",
+      "sha256": "sha256:6829cb138e2a8baf3cb4d02a50375e1d5992cb409f27759178f5092b418705f0"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres/Dockerfile",
+      "sha256": "sha256:53d146d40e1ee011859d6f530d37757e864615d79f5416ecc13a5d362dca1974"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres/README.md",
+      "sha256": "sha256:fd2a0b1915627032ffdc6a575e92da13fec51265236e94a2fcde55fb3a3728c7"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres/compose.yaml",
+      "sha256": "sha256:433bd42009a122a5037db4c4fcfe2fccd13af2b43def7001fb89c1cd1a17faa1"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres/template.json",
+      "sha256": "sha256:8f89f6ef5d63851996c0d5cab5e14324024bc1584b6481db42b8baa28290d14b"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres-external/.dockerignore",
+      "sha256": "sha256:11132a3d1f0d71c912053ee425a49daf9ed597719dd8264544f713666e68573c"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres-external/.env.example",
+      "sha256": "sha256:76027340083629403bedc0c9636cf532e3b9ca024416ee3d2af60b48f73e3dfd"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres-external/Dockerfile",
+      "sha256": "sha256:53d146d40e1ee011859d6f530d37757e864615d79f5416ecc13a5d362dca1974"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres-external/README.md",
+      "sha256": "sha256:66261db1b3132edb60fef2d4060d6d27d494b494bf49d739d5ff619a8a375567"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres-external/compose.yaml",
+      "sha256": "sha256:0c6b07cbd92d00294b267bf53b6f0fd925a6cdbe0aa150a7fe241c13bfa79f76"
+    },
+    {
+      "path": "templates/runtime/rust-web-postgres-external/template.json",
+      "sha256": "sha256:739233838f449ef5e24c6c02b5c071e84b5ee9869c234abdfa3353df7f12c3a6"
+    },
+    {
+      "path": "templates/runtime/static-site/.dockerignore",
+      "sha256": "sha256:8dcf60349466b70c40e075cf00b039a7efa7a9fbd41dcdd69cf14fcd5de1761f"
+    },
+    {
+      "path": "templates/runtime/static-site/Dockerfile",
+      "sha256": "sha256:36ec9e254cde645ec8f9bb4e74417438ac5fbb83d306476143a64981bf6d90a7"
+    },
+    {
+      "path": "templates/runtime/static-site/README.md",
+      "sha256": "sha256:f1199dd7c5e8479019ccdbe1ebf5ef7e18596edce9b33bd9bb8d8183689c1821"
+    },
+    {
+      "path": "templates/runtime/static-site/compose.yaml",
+      "sha256": "sha256:d9fd30773a9fcba06814827658e2617ebdc0ce68a4e8309456db809065b3ac2e"
+    },
+    {
+      "path": "templates/runtime/static-site/template.json",
+      "sha256": "sha256:c1df5e6b7e36ceaa6320ba1dbfebbf92bfc1ec65a2c4c1eca22f72134936f61a"
+    },
+    {
+      "path": "templates/runtime/worker-postgres/.dockerignore",
+      "sha256": "sha256:158389cb84c16d6fcea2957d3c8eb96ed4bf31188efda755d9070704225d10df"
+    },
+    {
+      "path": "templates/runtime/worker-postgres/Dockerfile",
+      "sha256": "sha256:ae08b45e469e3f88e8f5abcb85b1b715b8310e32425c67b5ae0a80c235e556ac"
+    },
+    {
+      "path": "templates/runtime/worker-postgres/README.md",
+      "sha256": "sha256:b39fe7c2127917a90bbb8c7c0546d6a8ee021cf6b569b5bbedc9b44d75e489be"
+    },
+    {
+      "path": "templates/runtime/worker-postgres/compose.yaml",
+      "sha256": "sha256:c6145f384deb3fea4b28825962f5661d160d0beafcee1e406fbeb8d1a606d682"
+    },
+    {
+      "path": "templates/runtime/worker-postgres/template.json",
+      "sha256": "sha256:8544aaffe04c548cdf9fc816397685bcd435edd6779e42970021a41482db1510"
+    },
+    {
+      "path": "templates/runtime/worker-postgres-external/.dockerignore",
+      "sha256": "sha256:434ee6b6568bfbaf08a9126c9c9930737f72d965b05d1ee258fbd0fbeb0236bf"
+    },
+    {
+      "path": "templates/runtime/worker-postgres-external/.env.example",
+      "sha256": "sha256:76027340083629403bedc0c9636cf532e3b9ca024416ee3d2af60b48f73e3dfd"
+    },
+    {
+      "path": "templates/runtime/worker-postgres-external/Dockerfile",
+      "sha256": "sha256:ae08b45e469e3f88e8f5abcb85b1b715b8310e32425c67b5ae0a80c235e556ac"
+    },
+    {
+      "path": "templates/runtime/worker-postgres-external/README.md",
+      "sha256": "sha256:e52613f8890d78d859172de629afd7e1e3fed81d745ef2dd870abaccd427e5d2"
+    },
+    {
+      "path": "templates/runtime/worker-postgres-external/compose.yaml",
+      "sha256": "sha256:90bed39ec90de49d56b5ff37ff38f794855128b406e8b12fe78314a5b3913c97"
+    },
+    {
+      "path": "templates/runtime/worker-postgres-external/template.json",
+      "sha256": "sha256:e726b8ce1525032cae895f8fd312d650abf636836d285d32a25b58c5b4313066"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: {{project_name}}:local
+    environment:
+      PGHOST: $${PGHOST:?set PGHOST in .env}
+      PGPORT: $${PGPORT:-5432}
+      PGUSER: $${PGUSER:?set PGUSER in .env}
+      PGDATABASE: $${PGDATABASE:?set PGDATABASE in .env}
+      PGPASSWORD: $${PGPASSWORD:?set PGPASSWORD in .env}
+      DATABASE_URL: postgresql://$${PGUSER}:$${PGPASSWORD}@$${PGHOST}:$${PGPORT:-5432}/$${PGDATABASE}
+    restart: unless-stopped

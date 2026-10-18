@@ -622,8 +622,8 @@ fn no_retained_copy_is_unaccounted_for() {
         }
         named.insert(entry["entry"].as_str().expect("entry").to_string());
     }
-    // A copy is accounted for when a declared entry names it, or when a
-    // declared entry names the pin document that records its sha256.
+    // An external copy is accounted for when a declared entry names it, or
+    // when a declared entry names the pin document that records its sha256.
     let mut recorded: BTreeSet<String> = BTreeSet::new();
     for pin in ["contracts/manifest.json", "kits/manifest.json"] {
         if !named.contains(pin) {
@@ -646,6 +646,11 @@ fn no_retained_copy_is_unaccounted_for() {
                 .expect("inside the repository")
                 .to_string_lossy()
                 .to_string();
+            // Runtime templates are now Forge-owned source with their own
+            // checked asset manifest; they are not a retained sibling copy.
+            if relative.starts_with("scripts/governance/runtime-templates/") {
+                continue;
+            }
             assert!(
                 named.contains(&relative) || recorded.contains(&relative),
                 "retained copy `{relative}` is neither declared nor recorded in a declared manifest"

@@ -1,0 +1,10 @@
+.git
+.gitignore
+.dockerignore
+bin/
+obj/
+node_modules/
+**/bin/
+**/obj/
+*.user
+*.suo

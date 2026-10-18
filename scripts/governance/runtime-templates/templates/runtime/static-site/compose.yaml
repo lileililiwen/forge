@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OUTPUT_DIR: {{output_dir}}
+    image: {{project_name}}:local
+    ports:
+      - "{{port}}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1:80{{health_path}} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12

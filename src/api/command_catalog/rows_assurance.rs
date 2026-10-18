@@ -3,7 +3,7 @@
 
 use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
-use super::routes::REASON_FILE_STDIN;
+use super::routes::{REASON_FILE_STDIN, REASON_LOCAL_FS};
 use super::routes::{
     WEB_ROUTE_ADMIN_CLASSIFY_LIST, WEB_ROUTE_ADMIN_CLASSIFY_SHOW, WEB_ROUTE_ADMIN_CONTRACTS,
     WEB_ROUTE_ADMIN_CONTRACT_EMIT, WEB_ROUTE_ADMIN_CONTRACT_INSPECT, WEB_ROUTE_ADMIN_DESCRIBE_LIST,
@@ -372,6 +372,16 @@ impl CatalogBuilder {
             Workspace,
             LocalWrite,
             NotYetWeb,
+            caps_local,
+        );
+        self.cli_only(
+            None,
+            "runtime-template",
+            "List, render, or validate Forge's bundled runtime templates.",
+            Creation,
+            Project,
+            LocalWrite,
+            REASON_LOCAL_FS,
             caps_local,
         );
     }

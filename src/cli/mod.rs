@@ -37,6 +37,7 @@ pub mod provider;
 pub mod publish;
 pub mod readiness;
 pub mod release;
+pub mod runtime_template;
 pub mod semantic;
 pub mod setup;
 pub mod ui_pattern;

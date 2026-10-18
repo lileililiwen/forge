@@ -2,6 +2,32 @@
 
 ## Latest delivery
 
+### `ci-cd-data-command-flow` documentation (2026-10-18)
+
+Added [the CI/CD system model](docs/ci-cd-system-model.md), which maps
+generated-project hooks and CI, Forge's own CI/release, project release
+checks, and provider-backed delivery. It names the records and their owners,
+draws command/data flows, separates current behavior from inference, and ranks
+the missing hosted-evidence and delivery-gate handoffs. README now links the
+guide and accurately describes the authenticated Gate status/re-run API routes.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Relative Markdown targets | PASS | Focused Python check of the new guide and README found no missing relative-file targets. |
+| OpenSpec name preflight / strict validation | PASS | `node scripts/check-openspec-change-names.mjs`; `openspec validate --all --strict --no-interactive` passed 113/113 before archive. |
+| Whitespace | PASS | `git diff --check`. |
+| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; all eight required checks resolved with no unbound checks. |
+| Full Forge Gate | BLOCKED, 0 attributable to this docs-only change | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; evidence at HEAD `a3180e1eaa13`, observed `2026-10-18T09:06:04Z`. Build (60s) and declared-verification (600s) timed out recompiling Forge through project-runtime; `tests` exited 101. Direct `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 600 scripts/check-tests.sh` reproduced one failure: `governance_cross_surface::broken_preset_adapter_never_renders_healthy_in_checker_or_portal` expected `unavailable`, observed `unknown` (`tests/governance_cross_surface.rs:191`; 5 passed, 1 failed in that target). Remediation: investigate the test fixture's broken packaged-adapter status path through `src/governance/engine.rs` and the portal status projection; no code was changed in this documentation scope. Placeholder, product-code-boundary, repository, security, and source-size checks passed (421/421 candidates). |
+
+The change does not alter runtime behavior or claim a current remote workflow,
+release asset, branch-protection rule, provider, or production deployment.
+The OpenSpec change was archived without `--skip-specs` at
+`openspec/changes/archive/2026-10-18-ci-cd-data-command-flow/`, promoting
+`openspec/specs/ci-cd-system-model-documentation/`. Implementation/archive
+commit: `6f78c7c` (`docs: map Forge CI and delivery flows`). This handoff-only
+commit records the final evidence. No active changes remain, so no
+`current_spec` pointer is present. Nothing was pushed.
+
 ### `forge-quality-checks-portal-ui` delivered and archived (2026-10-18)
 
 The authenticated project workbench now presents Gate evidence in a dedicated

@@ -629,7 +629,10 @@ class MigrationPlanTests(unittest.TestCase):
         self.assertIn("PROJECT_MISSING", ghost[0]["source"])
 
     def test_no_new_finding_code_is_introduced_for_those_five_repositories(self):
-        source = (REPO_ROOT / "scripts" / "workspace_check.py").read_text(encoding="utf-8")
+        source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (REPO_ROOT / "scripts").glob("workspace_check*.py")
+        )
         self.assertIn("DISCOVERED_UNREGISTERED", source)
         self.assertIn("PROJECT_MISSING", source)
 

@@ -753,7 +753,11 @@ class AdditiveCompatibilityTests(unittest.TestCase):
 
     def test_existing_capability_codes_are_unchanged(self):
         for code in ("CAPABILITIES_SHAPE", "CAPABILITY_NAME", "CAPABILITY_OWNER", "CAPABILITY_STATE", "CAPABILITY_REF", "CAPABILITY_PENDING", "CAPABILITY_STALE", "CAPABILITY_UNSUPPORTED", "CAPABILITY_BLOCKED"):
-            self.assertIn(code, Path(workspace_check.__file__).read_text(encoding="utf-8"))
+            sources = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in Path(workspace_check.__file__).parent.glob("workspace_check*.py")
+            )
+            self.assertIn(code, sources)
 
 
 if __name__ == "__main__":

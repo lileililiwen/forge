@@ -236,6 +236,11 @@ class _SandboxedGovernanceRootMixin:
         self._original_path = list(sys.path)
         self._original_modules = {name: module for name, module in sys.modules.items() if name in {
             "promote_project", "workspace_check", "product_code_quality",
+            "workspace_check_projects", "workspace_check_capabilities",
+            "workspace_check_interfaces", "workspace_check_quality",
+            "workspace_check_standalone", "workspace_check_openspec",
+            "workspace_check_project", "workspace_check_cli",
+            "product_code_quality_scope", "product_code_quality_claims",
         }}
         # Remove the real modules so the next import resolves from the sandbox.
         for name in list(self._original_modules):

@@ -57,6 +57,9 @@ find "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates" -type f -name
 mkdir -p "$STAGE/forge-$VERSION-$TARGET/share/forge/governance"
 cp modules/workspace-governance/scripts/check_concern.py "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/check_concern.py"
 cp modules/workspace-governance/scripts/product_code_quality.py "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/product_code_quality.py"
+for helper in product_code_quality_claims.py product_code_quality_scope.py; do
+  cp "modules/workspace-governance/scripts/$helper" "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/$helper"
+done
 cp modules/workspace-governance/scripts/vocabulary.py "$STAGE/forge-$VERSION-$TARGET/share/forge/governance/vocabulary.py"
 cp modules/workspace-governance/vocabulary.json "$STAGE/forge-$VERSION-$TARGET/share/forge/vocabulary.json"
 tar -czf "$ARCHIVE" -C "$STAGE" "forge-$VERSION-$TARGET"

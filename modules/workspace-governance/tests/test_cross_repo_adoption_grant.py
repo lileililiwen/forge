@@ -545,7 +545,7 @@ class ReadOnlyProofTests(unittest.TestCase):
         self.assertEqual([str(item) for item in reads if "outside" in str(item)], [])
 
     def test_the_grant_check_never_runs_a_build_or_a_test(self):
-        source = Path(workspace_check.__file__).read_text(encoding="utf-8")
+        source = Path(workspace_check.__file__).with_name("workspace_check_interfaces.py").read_text(encoding="utf-8")
         body = source.split("def validate_adoption_grant(")[1].split("\ndef ")[0]
         for forbidden in ("check_output", "subprocess", "run(", "Popen"):
             self.assertNotIn(forbidden, body, f"{forbidden!r} must not appear in the grant check")
@@ -576,7 +576,7 @@ class AdditiveCompatibilityTests(unittest.TestCase):
         self.assertNotIn("CAPABILITY_", ADOPTION_GRANT_STALE)
 
     def test_promotion_ledger_and_registry_are_untouched(self):
-        text = Path(workspace_check.__file__).read_text(encoding="utf-8")
+        text = Path(workspace_check.__file__).with_name("workspace_check_interfaces.py").read_text(encoding="utf-8")
         self.assertNotIn("promotions.json", text.split("def load_adoption_ledger")[1].split("def ")[0])
         self.assertEqual(workspace_check.adoption_ledger_path(Path("/x")).name, "adoptions.json")
 

@@ -162,6 +162,25 @@ fn packaging_scripts_present_and_executable() {
 }
 
 #[test]
+fn package_and_installer_ship_split_quality_checker_helpers() {
+    let package = read("scripts/package.sh");
+    let installer = read("scripts/install.sh");
+    for helper in [
+        "product_code_quality_claims.py",
+        "product_code_quality_scope.py",
+    ] {
+        assert!(
+            package.contains(helper),
+            "package archive must include the split quality helper {helper}"
+        );
+        assert!(
+            installer.contains(helper),
+            "installer must verify and install the split quality helper {helper}"
+        );
+    }
+}
+
+#[test]
 fn ci_jobs_honest_and_bounded() {
     let ci = read(".github/workflows/ci.yml");
     assert!(

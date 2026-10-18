@@ -1,0 +1,33 @@
+version = 1
+profile = "governance"
+rule_pack_version = "workspace-governance@1"
+
+[[checks]]
+id = "declared-verification"
+command = "python3 -m unittest discover -s tests -v"
+
+[[checks]]
+id = "governance-quality"
+command = "python3 ../workspace-governance/scripts/workspace_check.py --root .. --project workspace-governance --json"
+
+[[checks]]
+id = "product_quality"
+command = "python3 scripts/product_code_quality.py ."
+
+[[checks]]
+id = "repository"
+command = "git diff --check"
+
+[[checks]]
+id = "security"
+command = "pip-audit -r requirements-dev.txt"
+
+[[checks]]
+id = "tests"
+command = "python3 -m unittest discover -s tests -v"
+
+[blocking]
+review_required_blocks = true
+
+[source_size]
+include = ["scripts/**/*.py"]

@@ -191,6 +191,16 @@ fn installed_binary_uses_forge_quality_resources() {
         governance_dir.join("product_code_quality.py"),
     )
     .unwrap();
+    for helper in [
+        "product_code_quality_claims.py",
+        "product_code_quality_scope.py",
+    ] {
+        std::fs::copy(
+            module_root.join("scripts").join(helper),
+            governance_dir.join(helper),
+        )
+        .unwrap();
+    }
     std::fs::copy(
         module_root.join("scripts/vocabulary.py"),
         governance_dir.join("vocabulary.py"),

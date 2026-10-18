@@ -96,6 +96,13 @@ of `docs/product-code-quality.md`.
 
 ## Gate command binding
 
+Forge evaluates this module through its native `gate.toml`, which takes
+precedence over `.ai-gate/gate.yaml` for `forge gate modules/workspace-governance`.
+The native manifest keeps all six enabled checks and commands and includes
+`scripts/**/*.py` in Forge's 1,000-line source-size baseline. Keep the enabled
+commands aligned when changing the generated `.ai-gate/gate.yaml`; the manifest
+contract test pins the Forge-facing set and the source include.
+
 A check the gate selects but has no command for is a check that never runs,
 and the gate counts it as `UNBOUND` and fails the project. `scripts/bind_gate_commands.py`
 derives those commands from what is on disk in each repository and writes them

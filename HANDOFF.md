@@ -2,6 +2,31 @@
 
 ## Latest delivery
 
+### `forge-delivery-gate-precondition` implemented and archived (2026-10-18)
+
+Delivery preflight now requires the registered source revision to match the
+project's current Git `HEAD` and a supported, project-matched, non-dry-run
+Gate evidence record with fresh `passed` status for that revision. It refuses
+before provider resolution, operation reservation, or provider invocation.
+CLI/API errors and the workbench alert name the recovery command. Gate is not
+run implicitly. The CI/CD model marks this local delivery gap complete; hosted
+CI evidence handoff is the next queued gap.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Delivery, API and browser contracts | PASS | `cargo test --test delivery_contract --test delivery_cross_surface --test forge_web_project_delivery_contract --test forge_web_project_delivery_browser`: **44 passed / 0 failed**, including absent/stale/non-passing/invalid evidence, moved `HEAD`, no provider/journal side effects, UI alert recovery, and successful preflight → stage → promote flow. |
+| Changed-file formatting / harness syntax | PASS | `rustfmt --edition 2024 --check --config skip_children=true` on changed Rust files; `node --check tests/browser/delivery-workbench-check.mjs`. |
+| OpenSpec and whitespace | PASS | Name preflight passed; strict validation **114/114** before archive and **113/113** after promotion; `git diff --check` passed; no active changes remain. |
+| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; all eight required checks resolved with no unbound checks. |
+| Full Forge Gate | BLOCKED by pre-existing failure, no delivery failures | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200` at HEAD `59fe8fea455f`, observed `2026-10-18T09:45:09Z`. Build, repository, security, placeholder, product-boundary and source-size checks passed. `declared-verification` and `tests` exited 101 on `governance_cross_surface::broken_preset_adapter_never_renders_healthy_in_checker_or_portal` (`tests/governance_cross_surface.rs:191`): expected `unavailable`, got `unknown`. The exact declared workspace test command reproduced this same failure; the isolated test also reproduced it. Delivery suites passed in that workspace run. Remediation: inspect broken preset adapter status mapping through `src/governance/engine.rs` and its checker/portal projection. |
+
+The OpenSpec change was archived without `--skip-specs` at
+`openspec/changes/archive/2026-10-18-forge-delivery-gate-precondition/`,
+promoting `project-to-production-workflow`. Implementation/archive commit:
+`3006728` (`feat: gate delivery preflight on fresh evidence`). This HANDOFF-only
+commit records the evidence and removes the archived `current_spec` pointer.
+No changes were made to sibling projects. Nothing was pushed.
+
 ### `ci-cd-data-command-flow` documentation (2026-10-18)
 
 Added [the CI/CD system model](docs/ci-cd-system-model.md), which maps

@@ -133,8 +133,10 @@ Live analytics aggregate evidence for the interest store is likewise a provider-
 Forge is the developer-facing owner and facade. Components can live in `src/`
 or ordinary subdirectories/workspaces and may keep independent build and
 publication boundaries. They are not Git submodules, and generated projects
-must not depend on sibling checkouts. Migration proceeds in this order; origin
-repositories are archived only after the final row's consumer evidence:
+must not depend on sibling checkouts. Migration proceeds in this order.
+Workspace Governance's original source repository is already archived; row 8
+improves the maintained Forge copy independently of that archive status. The
+final row applies to origins that have not yet been archived:
 
 | Order | Package | Scope / completion evidence | State |
 | --- | --- | --- | --- |
@@ -145,12 +147,12 @@ repositories are archived only after the final row's consumer evidence:
 | 5 | `forge-workspace-governance-in-tree` | Import the complete Workspace Governance project and its six local-only commits as an ordinary in-tree project; rebase four consolidated tooling registry paths and keep the module's tests/audit runnable | Complete; archived 2026-10-18 |
 | 6 | `forge-governance-consumer-migration` | Route Forge workflows to Forge-owned governance operations and remove concrete product references to Workspace Governance paths and provider identity | Complete; archived 2026-10-18 |
 | 7 | `forge-governance-consumer-portability` | Migrate sibling project consumers to versioned Forge assets or commands; verify each project without a governance sibling checkout | Remaining; depends on 6 |
-| 8 | `forge-workspace-governance-gate-conformance` | Apply Forge's built-in source-size baseline to imported Python scripts and split the four over-limit files; prove module Gate scans real candidates | Remaining; depends on 5; complete before origin retirement |
+| 8 | `forge-workspace-governance-gate-conformance` | Apply Forge's built-in source-size baseline to the maintained in-tree Python project and split the four over-limit files; prove module Gate scans real candidates | Remaining; improves the Forge copy; independent of the already archived source origin |
 | 9 | `forge-platform-schema-ownership` | Move only actively consumed schema sources and validators under Forge maintenance; remove sibling-path parity requirements; list unsupported schema families explicitly | Remaining; separate `platform-contracts` ownership |
 | 10 | `forge-multiservice-local-runtime` | Represent multiple services and entry points across Compose and local processes; expose the existing `gitrunbykaru` process manager through Forge | Remaining |
 | 11 | `forge-platform-libraries-monorepo` | Relocate .NET and Rust libraries as ordinary subdirectories/workspaces while preserving package identity, independent builds and publication | Remaining |
 | 12 | `forge-developer-workflow-facade` | Stable end-to-end Forge workflows across consolidated modules; reconcile the current product boundary that excludes generic CI/CD replacement | Remaining |
-| 13 | `forge-origin-repository-retirement` | Verify in-tree DriftWatchdog, cargo-*, Workspace Governance and platform-library sources plus every migrated consumer; preserve local-only history, then make each origin repository read-only/archive it | Final gate; depends on all source migrations, consumer migrations and Gate conformance; requires explicit remote operation |
+| 13 | `forge-origin-repository-retirement` | Verify in-tree DriftWatchdog, cargo-* and platform-library sources plus every migrated consumer; preserve local-only history, confirm Workspace Governance origin is already archived, then retire remaining origins | Final gate for remaining origins; depends on source and consumer migrations; requires explicit remote operation |
 
 Before each sibling migration, recheck its live HANDOFF, Git state, build and
 publication instructions. Do not overwrite pre-existing sibling work during

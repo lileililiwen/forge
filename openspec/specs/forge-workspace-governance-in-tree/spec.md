@@ -32,19 +32,22 @@ submodule.
 - **AND** fleet-level checks use the derived or explicitly configured
   portfolio root
 
-### Requirement: Consolidation and retirement status remain honest
+### Requirement: Forge maintains the imported project after origin archival
 
-Forge documentation SHALL distinguish the in-tree source import from
-consumer migration and origin retirement. It SHALL identify Workspace
-Governance in the final retirement gate, retain the source-only commits, and
-state that sibling consumers remain dependent until migrated and verified.
+Forge documentation SHALL state that the original Workspace Governance
+repository is archived and that `modules/workspace-governance/` is the
+maintained copy. Any needed source changes SHALL be made in the Forge copy.
+The module's source-size conformance and sibling consumer portability SHALL
+remain tracked as Forge work, independent of the completed origin archival.
 
-#### Scenario: Import is complete but consumers still rely on origin layout
+#### Scenario: A needed source change is found after origin archival
 
-- **WHEN** the source project is imported but sibling consumers have not
-  completed their portability migration
-- **THEN** Forge reports the origin as not yet retired
-- **AND** the roadmap lists consumer migration as a prerequisite to archival
+- **WHEN** maintainers need to change Workspace Governance behavior or source
+- **THEN** they make and verify the change under
+  `modules/workspace-governance/` in Forge
+- **AND** Forge does not direct maintenance to the archived source repository
+- **AND** source-size conformance and sibling portability remain separate from
+  the origin's archive status
 
 ### Requirement: Workspace Governance resolves consolidated Forge projects
 

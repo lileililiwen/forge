@@ -27,13 +27,15 @@ its Python implementation lives in `scripts/`; four production scripts exceed
 the 1,000-line Forge baseline: `workspace_check.py` (4,405),
 `bind_gate_commands.py` (2,493), `product_code_quality.py` (1,763), and
 `ui_conformance.py` (1,096). The Gate passing does not claim those files meet
-the baseline. A dedicated conformance package is queued before origin
-retirement; it does not block migration of product consumers to Forge-owned
+the baseline. A dedicated conformance package is queued to bring the Forge
+copy under the built-in source-size baseline. It is independent of source-origin
+archival and does not block migration of product consumers to Forge-owned
 interfaces.
 
-The source origin is not archived until Forge and sibling consumers no longer
-require that checkout and every consumer has passed its isolated-project
-checks.
+The original source repository is archived. `modules/workspace-governance/`
+is the maintained copy; any required source change is made in Forge. Consumer
+portability remains separate work and does not change the origin's archive
+status.
 
 Run `python3 scripts/check-workspace-governance-import.py` from the Forge root
 to compare imported paths, Git modes and blob hashes against the recorded

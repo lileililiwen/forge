@@ -79,10 +79,9 @@ fn governance_observation_is_available_through_mcp() {
     assert_eq!(value["observation"]["status"], "pass");
 }
 
-/// Cross-surface regression for `workspace-governance-adapter-consumption`:
-/// a preset-selected provider whose adapter is broken must never render
-/// healthy through any read surface, and the standalone default must stay
-/// independent of the workspace root.
+/// Cross-surface regression for `governance-status-surface-regression`:
+/// governance status and checker surfaces consume the selected adapter,
+/// while the portal settings row remains an independent Gate projection.
 fn registered_project(db: &std::path::Path, dest: &std::path::Path, id: &str) {
     let out = Command::new(forge_bin())
         .arg("--registry")
@@ -181,18 +180,21 @@ fn broken_preset_adapter_never_renders_healthy_in_checker_or_portal() {
         "governance/workspace-governance"
     );
 
-    // The portal settings entry is `unavailable`, never `ok`.
+    let status = cli_json(&db, &["governance", "status", project.to_str().unwrap()]);
+    assert_eq!(status["observation"]["provider"], "workspace-governance");
+    assert_eq!(status["observation"]["status"], "unavailable");
+
+    // Portal settings reports Gate evidence only. With no Gate run it must
+    // remain unverified rather than impersonating governance status.
     let view = cli_json(&db, &["portal", "view", "settings", "gov-cross-preset"]);
     let entries = view["view"]["entries"].as_array().unwrap();
     let settings = entries
         .iter()
         .find(|entry| entry["id"] == "gov-cross-preset:settings")
         .expect("the registered project renders a settings entry");
-    assert_eq!(settings["status"], "unavailable");
-    assert_eq!(
-        settings["attributes"]["governance_provider"],
-        "workspace-governance"
-    );
+    assert_eq!(settings["status"], "unknown");
+    assert_eq!(settings["attributes"]["freshness"], "absent");
+    assert!(settings["attributes"]["governance_provider"].is_null());
 
     // And with a live-but-failing adapter the surfaces keep the mapping
     // honest: fail is fail everywhere, not pass.
@@ -216,6 +218,9 @@ fn broken_preset_adapter_never_renders_healthy_in_checker_or_portal() {
         .find(|alert| alert["source"] == "governance")
         .expect("a failing governance plane must alert");
     assert_eq!(governance_alert["severity"], "error");
+    let status = cli_json(&db, &["governance", "status", project.to_str().unwrap()]);
+    assert_eq!(status["observation"]["provider"], "workspace-governance");
+    assert_eq!(status["observation"]["status"], "fail");
     let view = cli_json(&db, &["portal", "view", "settings", "gov-cross-preset"]);
     let settings = view["view"]["entries"]
         .as_array()
@@ -223,7 +228,9 @@ fn broken_preset_adapter_never_renders_healthy_in_checker_or_portal() {
         .iter()
         .find(|entry| entry["id"] == "gov-cross-preset:settings")
         .unwrap();
-    assert_eq!(settings["status"], "fail");
+    assert_eq!(settings["status"], "unknown");
+    assert_eq!(settings["attributes"]["freshness"], "absent");
+    assert!(settings["attributes"]["governance_provider"].is_null());
 }
 
 #[test]

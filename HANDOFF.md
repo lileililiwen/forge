@@ -2,33 +2,37 @@
 
 ## Latest delivery
 
-### `web-project-delivery-timeline` implemented and archived (2026-10-18)
+### `gate-local-hosted-profiles` implemented and archived (2026-10-18)
 
-The Delivery page now provides an authenticated read-only timeline joining
-Forge's latest local Gate evidence, hosted CI observations received by Forge,
-persisted release/deploy records, and delivery/publish/Hermora journal events.
-Events retain source owner, stage, status vocabulary, time, revision and
-immutable source identity; validated GitHub Actions links are rendered as
-external links. Source coverage and bounds are visible. No source is polled,
-mutated, or converted into an overall green status. The CI/CD model gap
-register now marks this timeline complete; next is local/hosted check parity.
+Forge Gate now supports explicit `fast` and `full` execution profiles. Fast
+always validates the Gate declaration and runs only the in-process
+source-file-size baseline; it records omitted extensions as not scheduled.
+Full remains the default and runs every valid enabled project extension.
+Evidence contract `0.2.0` records the profile; historical `0.1.0` evidence
+without a profile remains full. Hosted ingestion and delivery preflight refuse
+fast evidence. New immutable service `1.6.0` and client `1.3.0` packs run fast
+in pre-commit and full in hosted CI, and pin Forge `0.1.1`. The CI/CD model
+marks local/hosted profile parity complete and retains the binary publication,
+runtime-version and duplicate-test-cost gaps. Forge `0.1.1` must be released
+before generated hosted workflows can install it; this work did not publish
+or push a release.
 
 | Check | Result | Evidence |
 |---|---|---|
-| API and source contract | PASS, 10/10 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --test web_release_deploy_history_contract -- --test-threads=1`; session boundary, project ID, source projection and path exclusion. |
-| Browser flow | PASS, 1/1 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --test forge_web_project_delivery_browser -- --test-threads=1`; Chromium verified empty/populated/partial states, 390px layout and keyboard focus in the Delivery timeline journey. |
-| Build and syntax | PASS | `cargo check --all-targets`; `node --check frontend/app.js`; `node --check tests/browser/delivery-workbench-check.mjs`. |
-| Formatting and whitespace | PASS | Rustfmt edition 2021 checks on changed Rust modules/contracts; `git diff --check`. |
-| OpenSpec | PASS | Name preflight; strict validation **117/117** after archive; canonical spec promoted without `--skip-specs`. |
-| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; all 8 required checks resolved, none unbound. |
-| Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; all 8 checks passed at revision `993f12ec39ed`, observed `2026-10-18T15:00:07Z`; source-size evaluated 428/428 candidates within 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
+| Gate profile planner | PASS, 75/75 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test -p driftwatchdog gate::manifest::tests:: -- --test-threads=1`; fast keeps the mandatory baseline, full retains declared extensions, and malformed declarations still refuse. |
+| Gate evidence and rehearsal | PASS, 45/45 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test --lib gate:: -- --test-threads=1`; evidence profile round-trip, legacy default, and rehearsal projection. |
+| Gate, delivery, hosted evidence and pack contracts | PASS | `cargo test --test gate_cross_surface --test delivery_contract --test hosted_ci_evidence_contract --test hosted_ci_oidc_contract --test hosted_ci_registry_contract --test standard_contract --test standard_cross_surface --test workspace_metadata_contract`; **85 passed / 0 failed**. |
+| Snapshot and uploader contracts | PASS | `cargo test --lib standard::snapshot_tests:: -- --test-threads=1` (**21 passed**); `python3 tests/hosted_ci_uploader_contract.py` (**3 passed**). |
+| Workspace checks | PASS | `cargo check --all-targets`; `cargo build --workspace`; `scripts/check-tests.sh`; and `cargo test --workspace -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1`. The last command completed in 3m56s, including integration and doc tests. |
+| Formatting, script syntax and whitespace | PASS | Rustfmt edition 2021 `--config skip_children=true --check` on changed Rust files; `sh -n` on new shell assets; Python compile and uploader tests; `git diff --check`. `cargo fmt --all -- --check` still reports pre-existing formatting drift outside the changed files. |
+| OpenSpec | PASS | Name preflight and strict validation passed; archived as `openspec/changes/archive/2026-10-18-gate-local-hosted-profiles/`, promoting five canonical specs without `--skip-specs`. |
+| Fast profile | PASS | `time ./target/debug/forge gate --profile fast`: **0.436s**; evidence profile `fast`, source-size evaluated 428/428 candidates. Fast dry-run selected exactly the mandatory baseline and listed all omitted checks. |
+| Full Forge Gate | PASS, fresh | `timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; all 8 checks passed at revision `1f0b0d5dd588`, observed `2026-10-18T22:17:56Z`; source-size evaluated 428/428 candidates within 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
 
-Archived as `openspec/changes/archive/2026-10-18-web-project-delivery-timeline/`,
-promoting `openspec/specs/web-project-delivery-timeline/`. Implementation and
-archive commit: `a1eca48` (`feat: add unified project delivery timeline`). No
-sibling project changed and nothing was pushed. No active OpenSpec changes
+No sibling project changed and nothing was pushed. No active OpenSpec changes
 remain, so there is no `current_spec` pointer. This HANDOFF-only update is the
-second commit.
+second commit. Implementation/archive commit: `200cb65` (`feat: add fast and
+full Forge Gate profiles`).
 
 ### `governance-status-surface-regression` implemented and archived (2026-10-18)
 

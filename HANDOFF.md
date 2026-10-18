@@ -2,6 +2,42 @@
 
 ## Latest delivery
 
+### `governance-status-surface-regression` implemented and archived (2026-10-18)
+
+The recurring Gate failure was traced to an obsolete assertion in
+`tests/governance_cross_surface.rs`, not a faulty governance status mapper.
+The test expected the portal `settings` row to carry Governance provider
+status. That row now represents Forge Gate quality evidence only; without a
+Gate run, `unknown` with `freshness=absent` is its required state. The test
+now checks missing-adapter `unavailable` and provider `fail` through the
+governance status command and checker alert, while asserting the portal row
+remains an independent, unverified Gate projection. No production status
+mapping changed.
+
+The earlier remediation note pointing to `src/governance/engine.rs` and
+checker/portal mapping was disproved by source tracing and the corrected
+cross-surface test. This was a test-contract drift introduced when the portal
+settings row changed ownership.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Governance cross-surface tests | PASS, 6/6 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test --test governance_cross_surface -- --test-threads=1`. |
+| Governance preset contracts | PASS, 13/13 | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 cargo test --test governance_preset_contract -- --test-threads=1`. |
+| Formatting and structure | PASS | `rustfmt --edition 2021 --check tests/governance_cross_surface.rs`; name preflight; strict OpenSpec validation **116/116 before archive**; `git diff --check`. |
+| Gate dry-run | PASS | All eight required checks resolved; no check unbound. |
+| Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; all eight checks passed at tested revision `a8a63595ef96517786e0ee6fa09794d882704185`, observed `2026-10-18T13:53:16Z`. This run followed a transient advisory-fetch failure and a build timeout under parallel compilation; the fresh run passed. Existing advisory warnings are informational. |
+
+Archived as `openspec/changes/archive/2026-10-18-governance-status-surface-regression/`;
+canonical spec promoted to `openspec/specs/governance-status-surface-regression/`.
+Next roadmap gap: implement the read-only unified delivery timeline across
+GitHub runs, Gate evidence, release operations, provider delivery and
+post-publish enrollment while preserving each owner's status semantics. No
+sibling project was changed and nothing was pushed.
+
+Implementation/archive commit: `da191c5` (`fix: separate governance and gate
+status assertions`). The queue is empty, so no `current_spec` pointer remains.
+This HANDOFF-only update is the second commit. Nothing was pushed.
+
 ### `forge-hosted-ci-evidence-ingest` implemented and archived (2026-10-18)
 
 Generated service/client workflows now submit authenticated Gate observations

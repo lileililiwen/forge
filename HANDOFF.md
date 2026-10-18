@@ -2,6 +2,33 @@
 
 ## Current state
 
+### `forge-runtime-template-internalization` delivered and archived (2026-10-18)
+
+Forge owns the version-1 runtime template renderer and ten template families
+under `scripts/governance/runtime-templates/`. `forge runtime-template
+list|inspect|render|check` runs the bundled Python renderer without discovering
+Workspace Governance. Release archives include the renderer and assets under
+`share/forge/runtime-templates`; installation verifies the archive checksum and
+copies that tree into the selected prefix. A Forge-owned SHA-256 manifest pins
+the complete bundle. The read-only source was Workspace Governance revision
+`2c766c64`; that sibling checkout remains clean.
+
+**Evidence.** `cargo build --workspace` passed; runtime CLI tests **8/8** and
+Python compatibility tests **21/21** passed; `scripts/check-tests.sh` passed
+under Gate; `python3 -m py_compile`, packaging shell syntax, and changed-file
+`rustfmt --check` passed. Release package/install smoke passed: the installed
+binary listed, inspected, rendered, and checked a template, and reported
+`forge 0.1.0`; the pre-existing ignored `dist/` archive and checksum were
+restored. `forge gate --dry-run` rendered 8 required checks and the full Gate
+passed **8/8** at `2026-10-18T03:54:55Z`. OpenSpec name preflight passed;
+strict validation passed **110/110** before archive; archive promoted three
+requirements into the canonical spec without `--skip-specs`; `git diff --check`
+passed. `rustfmt --check` was scoped to changed Rust files because the
+repository-wide format check reports unrelated pre-existing formatting drift.
+
+There are no active OpenSpec changes. No sibling repository was modified and
+nothing was pushed.
+
 ### `interface-declaration-consumption` delivered and archived (2026-10-17)
 
 Forge no longer keeps a private description of the workspace's boundaries

@@ -1,5 +1,41 @@
 # Forge handoff
 
+## Latest delivery
+
+### `forge-quality-checks-portal-ui` delivered and archived (2026-10-18)
+
+The authenticated project workbench now presents Gate evidence in a dedicated
+Quality checks card with aggregate state, freshness, revision, timestamp,
+recorded checks and a state-specific next step. The initial status read and
+rerun share one response normalizer. The legacy portal `settings` id remains
+compatible while its summary is backed by Forge Gate evidence and points to
+`/workbench`. Optional Assurance registries, including Governance reads, are
+inside a collapsed keyboard-operable Advanced diagnostics disclosure.
+
+**Evidence.** Portal projection tests **3/3**, Gate controls/API contracts
+**6/6**, Assurance browser/API contracts **12/12**, portal contracts **14/14**,
+and the signed-in Chromium lifecycle flow passed, including the Quality
+unverified state, keyboard disclosure, 390px overflow and existing lifecycle
+interactions. `node --check` passed for both changed JavaScript files; changed
+Rust files passed `rustfmt --check`; `git diff --check` passed. OpenSpec name
+preflight passed; strict validation passed **113/113** before archive and
+**112/112** after promotion. Gate dry-run resolved **8/8 required checks** with
+no unbound checks. Full Gate returned `gate-runtime-unavailable`: declared
+workspace verification (`cargo test --workspace --all-targets`, serial) did
+not finish within its **600-second** bound. No individual check failure was
+returned. Rerun the full Gate after reducing the broad serial suite runtime or
+increasing its declared bound and confirm a completed verdict. Repository-wide
+`cargo fmt -- --check` still reports unrelated existing formatting drift;
+changed Rust files were formatted and checked directly.
+
+The change was archived without `--skip-specs` at
+`openspec/changes/archive/2026-10-18-forge-quality-checks-portal-ui`, promoting
+the workbench and Assurance requirements and updating portal convergence.
+Commit `5d65676` (`feat: surface project quality in Forge portal`) contains the
+implementation, tests, docs and archive. No sibling project was changed. No
+OpenSpec changes remain active; sibling portability stays deferred in the
+roadmap. No `current_spec` pointer remains.
+
 ## Current state
 
 ### `forge-governance-consumer-migration` delivered and archived (2026-10-18)

@@ -534,6 +534,10 @@ pub enum Route {
     AdminProjectDeployStatus {
         id: String,
     },
+    /// Read-only bounded projection of persisted project delivery records.
+    AdminProjectDeliveryTimeline {
+        id: String,
+    },
     /// `GET /v1/admin/projects/{id}/agents` (list) and
     /// `GET /v1/admin/projects/{id}/agents/{session_id}` (status) —
     /// the read-only recorded agent sessions through

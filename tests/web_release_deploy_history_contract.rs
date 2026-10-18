@@ -103,6 +103,7 @@ fn history_paths(id: &str) -> Vec<String> {
         format!("/v1/admin/projects/{id}/deploys"),
         format!("/v1/admin/projects/{id}/deploys/dep-1"),
         format!("/v1/admin/projects/{id}/deploy/status"),
+        format!("/v1/admin/projects/{id}/delivery/timeline"),
     ]
 }
 
@@ -540,6 +541,49 @@ fn catalog_reports_the_five_history_rows_as_web() {
 }
 
 #[test]
+fn delivery_timeline_is_authenticated_bounded_and_source_labelled() {
+    let (tmp, db, config) = fixture();
+    let token = login_token(&config, &db);
+    let path = "/v1/admin/projects/p1/delivery/timeline";
+    let anon = handle(
+        &config,
+        &db,
+        &request("GET", path, &config.frontend_origin),
+        Utc::now(),
+    );
+    assert_eq!(anon.status, 401);
+    seed_history(&project_dir(&tmp));
+    let response = get(&config, &db, &token, path, None);
+    assert_eq!(response.status, 200);
+    let body = body_json(&response);
+    assert_eq!(body["contract"], "forge-project-delivery-timeline/1.0");
+    assert_eq!(body["coverage"], "complete");
+    let events = body["events"].as_array().unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event["source"] == "release" && event["source_id"] == "rel-1"));
+    assert!(events
+        .iter()
+        .any(|event| event["source"] == "deploy" && event["source_id"] == "dep-1"));
+    assert!(events
+        .iter()
+        .all(|event| event.get("status").is_some() && event.get("source").is_some()));
+    assert!(!response
+        .body
+        .windows(tmp.path().to_string_lossy().len())
+        .any(|window| window == tmp.path().to_string_lossy().as_bytes()));
+    assert!(body["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|source| source["source"] == "hosted_ci"
+            && source["note"]
+                .as_str()
+                .unwrap()
+                .contains("not a complete GitHub")));
+}
+
+#[test]
 fn frontend_history_card_uses_no_new_dependency_or_sink() {
     let html = index_html();
     let js = app_js();
@@ -553,6 +597,11 @@ fn frontend_history_card_uses_no_new_dependency_or_sink() {
         "history-releases-result",
         "history-deploys-result",
         "history-status-result",
+        "project-timeline-title",
+        "project-timeline-refresh",
+        "project-timeline-events",
+        "project-timeline-sources",
+        "delivery/timeline",
     ] {
         assert!(
             html.contains(token) || js.contains(token),

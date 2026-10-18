@@ -626,6 +626,14 @@
                 </div>
                 <dl id="history-status-result" class="detail-list" role="status"></dl>
               </section>
+              <section class="wb-card" aria-labelledby="project-timeline-title">
+                <h3 id="project-timeline-title">Project delivery timeline</h3>
+                <p class="muted">Read-only records from Forge and hosted observations. GitHub runs shown here are only those received by Forge; local Gate history shows the latest persisted run.</p>
+                <button id="project-timeline-refresh" class="button button-quiet" type="button">Refresh timeline</button>
+                <p id="project-timeline-status" role="status" aria-live="polite">Choose a project, then refresh.</p>
+                <ul id="project-timeline-sources" aria-label="Timeline source coverage"></ul>
+                <ul id="project-timeline-events" class="project-timeline"></ul>
+              </section>
               <section class="wb-card" aria-labelledby="shipping-reads-title">
                 <h3 id="shipping-reads-title">Provider &amp; plugin reads</h3>
                 <p class="muted">Read-only local-config reads for the project chosen above: publish providers, the evidence-provider matrix, and plugins. Nothing here runs, probes, or writes: no provider is invoked, no binary is probed, no network is contacted.</p>

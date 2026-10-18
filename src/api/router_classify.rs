@@ -77,6 +77,7 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminProjectDeployHistory { .. }
         | Route::AdminProjectDeployInspect { .. }
         | Route::AdminProjectDeployStatus { .. }
+        | Route::AdminProjectDeliveryTimeline { .. }
         | Route::AdminProjectPublishPlan { .. }
         | Route::AdminProjectPublish { .. }
         | Route::AdminProjectDeliveryStatus { .. }
@@ -240,6 +241,7 @@ pub(super) fn is_admin_dispatch(route: &Route) -> bool {
         | Route::AdminProjectDeployHistory { .. }
         | Route::AdminProjectDeployInspect { .. }
         | Route::AdminProjectDeployStatus { .. }
+        | Route::AdminProjectDeliveryTimeline { .. }
         | Route::AdminProjectAgents { .. }
         | Route::AdminProjectIdentityConfig { .. }
         | Route::AdminProjectIdentitySessions { .. }
@@ -382,6 +384,7 @@ pub(super) fn is_admin_route(route: &Route) -> bool {
         | Route::AdminProjectDeployHistory { .. }
         | Route::AdminProjectDeployInspect { .. }
         | Route::AdminProjectDeployStatus { .. }
+        | Route::AdminProjectDeliveryTimeline { .. }
         | Route::AdminProjectAgents { .. }
         | Route::AdminProjectIdentityConfig { .. }
         | Route::AdminProjectIdentitySessions { .. }

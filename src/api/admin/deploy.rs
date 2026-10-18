@@ -74,6 +74,10 @@ pub(in crate::api) fn handle(
         );
     }
 
+    if let Some(response) = super::history::dispatch(config, db_path, request, route) {
+        return response;
+    }
+
     let result = match route {
         Route::AdminSessionGet => session_state(db_path, request),
         Route::AdminSessionPost => sign_in(config, db_path, request),
@@ -273,20 +277,13 @@ pub(in crate::api) fn handle(
         Route::AdminProjectDeploy { id } => deploy_write(config, db_path, request, id),
         Route::AdminProjectReleasePlan { id } => release_plan(config, db_path, request, id),
         Route::AdminProjectRelease { id } => release_write(config, db_path, request, id),
-        Route::AdminProjectReleaseHistory { id } => {
-            super::history::release_history(config, db_path, request, id)
-        }
-        Route::AdminProjectReleaseInspect { id, release_id } => {
-            super::history::release_inspect(config, db_path, request, id, release_id)
-        }
-        Route::AdminProjectDeployHistory { id } => {
-            super::history::deploy_history(config, db_path, request, id)
-        }
-        Route::AdminProjectDeployInspect { id, deploy_id } => {
-            super::history::deploy_inspect(config, db_path, request, id, deploy_id)
-        }
-        Route::AdminProjectDeployStatus { id } => {
-            super::history::deploy_status(config, db_path, request, id)
+        Route::AdminProjectReleaseHistory { .. }
+        | Route::AdminProjectReleaseInspect { .. }
+        | Route::AdminProjectDeployHistory { .. }
+        | Route::AdminProjectDeployInspect { .. }
+        | Route::AdminProjectDeployStatus { .. }
+        | Route::AdminProjectDeliveryTimeline { .. } => {
+            unreachable!("history routes were dispatched before the main admin table")
         }
         Route::AdminProjectAgents { id, session } => {
             super::agent_identity::agent_sessions(config, db_path, request, id, session)

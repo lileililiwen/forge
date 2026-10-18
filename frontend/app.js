@@ -6615,6 +6615,61 @@
     historyResult("history-status-result", rows);
   }
 
+  function renderProjectTimeline(data) {
+    const list = document.getElementById("project-timeline-events");
+    const sources = document.getElementById("project-timeline-sources");
+    const status = document.getElementById("project-timeline-status");
+    list.replaceChildren();
+    sources.replaceChildren();
+    if (data.coverage === "partial") status.textContent = "Some sources are unavailable. Records below are partial and do not imply an overall result.";
+    else if (!data.events?.length) status.textContent = "No delivery records found. No records does not mean the project passed.";
+    else status.textContent = `${data.events.length} records loaded; source statuses remain independent.${data.truncated ? " The list is capped at 200 records." : ""}`;
+    for (const event of data.events || []) {
+      const item = document.createElement("li");
+      const title = document.createElement("h4");
+      title.textContent = `${event.owner} · ${event.stage}`;
+      const details = document.createElement("p");
+      details.textContent = `${event.status} · ${event.occurred_at || "Time unavailable"} · ${event.source_id || event.id}${event.revision ? ` · ${event.revision.slice(0, 12)}` : ""}`;
+      item.append(title, details);
+      let sourceUrl = null;
+      try {
+        const parsed = new URL(event.source_url);
+        if (parsed.protocol === "https:" && parsed.hostname === "github.com" && /^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/runs\/[0-9]+$/.test(parsed.pathname) && !parsed.search && !parsed.hash) sourceUrl = parsed.href;
+      } catch (_) { /* malformed source links remain text-only */ }
+      if (sourceUrl) {
+        const link = document.createElement("a");
+        link.href = sourceUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Open source record";
+        item.append(link);
+      }
+      list.append(item);
+    }
+    for (const source of data.sources || []) {
+      const item = document.createElement("li");
+      item.textContent = `${source.owner}: ${source.available ? `${source.count} records` : "unavailable"}. ${source.note || ""}`;
+      sources.append(item);
+    }
+    const notes = (data.sources || []).filter(source => !source.available);
+    if (notes.length) status.textContent += ` Unavailable: ${notes.map(source => source.owner).join(", ")}.`;
+  }
+
+  async function loadProjectTimeline() {
+    const id = document.getElementById("delivery-project").value;
+    const status = document.getElementById("project-timeline-status");
+    if (!id) { status.textContent = "Choose a project, then refresh."; return; }
+    status.textContent = "Loading project delivery timeline…";
+    try {
+      const data = await request(`/v1/admin/projects/${encodeURIComponent(id)}/delivery/timeline`, { headers: { Accept: "application/json" } });
+      renderProjectTimeline(data);
+    } catch (err) {
+      document.getElementById("project-timeline-events").replaceChildren();
+      document.getElementById("project-timeline-sources").replaceChildren();
+      status.textContent = (err && err.message) || "Timeline unavailable. Check your session and try again.";
+    }
+  }
+
   // ---- Agent & identity (web-agent-identity-readonly) ------------------
   // Read-only recorded agent sessions, persisted identity sessions and the
   // validated identity configuration for the open Workbench project. Every
@@ -6771,6 +6826,7 @@
     document.getElementById("history-deploys").addEventListener("click", historyListDeploys);
     document.getElementById("history-deploy-inspect").addEventListener("click", historyInspectDeploy);
     document.getElementById("history-status").addEventListener("click", historyReadStatus);
+    document.getElementById("project-timeline-refresh").addEventListener("click", loadProjectTimeline);
     initShippingReads();
     initGithubMetadata();
     loadDelivery();

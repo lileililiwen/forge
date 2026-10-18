@@ -84,6 +84,23 @@ try {
   await page.getByRole('button', { name: /sign in to your workspace/i }).click();
   await page.waitForURL('**/index.html', { timeout: 30000 });
 
+  // Exercise the operator-facing timeline empty state at desktop and narrow
+  // width before entering the independent workbench delivery flow.
+  await page.getByRole('link', { name: 'Delivery', exact: true }).click();
+  await page.waitForURL('**/delivery', { timeout: 30000 });
+  await page.locator(`#delivery-project option[value="${projectId}"]`).waitFor({ state: 'attached', timeout: 30000 });
+  await page.locator('#delivery-project').selectOption(projectId);
+  await page.getByRole('button', { name: 'Refresh timeline' }).click();
+  await page.getByText(/No delivery records found/).waitFor({ timeout: 30000 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  if (overflow) fail('delivery timeline page overflows horizontally at 390px');
+  await page.getByRole('button', { name: 'Refresh timeline' }).focus();
+  if (!(await page.evaluate(() => document.activeElement?.id === 'project-timeline-refresh'))) {
+    fail('timeline refresh is not keyboard focusable');
+  }
+  note('delivery timeline empty state and 390px keyboard layout verified');
+
   // Sign-in returns to the projects route, and the workbench is its own
   // route (`/workbench`): the dashboard shell shows exactly one view, so
   // `#workbench-project` stays inside a hidden section until the operator
@@ -283,6 +300,22 @@ try {
   if (workbenchText.includes(secretRef)) {
     fail('workbench rendered the Hermora secret reference');
   }
+
+  await page.getByRole('link', { name: 'Delivery', exact: true }).click();
+  await page.waitForURL('**/delivery', { timeout: 30000 });
+  await page.locator('#delivery-project').selectOption(projectId);
+  await page.getByRole('button', { name: 'Refresh timeline' }).click();
+  await page.locator('#project-timeline-events').getByText(/Hermora/).waitFor({ timeout: 30000 });
+  await page.route('**/v1/admin/projects/*/delivery/timeline', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ contract: 'forge-project-delivery-timeline/1.0', coverage: 'partial', truncated: false, sources: [{ owner: 'GitHub Actions', available: false, count: 0, note: 'unavailable fixture' }], events: [] }),
+  }));
+  await page.getByRole('button', { name: 'Refresh timeline' }).click();
+  await page.getByText(/Some sources are unavailable/).waitFor({ timeout: 30000 });
+  await page.locator('#project-timeline-sources').getByText(/GitHub Actions: unavailable/).waitFor({ timeout: 30000 });
+  await page.unrouteAll();
+  note('delivery timeline populated and partial-source states verified');
 
   const samples = await page.evaluate(() => {
     const parse = (value) => {

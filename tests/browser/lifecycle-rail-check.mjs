@@ -76,6 +76,12 @@ async function signIn(page) {
 async function expectBootedRail(page) {
   await page.locator('#workbench-body:not([hidden])').first().waitFor({ timeout: DETAIL_TIMEOUT });
   await page.locator('#lifecycle-rail li').first().waitFor({ timeout: 30000 });
+  await page.getByRole('heading', { name: 'Quality checks' }).waitFor({ timeout: 30000 });
+  await page.locator('#wb-gate-status').getByText('Unverified', { exact: true }).waitFor({ timeout: 30000 });
+  const nextStep = await page.locator('#wb-gate-next-step').innerText();
+  if (!nextStep.includes('Gate has not run') || !nextStep.includes('not a pass')) {
+    fail(`Quality card gives an unsafe next step for absent evidence: ${nextStep}`);
+  }
   // Late projections refine the rail; settle before counting.
   await page.waitForTimeout(2500);
 }
@@ -226,6 +232,16 @@ try {
   });
   await expectBootedRail(page);
   await expectRailShape(page, 'direct load');
+  await page.locator('.sidebar nav a[data-route="projects"]').click();
+  const advanced = page.locator('#assurance-advanced');
+  await advanced.waitFor({ state: 'visible', timeout: 30000 });
+  if (await advanced.getAttribute('open') !== null) fail('advanced diagnostics must start collapsed');
+  await advanced.locator('summary').press('Space');
+  await page.waitForFunction(() => document.querySelector('#assurance-advanced')?.open === true, null, { timeout: 3000 });
+  await advanced.locator('summary').press('Space');
+  await page.waitForFunction(() => document.querySelector('#assurance-advanced')?.open === false, null, { timeout: 3000 });
+  await page.locator('.sidebar nav a[data-route="workbench"]').click();
+  await expectBootedRail(page);
   note('rail renders 8 steps with one current, one Tab stop, one Next');
 
   // 2. Step coexistence: ?step= rides along, reload keeps both, rail intact.

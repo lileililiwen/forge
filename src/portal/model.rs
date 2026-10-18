@@ -69,7 +69,7 @@ impl PortalSection {
             PortalSection::Documentation => "Documentation",
             PortalSection::Analytics => "Analytics",
             PortalSection::Servers => "Servers",
-            PortalSection::Settings => "Settings",
+            PortalSection::Settings => "Quality",
         }
     }
     /// SPA deep-link for the section (`portal-spa-convergence`).
@@ -90,7 +90,7 @@ impl PortalSection {
             PortalSection::Documentation => "",
             PortalSection::Analytics => "/projects",
             PortalSection::Servers => "",
-            PortalSection::Settings => "/projects",
+            PortalSection::Settings => "/workbench",
         }
     }
     /// Coverage verdict for the section in the SPA
@@ -111,7 +111,7 @@ impl PortalSection {
             PortalSection::Documentation => "cli-only",
             PortalSection::Analytics => "partial",
             PortalSection::Servers => "cli-only",
-            PortalSection::Settings => "partial",
+            PortalSection::Settings => "covered",
         }
     }
     /// One-line operator wording for the `web:` renderer line
@@ -137,9 +137,7 @@ impl PortalSection {
             PortalSection::Servers => {
                 "loopback transports; run `forge api serve` or `forge web serve` in the terminal"
             }
-            PortalSection::Settings => {
-                "governance reads in the assurance browser; `governance use` stays in the terminal"
-            }
+            PortalSection::Settings => "Gate results and rerun in the Quality checks card",
         }
     }
 }

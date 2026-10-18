@@ -2264,12 +2264,26 @@
     return GATE_STATE_BADGE[state] || "state-observed";
   }
 
-  function renderGateStatus(envelope) {
+  function gateNextStep(gate) {
+    if (!gate) return "Gate has not run for this project. Run Gate to establish a baseline; unverified is not a pass.";
+    const freshness = gate.freshness || "absent";
+    const aggregate = gate.aggregate || "unknown";
+    if (freshness === "stale") return "Gate evidence is from a different revision. Re-run Gate to check the current project revision.";
+    if (freshness === "absent") return "Gate freshness is unknown. Re-run Gate to establish current evidence.";
+    if (aggregate === "failed" || aggregate === "blocked") return "Please review the failed checks, fix the reported issues, then re-run Gate.";
+    if (aggregate === "passed") return "No action is needed while the project revision stays unchanged.";
+    return "Review the Gate details, then re-run Gate when the project is ready.";
+  }
+
+  function renderGateStatus(response) {
     const box = document.getElementById("wb-gate-status");
     if (!box) return;
+    const envelope = response && response.envelope ? response.envelope : response;
+    const nextStep = document.getElementById("wb-gate-next-step");
     box.replaceChildren();
     const summary = (envelope && envelope.summary) || "";
     const gate = envelope && envelope.gate;
+    if (nextStep) nextStep.textContent = gateNextStep(gate);
     if (!gate) {
       const head = document.createElement("div"); head.className = "wb-health-state";
       const dot = document.createElement("span"); dot.className = "state-dot state-observed"; dot.setAttribute("aria-hidden", "true");
@@ -2277,7 +2291,7 @@
       head.append(dot, text);
       box.append(head);
       const note = document.createElement("p"); note.className = "muted";
-      note.textContent = (envelope && envelope.detail) || summary || "The gate has never run for this project; unverified is not a pass.";
+      note.textContent = (envelope && envelope.detail) || summary || "Gate has not run for this project; unverified is not a pass.";
       box.append(note);
       return;
     }
@@ -2296,7 +2310,6 @@
     }
     addFact("Aggregate", GATE_AGGREGATE_LABELS[aggregate] || aggregate);
     addFact("Freshness", GATE_FRESHNESS_LABELS[freshness] || freshness);
-    addFact("Runtime", gate.runtime ? `${gate.runtime}${gate.runtime_version ? " (" + gate.runtime_version + ")" : ""}` : "—");
     addFact("Revision", gate.revision || (freshness === "absent" ? "unbound" : "—"));
     addFact("Observed at", gate.observed_at || "—");
     box.append(facts);
@@ -2320,15 +2333,28 @@
   async function loadGateStatus(id) {
     const box = document.getElementById("wb-gate-status");
     if (!box) return;
-    if (!id) { box.replaceChildren(); const p = document.createElement("p"); p.className = "muted"; p.textContent = "Open a project to read its gate status."; box.append(p); return; }
+    if (!id) {
+      box.replaceChildren();
+      const p = document.createElement("p"); p.className = "muted"; p.textContent = "Open a project to read its Gate status."; box.append(p);
+      const nextStep = document.getElementById("wb-gate-next-step");
+      if (nextStep) nextStep.textContent = "Select a managed project to read its Gate evidence.";
+      return;
+    }
     let envelope;
     try {
       envelope = await request(`/v1/admin/projects/${encodeURIComponent(id)}/gate/status`, { headers: { Accept: "application/json" } });
     } catch (err) {
       box.replaceChildren();
+      const head = document.createElement("div"); head.className = "wb-health-state";
+      const dot = document.createElement("span"); dot.className = "state-dot state-observed"; dot.setAttribute("aria-hidden", "true");
+      const state = document.createElement("strong"); state.textContent = "Unavailable";
+      head.append(dot, state);
+      box.append(head);
       const note = document.createElement("p"); note.className = "muted";
-      note.textContent = (err && err.message) ? err.message : "The gate status is unavailable right now.";
+      note.textContent = "Gate status is unavailable right now. Check the Forge API connection and retry.";
       box.append(note);
+      const nextStep = document.getElementById("wb-gate-next-step");
+      if (nextStep) nextStep.textContent = "Reconnect to the Forge API, then refresh this project’s Gate status.";
       return;
     }
     if (workbench.id !== id) return;
@@ -2360,7 +2386,7 @@
       showWorkbenchNotice(message);
       return;
     }
-    if (workbench.id === id) renderGateStatus((result.body && result.body.envelope) || { summary: "done" });
+    if (workbench.id === id) renderGateStatus(result.body || { summary: "Gate run returned no status." });
     showWorkbenchNotice((result.body && result.body.summary) || "Gate re-run complete.");
   }
 

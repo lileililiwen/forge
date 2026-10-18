@@ -94,7 +94,7 @@ features: {}
             ("documentation", "", "cli-only"),
             ("analytics", "/projects", "partial"),
             ("servers", "", "cli-only"),
-            ("settings", "/projects", "partial"),
+            ("settings", "/workbench", "covered"),
         ];
         assert_eq!(expected.len(), SUPPORTED_SECTIONS.len());
         for (id, route, coverage) in expected {
@@ -657,6 +657,51 @@ portal:
             assert!(!section.label().is_empty());
             assert!(SUPPORTED_SECTIONS.contains(&section.id()));
         }
+        assert_eq!(PortalSection::Settings.label(), "Quality");
+    }
+
+    #[test]
+    fn quality_section_uses_gate_evidence_without_provider_identity() {
+        let record = ProjectRecord {
+            id: "quality-sample".to_string(),
+            name: "Quality Sample".to_string(),
+            path: "/nonexistent/quality-sample".to_string(),
+            git_remote: None,
+            mirror_remotes: Vec::new(),
+            stack: None,
+            profile: "rust-web".to_string(),
+            maturity: Some("L1".to_string()),
+            target_maturity: None,
+            schema_version: 1,
+            platform_version: "0.1.0".to_string(),
+            features: BTreeMap::new(),
+            deployment_target: None,
+            runtime: None,
+            last_commit: None,
+            quality_status: None,
+            agent_status: None,
+            docs_status: None,
+            kit_id: None,
+            kit_version: None,
+            observed_at: "2026-10-18T00:00:00Z".to_string(),
+            available: true,
+        };
+
+        let entries = build_settings_section(&[record]);
+        let entry = &entries[0];
+        assert_eq!(entry.label, "Quality Sample quality checks");
+        assert_eq!(entry.status, PortalStatus::Unknown);
+        assert_eq!(entry.source, "gate");
+        assert_eq!(
+            entry.attributes.get("freshness").map(String::as_str),
+            Some("absent")
+        );
+        assert!(entry.evidence.iter().any(|line| line.contains("not run")));
+        assert!(!entry.attributes.contains_key("governance_provider"));
+        assert!(!entry
+            .evidence
+            .iter()
+            .any(|line| line.contains("/nonexistent")));
     }
 
     fn fleet_entry(id: &str, managed: bool) -> crate::fleet::FleetEntry {

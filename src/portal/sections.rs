@@ -367,9 +367,8 @@ pub(super) fn controls_for(section: PortalSection) -> Vec<String> {
         ],
         PortalSection::Servers => vec!["forge api serve".to_string()],
         PortalSection::Settings => vec![
-            "forge portal dashboard".to_string(),
-            "forge governance status".to_string(),
-            "forge governance use".to_string(),
+            "forge gate status <project>".to_string(),
+            "forge gate <project>".to_string(),
         ],
     }
 }
@@ -784,41 +783,60 @@ pub(super) fn build_settings_section(records: &[ProjectRecord]) -> Vec<PortalEnt
     records
         .iter()
         .map(|r| {
-            let governance = crate::governance::evaluate_project(Path::new(&r.path));
-            let (status, evidence, provider) = match governance {
-                Ok(observation) => {
-                    let status = match observation.status {
-                        crate::governance::ProviderStatus::Pass => PortalStatus::Ok,
-                        crate::governance::ProviderStatus::Fail => PortalStatus::Fail,
-                        crate::governance::ProviderStatus::Blocked => PortalStatus::Warn,
-                        crate::governance::ProviderStatus::Unknown
-                        | crate::governance::ProviderStatus::Stale => PortalStatus::Unknown,
-                        crate::governance::ProviderStatus::Unavailable
-                        | crate::governance::ProviderStatus::Disabled
-                        | crate::governance::ProviderStatus::Incompatible => {
-                            PortalStatus::Unavailable
-                        }
-                    };
-                    (
-                        status,
-                        vec![format!("governance status: {:?}", observation.status)],
-                        observation.provider,
-                    )
-                }
-                Err(err) => (
-                    PortalStatus::Unavailable,
-                    vec![format!("governance unavailable: {err}")],
-                    "local".to_string(),
-                ),
-            };
+            let project_root = Path::new(&r.path);
             let mut attributes = BTreeMap::new();
-            attributes.insert("governance_provider".to_string(), provider);
+            let (status, observed_at, evidence, freshness) =
+                match crate::gate::load_latest_evidence(project_root) {
+                    Ok(Some(gate)) => {
+                        let revision = crate::gate::capture_revision(project_root);
+                        let freshness = crate::gate::evidence_freshness(&gate, revision.as_deref());
+                        let status = match freshness {
+                            crate::gate::GateFreshness::Stale
+                            | crate::gate::GateFreshness::Absent => PortalStatus::Unknown,
+                            crate::gate::GateFreshness::Fresh => match gate.aggregate {
+                                crate::gate::GateAggregate::Passed => PortalStatus::Ok,
+                                crate::gate::GateAggregate::Blocked => PortalStatus::Warn,
+                                crate::gate::GateAggregate::Failed => PortalStatus::Fail,
+                                crate::gate::GateAggregate::Unknown => PortalStatus::Unknown,
+                            },
+                        };
+                        (
+                            status,
+                            gate.observed_at,
+                            vec![
+                                format!("aggregate={}", gate.aggregate.label()),
+                                format!("freshness={}", freshness.label()),
+                                format!("checks={}", gate.checks.len()),
+                            ],
+                            freshness.label().to_string(),
+                        )
+                    }
+                    Ok(None) => (
+                        PortalStatus::Unknown,
+                        "not observed".to_string(),
+                        vec![
+                            "Gate has not run for this project; unverified is not a pass."
+                                .to_string(),
+                        ],
+                        "absent".to_string(),
+                    ),
+                    Err(_) => (
+                        PortalStatus::Unavailable,
+                        "not observed".to_string(),
+                        vec![
+                            "Gate evidence is unavailable; inspect advanced diagnostics."
+                                .to_string(),
+                        ],
+                        "unavailable".to_string(),
+                    ),
+                };
+            attributes.insert("freshness".to_string(), freshness);
             PortalEntry {
                 id: format!("{r_id}:settings", r_id = r.id),
-                label: format!("{} portal and governance settings", r.name),
+                label: format!("{} quality checks", r.name),
                 status,
-                source: "governance".to_string(),
-                observed_at: r.observed_at.clone(),
+                source: "gate".to_string(),
+                observed_at,
                 evidence,
                 attributes,
             }

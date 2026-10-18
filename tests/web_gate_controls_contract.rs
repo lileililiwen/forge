@@ -133,31 +133,29 @@ fn body_json(response: &ApiResponse) -> Value {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn workbench_health_card_carries_gate_subrow_with_rerun_button() {
+fn workbench_has_a_dedicated_quality_card_with_rerun_button() {
     let html = index_html();
-    // The new sub-row sits inside the existing `wb-health` card so the
-    // card's existing role + labelled-by contract is preserved.
     let start = html
-        .find("aria-labelledby=\"wb-health-title\"")
-        .expect("workbench health card is labelled by wb-health-title");
+        .find("aria-labelledby=\"wb-quality-title\"")
+        .expect("workbench Quality card is labelled by wb-quality-title");
     let end = html
         .find("wb-status-title")
         .expect("workbench status card ships");
     let block = &html[start..end];
     assert!(
         block.contains("wb-gate-status"),
-        "the new Gate status sub-row sits inside the existing Health card"
+        "Quality card carries Gate evidence"
     );
     assert!(
         block.contains("wb-gate-rerun"),
-        "the new Re-run gate button ships"
+        "Quality card reuses the existing Re-run gate button"
     );
     assert!(
-        block.contains("Gate runtime"),
-        "the sub-row carries an honest, descriptive title"
+        block.contains("Quality checks"),
+        "the card carries a project-facing title"
     );
-    // The block is inside the existing `wb-card aria-labelledby="wb-health-title"`.
-    assert!(block.contains("aria-labelledby=\"wb-health-title\""));
+    assert!(block.contains("wb-gate-next-step"));
+    assert!(!block.contains("Gate runtime"));
 }
 
 #[test]
@@ -183,6 +181,15 @@ fn gate_block_adds_no_write_no_shell_and_no_html_interpretation() {
         block.contains("textContent") || block.contains("el("),
         "gate block uses safe text-only construction"
     );
+    for token in [
+        "response.envelope",
+        "Gate has not run",
+        "different revision",
+        "review the failed checks",
+        "wb-gate-next-step",
+    ] {
+        assert!(block.contains(token), "gate block must cover `{token}`");
+    }
     // The block issues exactly one POST, to the named gate route.
     assert!(block.contains("/gate/run"));
     assert!(!block.contains("/health/refresh\""));

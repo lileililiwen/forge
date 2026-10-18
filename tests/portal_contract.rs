@@ -340,7 +340,7 @@ const SPA_TRIPLES: [(&str, &str, &str); 12] = [
     ("documentation", "", "cli-only"),
     ("analytics", "/projects", "partial"),
     ("servers", "", "cli-only"),
-    ("settings", "/projects", "partial"),
+    ("settings", "/workbench", "covered"),
 ];
 
 #[test]

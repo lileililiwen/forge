@@ -24,7 +24,7 @@ codes and journaling are unchanged.
 | `documentation` | — (CLI only) | cli-only | Provider translation; run `forge docs translate` in the terminal |
 | `analytics` | `/projects` | partial | Metrics read in the assurance browser; live inspect stays in the terminal |
 | `servers` | — (CLI only) | cli-only | Loopback transports; run `forge api serve` or `forge web serve` in the terminal |
-| `settings` | `/projects` | partial | Governance reads in the assurance browser; `governance use` stays in the terminal |
+| `settings` (displayed as **Quality**) | `/workbench` | covered | Gate results and rerun in Quality checks; provider selection stays in the terminal |
 
 ## Why the CLI-only rows stay CLI-only
 
@@ -41,7 +41,8 @@ every non-`web` row carries a non-empty reason and names no route):
   surface.
 - `analytics inspect` — probes live provider planes.
 - `settings` writes (`governance use`, portal config) — local state
-  transitions with no typed browser route.
+  transitions with no typed browser route; read-only provider diagnostics stay
+  under the Projects view's Advanced diagnostics disclosure.
 - `policies` writes — driftwatch policy application stays terminal-side.
 
 Source: [requirement.md](../requirement.md) §36 (portal sections);

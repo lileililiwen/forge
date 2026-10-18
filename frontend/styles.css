@@ -348,6 +348,10 @@ svg.icon{width:var(--icon-md);height:var(--icon-md);flex:none;stroke-width:var(-
  * 44px targets, wrapped payload strings. Additive only; earlier rules
  * untouched. */
 #assurance-browser .wb-plan-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#assurance-advanced{margin-top:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+#assurance-advanced>summary{min-height:44px;padding:12px 14px;color:var(--ink);cursor:pointer;font-size:var(--text-md);font-weight:600}
+#assurance-advanced[open]{padding:0 14px 14px}
+#assurance-advanced[open]>summary{margin:0 -14px 12px;border-bottom:1px solid var(--line)}
 #assurance-browser .field{min-width:min(240px,80vw)}
 #assurance-browser select,#assurance-browser input[type="text"],#assurance-browser input[type="search"]{min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--raise);color:var(--ink);font-size:var(--text-md)}
 #assurance-browser button{min-height:44px}

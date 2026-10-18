@@ -201,6 +201,11 @@ fn browser_section_lives_on_the_projects_view() {
         css.contains("#assurance-browser"),
         "styles lack the assurance block"
     );
+    assert!(
+        html.contains("<details id=\"assurance-advanced\"")
+            && html.contains("<summary>Advanced diagnostics and records</summary>"),
+        "assurance reads must start inside a named, collapsed advanced disclosure"
+    );
     let start = app
         .find("Assurance browser")
         .expect("assurance block ships");

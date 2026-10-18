@@ -6023,7 +6023,8 @@ file modes, blob content and source ancestry. Four registered project paths
 were rebased to `forge/crates/{cargo-audit-boost,cargo-matrix-boost,
 cargo-sonar,driftwatchdog}` while their registry IDs remain stable. The
 original `/home/paul/code/workspace-governance` checkout was clean after the
-import and remains untouched; no remote repository was archived or changed.
+import and remained untouched at that time; the source origin has since been
+archived.
 
 | Check | Result | Evidence |
 |---|---|---|
@@ -6038,15 +6039,36 @@ import and remains untouched; no remote repository was archived or changed.
 | Forge Gate dry-run | PASS | All eight required checks resolved; no unbound required checks. |
 | Full Forge Gate | PASS, fresh | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`; aggregate PASS at observed time `2026-10-18T05:16:53Z`. All eight checks passed; source-size evaluated 420/420 candidates. Existing unmaintained `paste` and `unsafe-libyaml` advisories remain informational. |
 
-The module Gate currently misses Python files under `scripts/`, and four
-production scripts exceed Forge's 1,000-line baseline. This is recorded as
-`forge-workspace-governance-gate-conformance`, the next migration prerequisite;
-the passing module Gate is not evidence that those source-size requirements
-are met. Forge-owned adapters and generated sibling shims still contain
-sibling-layout references, so consumer migration and portability remain
-separate roadmap work. The Workspace Governance origin must remain available
-until those consumers are migrated and verified; origin retirement is the
-final, explicit remote operation.
+The original Workspace Governance source repository is archived. The
+maintained copy is `modules/workspace-governance/` in Forge; any needed source
+changes belong in that Forge copy. Its module Gate currently misses Python
+files under `scripts/`, and four production scripts exceed Forge's 1,000-line
+baseline. `forge-workspace-governance-gate-conformance` remains useful to
+bring the in-tree copy under the Forge baseline, but is independent of the
+already completed origin archive. Forge-owned adapters and generated sibling
+shims still contain sibling-layout references, so consumer portability remains
+separate roadmap work.
+
+### Governance origin archive status correction (2026-10-18)
+
+The user confirmed the source origin is archived. Forge's imported module is
+the maintenance source; no external origin was changed during this correction.
+The source-size conformance work and sibling portability work remain separate
+Forge tasks.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Gate dry-run | PASS | Eight checks resolved; no unbound required checks. |
+| Full Forge Gate | BLOCKED, no change attribution | Two bounded runs: `tests` and six other checks passed; `declared-verification` exited 101. The exact declared command passed when run alone. Gate's persisted diagnostic truncates before the failing test name. Since this change only edits docs/specs, the failure is unrelated to its scope. Remediation: capture full output and resolve the concurrent Cargo-suite failure before claiming a green Gate. |
+| OpenSpec, import integrity and wording | PASS | Strict validation; imported-source parity; ownership audit finds no current statement making origin archival depend on conformance or sibling migration. |
+
+No module source files or archived origin files changed. The Gate issue is
+recorded for follow-up; this correction adds no test or runtime behavior.
+
+Implementation/archive commit: `cc4e230` (`docs: record governance origin
+archival`). This HANDOFF-only commit records the correction. Nothing was
+pushed. No active OpenSpec change remains, so there is no `current_spec`
+pointer.
 
 Implementation/archive commit: `be806476a74aa2cf11cf9ae1508af7b426f6b0c9`
 (`feat: consolidate workspace governance into forge`). This HANDOFF-only

@@ -2,6 +2,40 @@
 
 ## Latest delivery
 
+### `forge-hosted-ci-evidence-envelope` implemented and archived (2026-10-18)
+
+Forge now owns the versioned `forge-hosted-ci-evidence/1.0` Rust contract in
+`src/ci_evidence.rs`. It wraps current Gate evidence with GitHub repository,
+workflow, run, attempt, job, URL, source SHA and UTC observation time. The
+validator enforces envelope/run field closure, bounds, repository/run URL
+consistency, matching project and revision, executed terminal evidence,
+contract version, timestamps, and refusal of credential-shaped Gate
+diagnostics. Accepted documents remain untrusted producer claims; they are
+not authenticated and cannot satisfy release or delivery preconditions.
+
+The CI/CD model records the contract as delivered and leaves authenticated
+GitHub upload plus project-bound, idempotent Forge ingest/read as the next P0
+gap. The existing portable `platform.gate-result/1.0.0` remains a distilled
+shared summary; this Forge envelope uses full Gate evidence because that shared
+contract has no hosted repository/run provenance. No workflow, API, persistence,
+or UI was added. The future ingest package must provide the operator-facing
+receipt journey.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Envelope contract | PASS | `cargo test --test hosted_ci_evidence_contract`: **7 passed / 0 failed**, including valid round trip, unknown fields, revision/project contradiction, rehearsal/unknown aggregate, malformed/non-UTC times, URL abuse, bounds, and credential-shaped diagnostics. |
+| Changed Rust formatting | PASS | `rustfmt --edition 2024 --check src/ci_evidence.rs tests/hosted_ci_evidence_contract.rs`. Repository-wide `cargo fmt --check` reports pre-existing formatting drift in `src/delivery/handlers.rs`; that unrelated file was preserved. |
+| OpenSpec and whitespace | PASS | Name preflight passed; strict validation **114/114** before and after archive; `git diff --check` passed. Archive promoted `hosted-ci-evidence-envelope`. |
+| Gate dry-run | PASS | `./target/debug/forge gate --dry-run`; all eight required checks resolved with no unbound checks. |
+| Full Forge Gate | BLOCKED by confirmed unrelated governance test failure | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 timeout 1260 ./target/debug/forge gate --timeout-secs 1200`, final source at HEAD `df5a4ab5a41d`, observed `2026-10-18T10:39:28Z`. Build passed in 51.34s. The serial `declared-verification` and aggregate `tests` exited 101 on `governance_cross_surface::broken_preset_adapter_never_renders_healthy_in_checker_or_portal` (`tests/governance_cross_surface.rs:191`): expected `unavailable`, got `unknown`. The isolated test and exact serial workspace test command reproduced it. It is the same pre-existing failure from the prior handoff. Remediation: correct broken preset adapter status mapping through `src/governance/engine.rs` and checker/portal projections. No Gate failure was attributable to this change. |
+
+Implementation/archive commit: `d671211` (`feat: define hosted CI evidence envelope`).
+The package was archived with canonical spec promotion and without
+`--skip-specs`. No active OpenSpec changes remain. Next queued gap is
+`forge-hosted-ci-evidence-ingest`; it must authenticate the caller and verify
+the registered repository/project binding before accepting this envelope.
+Nothing was pushed.
+
 ### `forge-delivery-gate-precondition` implemented and archived (2026-10-18)
 
 Delivery preflight now requires the registered source revision to match the

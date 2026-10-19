@@ -1,6 +1,7 @@
 """Tests for the workspace toolchain decision register (`decisions.json`)."""
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -276,12 +277,25 @@ class RealRegisterTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)), "duplicate decision id")
         self.assertEqual(ids, [f"D{n}" for n in range(1, len(ids) + 1)], ids)
 
-    def test_every_entry_is_accepted(self):
+    def test_every_entry_has_a_lawful_lifecycle_status(self):
         loaded = load_decisions(self.path)
         for entry in loaded:
-            self.assertEqual(entry.status, "accepted", entry.id)
+            self.assertIn(entry.status, {"accepted", "superseded"}, entry.id)
             self.assertEqual(entry.owner_project, "workspace-governance", entry.id)
             self.assertRegex(entry.date, r"^\d{4}-\d{2}-\d{2}$", entry.id)
+
+    def test_superseded_entries_are_replaced_by_a_later_accepted_entry(self):
+        loaded = load_decisions(self.path)
+        superseded = {entry.id for entry in loaded if entry.status == "superseded"}
+        self.assertTrue(superseded, "no superseded entry in the register")
+        for decision_id in superseded:
+            index = int(decision_id[1:])
+            later = [entry for entry in loaded if int(entry.id[1:]) > index]
+            self.assertTrue(later, f"{decision_id} is superseded with no successor")
+            self.assertTrue(
+                any(entry.status == "accepted" for entry in later),
+                f"{decision_id} is superseded with no accepted successor",
+            )
 
     def test_seeded_entries_keep_their_original_date(self):
         loaded = load_decisions(self.path)
@@ -309,6 +323,94 @@ class RealRegisterTests(unittest.TestCase):
         self.assertEqual(offenders, [], f"unknown registry references: {offenders}")
 
 
+class ProviderNeutralPolicyTests(unittest.TestCase):
+    """REG-005: D9 is the provider-neutral successor of the D2 vendor decision."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.governance_root = Path(__file__).resolve().parents[1]
+        cls.loaded = load_decisions(cls.governance_root / "decisions.json")
+        cls.d2 = next(d for d in cls.loaded if d.id == "D2")
+        cls.d9 = next(d for d in cls.loaded if d.id == "D9")
+
+    def test_d9_is_the_next_permanent_id(self):
+        ids = [d.id for d in self.loaded]
+        self.assertEqual(ids, [f"D{n}" for n in range(1, len(ids) + 1)], ids)
+        self.assertEqual(ids[-1], "D9")
+        self.assertEqual(self.d9.status, "accepted")
+        self.assertEqual(self.d9.owner_project, "workspace-governance")
+
+    def test_d2_is_superseded_and_keeps_its_history(self):
+        self.assertEqual(self.d2.status, "superseded")
+        self.assertEqual(self.d2.title, "Self-hosted identity provider")
+        self.assertEqual(self.d2.date, "2026-09-30")
+        self.assertIn("Zitadel", self.d2.decision)
+        self.assertIn("public GitHub Pages catalog", self.d2.policy_boundary)
+        self.assertEqual(
+            self.d2.downstream,
+            ({"repo": "dotnet-platform-libs", "change": "identity-oidc-client"},),
+        )
+
+    def test_d9_is_provider_neutral(self):
+        text = f"{self.d9.decision} {self.d9.policy_boundary}"
+        self.assertIn("OIDC", text)
+        self.assertIn("replaceable", text.lower())
+        self.assertIn("no vendor is required by policy", text)
+        self.assertIsNone(
+            re.search(r"Adopt\s+[A-Z][A-Za-z0-9]*\s+as\b", text),
+            "D9 must not adopt a mandatory vendor",
+        )
+        self.assertNotIn("as the single workspace SSO seam", text)
+
+    def test_d9_separates_administrators_from_product_users(self):
+        text = f"{self.d9.decision} {self.d9.policy_boundary}"
+        self.assertIn("administrator", text.lower())
+        self.assertIn("product end-user", text.lower())
+        self.assertIn("project-scoped", text.lower())
+        self.assertIn("no account, session, role or permission shared", text)
+
+    def test_d9_keeps_the_public_static_site_exclusion(self):
+        self.assertIsNotNone(self.d9.policy_boundary)
+        self.assertIn("public GitHub Pages catalog", self.d9.policy_boundary)
+        self.assertIn("excluded", self.d9.policy_boundary)
+        self.assertIn("internal-only", self.d9.policy_boundary)
+
+    def test_d9_declares_no_runtime_migration(self):
+        text = f"{self.d9.decision} {self.d9.policy_boundary}"
+        self.assertIn("separately authorized runtime change", text)
+        self.assertIn("declares no migration", text)
+
+    def test_d9_downstream_references_resolve_in_registry(self):
+        registry_ids = {
+            entry["id"]
+            for entry in json.loads((self.governance_root / "projects.json").read_text())["projects"]
+        }
+        self.assertTrue(self.d9.downstream, "D9 must name its consumer packages")
+        for reference in self.d9.downstream:
+            self.assertIn(reference["repo"], registry_ids, reference)
+            self.assertRegex(reference["change"], r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", reference)
+        self.assertEqual(
+            {(reference["repo"], reference["change"]) for reference in self.d9.downstream},
+            {
+                ("dotnet-platform-libs", "project-oidc-auth-adoption"),
+                ("forge", "forge-auth-provider-extensions"),
+            },
+        )
+
+
+    def test_human_view_lists_every_register_entry(self):
+        document = (self.governance_root / "docs" / "toolchain-decisions.md").read_text()
+        rows = {}
+        for line in document.splitlines():
+            if not line.startswith("| D"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            rows[cells[0]] = cells[2]
+        for entry in self.loaded:
+            self.assertIn(entry.id, rows, f"{entry.id} is missing from the human view")
+            self.assertEqual(rows[entry.id], entry.status, entry.id)
+
+
 class CliSummaryTests(unittest.TestCase):
     """`workspace_check.py --decisions` must print the summary and exit cleanly."""
 
@@ -324,8 +426,15 @@ class CliSummaryTests(unittest.TestCase):
     def test_decisions_summary_lists_each_entry(self):
         result = self.run_check("--decisions", cwd=self.repo_root)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for token in ("D1", "D2", "D3", "D4", "accepted", "2026-09-30", "Total decisions"):
+        for token in ("D1", "D2", "D3", "D4", "D9", "accepted", "superseded", "2026-09-30", "Total decisions"):
             self.assertIn(token, result.stdout, f"missing token {token!r} in stdout:\n{result.stdout}")
+
+    def test_decisions_summary_reports_the_superseded_entry(self):
+        result = self.run_check("--decisions", cwd=self.repo_root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = [line for line in result.stdout.splitlines() if line.startswith("D2\t")]
+        self.assertEqual(len(rows), 1, result.stdout)
+        self.assertIn("superseded", rows[0])
 
     def test_decisions_json_shape(self):
         result = self.run_check("--decisions", "--json", cwd=self.repo_root)
@@ -333,10 +442,13 @@ class CliSummaryTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertIn("decisions", payload)
         ids = [item["id"] for item in payload["decisions"]]
-        self.assertTrue({"D1", "D2", "D3", "D4"}.issubset(set(ids)), ids)
+        self.assertTrue({"D1", "D2", "D3", "D4", "D9"}.issubset(set(ids)), ids)
         self.assertEqual(len(ids), len(set(ids)), "duplicate decision id")
         for item in payload["decisions"]:
             self.assertEqual(set(item.keys()), {"id", "title", "status", "date"})
+        statuses = {item["id"]: item["status"] for item in payload["decisions"]}
+        self.assertEqual(statuses["D2"], "superseded")
+        self.assertEqual(statuses["D9"], "accepted")
 
 
 class LoadRegisterHelperTests(unittest.TestCase):

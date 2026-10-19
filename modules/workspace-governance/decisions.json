@@ -13,7 +13,7 @@
     {
       "id": "D2",
       "title": "Self-hosted identity provider",
-      "status": "accepted",
+      "status": "superseded",
       "date": "2026-09-30",
       "owner_project": "workspace-governance",
       "decision": "Adopt Zitadel as the self-hosted identity provider, run as a shared workspace runtime on jenkins-local, and exposed to product repositories as the single workspace SSO seam.",
@@ -135,6 +135,25 @@
         {
           "repo": "metiscope",
           "change": "rebind-security-concern"
+        }
+      ]
+    },
+    {
+      "id": "D9",
+      "title": "Provider-neutral workspace identity policy",
+      "status": "accepted",
+      "date": "2026-10-19",
+      "owner_project": "workspace-governance",
+      "decision": "Standard OIDC is the interoperability protocol for workspace identity. Compatible identity providers are replaceable, and no vendor is required by policy. Workspace administrators may authenticate through one operator-selected workspace OIDC provider, but that authentication grants no application permission by itself. Product end-user populations are project-scoped by default: one distinct population per product, with no account, session, role or permission shared implicitly across projects. The current Zitadel deployment remains the operator's present configuration until a separately authorized runtime change; this decision declares no migration and makes no claim about deployment health.",
+      "policy_boundary": "Shared workspace SSO is internal-only and stays limited to internal workspace products. The public GitHub Pages catalog (lileililiwen-site and any sibling published as a static site) remains excluded from shared login and must not consume workspace SSO, shared analytics, or any cross-product identity data. Provider authentication alone never grants product or administrator authorization: each application grants access explicitly. Configuring one product end-user population for more than one product is refused by default.",
+      "downstream": [
+        {
+          "repo": "dotnet-platform-libs",
+          "change": "project-oidc-auth-adoption"
+        },
+        {
+          "repo": "forge",
+          "change": "forge-auth-provider-extensions"
         }
       ]
     }

@@ -49,6 +49,9 @@ pub(super) fn required_permission(route: &Route) -> Option<&'static str> {
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminModules
+        | Route::AdminModuleGateStatus { .. }
+        | Route::AdminModuleGateRun { .. }
         | Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectStatus { .. }
@@ -206,6 +209,9 @@ pub(super) fn is_admin_dispatch(route: &Route) -> bool {
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminModules
+        | Route::AdminModuleGateStatus { .. }
+        | Route::AdminModuleGateRun { .. }
         | Route::AdminCatalog
         | Route::AdminCatalogTags
         | Route::AdminCatalogLanguages
@@ -349,6 +355,9 @@ pub(super) fn is_admin_route(route: &Route) -> bool {
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminModules
+        | Route::AdminModuleGateStatus { .. }
+        | Route::AdminModuleGateRun { .. }
         | Route::AdminCatalog
         | Route::AdminCatalogTags
         | Route::AdminCatalogLanguages

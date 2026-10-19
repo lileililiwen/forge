@@ -113,6 +113,9 @@ pub(super) fn authorize(
         | Route::AdminSessionDelete
         | Route::AdminProjects
         | Route::AdminCommands
+        | Route::AdminModules
+        | Route::AdminModuleGateStatus { .. }
+        | Route::AdminModuleGateRun { .. }
         | Route::AdminFleetStatus
         | Route::AdminProjectDetail { .. }
         | Route::AdminProjectStatus { .. }

@@ -31,6 +31,7 @@ pub mod identity;
 pub mod import;
 pub mod kit;
 pub mod mcp;
+pub mod module_catalog;
 pub mod planner;
 pub mod plugins;
 pub mod policy;

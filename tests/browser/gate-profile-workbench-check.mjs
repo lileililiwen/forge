@@ -107,7 +107,67 @@ try {
   }
   const status = await page.locator('#wb-gate-status').innerText();
   if (!status.includes('Profile') || !status.includes('fast')) throw new Error(`fast profile not displayed: ${status}`);
-  console.log('VERIFIED: contract list and supported/unsupported inspect states, 320px reflow, keyboard Gate profile selection, real Gate run and preserved error state');
+  await page.getByRole('link', { name: 'Forge modules' }).click();
+  await page.waitForURL('**/modules', { timeout: 30000 });
+  await page.locator('#modules:not([hidden])').waitFor({ timeout: 30000 });
+  let catalogMode = 'unavailable';
+  await page.route('**/v1/admin/modules', (route) => {
+    if (catalogMode === 'unavailable') return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'module-catalog-unavailable', message: 'fixture catalog unavailable' } }) });
+    const modules = catalogMode === 'empty' ? [] : [{ id: 'browser-fixture', stack: 'test', profile: 'fixture', path: 'modules/browser-fixture', gate: { aggregate: 'unverified', freshness: 'absent', checks: [] } }];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contract: 'forge-module-workflow/0.1.0', modules }) });
+  });
+  let moduleRuns = 0;
+  let moduleGate = { aggregate: 'unverified', freshness: 'absent', checks: [] };
+  await page.route('**/v1/admin/modules/browser-fixture/gate/status', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ contract: 'forge-module-workflow/0.1.0', gate: moduleGate }),
+  }));
+  await page.route('**/v1/admin/modules/browser-fixture/gate/run', async (route) => {
+    moduleRuns += 1;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    if (moduleRuns === 3) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'module-gate-unavailable', message: 'fixture runtime unavailable' } }) });
+    const aggregate = moduleRuns === 1 ? 'passed' : 'blocked';
+    moduleGate = { aggregate, freshness: 'fresh', revision: '0123456789abcdef', observed_at: '2026-10-19T00:00:00Z', checks: [{ id: 'fixture-check', state: aggregate === 'passed' ? 'pass' : 'fail', note: 'fixture evidence' }] };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contract: 'forge-module-workflow/0.1.0', gate: moduleGate }) });
+  });
+  await page.locator('#modules-refresh').click();
+  await page.getByText('fixture catalog unavailable').waitFor({ timeout: 30000 });
+  catalogMode = 'empty';
+  await page.locator('#modules-refresh').click();
+  await page.getByText('No Forge modules with Gate declarations were found.').waitFor({ timeout: 30000 });
+  catalogMode = 'populated';
+  await page.locator('#modules-refresh').click();
+  await page.getByRole('button', { name: /Open browser-fixture/ }).waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: /Open browser-fixture/ }).click();
+  const run = page.getByRole('button', { name: 'Run Gate' });
+  const moduleProfile = page.locator('#module-gate-profile');
+  await moduleProfile.focus();
+  await page.keyboard.press('ArrowUp'); // Choose fast from the default full profile.
+  if ((await moduleProfile.inputValue()) !== 'fast') throw new Error('keyboard module profile selection did not choose fast');
+  await run.focus();
+  await page.waitForFunction(() => document.activeElement?.id === 'module-gate-run');
+  const moduleFocus = await run.evaluate((button) => {
+    const style = getComputedStyle(button);
+    return document.activeElement === button && style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0;
+  });
+  if (!moduleFocus) throw new Error('module Gate action has no visible keyboard focus');
+  await page.keyboard.press('Enter');
+  await page.getByText('Running fast Gate for browser-fixture…').waitFor({ timeout: 30000 });
+  if (!(await run.isDisabled())) throw new Error('module Gate action stayed enabled during a run');
+  await page.getByText('Gate passed', { exact: false }).waitFor({ timeout: 30000 });
+  const firstModuleStatus = await page.locator('#module-detail-status').innerText();
+  if (!firstModuleStatus.includes('passed')) throw new Error(`keyboard module Gate run did not render PASS: ${firstModuleStatus}`);
+  await page.getByRole('button', { name: 'Run Gate' }).click();
+  await page.getByText('Gate blocked', { exact: false }).waitFor({ timeout: 30000 });
+  if (!(await page.locator('#module-gate-evidence').innerText()).includes('fixture evidence')) throw new Error('module check detail was not rendered');
+  await page.getByRole('button', { name: 'Run Gate' }).click();
+  await page.getByText('fixture runtime unavailable').waitFor({ timeout: 30000 });
+  if (!(await page.locator('#module-gate-evidence').innerText()).includes('blocked')) throw new Error('failed rerun removed the last known module evidence');
+  await page.setViewportSize({ width: 360, height: 760 });
+  const moduleWidth = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
+  if (moduleWidth.scroll > moduleWidth.viewport + 1) throw new Error(`Modules page overflows at 360px: ${JSON.stringify(moduleWidth)}`);
+  console.log('VERIFIED: contract list and inspect states, 320px reflow, keyboard Gate profile selection, real project Gate run, preserved error state, authenticated module inventory and 360px Modules reflow');
 } catch (err) {
   console.error(`FAIL: ${err.message}`);
   process.exitCode = 1;

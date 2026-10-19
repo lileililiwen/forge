@@ -11,6 +11,7 @@ pub mod hosted_ci;
 pub mod identity;
 pub mod interest;
 pub mod model;
+pub mod modules;
 pub mod publish;
 pub mod release;
 pub mod routes;
@@ -38,6 +39,7 @@ pub(in crate::api) fn route_beside(method: &str, segments: &[&str]) -> Option<Ro
         .or_else(|| shipping_reads::route_shipping_reads(method, segments))
         .or_else(|| assurance::route_assurance(method, segments))
         .or_else(|| gate::route_gate(method, segments))
+        .or_else(|| modules::route_modules(method, segments))
         .or_else(|| hosted_ci::route_hosted_ci(method, segments))
         .or_else(|| interest::route_interest(method, segments))
 }

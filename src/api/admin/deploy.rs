@@ -78,6 +78,10 @@ pub(in crate::api) fn handle(
         return response;
     }
 
+    if super::modules::handles(route) {
+        return super::modules::handle(config, db_path, request, route);
+    }
+
     let result = match route {
         Route::AdminSessionGet => session_state(db_path, request),
         Route::AdminSessionPost => sign_in(config, db_path, request),

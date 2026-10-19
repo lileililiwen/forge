@@ -73,6 +73,7 @@
     "/management": "management",
     "/portfolio": "portfolio",
     "/delivery": "delivery",
+    "/modules": "modules",
   };
   const VIEW_IDS = {
     projects: "view-projects",
@@ -80,6 +81,7 @@
     management: "management",
     portfolio: "portfolio",
     delivery: "delivery",
+    modules: "modules",
   };
   const VIEW_CRUMBS = {
     projects: { crumb: "All projects", title: "Projects · Forge" },
@@ -87,6 +89,7 @@
     management: { crumb: "Manage projects", title: "Manage projects · Forge" },
     portfolio: { crumb: "Portfolio", title: "Portfolio · Forge" },
     delivery: { crumb: "Delivery", title: "Delivery · Forge" },
+    modules: { crumb: "Forge modules", title: "Forge modules · Forge" },
     unknown: { crumb: "Page not found", title: "Page not found · Forge" },
   };
 
@@ -6842,6 +6845,74 @@
     loadDelivery();
   }
 
+  let forgeModules = [];
+  let selectedForgeModule = null;
+  async function loadForgeModules() {
+    const status = document.getElementById("modules-status");
+    const list = document.getElementById("modules-list");
+    status.textContent = "Loading module catalog…";
+    try {
+      const data = await request("/v1/admin/modules", { headers: { Accept: "application/json" } });
+      forgeModules = data.modules || [];
+      list.replaceChildren();
+      for (const module of forgeModules) {
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "module-select";
+        button.textContent = `${module.id} · ${module.stack} · ${module.gate?.aggregate || "unverified"}`;
+        button.setAttribute("aria-label", `Open ${module.id}, Gate ${module.gate?.aggregate || "unverified"}`);
+        button.addEventListener("click", () => selectForgeModule(module.id));
+        item.append(button); list.append(item);
+      }
+      status.textContent = forgeModules.length ? `${forgeModules.length} declared module${forgeModules.length === 1 ? "" : "s"} found.` : "No Forge modules with Gate declarations were found.";
+      if (selectedForgeModule && forgeModules.some((m) => m.id === selectedForgeModule)) await selectForgeModule(selectedForgeModule);
+      else if (forgeModules.length) await selectForgeModule(forgeModules[0].id);
+    } catch (err) { status.textContent = err.message || "Module catalog is unavailable."; }
+  }
+
+  async function selectForgeModule(id) {
+    selectedForgeModule = id;
+    const module = forgeModules.find((item) => item.id === id);
+    if (!module) return;
+    document.getElementById("module-detail-title").textContent = module.id;
+    document.getElementById("module-detail-status").textContent = `Loading Gate evidence for ${module.path}…`;
+    document.getElementById("module-gate-run").disabled = false;
+    try {
+      const data = await request(`/v1/admin/modules/${encodeURIComponent(id)}/gate/status`, { headers: { Accept: "application/json" } });
+      renderForgeModuleGate(data.gate || {});
+    } catch (err) { document.getElementById("module-detail-status").textContent = err.message || "Gate status is unavailable."; }
+  }
+
+  function renderForgeModuleGate(gate) {
+    const aggregate = gate.aggregate || "unverified";
+    document.getElementById("module-detail-status").textContent = `Gate ${aggregate} · ${gate.freshness || "unknown freshness"}`;
+    const rows = [detailRow("Aggregate", aggregate)];
+    if (gate.revision) rows.push(detailRow("Revision", String(gate.revision).slice(0, 12)));
+    if (gate.observed_at) rows.push(detailRow("Observed", gate.observed_at));
+    for (const check of gate.checks || []) rows.push(detailRow(check.id || "Check", `${check.state || "unresolved"}${check.note ? ` — ${check.note}` : ""}`));
+    document.getElementById("module-gate-evidence").replaceChildren(...rows);
+  }
+
+  async function runForgeModuleGate() {
+    if (!selectedForgeModule) return;
+    const button = document.getElementById("module-gate-run");
+    const status = document.getElementById("module-detail-status");
+    button.disabled = true; status.textContent = `Running ${document.getElementById("module-gate-profile").value} Gate for ${selectedForgeModule}…`;
+    try {
+      const data = await request(`/v1/admin/modules/${encodeURIComponent(selectedForgeModule)}/gate/run`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ profile: document.getElementById("module-gate-profile").value }) });
+      renderForgeModuleGate(data.gate || {});
+      await loadForgeModules();
+    } catch (err) { status.textContent = err.message || "Gate run failed; refresh to read the latest evidence."; }
+    finally { button.disabled = false; }
+  }
+
+  function initForgeModules() {
+    document.getElementById("modules-refresh").addEventListener("click", loadForgeModules);
+    document.getElementById("module-gate-run").addEventListener("click", runForgeModuleGate);
+    loadForgeModules();
+  }
+
   // The fleet readiness tile: counts of every registered project by its
   // read-only overall status. Text-only; a failed read shows em dashes, never
   // a stale or invented count.
@@ -6914,6 +6985,7 @@
       initWorkbench(projects);
       initPortfolio();
       initDelivery(projects);
+      initForgeModules();
       initWorkspaceOnboarding();
       wsDiscover();
       loadWorkspaceSummary();

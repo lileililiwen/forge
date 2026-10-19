@@ -352,6 +352,8 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
                         "GET /v1/admin/providers/matrix",
                         "GET /v1/admin/providers/{provider}",
                         "GET /v1/admin/projects/{id}/plugins",
+                        "GET /v1/admin/modules",
+                        "POST /v1/admin/modules/{id}/gate/run",
                     ]
                     .contains(&route),
                     "web row {id} points at unexpected route `{route}`"
@@ -479,6 +481,8 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
         web_ids,
         BTreeSet::from([
             "list",
+            "module.list",
+            "module.verify",
             "inspect",
             "register",
             "import",

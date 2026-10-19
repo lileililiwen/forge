@@ -8,12 +8,12 @@ use super::routes::{
     WEB_ROUTE_ADMIN_CLASSIFY_LIST, WEB_ROUTE_ADMIN_CLASSIFY_SHOW, WEB_ROUTE_ADMIN_CONTRACTS,
     WEB_ROUTE_ADMIN_CONTRACT_EMIT, WEB_ROUTE_ADMIN_CONTRACT_INSPECT, WEB_ROUTE_ADMIN_DESCRIBE_LIST,
     WEB_ROUTE_ADMIN_DESCRIBE_SHOW, WEB_ROUTE_ADMIN_GOVERNANCE_INSPECT,
-    WEB_ROUTE_ADMIN_GOVERNANCE_LIST, WEB_ROUTE_ADMIN_GOVERNANCE_STATUS,
-    WEB_ROUTE_ADMIN_REMEDIATE_APPLY, WEB_ROUTE_ADMIN_REMEDIATE_DIFF,
-    WEB_ROUTE_ADMIN_REMEDIATE_PLAN, WEB_ROUTE_ADMIN_REMEDIATE_SCAN, WEB_ROUTE_ADMIN_SPEC,
-    WEB_ROUTE_ADMIN_SPECS, WEB_ROUTE_ADMIN_SPEC_APPLY, WEB_ROUTE_ADMIN_SPEC_INSPECT,
-    WEB_ROUTE_ADMIN_SPEC_ROUTE, WEB_ROUTE_CLASSIFY_APPLY, WEB_ROUTE_CLASSIFY_APPROVE,
-    WEB_ROUTE_CLASSIFY_REJECT,
+    WEB_ROUTE_ADMIN_GOVERNANCE_LIST, WEB_ROUTE_ADMIN_GOVERNANCE_STATUS, WEB_ROUTE_ADMIN_MODULES,
+    WEB_ROUTE_ADMIN_MODULE_GATE_RUN, WEB_ROUTE_ADMIN_REMEDIATE_APPLY,
+    WEB_ROUTE_ADMIN_REMEDIATE_DIFF, WEB_ROUTE_ADMIN_REMEDIATE_PLAN, WEB_ROUTE_ADMIN_REMEDIATE_SCAN,
+    WEB_ROUTE_ADMIN_SPEC, WEB_ROUTE_ADMIN_SPECS, WEB_ROUTE_ADMIN_SPEC_APPLY,
+    WEB_ROUTE_ADMIN_SPEC_INSPECT, WEB_ROUTE_ADMIN_SPEC_ROUTE, WEB_ROUTE_CLASSIFY_APPLY,
+    WEB_ROUTE_CLASSIFY_APPROVE, WEB_ROUTE_CLASSIFY_REJECT,
 };
 
 impl CatalogBuilder {
@@ -391,24 +391,26 @@ impl CatalogBuilder {
             Quality,
             Forge,
         );
-        self.cli_only(
+        self.web_at(
             Some("module"),
             "list",
             "List in-tree modules with valid Forge Gate declarations.",
             Quality,
             Forge,
             Read,
-            REASON_LOCAL_FS,
+            WEB_ROUTE_ADMIN_MODULES,
             caps_local,
         );
-        self.cli_only(
+        self.web_exec(
             Some("module"),
             "verify",
             "Run one declared module through the local Forge Gate.",
             Quality,
             Forge,
             LocalWrite,
-            REASON_LOCAL_FS,
+            WEB_ROUTE_ADMIN_MODULE_GATE_RUN,
+            "POST",
+            &[("id", "string", true), ("profile", "string", false)],
             caps_local,
         );
     }

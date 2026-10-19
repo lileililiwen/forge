@@ -296,6 +296,14 @@ pub enum Route {
     AdminSessionDelete,
     AdminProjects,
     AdminCommands,
+    /// Forge-owned module inventory and Gate workflow.
+    AdminModules,
+    AdminModuleGateStatus {
+        id: String,
+    },
+    AdminModuleGateRun {
+        id: String,
+    },
     /// `GET /v1/admin/projects/catalog` — read-only paginated catalog
     /// list (`web-project-catalog-browser`): same Core service and bytes
     /// as `GET /v1/projects/catalog`. Session-gated.

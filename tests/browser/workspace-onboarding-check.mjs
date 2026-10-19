@@ -121,7 +121,7 @@ try {
   if (!layout.domOrder) {
     fail(`dashboard document order is not ${routes.join(' < ')}`);
   }
-  const navWork = layout.nav.filter((route) => route !== 'projects');
+  const navWork = layout.nav.filter((route) => route !== 'projects' && route !== 'modules');
   if (navWork.join(',') !== routes.join(',')) {
     fail(`nav route order ${layout.nav.join(',')} does not match the dashboard panel order ${routes.join(',')}`);
   }

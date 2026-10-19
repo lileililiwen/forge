@@ -276,3 +276,5 @@ pub const ROUTE_ADMIN_SHIPPING_PLUGINS: &str = "GET /v1/admin/projects/{id}/plug
 /// exactly the way the doctor's `gate-evidence` finding renders it.
 pub const ROUTE_ADMIN_GATE_STATUS: &str = "GET /v1/admin/projects/{id}/gate/status";
 pub const ROUTE_ADMIN_GATE_RUN: &str = "POST /v1/admin/projects/{id}/gate/run";
+pub const ROUTE_ADMIN_MODULES: &str = "GET /v1/admin/modules";
+pub const ROUTE_ADMIN_MODULE_GATE_RUN: &str = "POST /v1/admin/modules/{id}/gate/run";

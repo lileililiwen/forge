@@ -1,8 +1,28 @@
 # Forge handoff
 
-current_spec: forge-platform-libraries-monorepo
-
 ## Latest delivery
+
+### `forge-dotnet-platform-libraries-monorepo` implemented and archived (2026-10-19)
+
+Imported the committed .NET platform libraries source at `d11fd9b` as ordinary
+`modules/dotnet-platform-libs/` files, preserving its 38 source-only commits as
+Forge history and retaining independent .NET solution, package and UI workflows.
+Forge now owns module registration, path reconciliation, root CI, manual release
+workflow, source/package links, local checks and import provenance verification.
+Legacy package feed settings remain a fallback; no old feed branch was
+available to migrate, and no release was published. The source checkout's two
+untracked files were preserved.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Module quality/build/test | PASS | `./scripts/quality-gate.sh` from module root; complete .NET solution checks passed, with 12 pre-existing warnings and 0 errors. |
+| Package API, audit and consumer conformance | PASS | `./scripts/check-public-api.sh`, `./scripts/audit-packages.sh` (`AUDIT_STATUS=VERIFIED`), and `./scripts/conformance.sh`. |
+| UI distribution and Forge Governance conformance | PASS | `./scripts/test-ui-distribution.sh` (19 cases); Workspace Governance UI conformance (61/61) and module path tests (3/3). |
+| Import provenance | PASS | `python3 scripts/check-dotnet-platform-libs-import.py` verified 1,604 source files and 38 source-only commits; focused import tests 10/10. Workspace Governance importer verified 400 source paths, 31 adaptations, 19 additions and six source-only commits. |
+| OpenSpec and whitespace | PASS | Name preflight; strict validation 120/120 after archive; `git diff --check` and staged diff check. Canonical `dotnet-platform-libs-monorepo` spec promoted; archived at `openspec/changes/archive/2026-10-19-forge-dotnet-platform-libraries-monorepo/`. |
+| Forge Gate | PASS | Root dry-run resolved all eight required checks with none unbound. Bounded full Gate passed all eight at revision `a314a503bf4b`, observed `2026-10-19T03:00:48Z`; source-size evaluated 430/430 candidates under 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
+
+Implementation/archive commit: `aba25cf` (`feat: import .NET platform libraries module`), with source revision `d11fd9b41e48d966f5f807f0087b769ff01214e5` preserved as its second parent. No source checkout was modified; no package was published and nothing was pushed. Next roadmap item: `forge-rust-platform-libraries-monorepo`.
 
 ### `forge-multiservice-local-runtime` implemented and archived (2026-10-19)
 

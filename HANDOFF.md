@@ -1,5 +1,7 @@
 # Forge handoff
 
+current_spec: forge-origin-repository-retirement
+
 ## Latest delivery
 
 ### `forge-developer-workflow-facade` implemented and verified (2026-10-19)

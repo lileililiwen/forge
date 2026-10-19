@@ -2,6 +2,35 @@
 
 ## Latest delivery
 
+### `forge-developer-workflow-facade` implemented and verified (2026-10-19)
+
+Forge now exposes `forge module list` and `forge module verify <ID>` for
+declared modules directly under the source checkout's `modules/` directory.
+Discovery validates `.project.json` identities, required stack/profile data,
+Gate declarations, unique IDs and canonical path containment. Verification
+resolves an exact ID and delegates to the existing Gate handler, preserving
+its profiles, dry-run, timeout, evidence and exit behavior. The command
+catalog lists the new group and subcommands as CLI-only; no browser execution,
+new persistence, sibling lookup, hosted CI, publish or deploy behavior was
+added. The catalog is intentionally available only from a Forge source
+checkout containing its module directories.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Module discovery and CLI contracts | PASS, 8/8 | `cargo test --bin forge cli::module::tests -- --test-threads=1` (4/4) and `cargo test --test module_workflow_contract -- --test-threads=1` (4/4): sorted discovery, undeclared folders, malformed/duplicate/missing declarations, symlink escape, executable-relative lookup, JSON/NDJSON, unknown ID refusal and dry-run non-persistence. |
+| Command catalog and affected web contracts | PASS, 30/30 | Catalog path unit test (1/1), `forge_web_command_catalog_contract` (9/9), `web_agent_identity_readonly_contract` (10/10) and `web_release_deploy_history_contract` (10/10). The three new rows are CLI-only and top-level help coverage remains exhaustive. |
+| Workspace suite and format | PASS | `scripts/check-tests.sh` completed through the workspace test targets, Python suite and both module import verifiers without reported failures. Rustfmt `--check` passed on every changed Rust source/test file. |
+| CLI behavior | PASS | Manual human/JSON listing returned the same three sorted module IDs; `forge module verify rust-platform-libs --dry-run --profile fast` rehearsed the existing fast Gate plan without persistence. A real fast module verification passed and persisted module-scoped evidence. |
+| OpenSpec and whitespace | PASS | Name preflight; `openspec validate --all --strict --no-interactive` passed 122/122 with the active change; selected status/instructions complete; `git diff --check` passed. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. Full Gate passed all eight against the active worktree at pre-commit revision `70bc24c5dd8a`, observed `2026-10-19T04:57:28Z`; source-size evaluated 431/431 candidates under 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
+
+Archived at `openspec/changes/archive/2026-10-19-forge-developer-workflow-facade/`.
+Roadmap order 13 is complete; order 14, `forge-origin-repository-retirement`,
+is next to author as an OpenSpec change. Implementation/archive commit:
+`d385364` (`feat: add local module workflow facade`). No active OpenSpec
+change remains. No sibling repository or remote repository state was changed,
+and nothing was published or pushed.
+
 ### `forge-rust-platform-libraries-monorepo` implemented and archived (2026-10-19)
 
 Imported the committed Rust platform libraries source at

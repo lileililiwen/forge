@@ -914,6 +914,37 @@ Optional ASP.NET Core host adapter. Depends on `Platform.Identity.Contracts` and
 - `AddPlatformIdentityLifecycle(IServiceCollection)` — registers the `IIdentityLifecycleCoordinator` composition, the default `DefaultRefreshTokenService`, and a `MissingRefreshTokenService` / `MissingPasswordRecoveryService` / `MissingTwoFactorService` / `MissingImpersonationService` for any contract the application has not yet wired. The extension throws when the application calls a refresh-token method without an `IRefreshTokenStore`.
 - `MapPlatformRefreshTokenRotation()` / `MapPlatformRefreshTokenRevocation()` / `MapPlatformPasswordRecoveryInitiation()` / `MapPlatformPasswordRecoveryCompletion()` / `MapPlatformTwoFactorChallenge()` / `MapPlatformTwoFactorVerification()` / `MapPlatformImpersonationStart()` / `MapPlatformImpersonationEnd()` — minimal-API helpers that route the lifecycle operations to the registered services. The helpers reuse the consumer's authentication scheme and claim projection; they never replace them.
 
+## Platform.Identity.OpenIdConnect.AspNetCore
+
+Opt-in ASP.NET Core OpenID Connect sign-in adapter. Depends on `Platform.Identity.Contracts`, the `Microsoft.AspNetCore.App` framework reference, and the Microsoft-maintained `Microsoft.AspNetCore.Authentication.OpenIdConnect` package; no vendor SDK. The adapter owns scheme registration and callback validation only: application users, enrollment, sessions, roles and permissions stay with the application.
+
+### Registration
+
+- `AddPlatformOpenIdConnect(Action<PlatformOpenIdConnectOptions>)` / `AddPlatformOpenIdConnect(PlatformOpenIdConnectOptions)` — explicit opt-in. The package is never registered through `AddPlatformAspNetCore`, and an application that does not call it keeps its local authentication unchanged.
+- `PlatformOpenIdConnectOptions` — `Issuer` (absolute HTTPS authority, equal to the discovery issuer), `ClientId`, `CallbackPath`, `SignInScheme` (the application's own cookie scheme), `Scopes` (explicit allowlist that must contain `openid`), `ClientAuthentication`, `ClientSecretReference`, `AllowInsecureHttpIssuer`, `RoleClaimType`, `ClockSkew`, `StateLifetime`, `IdentityResolution`, `SchemeName`, `BackchannelHttpHandler`, and `ConfigureEvents`.
+- Startup validation refuses the scheme when the issuer, client, callback, scope allowlist, or secret reference is missing or unsafe. A plain HTTP issuer is refused unless it is a loopback host and `AllowInsecureHttpIssuer` is set.
+
+### Protocol posture
+
+- Authorization code flow with PKCE (`S256`), `state` and `nonce` validation, discovery issuer, signature, audience, redirect URI, and token time bounds checked before sign-in.
+- `SaveTokens` stays off, inbound claim mapping stays off, and the user-info endpoint is not called.
+- The callback state is one-use: a replayed callback is rejected before the authorization code is exchanged.
+- Provider role claims are removed from the validated principal unless the application names a `RoleClaimType`, so an external role grants no local permission by default.
+
+### Application ownership
+
+- `IPlatformOpenIdConnectIdentityResolver` — the application's own seam. With `IdentityResolution = Required` the adapter calls the resolver and fails the sign-in when the application denies the identity or reports a conflict. The package contains no user table, migration, session store, or automatic enrollment.
+- `PlatformOpenIdConnectExternalIdentity` / `PlatformOpenIdConnectPrincipal.TryGetExternalIdentity(...)` — the validated `(issuer, subject)` pair. The ASP.NET Core handler removes the protocol claims such as `iss` from the signed-in principal, so the adapter stores the validated issuer and subject in the ticket properties.
+
+### Failures
+
+- `PlatformOpenIdConnectException` carries a `PlatformOpenIdConnectFailureKind` (`InvalidConfiguration`, `InvalidResponse`, `AccessDenied`, `ProviderUnavailable`, `ApplicationMapping`) and a stable reason code. The message never carries a code, token, secret, or raw claim value.
+- A transport failure or a provider server error is reported as `ProviderUnavailable` and never mutates a local identity.
+
+### Secrets
+
+- `ClientSecretReference` holds a reference, never a value: `config:Section:Key` reads the application's configuration and `env:VARIABLE_NAME` reads the environment. `PlatformOpenIdConnectSecretResolver` implements both, and the adapter refuses to enable a confidential client whose reference cannot be resolved.
+
 ## Platform.Identity.EntityFrameworkCore
 
 Optional schema-independent EF Core identity store contracts. Depends on `Platform.Identity.Contracts` and `Platform.Persistence.EfCore`; references `Microsoft.EntityFrameworkCore`. No platform user entity, schema, migration, or business relationship is supplied.

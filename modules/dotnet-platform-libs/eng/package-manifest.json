@@ -770,6 +770,28 @@
       "version": "0.1.0"
     },
     {
+      "description": "Opt-in ASP.NET Core OpenID Connect sign-in adapter with application-owned users.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Identity.OpenIdConnect.AspNetCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.AspNetCore.Authentication.OpenIdConnect",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Identity.OpenIdConnect.AspNetCore/Platform.Identity.OpenIdConnect.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
       "description": "Deterministic identity and authorization test providers.",
       "frameworkReferences": [],
       "isPackable": true,

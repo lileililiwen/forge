@@ -6,6 +6,11 @@ notes for breaking changes.
 
 ## Unreleased
 
+- Added `Platform.Identity.OpenIdConnect.AspNetCore`: an opt-in ASP.NET Core
+  OpenID Connect adapter with authorization code + PKCE, one-use state, strict
+  issuer/audience/signature/nonce validation, redacted failure classification, and
+  an application-owned identity resolver. No user table, no automatic enrollment,
+  and no vendor SDK.
 - Added `Platform.Identity.Contracts`, `Platform.Identity.AspNetCore`, and
   `Platform.Identity.Testing` for the identity lifecycle contracts (refresh
   rotation, password recovery, two-factor, impersonation).

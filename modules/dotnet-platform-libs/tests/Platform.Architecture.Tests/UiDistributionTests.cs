@@ -317,10 +317,12 @@ public sealed class UiDistributionTests
         // claim, not a statement about the size of the platform, so it moves when
         // a different capability adds a package. platform-build-policy-package
         // added src/Platform.Build (a build-only policy package, no assembly and
-        // no references), and later capabilities took the manifest to 78; the
+        // no references), later capabilities took the manifest to 78, and
+        // project-oidc-auth-adoption added
+        // src/Platform.Identity.OpenIdConnect.AspNetCore, taking it to 80; the
         // assertions below are what actually pin the UI capability's blast radius.
         var manifest = JsonDocument.Parse(File.ReadAllText(Path("eng/package-manifest.json"))).RootElement;
-        Assert.Equal(79, manifest.GetProperty("packages").GetArrayLength());
+        Assert.Equal(80, manifest.GetProperty("packages").GetArrayLength());
 
         var razor = manifest.GetProperty("packages").EnumerateArray()
             .Single(package => package.GetProperty("packageId").GetString() == "Platform.UI.Razor");

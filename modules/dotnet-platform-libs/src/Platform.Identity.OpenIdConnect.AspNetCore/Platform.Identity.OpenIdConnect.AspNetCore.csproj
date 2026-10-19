@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Opt-in ASP.NET Core OpenID Connect sign-in adapter with application-owned users.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+    <ProjectReference Include="../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj" />
+  </ItemGroup>
+</Project>

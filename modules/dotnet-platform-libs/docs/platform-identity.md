@@ -44,6 +44,16 @@ Applications provide their own persistence through `AddPlatformIdentityCredentia
 
 When an application selects JWT authentication it calls `AddPlatformIdentityJwt(o => { o.Enabled = true; ... })`. On host startup the platform validates that `SigningKey`, `Issuer`, and `Audience` are present and fails fast with a secret-free message when configuration is missing. `PlatformIdentityJwtOptions.GetDiagnosticName()` returns a redacted view for logs and health surfaces that never includes the signing key.
 
+## OpenID Connect sign-in
+
+`Platform.Identity.OpenIdConnect.AspNetCore` is a separate, opt-in adapter. An application calls `AddPlatformOpenIdConnect(...)` with its own issuer, client id, callback path, sign-in scheme, and scope allowlist; an application that does not call it keeps its local authentication unchanged and gains no OIDC scheme, route, or configuration requirement.
+
+The adapter owns the scheme registration and the callback validation only: authorization code with PKCE, one-use state, discovery issuer, signature, audience, redirect URI, nonce, and token time bounds. Provider role claims are removed from the validated principal unless the application names a `RoleClaimType`, so an external role grants no local permission by default.
+
+Application users, enrollment, sessions, roles, and permissions stay with the application. The adapter ships no user table, migration, or session store, and it never creates or links an identity: the application resolves the validated `(issuer, subject)` pair through its own store, either by registering an `IPlatformOpenIdConnectIdentityResolver` or by reading the identity that the adapter stores in the ticket properties. A confidential client names a secret *reference* (`config:Section:Key` or `env:VARIABLE_NAME`); the adapter never holds a secret value in its options and never logs one.
+
+Failures arrive as a `PlatformOpenIdConnectException` with a classified kind (`InvalidConfiguration`, `InvalidResponse`, `AccessDenied`, `ProviderUnavailable`, `ApplicationMapping`) and a stable reason code. The message never carries a code, token, secret, or raw claim value.
+
 ## Migration from the starter Identity module
 
 - Register `AddPlatformIdentity()` before endpoint mapping; keep the application's own authentication scheme and token issuance unchanged.

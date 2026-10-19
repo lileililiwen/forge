@@ -57,6 +57,7 @@ public class DependencyDirectionTests
         "src/Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj",
         "src/Platform.Identity.EntityFrameworkCore/Platform.Identity.EntityFrameworkCore.csproj",
         "src/Platform.Identity.Testing/Platform.Identity.Testing.csproj",
+        "src/Platform.Identity.OpenIdConnect.AspNetCore/Platform.Identity.OpenIdConnect.AspNetCore.csproj",
         "src/Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj",
         "src/Platform.Tenant.Lifecycle/Platform.Tenant.Lifecycle.csproj",
         "src/Platform.Tenant.Lifecycle.Testing/Platform.Tenant.Lifecycle.Testing.csproj",
@@ -113,6 +114,7 @@ public class DependencyDirectionTests
         "Platform.Persistence.EfCore.Tests",
         "Platform.Persistence.Postgres.Tests",
         "Platform.Identity.Tests",
+        "Platform.Identity.OpenIdConnect.AspNetCore.Tests",
         "Platform.Admin.Tests",
         "Platform.Billing.Tests",
         "Platform.Billing.ProviderAdapters.Tests",
@@ -357,6 +359,12 @@ public class DependencyDirectionTests
             // out of a package that four repositories consume.
             .Where(p => !(relativePath.Contains("Platform.Testing.AspNetCore", StringComparison.OrdinalIgnoreCase)
                 && p.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase)))
+            // The ASP.NET Core OpenID Connect handler ships as its own Microsoft package
+            // and is not part of the shared framework, so the opt-in OIDC adapter
+            // references exactly that package. The exact set is pinned by
+            // Platform_Identity_OpenIdConnect_AspNetCore_uses_only_the_microsoft_openidconnect_package.
+            .Where(p => !(relativePath.Contains("Platform.Identity.OpenIdConnect.AspNetCore", StringComparison.OrdinalIgnoreCase)
+                && p.Equals("Microsoft.AspNetCore.Authentication.OpenIdConnect", StringComparison.OrdinalIgnoreCase)))
             .ToArray();
 
         Assert.True(
@@ -756,6 +764,21 @@ public class DependencyDirectionTests
     }
 
     [Fact]
+    public void Platform_Identity_OpenIdConnect_AspNetCore_references_only_identity_contracts()
+    {
+        var references = ReadProjectReferences("src/Platform.Identity.OpenIdConnect.AspNetCore/Platform.Identity.OpenIdConnect.AspNetCore.csproj");
+        Assert.Single(references);
+        Assert.Contains("Platform.Identity.Contracts", references, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Platform_Identity_OpenIdConnect_AspNetCore_uses_only_the_microsoft_openidconnect_package()
+    {
+        var packages = ReadPackageReferences("src/Platform.Identity.OpenIdConnect.AspNetCore/Platform.Identity.OpenIdConnect.AspNetCore.csproj");
+        Assert.Equal(new[] { "Microsoft.AspNetCore.Authentication.OpenIdConnect" }, packages);
+    }
+
+    [Fact]
     public void Platform_Identity_Testing_references_only_identity_contracts_and_authorization()
     {
         var references = ReadProjectReferences("src/Platform.Identity.Testing/Platform.Identity.Testing.csproj");
@@ -873,6 +896,7 @@ public class DependencyDirectionTests
             if (project.EndsWith("Platform.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Web.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Identity.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
+                || project.EndsWith("Platform.Identity.OpenIdConnect.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Admin.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Webhooks.AspNetCore.csproj", StringComparison.OrdinalIgnoreCase)
                 || project.EndsWith("Platform.Web.Cors.csproj", StringComparison.OrdinalIgnoreCase)

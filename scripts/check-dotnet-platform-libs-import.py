@@ -91,6 +91,18 @@ WHITESPACE_ONLY_ADAPTATIONS = {
     b"openspec/specs/web-composition/spec.md",
 }
 ADAPTED_SOURCE_PATHS = WHITESPACE_ONLY_ADAPTATIONS | {
+    # The opt-in ASP.NET Core OpenID Connect adapter
+    # (`project-oidc-auth-adoption`). The module is the maintained source
+    # after the import, so the package, its tests, the promoted canonical spec
+    # and the module records that describe them carry the change that the
+    # import commit did not contain.
+    b"CHANGELOG.md",
+    b"Directory.Packages.props",
+    b"Platform.sln",
+    b"docs/packages.md",
+    b"docs/platform-identity.md",
+    b"eng/package-manifest.json",
+    b"tests/Platform.Architecture.Tests/UiDistributionTests.cs",
     b".project.json",
     b".ai-gate/gate.yaml",
     b"Directory.Build.props",
@@ -102,7 +114,38 @@ ADAPTED_SOURCE_PATHS = WHITESPACE_ONLY_ADAPTATIONS | {
     b"tests/scripts/test_consumer_nuget.py",
     *MOVED_PATHS,
 }
-ADDED_DESTINATION_PATHS: set[bytes] = set()
+ADDED_DESTINATION_PATHS: set[bytes] = {
+    # Per-project local files that the sibling checkout kept untracked and
+    # that the module owns now that the source lives in Forge.
+    b"modules/dotnet-platform-libs/driftwatch.toml",
+    b"modules/dotnet-platform-libs/verify-local.sh",
+    # The opt-in ASP.NET Core OpenID Connect adapter package, its tests and
+    # the promoted canonical spec, added by `project-oidc-auth-adoption`.
+    b"modules/dotnet-platform-libs/openspec/changes/archive/2026-10-19-project-oidc-auth-adoption/design.md",
+    b"modules/dotnet-platform-libs/openspec/changes/archive/2026-10-19-project-oidc-auth-adoption/proposal.md",
+    b"modules/dotnet-platform-libs/openspec/changes/archive/2026-10-19-project-oidc-auth-adoption/specs/project-oidc-auth-adoption/spec.md",
+    b"modules/dotnet-platform-libs/openspec/changes/archive/2026-10-19-project-oidc-auth-adoption/tasks.md",
+    b"modules/dotnet-platform-libs/openspec/specs/project-oidc-auth-adoption/spec.md",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/Platform.Identity.OpenIdConnect.AspNetCore.csproj",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformIdentityOpenIdConnectAssemblyMarker.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectBackchannelHandler.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectEventBinder.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectFailures.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectIdentityResolver.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectOptions.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectOptionsValidator.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectSecretResolver.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectServiceCollectionExtensions.cs",
+    b"modules/dotnet-platform-libs/src/Platform.Identity.OpenIdConnect.AspNetCore/PlatformOpenIdConnectStateReplayGuard.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/LocalOidcTestIssuer.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/OidcTestApp.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests.csproj",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/PlatformOpenIdConnectCallbackTests.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/PlatformOpenIdConnectOptionsTests.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/PlatformOpenIdConnectOwnershipTests.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/PlatformOpenIdConnectSecretResolverTests.cs",
+    b"modules/dotnet-platform-libs/tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests/PlatformOpenIdConnectStateReplayGuardTests.cs",
+}
 
 
 def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:

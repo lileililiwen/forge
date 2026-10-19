@@ -31,6 +31,7 @@ fn module_list_uses_executable_checkout_and_returns_sorted_modules() {
         "IDs are sorted: {ids:?}"
     );
     assert!(ids.contains(&"dotnet-platform-libs"));
+    assert!(ids.contains(&"identity-providers"));
     assert!(ids.contains(&"rust-platform-libs"));
     assert!(ids.contains(&"workspace-governance"));
 }
@@ -45,10 +46,11 @@ fn module_list_ndjson_emits_one_record_per_module() {
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).expect("one JSON record per line"))
         .collect::<Vec<_>>();
-    assert_eq!(records.len(), 3);
+    assert_eq!(records.len(), 4);
     assert_eq!(records[0]["id"], "dotnet-platform-libs");
-    assert_eq!(records[1]["id"], "rust-platform-libs");
-    assert_eq!(records[2]["id"], "workspace-governance");
+    assert_eq!(records[1]["id"], "identity-providers");
+    assert_eq!(records[2]["id"], "rust-platform-libs");
+    assert_eq!(records[3]["id"], "workspace-governance");
 }
 
 #[test]

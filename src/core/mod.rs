@@ -232,6 +232,9 @@ pub enum ForgeError {
     #[error("identity invalid: {reason}")]
     IdentityInvalid { reason: String },
 
+    #[error("auth setup refused: {reason}")]
+    AuthSetupRefused { reason: String },
+
     #[error("identity auth failed: {reason}")]
     IdentityAuthFailed { reason: String },
 
@@ -519,6 +522,7 @@ impl ForgeError {
             ForgeError::ProcedureBypassRefused { .. } => "procedure-bypass-refused",
             ForgeError::ProcedureRunFailed { .. } => "procedure-run-failed",
             ForgeError::IdentityInvalid { .. } => "identity-invalid",
+            ForgeError::AuthSetupRefused { .. } => "auth-setup-refused",
             ForgeError::IdentityAuthFailed { .. } => "identity-auth-failed",
             ForgeError::IdentitySessionExpired { .. } => "identity-session-expired",
             ForgeError::IdentitySessionNotFound { .. } => "identity-session-not-found",

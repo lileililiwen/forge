@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "identity-providers",
+  "kind": "rust-platform",
+  "role": "platform",
+  "stack": "rust",
+  "profile": "rust-platform",
+  "lifecycle": "active",
+  "verification": {
+    "command": "cargo test --workspace",
+    "gate_runtime": "forge",
+    "evidence_status": "implemented"
+  },
+  "deployment": {
+    "deployable": false,
+    "jenkins_job": null,
+    "compose_file": null
+  },
+  "discoverability": {
+    "description": "Replaceable identity-provider packs that give a generated project its own end-user sign-in population. The packs are independent processes behind the forge-identity-provider/1.0 JSON-lines contract, so no provider vendor is bound into Forge Core or into an application.",
+    "keywords": [
+      "identity",
+      "oidc",
+      "keycloak",
+      "supabase",
+      "provider pack",
+      "provider neutral",
+      "opt in"
+    ],
+    "topics": [
+      "identity",
+      "oidc",
+      "provider-pack",
+      "provider-neutral",
+      "replaceable",
+      "opt-in",
+      "end-user-auth"
+    ],
+    "audience": [
+      "application teams",
+      "platform engineers"
+    ],
+    "use_cases": [
+      "give a generated project its own end-user sign-in population",
+      "trial a local identity provider without binding a vendor",
+      "replace one identity provider pack with another without touching the application"
+    ],
+    "search_phrases": [
+      "replaceable identity provider packs",
+      "local keycloak sign-in for a generated project",
+      "provider neutral end user authentication"
+    ],
+    "homepage": "https://github.com/lileililiwen/forge/tree/main/modules/identity-providers",
+    "license_spdx": "MIT",
+    "visibility": "private"
+  }
+}

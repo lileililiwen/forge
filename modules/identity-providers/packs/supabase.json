@@ -1,0 +1,7 @@
+{
+  "id": "supabase",
+  "description": "An isolated Supabase project that the application already owns.",
+  "modes": ["isolated-project"],
+  "executable": "../target/release/supabase-pack",
+  "enabled": true
+}

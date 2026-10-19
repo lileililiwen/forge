@@ -196,10 +196,10 @@ pub(super) mod tests {
 
     #[test]
     fn catalog_covers_every_clap_path() {
-        // The row count equals the 252 user-facing Clap paths (including the
+        // The row count equals the 257 user-facing Clap paths (including the
         // `use` and `module` facades, excluding the hidden engine dispatch),
         // plus the explicit top-level `help` row.
-        assert_eq!(rows().len(), 253);
+        assert_eq!(rows().len(), 258);
         assert!(rows().iter().any(|row| row.id == "help"));
     }
 

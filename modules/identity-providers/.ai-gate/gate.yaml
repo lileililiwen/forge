@@ -1,0 +1,24 @@
+version: 1
+runtime: forge
+profile: rust-platform
+rule_pack: workspace-governance@1
+checks:
+  repository: true
+  format: true
+  build: true
+  tests: true
+  security: true
+  declared-verification: true
+blocking:
+  - FAIL
+  - REVIEW_REQUIRED
+
+commands:
+  # The module is its own Cargo workspace, so every command runs inside it.
+  repository: 'git diff --check'
+  format: 'cargo fmt --all --check'
+  build: 'cargo build --workspace'
+  tests: 'cargo test --workspace'
+  security: 'cargo audit'
+  # Generated from .project.json verification.command: cargo test --workspace.
+  declared-verification: 'cargo test --workspace'

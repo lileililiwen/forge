@@ -1,0 +1,16 @@
+[package]
+name = "supabase-pack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The Supabase identity provider pack for the forge-identity-provider/1.0 contract."
+
+[[bin]]
+name = "supabase-pack"
+path = "src/main.rs"
+
+[dependencies]
+forge-identity-provider.workspace = true
+serde.workspace = true
+serde_json.workspace = true

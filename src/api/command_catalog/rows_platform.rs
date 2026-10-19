@@ -284,6 +284,50 @@ impl CatalogBuilder {
         );
         self.group(
             None,
+            "auth",
+            "Prepare the end-user identity of one project through a replaceable identity provider pack.",
+            Identity,
+            Project,
+        );
+        self.cli_only(
+            Some("auth"),
+            "setup",
+            "Prepare the end-user identity of one project through a provider pack; without `--confirm` the plan is only previewed and nothing is written.",
+            Identity,
+            Project,
+            LocalWrite,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.group(
+            Some("auth"),
+            "provider",
+            "Inspect the installed identity provider packs.",
+            Identity,
+            Forge,
+        );
+        self.cli_only(
+            Some("auth.provider"),
+            "list",
+            "List the installed identity provider packs with their modes and whether their executables are present.",
+            Identity,
+            Forge,
+            Read,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.cli_only(
+            Some("auth.provider"),
+            "inspect",
+            "Inspect one installed identity provider pack.",
+            Identity,
+            Forge,
+            Read,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.group(
+            None,
             "api",
             "Serve the optional HTTP transport over Core on a loopback listener.",
             Transports,

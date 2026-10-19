@@ -1,0 +1,7 @@
+{
+  "id": "keycloak-local",
+  "description": "Local Keycloak realms, one per project, on a container runtime.",
+  "modes": ["local-loopback-http"],
+  "executable": "../target/release/keycloak-pack",
+  "enabled": true
+}

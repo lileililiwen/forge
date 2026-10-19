@@ -13,7 +13,9 @@ use forge::gate::GateProfile;
 use forge::registry::default_registry_path;
 
 use cli::agent::cmd_agent;
+use cli::auth::cmd_auth;
 use cli::cap::cmd_cap;
+use cli::commands::AuthCommands;
 use cli::commands::{
     AgentCommands, CapCommands, ClassifyCommands, ConcernCommands, ContractCommands,
     DeliveryCommands, DocsCommands, GovernanceCommands, GraduationCommands, IntentCommands,
@@ -360,6 +362,11 @@ enum Commands {
     Identity {
         #[command(subcommand)]
         command: IdentityCommands,
+    },
+    /// Prepare the end-user identity of one project through an identity provider pack.
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommands,
     },
     /// Inspect the existing content / analytics providers configured for a project and aggregate timestamped project metrics.
     Analytics {
@@ -876,6 +883,7 @@ fn main() -> ExitCode {
         Commands::Intent { command } => cmd_intent(&db_path, command, cli.format),
         Commands::Procedure { command } => cmd_procedure(&db_path, command, cli.format),
         Commands::Identity { command } => cmd_identity(&db_path, command, cli.format),
+        Commands::Auth { command } => cmd_auth(command, cli.format),
         Commands::Analytics { command } => cmd_analytics(&db_path, command, cli.format),
         Commands::Api { command } => cmd_api(&db_path, command, cli.format),
         Commands::Web { command } => cmd_web(command, cli.format),

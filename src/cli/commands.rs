@@ -773,3 +773,55 @@ pub(crate) enum CapCommands {
         action: String,
     },
 }
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum AuthCommands {
+    /// Prepare the end-user identity of one project through an identity provider pack.
+    Setup {
+        /// The project directory that holds the manifest (default: current directory).
+        #[arg(default_value = ".")]
+        project: String,
+        /// The provider pack to use. Defaults to the enabled local pack.
+        #[arg(long)]
+        provider: Option<String>,
+        /// The directory that holds the pack descriptors (default: the Forge checkout).
+        #[arg(long)]
+        packs: Option<String>,
+        /// The provider state directory that holds the local provider runtime.
+        /// Defaults to `<project>/.forge/identity`.
+        #[arg(long)]
+        state_dir: Option<String>,
+        /// The local port the provider runtime listens on.
+        #[arg(long, default_value_t = 18080)]
+        port: u64,
+        /// The OIDC callback path the provider redirects to.
+        #[arg(long, default_value = "/signin-oidc")]
+        callback_path: String,
+        /// Apply the plan. Without this flag the plan is only previewed.
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Inspect the installed identity provider packs.
+    Provider {
+        #[command(subcommand)]
+        command: AuthProviderCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum AuthProviderCommands {
+    /// List the installed identity provider packs.
+    List {
+        /// The directory that holds the pack descriptors (default: the Forge checkout).
+        #[arg(long)]
+        packs: Option<String>,
+    },
+    /// Inspect one identity provider pack.
+    Inspect {
+        /// The provider pack id.
+        provider: String,
+        /// The directory that holds the pack descriptors (default: the Forge checkout).
+        #[arg(long)]
+        packs: Option<String>,
+    },
+}

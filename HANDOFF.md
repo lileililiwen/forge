@@ -2,6 +2,28 @@
 
 ## Latest delivery
 
+### `provider-neutral-identity-policy` implemented and archived (2026-10-19)
+
+The workspace decision register made Zitadel the mandatory workspace SSO
+provider, which bound every internal product to one vendor. D9 supersedes D2
+without rewriting it: standard OIDC is the interoperability protocol,
+compatible providers are replaceable, no vendor is required by policy, shared
+workspace-administrator SSO stays internal-only and grants no authorization by
+itself, product end-user populations stay project-scoped by default, and the
+public static-site exclusion is retained.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Governance module tests | PASS | 1032 tests passed (`OK (skipped=2)`), including new D9 policy, D2 history-retention, supersede-transition, consumer-reference and human-view coverage tests. |
+| Policy audit | PASS | `python3 scripts/workspace_check.py --self-check` reported `errors=0 warnings=0`; `--decisions` lists D1–D9 with D2 `superseded` and D9 `accepted`. |
+| OpenSpec | PASS for this change | Change archived without `--skip-specs` at `modules/workspace-governance/openspec/changes/archive/2026-10-19-provider-neutral-identity-policy/`; the promoted `workspace-decision-register` spec gains REG-005 and refreshes REG-003 and REG-004, which still said "four decisions". Module validation is `Totals: 27 passed, 0 failed`; repository-wide validation is 125/125. |
+| Whitespace | PASS | `git diff --check` reported no findings. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. Full Gate passed all eight at `2026-10-19T12:14:18Z` against revision `79158c13cf3c`. Evidence is in `.forge/gate/forge/evidence.json`. |
+
+Implementation/archive commit: `16065bb`
+(`feat: record provider-neutral workspace identity policy (D9)`).
+This HANDOFF-only commit records completion. Nothing was pushed.
+
 ### `forge-web-module-workflow` implemented and archived (2026-10-19)
 
 Forge now shares validated discovery for its own declared source modules
@@ -6546,3 +6568,5 @@ Implementation/archive commit: `be806476a74aa2cf11cf9ae1508af7b426f6b0c9`
 (`feat: consolidate workspace governance into forge`). This HANDOFF-only
 commit records the completed import. Nothing was pushed. No active OpenSpec
 change remains, so there is no `current_spec` pointer.
+
+current_spec: project-oidc-auth-adoption

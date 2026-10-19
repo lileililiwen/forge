@@ -4,6 +4,42 @@
 
 current_spec: none
 
+## Completed: provider-neutral identity policy (archived 2026-10-19)
+
+`provider-neutral-identity-policy` is archived at
+`openspec/changes/archive/2026-10-19-provider-neutral-identity-policy/`.
+D2 made Zitadel the mandatory workspace SSO provider, so every internal
+product was bound to one vendor and the register had no way to describe a
+provider-neutral alternative. D9 supersedes D2 without rewriting it.
+
+**What landed.** `decisions.json` marks D2 `superseded` and keeps its id,
+title, date, decision text, `policy_boundary` and downstream references
+byte-identical, and appends D9: standard OIDC is the interoperability
+protocol, compatible providers are replaceable, no vendor is required by
+policy, shared workspace-administrator SSO stays internal-only and grants
+no authorization by itself, product end-user populations stay
+project-scoped by default, and the public static-site exclusion is
+retained. D9 names no migration of the operator's present deployment.
+`docs/toolchain-decisions.md` shows D2 as superseded, adds the D9 row and
+section, and states the D9 register rule. `tests/test_decisions.py`
+narrows the all-accepted assertion to the legal status set, adds a
+supersede-transition test, and covers D9's neutrality, population split,
+public-site exclusion, no-migration clause, consumer references and the
+human view's coverage of every register entry. The canonical
+`workspace-decision-register` spec gains REG-005 and refreshes REG-003
+and REG-004, which still said "four decisions".
+
+**Evidence.** 1032 module tests pass (`OK (skipped=2)`), the governance
+self-check reports `errors=0 warnings=0`, `workspace_check.py --decisions`
+lists D1–D9 with D2 `superseded` and D9 `accepted`, strict OpenSpec
+validation is `Totals: 27 passed, 0 failed`, `git diff --check` is clean,
+and the Forge gate passes all 8 checks at revision `79158c13cf3c`
+(observed `2026-10-19T12:14:18Z`; evidence in
+`.forge/gate/forge/evidence.json`).
+
+**Pointer.** `current_spec` returns to `none`; the module has no active
+change.
+
 ## Completed: interface declaration and boundary findings
 
 `interface-declaration-and-boundary-findings` is archived at

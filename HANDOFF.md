@@ -1,8 +1,41 @@
 # Forge handoff
 
-current_spec: forge-origin-repository-retirement
-
 ## Latest delivery
+
+### `forge-origin-repository-retirement` implemented and archived (2026-10-19)
+
+Forge now owns the consolidated developer tooling and the active consumer
+metadata for DriftWatchdog, cargo-audit-boost, cargo-matrix-boost,
+cargo-sonar, Workspace Governance, and the .NET/Rust platform libraries.
+Cargo/package metadata, Governance registration and taxonomy, clone guidance,
+the Governance provider preset, and runtime-template provenance point into
+Forge. The Governance provider no longer resolves a sibling checkout; a
+binary-only installation can supply an explicit compatible adapter. Existing
+DriftWatchdog release asset URLs remain documented as historical distribution
+locations.
+
+GitHub origin state was read back after the operations: `workspace-governance`
+and `dotnet-platform-libs` were active and were archived in this cycle;
+`driftwatchdog`, `cargo-audit-boost`, and `cargo-matrix-boost` were already
+archived; `cargo-sonar-boost` and `rust-platform-libs` were confirmed absent.
+No other remote repository was changed. The local Workspace Governance
+checkout remained clean. The .NET and Rust platform checkouts retained their
+pre-existing untracked `driftwatch.toml` and `verify-local.sh` files. Nothing was
+published or pushed.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Import provenance | PASS | Workspace Governance: 400 source paths, 33 declared adaptations and 19 additions; all 6 source-only commits remain ancestors. .NET: 1,604 source files and 38 source-only commits. Rust: 161 source files and 30 source-only commits. |
+| Consumer metadata and provider paths | PASS | New retirement contract (4/4); Governance provider contracts, cross-surface tests and preset contracts pass. Active registry, package, clone and provenance references resolve to Forge; the legacy-only provider candidate is refused. |
+| Build and tests | PASS | `cargo metadata --locked --offline --no-deps --format-version 1`, `cargo build --workspace --locked --offline`, `scripts/check-tests.sh`, and Workspace Governance `python3 -m unittest discover -s tests`. The pinned runtime-template digest was updated and its 8-test contract passes. |
+| OpenSpec and whitespace | PASS | Name preflight; strict validation passed 123/123; change archived without `--skip-specs`, canonical requirement promoted; `git diff --check` and changed Rust `rustfmt --check` passed. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. Full Gate passed all eight at revision `82bdd8b74855`, observed `2026-10-19T05:30:05Z`; source-size evaluated 431/431 candidates under 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
+
+Archived at `openspec/changes/archive/2026-10-19-forge-origin-repository-retirement/`.
+Roadmap orders 13 and 14 are complete. Implementation/archive commit:
+`48c7821` (`retire migrated origin repositories`). No active OpenSpec change
+remains, so there is no `current_spec` pointer. The following HANDOFF-only
+commit records this delivery; nothing was pushed.
 
 ### `forge-developer-workflow-facade` implemented and verified (2026-10-19)
 

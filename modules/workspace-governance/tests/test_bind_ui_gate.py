@@ -23,6 +23,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from bind_ui_gate import (  # noqa: E402
@@ -30,7 +31,7 @@ from bind_ui_gate import (  # noqa: E402
     BOUND,
     CHECK_ID,
     CONFLICT,
-    DEFAULT_COMMAND,
+    default_command,
     NO_MANIFEST,
     REFUSED,
     bind_repo,
@@ -40,6 +41,18 @@ from bind_ui_gate import (  # noqa: E402
     render_manifest,
     yaml_scalar,
 )
+
+# Imported after `bind_ui_gate`, which imports it in turn: the three
+# modules re-export one another's namespace, and the import order is what
+# keeps that cycle resolvable.
+import bind_gate_commands_discovery  # noqa: E402
+
+# A governance command in the shape the tool writes: repository-relative,
+# and reaching the governance module beside the repository. The path that
+# reaches the module is derived per repository; this is the sample shape
+# for the tests that exercise rendering and the command rules rather than
+# the derivation itself.
+SAMPLE_COMMAND = "python3 ../workspace-governance/scripts/ui_conformance.py ."
 
 RULE_PACK_MANIFEST = """version: 1
 runtime: driftwatchdog
@@ -81,6 +94,19 @@ class RepoCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.repo = self.tmp / "demo"
         (self.repo / ".ai-gate").mkdir(parents=True)
+        # The bound command reaches the governance module, and the path that
+        # reaches it is derived from where that module is. The fixture
+        # reproduces the real layout by placing the module beside the
+        # repository and pointing the lookup at it.
+        module = self.tmp / "workspace-governance"
+        (module / "scripts").mkdir(parents=True)
+        (module / "scripts" / "ui_conformance.py").write_text("# fixture\n", encoding="utf-8")
+        patcher = mock.patch.object(
+            bind_gate_commands_discovery, "GOVERNANCE_ROOT", module
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.command = default_command(self.repo)
         # The bound command reaches a sibling checkout, and that edge has to
         # be declared in the repository's own `.project.json`. The fixture
         # reproduces the real layout — every repository in this fleet carries
@@ -127,14 +153,17 @@ class ShapeTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+    def setUp(self):
+        self.command = SAMPLE_COMMAND
+
     def test_the_default_command_is_accepted(self):
-        self.assertEqual(command_problem(DEFAULT_COMMAND), "")
+        self.assertEqual(command_problem(self.command), "")
 
     def test_the_default_command_names_no_environment_variable(self):
-        self.assertNotIn("$", DEFAULT_COMMAND)
+        self.assertNotIn("$", self.command)
 
     def test_the_default_command_is_not_absolute(self):
-        self.assertFalse(DEFAULT_COMMAND.startswith("/"))
+        self.assertFalse(self.command.startswith("/"))
 
     def test_an_absolute_command_is_refused(self):
         self.assertIn("absolute", command_problem("/opt/check.py ."))
@@ -150,35 +179,38 @@ class CommandTests(unittest.TestCase):
 
 
 class RenderTests(unittest.TestCase):
+    def setUp(self):
+        self.command = SAMPLE_COMMAND
+
     def test_binds_both_entries(self):
-        after, status, added = render_manifest(RULE_PACK_MANIFEST, DEFAULT_COMMAND)
+        after, status, added = render_manifest(RULE_PACK_MANIFEST, self.command)
         self.assertEqual(status, BOUND)
         self.assertIn(f"  {CHECK_ID}: true\n", after)
-        self.assertIn(f"  {CHECK_ID}: {yaml_scalar(DEFAULT_COMMAND)}\n", after)
+        self.assertIn(f"  {CHECK_ID}: {yaml_scalar(self.command)}\n", after)
         self.assertEqual(set(added), {f"checks.{CHECK_ID}", f"commands.{CHECK_ID}"})
 
     def test_binds_into_an_existing_commands_block(self):
-        after, status, _ = render_manifest(MANIFEST_WITH_COMMANDS, DEFAULT_COMMAND)
+        after, status, _ = render_manifest(MANIFEST_WITH_COMMANDS, self.command)
         self.assertEqual(status, BOUND)
         self.assertIn("  tests: 'npm test'\n", after)
-        self.assertIn(f"  {CHECK_ID}: {yaml_scalar(DEFAULT_COMMAND)}\n", after)
+        self.assertIn(f"  {CHECK_ID}: {yaml_scalar(self.command)}\n", after)
 
     def test_the_second_render_is_a_byte_for_byte_no_op(self):
-        first, status, _ = render_manifest(RULE_PACK_MANIFEST, DEFAULT_COMMAND)
+        first, status, _ = render_manifest(RULE_PACK_MANIFEST, self.command)
         self.assertEqual(status, BOUND)
-        second, status, added = render_manifest(first, DEFAULT_COMMAND)
+        second, status, added = render_manifest(first, self.command)
         self.assertEqual(status, ALREADY_BOUND)
         self.assertEqual(first, second, "the second render must not change a byte")
         self.assertEqual(added, ())
 
     def test_a_foreign_manifest_is_refused(self):
-        after, status, _ = render_manifest(FOREIGN_MANIFEST, DEFAULT_COMMAND)
+        after, status, _ = render_manifest(FOREIGN_MANIFEST, self.command)
         self.assertEqual(status, REFUSED)
         self.assertEqual(after, FOREIGN_MANIFEST)
 
     def test_a_selection_of_false_is_a_conflict_and_is_not_flipped(self):
         text = RULE_PACK_MANIFEST.replace("  tests: true", "  tests: true\n  ui-conformance: false")
-        after, status, _ = render_manifest(text, DEFAULT_COMMAND)
+        after, status, _ = render_manifest(text, self.command)
         self.assertEqual(status, CONFLICT)
         self.assertEqual(after, text)
 
@@ -186,16 +218,16 @@ class RenderTests(unittest.TestCase):
         text = MANIFEST_WITH_COMMANDS.replace(
             "  tests: 'npm test'", "  tests: 'npm test'\n  ui-conformance: 'npm run ui'"
         )
-        after, status, _ = render_manifest(text, DEFAULT_COMMAND)
+        after, status, _ = render_manifest(text, self.command)
         self.assertEqual(status, CONFLICT)
         self.assertIn("ui-conformance: 'npm run ui'", after)
-        self.assertNotIn(DEFAULT_COMMAND, after)
+        self.assertNotIn(self.command, after)
 
     def test_comments_and_ordering_elsewhere_are_preserved(self):
         text = RULE_PACK_MANIFEST.replace(
             "blocking:", "# a hand-written comment\nblocking:"
         )
-        after, _status, _ = render_manifest(text, DEFAULT_COMMAND)
+        after, _status, _ = render_manifest(text, self.command)
         self.assertIn("# a hand-written comment", after)
         self.assertLess(after.index("blocking:"), after.index("commands:"))
 
@@ -282,9 +314,9 @@ class SiblingDeclarationTests(RepoCase):
                     "consumes": True,
                     "provider": "workspace-governance",
                     "mechanism": "sibling",
-                    "entry": DEFAULT_COMMAND,
+                    "entry": self.command,
                     "digest": "sha256:"
-                    + hashlib.sha256(DEFAULT_COMMAND.encode("utf-8")).hexdigest(),
+                    + hashlib.sha256(self.command.encode("utf-8")).hexdigest(),
                     "required": True,
                     "evidence_ref": ".ai-gate/gate.yaml",
                 }
@@ -337,7 +369,7 @@ class SiblingDeclarationTests(RepoCase):
                         "consumes": True,
                         "provider": "workspace-governance",
                         "mechanism": "sibling",
-                        "entry": DEFAULT_COMMAND,
+                        "entry": self.command,
                         "digest": "sha256:" + "a" * 64,
                         "required": True,
                         "evidence_ref": ".ai-gate/gate.yaml",

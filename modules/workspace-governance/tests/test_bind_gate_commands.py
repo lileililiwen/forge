@@ -72,6 +72,11 @@ from bind_gate_commands import (  # noqa: E402
     write_debt_record,
 )
 
+# Imported after `bind_gate_commands`, which imports it in turn: the three
+# modules re-export one another's namespace, and the import order is what
+# keeps that cycle resolvable.
+import bind_gate_commands_discovery  # noqa: E402
+
 # The manifest a fixture starts from. `checks:` is the only thing a test
 # varies about policy; everything else is fixed so a binding diff is readable.
 #
@@ -131,6 +136,24 @@ class RepoCase(unittest.TestCase):
         # A repository starts with a manifest declaring `build` and `tests`. A
         # test about a different selection calls `write_manifest` over the top.
         self.write_manifest()
+        # The governance checkers live in the module this tool lives in, so the
+        # path that reaches them is derived from where that module is. A
+        # fixture starts with no governance checkout reachable at all, which is
+        # the state a repository that is not next to one is in.
+        self.point_governance_root(self.tmp / "no-governance-module")
+
+    def point_governance_root(self, root: Path) -> None:
+        """Point the governance-checker lookup at `root`.
+
+        The checkers are the ones in this module, and the path that reaches
+        them is derived from where the module is. A fixture reproduces the real
+        layout by pointing the lookup at its own checkout.
+        """
+        patcher = mock.patch.object(
+            bind_gate_commands_discovery, "GOVERNANCE_ROOT", root
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     # --- fixture construction ------------------------------------
 
@@ -157,17 +180,18 @@ class RepoCase(unittest.TestCase):
     def write_sibling(self) -> Path:
         """A `workspace-governance` checkout beside the fixture repository.
 
-        Every repository in this fleet has the workspace checkers at
-        `../workspace-governance/scripts/…`, and that reachability is what
-        makes a concern bindable, so the fixture reproduces the real layout
-        rather than assuming it. Empty files: the binder checks that the path
-        exists, and no test here runs the checker.
+        The checkers live in the Forge-owned governance module, and the path
+        that reaches them is derived from where that module is. A fixture
+        reproduces the real layout by placing the module beside the repository
+        and pointing the lookup at it. Empty files: the binder checks that the
+        path exists, and no test here runs the checker.
         """
         sibling = self.repo.parent / "workspace-governance"
         for relative in ("workspace_check.py", "product_code_quality.py"):
             target = sibling / "scripts" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("# fixture\n", encoding="utf-8")
+        self.point_governance_root(sibling)
         return sibling
 
     def write_declaration(self, extra: dict | None = None) -> Path:
@@ -185,6 +209,7 @@ class RepoCase(unittest.TestCase):
     def forget_sibling(self) -> None:
         """Remove the sibling checkout, so no workspace checker is reachable."""
         shutil.rmtree(self.repo.parent / "workspace-governance", ignore_errors=True)
+        self.point_governance_root(self.tmp / "no-governance-module")
 
     # --- running the tool -----------------------------------------
 

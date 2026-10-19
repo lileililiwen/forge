@@ -759,9 +759,19 @@ class ConcernOutcome:
 GOVERNANCE_ROOT = Path(__file__).resolve().parents[1]
 
 
+def governance_root() -> Path:
+    """The directory that holds the workspace checkers.
+
+    That directory is this module: the checkers live next to this file. It is
+    read through a function rather than captured so a test can point it at a
+    fixture and exercise the unreachable-checker path.
+    """
+    return GOVERNANCE_ROOT
+
+
 def governance_prefix(repo: Path) -> str:
     """The repository-relative path that reaches this governance module."""
-    return Path(os.path.relpath(GOVERNANCE_ROOT, repo)).as_posix()
+    return Path(os.path.relpath(governance_root(), repo)).as_posix()
 
 
 # `workspace_check.py --root .. --project <this repository>` is passed the

@@ -500,17 +500,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    problem = command_problem(args.command)
-    if problem:
-        print(f"ui-gate-command-invalid: {problem}", file=sys.stderr)
-        return 2
-
     repo = args.repo.resolve()
     if not repo.is_dir():
         print(f"not a directory: {repo}", file=sys.stderr)
         return 2
 
-    outcome = bind_repo(repo, apply=args.apply, command=args.command)
+    command = args.command if args.command is not None else default_command(repo)
+
+    problem = command_problem(command)
+    if problem:
+        print(f"ui-gate-command-invalid: {problem}", file=sys.stderr)
+        return 2
+
+    outcome = bind_repo(repo, apply=args.apply, command=command)
 
     if args.json:
         print(
@@ -521,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
                     "detail": outcome.detail,
                     "wrote": outcome.wrote,
                     "added": list(outcome.added),
-                    "command": args.command,
+                    "command": command,
                 },
                 indent=2,
             )
@@ -534,7 +536,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{'':32} + {key}")
         print()
         print(f"mode:            {'APPLY' if args.apply else 'DRY RUN'}")
-        print(f"command:         {args.command}")
+        print(f"command:         {command}")
         print(f"repositories:    1")
 
     if outcome.status == BOUND:

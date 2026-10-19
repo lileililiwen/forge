@@ -57,6 +57,10 @@ ALLOWED_SOURCE_ADAPTATIONS = {
     b"scripts/bind_ui_gate.py",
     b"docs/toolchain-decisions.md",
     b"tests/test_decisions.py",
+    # The module's own gate manifest and the UI-gate binder test, both moved
+    # with the module into the Forge tree.
+    b".ai-gate/gate.yaml",
+    b"tests/test_bind_ui_gate.py",
 }
 WHITESPACE_ONLY_ADAPTATIONS = {
     b"MATURITY_PROGRESS_SUMMARY.md",

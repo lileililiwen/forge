@@ -31,4 +31,4 @@ commands:
   tests: 'cargo test --workspace'
   security: 'cargo audit'
   openspec_names: 'node scripts/check-openspec-change-names.mjs'
-  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project rust-platform-libs --json'
+  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root ../../.. --project rust-platform-libs --json'

@@ -107,6 +107,7 @@ ADAPTED_SOURCE_PATHS = WHITESPACE_ONLY_ADAPTATIONS | {
     b".ai-gate/gate.yaml",
     b"Directory.Build.props",
     b"README.md",
+    b"HANDOFF.md",
     b"docs/release-governance.md",
     b"eng/consumer/NuGet.config",
     b"scripts/test-workspace-bootstrap.sh",

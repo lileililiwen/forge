@@ -31,4 +31,4 @@ commands:
   tests: 'python3 -m unittest discover -s tests -v'
   product_quality: 'python3 scripts/product_code_quality.py .'
   security: 'pip-audit -r requirements-dev.txt'
-  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root .. --project workspace-governance --json'
+  governance-quality: 'python3 ../workspace-governance/scripts/workspace_check.py --root ../../.. --project workspace-governance --json'

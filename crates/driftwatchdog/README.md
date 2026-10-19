@@ -8,6 +8,8 @@ Driftwatchdog is a local-first, language-agnostic CLI for runtime failure memory
 
 Rust is Driftwatchdog's implementation language—not a restriction on the projects it monitors. Run Rust, Python, C#, JavaScript/TypeScript, Go, Java, Flutter, or any other command-line tool through the same interface.
 
+Ongoing source and maintenance live in the [Forge module](https://github.com/lileililiwen/forge/tree/main/crates/driftwatchdog). The former standalone repository is archived; its published release assets remain available for existing install commands as historical distribution artifacts.
+
 ## Why
 
 AI coding agents often rediscover the same failure because the project has no durable runtime memory. Driftwatchdog connects:
@@ -112,9 +114,9 @@ For Rust projects that already have a toolchain available, building from source 
 
 The local source checkout works the same way:
 
-    git clone https://github.com/lileililiwen/driftwatchdog
-    cd driftwatchdog
-    cargo install --path .
+    git clone https://github.com/lileililiwen/forge.git
+    cd forge
+    cargo install --path crates/driftwatchdog
 
 
 

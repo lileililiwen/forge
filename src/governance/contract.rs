@@ -8,8 +8,7 @@ pub const GOVERNANCE_CONTRACT_VERSION: &str = "0.1.0";
 
 pub const LOCAL_PROVIDER_ID: &str = "local";
 
-/// Known-provider id whose adapter location is packaged as a preset: a
-/// candidate below an explicitly supplied workspace root, never a guess.
+/// Known-provider id for the adapter packaged inside the Forge source tree.
 pub const WORKSPACE_GOVERNANCE_PROVIDER_ID: &str = "workspace-governance";
 
 /// Environment carrying the workspace root when `--workspace-root` is
@@ -17,15 +16,12 @@ pub const WORKSPACE_GOVERNANCE_PROVIDER_ID: &str = "workspace-governance";
 /// parent directories or the network for a provider.
 pub const WORKSPACE_ROOT_ENV: &str = "FORGE_WORKSPACE_ROOT";
 
-/// Packaged candidate relative to the workspace root. Live-verified
-/// 2026-09-24: the real sibling layout nests the checkout inside the
-/// portfolio it governs, so the packaged adapter lives at
-/// `<workspace-root>/workspace-governance/scripts/forge_governance_adapter.py`
-/// (the design's original `<root>/scripts/...` guess is disproved in
-/// `tests/fixtures/governance-audit/NOTES.md`). The root itself is the
-/// same value the adapter's own `WORKSPACE_ROOT` environment input takes.
+/// Packaged candidate relative to the explicitly supplied portfolio root.
+/// The source tree is nested at `<workspace-root>/forge/modules/` and the
+/// archived sibling checkout is never searched. The root itself is the same
+/// value the adapter's own `WORKSPACE_ROOT` environment input takes.
 pub(super) const WORKSPACE_GOVERNANCE_ADAPTER_RELPATH: &str =
-    "workspace-governance/scripts/forge_governance_adapter.py";
+    "forge/modules/workspace-governance/scripts/forge_governance_adapter.py";
 
 pub(super) const CONFIG_RELATIVE_PATH: &str = ".forge/providers.yaml";
 

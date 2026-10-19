@@ -5,11 +5,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lileililiwen/driftwatchdog.git"
+    "url": "https://github.com/lileililiwen/forge.git",
+    "directory": "crates/driftwatchdog/npm/driftwatchdog"
   },
-  "homepage": "https://github.com/lileililiwen/driftwatchdog#readme",
+  "homepage": "https://github.com/lileililiwen/forge/tree/main/crates/driftwatchdog/npm/driftwatchdog",
   "bugs": {
-    "url": "https://github.com/lileililiwen/driftwatchdog/issues"
+    "url": "https://github.com/lileililiwen/forge/issues"
   },
   "keywords": [
     "driftwatchdog",

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Paul"]
 description = "A blazing fast Cargo build performance profiling and metric tool."
+repository = "https://github.com/lileililiwen/forge"
+homepage = "https://github.com/lileililiwen/forge/tree/main/crates/cargo-audit-boost"
 
 [dependencies]
 # 1. CLI parsing

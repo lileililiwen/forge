@@ -13,13 +13,14 @@ source commits that were ahead of the origin's `main` branch at that time.
 They remain available in Forge's Git history. The source directory is ordinary
 tracked content; Forge does not use a Git submodule.
 
-The source import does not yet mean that all consumers are migrated. Forge's
-provider adapter, legacy project registry readers, vocabulary sync, pinned
-standard assets and generated concern shims still have sibling-layout
-compatibility references. Those are explicit follow-up work. The four tooling
-entries already moved under `forge/crates/` and the consolidated platform
-modules keep their project IDs and resolve to their in-tree declarations in
-the Workspace Governance portfolio registry. The path changes are recorded in
+Forge-owned consumers now resolve the provider adapter, project registry,
+vocabulary, pinned standards and generated concern shims from the in-tree
+module. The provider preset uses
+`forge/modules/workspace-governance/scripts/forge_governance_adapter.py` under
+an explicitly configured portfolio root; it does not consult the archived
+sibling checkout. The migrated tooling and platform modules retain their
+project IDs and resolve to Forge declarations in the Governance portfolio
+registry. Path reconciliation is recorded in
 `modules/workspace-governance/migration/forge-monorepo-path-reconciliation.json`.
 
 The imported module's Forge conformance work has split its large Python
@@ -30,9 +31,10 @@ the 1,000-line source-size baseline (`workspace_check.py` 731,
 adaptations and the corresponding added modules explicitly.
 
 The original source repository is archived. `modules/workspace-governance/`
-is the maintained copy; any required source change is made in Forge. Consumer
-portability remains separate work and does not change the origin's archive
-status.
+is the maintained copy; any required source change is made in Forge. Optional
+external products and binary-only Forge installations can provide an explicit
+adapter when the in-tree module is not present, but do not need a Governance
+checkout as a sibling dependency.
 
 Run `python3 scripts/check-workspace-governance-import.py` from the Forge root
 to compare imported paths, Git modes and blob hashes against the recorded

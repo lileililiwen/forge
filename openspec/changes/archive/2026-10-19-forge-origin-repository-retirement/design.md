@@ -75,6 +75,14 @@ Gate after the remote changes. If a check uses an origin checkout or remote
 source, identify and migrate that consumer before archiving; otherwise it
 blocks the archive operation.
 
+Forge-owned source and maintenance metadata must identify the maintained Forge
+tree: Cargo and npm repository URLs, project homepages/taxonomy, provider
+preset paths, copied-source provenance, and clone directions must not send
+maintainers to an archived origin. Preserve immutable release asset URLs used by existing installers;
+they are distribution endpoints for historical versions, not source-control
+or maintenance pointers. Historical archived OpenSpec documents and import
+records keep their original names and paths as provenance.
+
 ## Evidence and completion
 
 HANDOFF records the exact observation timestamp and per-repository state:

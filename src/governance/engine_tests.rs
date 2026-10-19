@@ -223,7 +223,7 @@ pub(super) mod tests {
         assert!(refusal.to_string().contains("cannot write adapter request"));
     }
 
-    /// Build `<root>/workspace-governance/scripts/forge_governance_adapter.py`
+    /// Build `<root>/forge/modules/workspace-governance/scripts/forge_governance_adapter.py`
     /// with the given executable state.
     fn staged_candidate(root: &Path, executable: bool) -> PathBuf {
         let candidate = root.join(WORKSPACE_GOVERNANCE_ADAPTER_RELPATH);

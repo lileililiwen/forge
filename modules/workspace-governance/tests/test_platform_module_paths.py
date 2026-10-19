@@ -11,6 +11,14 @@ MODULES_ROOT = FORGE_ROOT / "modules"
 
 
 class PlatformModulePathTests(unittest.TestCase):
+    def test_workspace_governance_project_path_resolves_to_its_forge_module(self):
+        project = next(item for item in self.registry["projects"] if item["id"] == "workspace-governance")
+        self.assertEqual(project["path"], "forge/modules/workspace-governance")
+        self.assertEqual(
+            WORKSPACE_ROOT / project["path"] / ".project.json",
+            MODULES_ROOT / "workspace-governance" / ".project.json",
+        )
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.registry = json.loads(

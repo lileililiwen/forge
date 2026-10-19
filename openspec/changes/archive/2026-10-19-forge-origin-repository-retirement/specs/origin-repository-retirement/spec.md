@@ -81,6 +81,37 @@ those checkouts. It SHALL exclude all non-allowlisted repositories.
 - **WHEN** a repository is not in the explicit migrated-origin allowlist
 - **THEN** it is recorded as out of scope and receives no archive request
 
+### Requirement: Keep active ownership pointers on Forge
+
+Forge-owned package metadata, project homepages, taxonomy entries, internal
+project-registry paths, provider preset paths, source provenance and
+maintainer clone directions SHALL identify the maintained source under the
+Forge repository after origin retirement. Links to immutable
+historical release assets MAY remain when existing installers depend on them;
+they SHALL NOT be described as the active source or maintenance location.
+Archived specifications and migration evidence SHALL retain original source
+identifiers as historical provenance.
+
+#### Scenario: A maintained metadata field points to an archived origin
+
+- **WHEN** a Cargo/npm repository field, project homepage, taxonomy entry,
+  provenance document or active clone instruction names a retired source
+- **THEN** it points to the corresponding Forge path and no longer directs
+  source maintenance to the archived origin
+
+#### Scenario: An installer requires an existing release asset URL
+
+- **WHEN** an active compatibility path downloads a previously published
+  artifact from an archived origin
+- **THEN** the asset URL remains usable and is documented as a historical
+  distribution location, separate from the Forge source location
+
+#### Scenario: Historical migration evidence names the source repository
+
+- **WHEN** archived specifications or provenance record the original source
+  identity or revision
+- **THEN** those immutable historical identifiers remain intact
+
 ### Requirement: Report a per-origin retirement result
 
 HANDOFF SHALL record the observation time, exact origin, outcome, provenance

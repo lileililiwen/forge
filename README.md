@@ -475,16 +475,17 @@ forge governance use workspace-governance . --adapter /path/to/adapter
 forge --format json governance status .
 ```
 
-`workspace-governance` is a known provider with a packaged adapter preset:
-`--workspace-root` (or `FORGE_WORKSPACE_ROOT`) names the workspace/portfolio
-root whose `workspace-governance/scripts/forge_governance_adapter.py` is the
-packaged adapter. Selection verifies the candidate is an existing executable
-regular file, refuses otherwise while naming the exact candidate path, and
-never searches parent directories or the network. The resolved adapter path
-and the workspace root are stored under `.forge/providers.yaml`, so later
-checks do not depend on the environment; the root is re-supplied to the
-adapter as `WORKSPACE_ROOT` exactly as the sibling documents its own
-invocation. An explicit `--adapter` always wins over the preset.
+`workspace-governance` is an optional provider backed by Forge's packaged
+module. `--workspace-root` (or `FORGE_WORKSPACE_ROOT`) names the workspace or
+portfolio root; the preset resolves only
+`forge/modules/workspace-governance/scripts/forge_governance_adapter.py`
+below that root. Selection verifies the candidate is an existing executable
+regular file, refuses otherwise while naming the exact path, and never
+searches parent directories, the archived sibling checkout, or the network.
+The resolved adapter path and workspace root are stored under
+`.forge/providers.yaml`, so later checks do not depend on environment changes;
+the root is passed to the adapter as `WORKSPACE_ROOT`. An explicit
+`--adapter` always wins over the preset.
 
 External providers use the versioned `0.1.0` JSON adapter contract and are
 optional. Provider failures are reported as `unavailable` or `incompatible`
@@ -492,15 +493,11 @@ observations and do not disable local Forge workflows. Provider selection is
 stored under `.forge/`, not in `forge.yaml`, and switching providers preserves
 the manifest and registry identity.
 
-Readiness boundary (sibling-owned): the sibling ships its packaged adapter
-without the execute bit (mode `100644` observed), so selecting the preset
-against a pristine sibling checkout is honestly refused as a non-executable
-candidate naming the exact path — the previous provider stays in force and
-local commands continue. Granting the bit is the sibling's action
-(`git update-index --chmod=+x scripts/forge_governance_adapter.py` in
-Workspace Governance); until then the explicit `--adapter` remedy carries
-any non-executable checkout. Forge never works around the refusal. See
-[provider evidence](docs/provider-evidence.md) for the live captures.
+The preset requires the Forge source module under the explicitly configured
+portfolio root. Binary-only installations without that source asset must use
+an explicit compatible `--adapter`; Forge does not search an archived
+Workspace Governance checkout. See [provider evidence](docs/provider-evidence.md)
+for the historical and current path evidence.
 
 ## Legacy checker protocol compatibility
 

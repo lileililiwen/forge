@@ -21,12 +21,12 @@ A cargo subcommand plugin (`cargo matrix-boost`) that checks, compiles, and runs
 
 1.  Clone this repository:
     ```bash
-    git clone https://github.com/lileililiwen/cargo-matrix-boost.git
-    cd cargo-matrix-boost
+    git clone https://github.com/lileililiwen/forge.git
+    cd forge
     ```
 2.  Install the binary locally:
     ```bash
-    cargo install --path .
+    cargo install --path crates/cargo-matrix-boost
     ```
 
 ---

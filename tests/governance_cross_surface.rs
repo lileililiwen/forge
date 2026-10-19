@@ -105,7 +105,8 @@ fn registered_project(db: &std::path::Path, dest: &std::path::Path, id: &str) {
 }
 
 fn stage_executable_fixture(root: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let candidate = root.join("workspace-governance/scripts/forge_governance_adapter.py");
+    let candidate =
+        root.join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
     std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
     std::fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -260,7 +261,7 @@ fn mcp_transport_shares_the_preset_resolved_observation() {
     stage_executable_fixture(workspace.path(), "adoption-gap.sh");
     let candidate = workspace
         .path()
-        .join("workspace-governance/scripts/forge_governance_adapter.py");
+        .join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
     forge::governance::save_provider_selection(
         dir.path(),
         "workspace-governance",

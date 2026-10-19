@@ -100,24 +100,20 @@ synthetic `__provider__` id and invent no registered project.
 
 `governance use workspace-governance` carries a packaged adapter preset
 (`workspace-governance-adapter-consumption`): the candidate
-`<workspace-root>/workspace-governance/scripts/forge_governance_adapter.py`
+`<workspace-root>/forge/modules/workspace-governance/scripts/forge_governance_adapter.py`
 resolved from `--workspace-root`/`FORGE_WORKSPACE_ROOT` only, verified as an
 existing executable regular file, with the resolved adapter path and the
 workspace root stored under `.forge/providers.yaml` and re-supplied to the
 adapter as `WORKSPACE_ROOT` on every run. This is the governance plane's own
 surface, not a `forge provider matrix` row.
 
-Live status (this host, 2026-09-24, sibling `workspace-governance` at
-`204d140`): the real candidate exists at the real portfolio root but the
-sibling committed the adapter as git mode `100644` while its other scripts
-are `100755`, so the direct-exec v0.1.0 boundary honestly refuses it —
-recorded verbatim in `tests/fixtures/governance-audit/NOTES.md`. **Exact next
-action:** the sibling sets the execute bit on
-`scripts/forge_governance_adapter.py` (e.g. `git update-index
---chmod=+x scripts/forge_governance_adapter.py`) to match its own README
-invocation; until then the live row stays honestly not-run for the preset
-path, and the documented explicit-adapter remedy (`--adapter <path>
---workspace-root <root>`) carries any non-executable checkout.
+Historical live status (2026-09-24, before the in-tree import): the sibling
+candidate was mode `100644` and the direct-exec boundary refused it. That
+observation is superseded by the 2026-10-19 consolidation and origin
+retirement. The current preset points into the Forge-owned module and never
+searches the archived sibling checkout. Contract tests prove that the Forge
+candidate wins when both paths exist and that the legacy sibling path alone
+is refused.
 
 The consumption loop itself was proven live end to end: a scratch portfolio
 holding a byte-identical copy of the sibling adapter (execute bit on the

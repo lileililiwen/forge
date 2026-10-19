@@ -65,7 +65,7 @@
       "wrap any CLI to capture failures",
       "recurring bug fingerprinting for AI agents"
     ],
-    "homepage": "https://github.com/lileililiwen/driftwatchdog",
+    "homepage": "https://github.com/lileililiwen/forge/tree/main/crates/driftwatchdog",
     "license_spdx": "MIT",
     "visibility": "public"
   }

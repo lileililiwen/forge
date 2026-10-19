@@ -303,6 +303,7 @@ def build_plan(workspace_root: Path, governance_root: Path) -> dict[str, Any]:
     registry = load_json(governance_root / REGISTRY_RELATIVE)
     entries = [entry for entry in (registry.get("projects") or []) if isinstance(entry, dict)]
     by_path = {str(entry.get("path")): entry for entry in entries}
+    by_id = {str(entry.get("id")): entry for entry in entries}
 
     declaration_plans: list[DeclarationPlan] = []
     registry_plans: list[RegistryPlan] = []
@@ -317,6 +318,29 @@ def build_plan(workspace_root: Path, governance_root: Path) -> dict[str, Any]:
         if not isinstance(declaration, dict):
             raise MigrationError(f"declaration is not a JSON object: {declaration_path}")
         entry = by_path.get(child.name)
+        if entry is None:
+            # A migrated source checkout can remain beside Forge as an
+            # intentionally read-only archive while its registered source is
+            # now nested under the Forge checkout. Do not classify that old
+            # sibling copy as an unregistered active project when the exact
+            # same identity resolves at its authoritative registry path.
+            registered = by_id.get(str(declaration.get("id") or ""))
+            if registered is not None:
+                registered_path = str(registered.get("path") or "")
+                if registered_path:
+                    authoritative = (workspace_root / registered_path).resolve()
+                    try:
+                        authoritative.relative_to(workspace_root.resolve())
+                    except ValueError as exc:
+                        raise MigrationError(
+                            f"registry path escapes workspace root: {registered_path!r}"
+                        ) from exc
+                    if authoritative != child.resolve() and authoritative.is_dir():
+                        authoritative_declaration = authoritative / ".project.json"
+                        if authoritative_declaration.is_file():
+                            current = load_json(authoritative_declaration)
+                            if isinstance(current, dict) and current.get("id") == declaration.get("id"):
+                                continue
         plan = _plan_declaration(
             child=child,
             declaration=declaration,

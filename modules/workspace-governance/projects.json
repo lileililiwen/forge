@@ -141,7 +141,7 @@
     },
     {
       "id": "workspace-governance",
-      "path": "workspace-governance",
+      "path": "forge/modules/workspace-governance",
       "profile": "governance",
       "role": "governance",
       "stack": "python",

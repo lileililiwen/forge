@@ -14,6 +14,10 @@ state and verified Forge provenance, and it must preserve local-only user work.
 
 - Reconcile the exact migrated origin set against Forge source imports,
   preserved source history, project consumers and current GitHub archive state.
+- Migrate active Forge-owned source, project-homepage and maintainer directions
+  and internal project-registry/provider-preset paths to the corresponding
+  paths in Forge. Preserve links needed to retrieve already-published
+  historical release assets and label them as such.
 - Archive only existing, active GitHub origin repositories for migrated
   projects. Treat already archived repositories as complete and confirmed
   missing repositories as absent; never create, delete, transfer or rename a
@@ -34,6 +38,7 @@ state and verified Forge provenance, and it must preserve local-only user work.
 | Remote repository state | GitHub API (`gh repo view` / `gh api`) for the exact migrated origins | Re-read each state immediately before action; archive only an exact, existing, active target; re-read and require `archived=true`. |
 | Local sibling checkouts | `/home/paul/code/workspace-governance`, `/home/paul/code/dotnet-platform-libs`, `/home/paul/code/rust-platform-libs` | Capture Git status before and after; do not edit, reset, clean or delete them. Preserve their existing untracked files. |
 | Unrelated repositories | `platform-contracts`, `alltools-platform`, `gitrunbykaru`, and consumer products | Keep out of scope; verify archive targets match only the migrated origin allowlist. |
+| Maintainer and project metadata | Cargo/npm metadata, Forge module declarations, taxonomy entries, copied-source provenance and clone instructions | Point active source/maintenance links at Forge; retain historical release links only where existing artifacts remain part of a supported compatibility path. |
 | Governance and evidence | `ROADMAP.md`, `HANDOFF.md`, archived import packages and OpenSpec canonical specs | Record exact archived/already-archived/absent/error results, commit identities, check commands and any unresolved remote state. |
 
 ## Capabilities

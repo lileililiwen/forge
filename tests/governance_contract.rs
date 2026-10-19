@@ -448,6 +448,51 @@ fn preset_selects_packaged_candidate_and_persists_workspace_root() {
 }
 
 #[test]
+fn preset_uses_the_forge_owned_module_and_never_falls_back_to_the_retired_checkout() {
+    let workspace = TempDir::new().unwrap();
+    let fixture = fixture_path("adopted-clean.sh");
+    let forge_candidate = workspace
+        .path()
+        .join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
+    let retired_candidate = workspace
+        .path()
+        .join("workspace-governance/scripts/forge_governance_adapter.py");
+    for candidate in [&forge_candidate, &retired_candidate] {
+        fs::create_dir_all(candidate.parent().unwrap()).unwrap();
+        fs::copy(&fixture, candidate).unwrap();
+        make_executable(candidate);
+    }
+
+    let resolved = resolve_known_adapter(
+        WORKSPACE_GOVERNANCE_PROVIDER_ID,
+        Some(workspace.path()),
+        None,
+    )
+    .unwrap()
+    .expect("Forge module preset candidate");
+    assert_eq!(resolved, forge_candidate);
+
+    let legacy_only = TempDir::new().unwrap();
+    let retired_candidate = legacy_only
+        .path()
+        .join("workspace-governance/scripts/forge_governance_adapter.py");
+    fs::create_dir_all(retired_candidate.parent().unwrap()).unwrap();
+    fs::copy(fixture, &retired_candidate).unwrap();
+    make_executable(&retired_candidate);
+    let refusal = resolve_known_adapter(
+        WORKSPACE_GOVERNANCE_PROVIDER_ID,
+        Some(legacy_only.path()),
+        None,
+    )
+    .unwrap()
+    .unwrap_err();
+    assert!(matches!(refusal, ForgeError::GovernanceInvalid { .. }));
+    assert!(refusal
+        .to_string()
+        .contains("forge/modules/workspace-governance"));
+}
+
+#[test]
 fn stored_workspace_root_is_passed_to_the_adapter_environment() {
     // The root a preset was resolved from is handed to the adapter as
     // WORKSPACE_ROOT, so a later check with the host environment absent
@@ -456,7 +501,7 @@ fn stored_workspace_root_is_passed_to_the_adapter_environment() {
     let workspace = TempDir::new().unwrap();
     let candidate = workspace
         .path()
-        .join("workspace-governance/scripts/forge_governance_adapter.py");
+        .join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
     fs::create_dir_all(candidate.parent().unwrap()).unwrap();
     fs::write(
         &candidate,
@@ -597,7 +642,7 @@ fn stage_workspace(fixture: &str) -> TempDir {
     let workspace = TempDir::new().unwrap();
     let candidate = workspace
         .path()
-        .join("workspace-governance/scripts/forge_governance_adapter.py");
+        .join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
     fs::create_dir_all(candidate.parent().unwrap()).unwrap();
     fs::copy(fixture_path(fixture), &candidate).unwrap();
     make_executable(&candidate);

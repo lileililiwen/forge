@@ -29,12 +29,12 @@ rustc --version
 
 1.  Clone this repository:
     ```bash
-    git clone https://github.com/lileililiwen/cargo-sonar-boost.git
-    cd cargo-sonar-boost
+    git clone https://github.com/lileililiwen/forge.git
+    cd forge
     ```
 2.  Install the binary locally:
     ```bash
-    cargo install --path .
+    cargo install --path crates/cargo-sonar
     ```
 
 ---

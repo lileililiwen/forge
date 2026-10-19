@@ -1,6 +1,6 @@
 # driftwatchdog
 
-Dependency-free launcher for the [driftwatchdog](https://github.com/lileililiwen/driftwatchdog)
+Dependency-free launcher for the [driftwatchdog](https://github.com/lileililiwen/forge/tree/main/crates/driftwatchdog)
 CLI. Detects the host operating system and CPU architecture, downloads the
 matching native release archive from GitHub Releases, verifies it against
 the bundled SHA-256 checksum manifest, caches it by version, and forwards
@@ -9,6 +9,11 @@ all arguments and the native process exit status to the native binary.
 The launcher is intentionally not a JavaScript reimplementation of the CLI.
 It is a thin acquisition and exec helper. Once the native binary is in the
 cache, subsequent invocations run offline.
+
+The [Forge module](https://github.com/lileililiwen/forge/tree/main/crates/driftwatchdog)
+is the maintained source. The archived standalone repository's published
+release assets remain available for this launcher's existing versions; they
+are historical distribution files, not a source or maintenance location.
 
 ## Supported platforms
 
@@ -80,4 +85,4 @@ the cache.
 
 ## License
 
-MIT — see [LICENSE](https://github.com/lileililiwen/driftwatchdog/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/lileililiwen/forge/blob/main/crates/driftwatchdog/LICENSE).

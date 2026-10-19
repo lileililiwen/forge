@@ -6,7 +6,7 @@
 //! from the real sibling adapter):
 //!
 //! - Preset selection: `use workspace-governance` without `--adapter`
-//!   resolves `<root>/workspace-governance/scripts/forge_governance_adapter.py`
+//!   resolves `<root>/forge/modules/workspace-governance/scripts/forge_governance_adapter.py`
 //!   from the
 //!   `--workspace-root` argument or `FORGE_WORKSPACE_ROOT`, stores the
 //!   absolute resolved path, and the next `status` consumes it through
@@ -85,7 +85,8 @@ fn project_dir() -> TempDir {
 #[cfg(unix)]
 fn stage_candidate(root: &Path, fixture_name: &str, executable: bool) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
-    let candidate = root.join("workspace-governance/scripts/forge_governance_adapter.py");
+    let candidate =
+        root.join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
     fs::create_dir_all(candidate.parent().unwrap()).unwrap();
     fs::copy(fixture(fixture_name), &candidate).unwrap();
     fs::set_permissions(
@@ -98,7 +99,8 @@ fn stage_candidate(root: &Path, fixture_name: &str, executable: bool) -> PathBuf
 
 #[cfg(not(unix))]
 fn stage_candidate(root: &Path, fixture_name: &str, _executable: bool) -> PathBuf {
-    let candidate = root.join("workspace-governance/scripts/forge_governance_adapter.py");
+    let candidate =
+        root.join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py");
     fs::create_dir_all(candidate.parent().unwrap()).unwrap();
     fs::copy(fixture(fixture_name), &candidate).unwrap();
     candidate
@@ -330,7 +332,7 @@ fn argument_root_wins_over_the_environment() {
         governance_json(&selected)["adapter"],
         flag_root
             .path()
-            .join("workspace-governance/scripts/forge_governance_adapter.py")
+            .join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py")
             .canonicalize()
             .unwrap()
             .display()
@@ -468,7 +470,7 @@ fn directory_candidate_refuses_as_not_a_regular_file() {
     fs::create_dir_all(
         workspace
             .path()
-            .join("workspace-governance/scripts/forge_governance_adapter.py"),
+            .join("forge/modules/workspace-governance/scripts/forge_governance_adapter.py"),
     )
     .unwrap();
     let failed = run(&[

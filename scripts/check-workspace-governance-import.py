@@ -21,6 +21,8 @@ ALLOWED_SOURCE_ADAPTATIONS = {
     b"scripts/generate_ui_conformance_baseline.py",
     b"ui-conformance-baseline.json",
     b"projects.json",
+    b".project.json",
+    b"tag-taxonomy.json",
     b"scripts/axis_migration.py",
     b"tests/test_identity_and_taxonomy.py",
     b"tests/test_bind_gate_commands.py",

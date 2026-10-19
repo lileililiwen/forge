@@ -5,6 +5,12 @@
   "reason": "Consolidated tooling and platform-library origins are ordinary Forge modules; preserve their project ids while pointing the portfolio registry at their current in-tree declarations.",
   "changes": [
     {
+      "id": "workspace-governance",
+      "from": "workspace-governance",
+      "to": "forge/modules/workspace-governance",
+      "declaration": "forge/modules/workspace-governance/.project.json"
+    },
+    {
       "id": "cargo-audit-boost",
       "from": "cargo-audit-boost",
       "to": "forge/crates/cargo-audit-boost",

@@ -117,14 +117,14 @@
       "GitHub project metadata audit",
       "standard repository documentation"
     ],
-    "homepage": "https://github.com/lileililiwen/workspace-governance",
+    "homepage": "https://github.com/lileililiwen/forge/tree/main/modules/workspace-governance",
     "license_spdx": "MIT",
     "visibility": "public"
   },
   "publication": {
     "provider": "github",
     "owner": "lileililiwen",
-    "repository": "workspace-governance",
+    "repository": "forge",
     "default_branch": "main",
     "state": "metadata_verified",
     "evidence_ref": "HANDOFF.md"

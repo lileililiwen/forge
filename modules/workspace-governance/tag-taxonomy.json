@@ -103,7 +103,7 @@
       ],
       "license_spdx": "MIT",
       "visibility": "public",
-      "homepage": "https://github.com/lileililiwen/workspace-governance",
+      "homepage": "https://github.com/lileililiwen/forge/tree/main/modules/workspace-governance",
       "description": "Language-neutral workspace governance for project declarations, standard documentation, evidence policy, and repository metadata.",
       "search_phrases_origin": ["workspace repository governance tool", "GitHub project metadata audit", "standard repository documentation"]
     },
@@ -131,7 +131,7 @@
       ],
       "license_spdx": "MIT",
       "visibility": "public",
-      "homepage": "https://github.com/lileililiwen/driftwatchdog",
+      "homepage": "https://github.com/lileililiwen/forge/tree/main/crates/driftwatchdog",
       "description": "Local-first runtime failure memory for AI-assisted coding. Wraps any command, fingerprints recurring bugs, consumes external spec-checker results, and exports AI-ready context.",
       "search_phrases_origin": ["remember failed commands across AI coding runs", "wrap any CLI to capture failures", "recurring bug fingerprinting for AI agents", "spec checker integration for AI coding"]
     },
@@ -187,7 +187,7 @@
       ],
       "license_spdx": "MIT",
       "visibility": "private",
-      "homepage": "https://github.com/lileililiwen/dotnet-platform-libs",
+      "homepage": "https://github.com/lileililiwen/forge/tree/main/modules/dotnet-platform-libs",
       "description": "Small, opt-in .NET libraries for the shared technical concerns repeated across the local application portfolio: identity, billing, tenants, jobs, storage, caching, eventing, mailing, and AI.",
       "search_phrases_origin": ["shared .NET libraries for repeated cross-product concerns", "small opt-in .NET packages", "provider-neutral adapters for mail jobs storage AI"]
     },
@@ -214,7 +214,7 @@
       ],
       "license_spdx": "Apache-2.0",
       "visibility": "private",
-      "homepage": "https://github.com/lileililiwen/rust-platform-libs",
+      "homepage": "https://github.com/lileililiwen/forge/tree/main/modules/rust-platform-libs",
       "description": "Small, opt-in Rust crates for shared cross-cutting contracts used by multiple web, operator, and control-plane products. Foundation, identity, audit, mailing, and AI capability crates.",
       "search_phrases_origin": ["opt-in Rust crates for shared contracts", "Rust representations of language-neutral schemas", "provider-neutral identity audit and AI contracts"]
     },

@@ -6,7 +6,8 @@ authors = ["Paul <paul@example.com>"]
 description = "🚀 Multi-Toolchain & Feature Matrix Validator with TUI and HTML Dashboard"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/lileililiwen/cargo-matrix-boost"
+repository = "https://github.com/lileililiwen/forge"
+homepage = "https://github.com/lileililiwen/forge/tree/main/crates/cargo-matrix-boost"
 keywords = ["cargo", "features", "matrix", "toolchains", "tui"]
 categories = ["development-tools::cargo-plugins", "development-tools"]
 

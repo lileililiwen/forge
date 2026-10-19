@@ -36,21 +36,25 @@ The module is its own Cargo workspace with its own identity and Gate, so
 |---|---|---|
 | Forge Core contract tests | PASS | `cargo test --test auth_setup_contract` ran 12 tests, all passed: the preview that writes nothing, the confirmed setup that records one population, the repeated setup that does not duplicate the entry, two projects that get two populations, the answer for another project that is refused, the answer that carries a secret that is refused, the provider failure that leaves the project unchanged, the uninstalled provider that is blocked, the installed pack list, and the JSON envelope. |
 | Module contract fixtures | PASS | `cargo test --workspace --manifest-path modules/identity-providers/Cargo.toml` ran 13 tests, all passed: the unknown contract major, another project, another operation, a stale revision, secret material, a value that pretends to be a reference, a registration URL on another host, a plain HTTP issuer that is not loopback, a plan without a digest, an empty request field, a secret in the summary, a secret in the plan changes, and the one accepted answer. |
-| Module Gate | PASS | `forge module verify identity-providers` returned `aggregate: passed` for `build`, `declared-verification`, `format`, `repository`, `security`, `source-file-size` and `tests`, observed `2026-10-19T15:44:15Z` at revision `d49e836bf091`. Evidence is in `modules/identity-providers/.forge/gate/identity-providers/evidence.json`. |
-| Repository test suite | PASS | `scripts/check-tests.sh` completed with no failing test target. The command catalog gained the five `auth` rows, so its row count moved from 253 to 258; the catalog parity test, the module workflow contract and the two web contracts were updated to the new count. |
+| Module Gate | PASS | `forge module verify identity-providers` returned `aggregate: passed` for `build`, `declared-verification`, `format`, `repository`, `security`, `source-file-size` and `tests`, observed `2026-10-19T22:57:35Z` at revision `738b40cbddfc`. Evidence is in `modules/identity-providers/.forge/gate/identity-providers/evidence.json`. |
+| Repository test suite | PASS | `scripts/check-tests.sh` completed with no failing test target. The command catalog gained the five `auth` rows, so its row count moved from 253 to 258; the catalog parity test, the module workflow contract and the two web contracts were updated to the new count. The 13 pack contract fixtures now run in this suite and in CI's `test` job, because the packs are a separate Cargo workspace the root suite never reached. |
 | Real Keycloak evidence | PASS | Two projects on one runtime produced two realms, two clients and two issuers: `http://127.0.0.1:18095/realms/forge-evidence-one` and `http://127.0.0.1:18096/realms/forge-evidence-two`. The administrator token of the first instance was refused by the second with HTTP 401. A preview left the project manifest byte-identical; a confirmed setup wrote one `auth:` block; the repeated confirmed setup left one block. A runtime that did not accept the stored credential was refused with `provider_credential_mismatch` and the exact reset command, the manifest kept its working configuration, and the documented reset command recovered the setup. |
 | OpenSpec and whitespace | PASS for this change | Change archived without `--skip-specs` at `openspec/changes/archive/2026-10-19-forge-auth-provider-extensions/`; seven requirements promoted into `openspec/specs/forge-auth-provider-extensions/spec.md`. `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 125 passed, 0 failed (125 items)` before and after the archive; `git diff --check` and the staged whitespace check reported no findings. |
-| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. The full Gate returned `aggregate: passed` for all eight at `2026-10-19T16:09:52Z` against revision `d49e836bf091`. Evidence is in `.forge/gate/forge/evidence.json`. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. The full Gate returned `aggregate: passed` for all eight at `2026-10-19T23:17:09Z` against revision `994b1cae11b6`. An earlier run of the same revision reported the `build` check as timed out at its 60s default deadline while the suite compiled in parallel; the immediate re-run passed all eight. Evidence is in `.forge/gate/forge/evidence.json`. |
 
 Not delivered, and stated plainly: the local Keycloak mode is loopback HTTP,
 not TLS; the Supabase pack is proven against the contract, not against a live
 Supabase project; and the generated application's own sign-in and registration
 pages and their browser and accessibility evidence were not built here. Those
 pages belong to the application, and the reusable host adapter belongs to the
-.NET module.
+.NET module. The module is also not registered in the workspace governance
+registry, so its Gate has no `governance-quality` concern.
 
 Implementation/archive commit: `5198f94`
 (`feat: add replaceable identity provider packs for project end users`).
+Two follow-up commits close gaps found while verifying it: `f7b3f6b` makes the
+module Gate build the release pack executables the descriptors name, and
+`994b1ca` runs the pack contract fixtures in the repository suite and in CI.
 This HANDOFF-only commit records completion. Nothing was pushed.
 
 ### Local sibling checkouts removed (2026-10-19)

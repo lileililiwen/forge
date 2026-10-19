@@ -2,6 +2,22 @@
 
 ## Latest delivery
 
+### `project-oidc-auth-adoption` implemented and archived (2026-10-19)
+
+An application that wanted its own end users to sign in through an OpenID Connect provider had no supported way to do it. The new `Platform.Identity.OpenIdConnect.AspNetCore` package registers the sign-in scheme and validates the callback: authorization code with PKCE, the discovery issuer, the signature, the audience, the redirect URI, the nonce, the token time bounds, and a one-use callback state. The application keeps its users — the package has no user table, no migration, no session store and no automatic enrollment — and provider role claims grant no local permission unless the application names a role claim type.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Package tests | PASS | 42 tests passed in `tests/Platform.Identity.OpenIdConnect.AspNetCore.Tests`, including a real application driven against a local issuer with its own signing key. |
+| Architecture tests | PASS | 388 tests passed in `tests/Platform.Architecture.Tests`, including the new dependency-direction and package-set assertions. |
+| Module quality gate | PASS | `scripts/quality-gate.sh` completed: UI verifier and self-test, script tests, restore, build, the full solution test run, strict OpenSpec validation (`Totals: 59 passed, 0 failed`) and `git diff --check`. |
+| Import contract | PASS | `python3 scripts/check-dotnet-platform-libs-import.py` reports `PASS (1604 source files, 38 source-only commits)` with the new package declared. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. Full Gate passed all eight at `2026-10-19T13:51:36Z` against revision `5dffb82f3c5c`. Evidence is in `.forge/gate/forge/evidence.json`. |
+
+Implementation/archive commit: `2034c73`
+(`feat: add the opt-in ASP.NET Core OpenID Connect adapter`).
+This HANDOFF-only commit records completion. Nothing was pushed.
+
 ### `provider-neutral-identity-policy` implemented and archived (2026-10-19)
 
 The workspace decision register made Zitadel the mandatory workspace SSO
@@ -6569,4 +6585,4 @@ Implementation/archive commit: `be806476a74aa2cf11cf9ae1508af7b426f6b0c9`
 commit records the completed import. Nothing was pushed. No active OpenSpec
 change remains, so there is no `current_spec` pointer.
 
-current_spec: project-oidc-auth-adoption
+current_spec: forge-auth-provider-extensions

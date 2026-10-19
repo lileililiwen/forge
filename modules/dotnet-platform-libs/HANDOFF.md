@@ -2,6 +2,38 @@
 
 current_spec: none
 
+## Completed: project-oidc-auth-adoption (archived 2026-10-19)
+
+`project-oidc-auth-adoption` is archived at
+`openspec/changes/archive/2026-10-19-project-oidc-auth-adoption/`, and the
+canonical `project-oidc-auth-adoption` spec is promoted. An application that
+wanted its own end users to sign in through an OpenID Connect provider had no
+supported way to do it.
+
+**What landed.** The new `Platform.Identity.OpenIdConnect.AspNetCore` package
+registers the sign-in scheme and validates the callback: authorization code with
+PKCE, the discovery issuer, the signature, the audience, the redirect URI, the
+nonce, the token time bounds, and a one-use callback state. Unmapped provider
+role claims are removed from the validated principal, so an external role grants
+no local permission unless the application names a role claim type. Startup
+validation refuses a missing or unsafe issuer, client, callback, scope allowlist
+or secret reference; a plain HTTP issuer is accepted only for a loopback host in
+development. The application keeps its users: the package has no user table, no
+migration, no session store, and no automatic enrollment, and it hands the
+validated issuer and subject to the application's own
+`IPlatformOpenIdConnectIdentityResolver`. Failures are classified and redacted.
+The adapter depends on `Platform.Identity.Contracts` and the Microsoft
+OpenID Connect package only; the host adapter stays optional.
+
+**Evidence.** 42 package tests pass, 388 architecture tests pass, the full
+solution test run passes, the module quality gate passes, strict OpenSpec
+validation is 59/59, and the Forge gate passes all eight checks at revision
+`5dffb82f3c5c` (observed `2026-10-19T13:51:36Z`).
+
+**Deferred.** The generated ASP.NET consumer browser journey and accessibility
+evidence belong to the dependent `forge-auth-provider-extensions` package; this
+library-only change has no browser surface.
+
 ## Completed: ui-design-guideline-adoption (archived 2026-10-09)
 
 Adopted the approved brand guideline (`/home/paul/code/DESIGN.md`, WCAG 2.2 AA) into the

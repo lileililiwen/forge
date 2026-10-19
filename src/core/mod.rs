@@ -328,6 +328,9 @@ pub enum ForgeError {
     #[error("contract invalid: {reason}")]
     ContractInvalid { reason: String },
 
+    #[error("contract family unsupported: {family}: {reason}")]
+    ContractUnsupportedFamily { family: String, reason: String },
+
     #[error("standard invalid: {reason}; no standard snapshot files were changed")]
     StandardInvalid { reason: String },
 
@@ -537,6 +540,7 @@ impl ForgeError {
             ForgeError::GateRuntimeUnavailable { .. } => "gate-runtime-unavailable",
             ForgeError::GateEvidenceUnavailable { .. } => "gate-evidence-unavailable",
             ForgeError::ContractInvalid { .. } => "contract-invalid",
+            ForgeError::ContractUnsupportedFamily { .. } => "contract-unsupported-family",
             ForgeError::StandardInvalid { .. } => "standard-invalid",
             ForgeError::CatalogInvalid { .. } => "catalog-invalid",
             ForgeError::ProjectMetadataInvalid { .. } => "project-metadata-invalid",

@@ -30,6 +30,7 @@ if [ ! -x "$BIN" ]; then
   echo "smoke blocked: binary $BIN is not executable" >&2
   exit 1
 fi
+BIN="$(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
 
 step() {
   echo "==> $*" >&2
@@ -46,6 +47,11 @@ step "$BIN" list > /dev/null
 step "$BIN" new "$SCRATCH/smoke-probe" --profile rust-web > /dev/null
 step "$BIN" doctor "$SCRATCH/smoke-probe" > /dev/null
 step "$BIN" readiness artifact > /dev/null
+(
+  cd "$SCRATCH"
+  step "$BIN" contract list --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["manifest"]["source"] == "forge" and len(d["platform_families"]) == 10'
+  step "$BIN" contract inspect platform.gate-result --format json > /dev/null
+)
 step "$BIN" check "$SCRATCH/smoke-probe" --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
 step "$BIN" concern check privacy "$SCRATCH/smoke-probe" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["schema_version"] == 1 and d["concern"] == "privacy", sorted(d.keys())'
 echo "smoke: OK ($BIN)"

@@ -513,8 +513,8 @@ mod tests {
     }
 
     #[test]
-    fn vendored_copy_loads_with_pinned_revision() {
-        // The vendored copy ships with this checkout; the manifest names
+    fn forge_owned_copy_loads_with_pinned_revision() {
+        // The Forge-owned copy ships with this checkout; the manifest names
         // its digest, so the tier resolves with provenance. Other test
         // modules mutate `FORGE_GOVERNANCE_VOCABULARY` to assert their
         // own boundaries; we restore it here so the vendored tier is
@@ -533,7 +533,7 @@ mod tests {
                 .revision
                 .clone()
                 .expect("vendored tier pins a revision");
-            assert_eq!(revision.len(), 40, "{revision}");
+            assert_eq!(revision.len(), 64, "{revision}");
             revision
         };
         unsafe {

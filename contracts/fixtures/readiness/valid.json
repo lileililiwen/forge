@@ -1,0 +1,6 @@
+{
+  "service": "forge",
+  "status": "ready",
+  "checked_at": "2026-10-19T00:00:00Z",
+  "checks": [{"name": "registry", "status": "ready"}]
+}

@@ -1,19 +1,17 @@
 # Consumed vocabulary: which list governs which concern
 
-Forge consumes word lists; it never invents them. Two upstreams, three
-roles, one rule: a value Forge emits or validates must name the list it
-came from.
+Forge maintains and consumes these word lists. Each list has one Forge owner
+and a digest in `../manifest.json`.
 
 | File | Source | Governs |
 | --- | --- | --- |
-| `governance-vocabulary.json` | Forge's bundled project vocabulary (pinned in `../manifest.json` with Forge revision + sha256) | Declaration values: `kind`, `profile`, repository-check words (`placeholder_markers`) |
-| `secret-field-substrings.json` | `platform-contracts` `schemas/registry.json` `secret_field_substrings` (extracted by `scripts/sync-contracts.mjs`) | Contract field names in shared documents |
+| `governance-vocabulary.json` | Forge's bundled Workspace Governance vocabulary | Declaration values: `kind`, `profile`, repository-check words (`placeholder_markers`) |
+| `secret-field-substrings.json` | Forge's contract redaction vocabulary | Contract field names in shared documents |
 
 Role split, enforced by the consumer:
 
-- **Contract field names in shared documents** come from
-  `platform-contracts` (`secret-field-substrings.json` here). They name
-  fields, never values.
+- **Contract field names in shared documents** come from the maintained
+  `secret-field-substrings.json` list. They name fields, never values.
 - **Repository-check words** (what the product-code quality checker
   counts) come from Forge's bundled vocabulary
   (`placeholder_markers`). A project may narrow them with an explicit

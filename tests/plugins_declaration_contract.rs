@@ -499,10 +499,6 @@ fn derived_contracts() -> BTreeMap<String, String> {
             .expect("contracts manifest schema_version"),
     );
     derived.insert(
-        "platform-contract-copy".to_string(),
-        format!("platform-contract-copy/{pin_version}"),
-    );
-    derived.insert(
         "secret-field-vocabulary".to_string(),
         format!("secret-field-vocabulary/{pin_version}"),
     );
@@ -602,7 +598,7 @@ fn every_declared_digest_pins_the_bytes_it_names() {
         );
         pinned += 1;
     }
-    assert!(pinned >= 6, "only {pinned} digests are pinned");
+    assert!(pinned >= 5, "only {pinned} digests are pinned");
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -626,7 +622,7 @@ fn no_retained_copy_is_unaccounted_for() {
     // when a declared entry names the pin document that records its sha256.
     let mut recorded: BTreeSet<String> = BTreeSet::new();
     for pin in ["contracts/manifest.json", "kits/manifest.json"] {
-        if !named.contains(pin) {
+        if pin == "kits/manifest.json" && !named.contains(pin) {
             continue;
         }
         let manifest = read_json(&repo_root().join(pin));

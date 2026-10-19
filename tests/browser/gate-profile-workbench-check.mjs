@@ -30,6 +30,33 @@ try {
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /sign in to your workspace/i }).click();
   await page.waitForURL('**/index.html', { timeout: 30000 });
+  const advanced = page.locator('#assurance-advanced');
+  await advanced.locator('summary').click();
+  const registry = page.locator('#assurance-registry');
+  await registry.selectOption('contracts');
+  await page.getByRole('button', { name: 'List or read' }).click();
+  const familyList = page.locator('#assurance-list-result');
+  await familyList.locator('dd').filter({ hasText: 'platform.job-outcome' }).waitFor({ timeout: 30000 });
+  const listedFamilies = await familyList.innerText();
+  if (!listedFamilies.includes('unsupported') || !listedFamilies.includes('no job outcome')) {
+    throw new Error(`unsupported family status/reason missing: ${listedFamilies}`);
+  }
+  const inspectId = page.locator('#assurance-inspect-id');
+  await inspectId.fill('platform.job-outcome');
+  await page.locator('#assurance-inspect').click();
+  await page.locator('#assurance-error-summary').getByText(/no job outcome source record/i).waitFor({ timeout: 30000 });
+  await inspectId.fill('platform.gate-result');
+  await page.locator('#assurance-inspect').click();
+  await page.locator('#assurance-inspect-result').getByText(/gate_id/).waitFor({ timeout: 30000 });
+  await page.setViewportSize({ width: 320, height: 760 });
+  const assuranceWidth = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  if (assuranceWidth.scroll > assuranceWidth.viewport + 1) {
+    throw new Error(`assurance contract catalog overflows at 320px: ${JSON.stringify(assuranceWidth)}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByRole('link', { name: 'Workbench', exact: true }).click();
   await page.waitForURL('**/workbench', { timeout: 30000 });
   await page.locator('#workbench:not([hidden])').waitFor({ timeout: 30000 });
@@ -80,7 +107,7 @@ try {
   }
   const status = await page.locator('#wb-gate-status').innerText();
   if (!status.includes('Profile') || !status.includes('fast')) throw new Error(`fast profile not displayed: ${status}`);
-  console.log('VERIFIED: labelled profile control, keyboard fast selection, real Gate run, preserved error state and 320px reflow');
+  console.log('VERIFIED: contract list and supported/unsupported inspect states, 320px reflow, keyboard Gate profile selection, real Gate run and preserved error state');
 } catch (err) {
   console.error(`FAIL: ${err.message}`);
   process.exitCode = 1;

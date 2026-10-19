@@ -132,44 +132,6 @@ verification, and SHALL smoke-test the installed binary's core read surfaces.
 - **THEN** every entry is repository-relative and no absolute build-host path is
   present
 
-### Requirement: CI executes Forge's own verification surfaces
-
-Forge's continuous integration SHALL run the read-only surfaces, the gate
-runtime, the contract parity walk and the native-build evidence in named jobs,
-with explicit permissions and timeouts, and SHALL fail loudly when a required
-tool is unavailable instead of skipping to green.
-
-#### Scenario: Gate runtime executes in CI
-
-- **WHEN** the gate job installs the declared runtime and initializes its store
-  in the runner workspace
-- **THEN** `forge gate` runs for real and the job mirrors the runtime's verdict,
-  including a blocked outcome
-
-#### Scenario: Gate runtime unavailable
-
-- **WHEN** the runtime cannot be resolved or its store cannot be initialized
-- **THEN** the job fails naming the resolution attempts and records the
-  unavailable verdict rather than reporting success
-
-#### Scenario: Read surfaces gain execution
-
-- **WHEN** the surfaces job runs doctor, the checker document, the fleet listing
-  and the provider matrix
-- **THEN** each returns a parseable document and a regression fails the job
-
-#### Scenario: Parity walk drifts
-
-- **WHEN** the vendored contract set no longer matches the pinned upstream
-  revision
-- **THEN** the parity job fails naming the diverging files
-
-#### Scenario: Long native evidence is not dropped
-
-- **WHEN** the job graph is split
-- **THEN** the native scaffold build evidence still runs in its own named job
-  instead of being skipped with the fast suite
-
 ### Requirement: Honest labelling and explicit non-publication
 
 No workflow step, script label or document SHALL name a check it does not
@@ -215,4 +177,42 @@ overwrite an existing release or asset.
 - **WHEN** the real gate returns blocked or an unresolved review requirement
 - **THEN** the evidence records that verdict and the recovery path, and no
   configuration is adjusted to obtain a passing job
+
+### Requirement: CI executes Forge verification and offline contract validation
+
+Forge's continuous integration SHALL run the read-only surfaces, the Gate
+runtime, offline contract manifest and schema validation, and native-build
+evidence in named jobs, with explicit permissions and timeouts. Required tools
+and validators SHALL fail loudly when unavailable rather than skip to green.
+
+#### Scenario: Gate runtime executes in CI
+
+- **WHEN** the gate job installs the declared runtime and initializes its store
+  in the runner workspace
+- **THEN** `forge gate` runs for real and the job mirrors the runtime's verdict,
+  including a blocked outcome
+
+#### Scenario: Gate runtime unavailable
+
+- **WHEN** the runtime cannot be resolved or its store cannot be initialized
+- **THEN** the job fails naming the resolution attempts and records the
+  unavailable verdict rather than reporting success
+
+#### Scenario: Read surfaces gain execution
+
+- **WHEN** the surfaces job runs doctor, the checker document, the fleet listing
+  and the provider matrix
+- **THEN** each returns a parseable document and a regression fails the job
+
+#### Scenario: Offline contract validation is required
+
+- **WHEN** CI validates Forge-maintained contract assets
+- **THEN** the manifest, supported-family schemas, fixtures and support catalog
+  are checked without an upstream checkout, and a missing validator fails
+
+#### Scenario: Long native evidence is not dropped
+
+- **WHEN** the job graph is split
+- **THEN** the native scaffold build evidence still runs in its own named job
+  instead of being skipped with the fast suite
 

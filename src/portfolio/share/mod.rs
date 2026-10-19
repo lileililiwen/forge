@@ -9,10 +9,9 @@
 //!   listing and no fallback that turns a registered project into a
 //!   showcase entry.
 //! - The public artifact is a versioned
-//!   [`MANIFEST_SCHEMA_FAMILY`] document. Its shape is owned by the
-//!   `platform-contracts` repository; Forge only *produces* it and
-//!   refuses to emit a record that does not validate against that
-//!   shape.
+//!   [`MANIFEST_SCHEMA_FAMILY`] document. Forge maintains its consumed
+//!   schema under `contracts/` and refuses to emit a record that does not
+//!   validate against that shape.
 //! - Publication requires an exact approval. The approval binds a
 //!   SHA-256 hash of the canonical manifest body, so editing a
 //!   title or a URL after approval invalidates the approval and the
@@ -62,17 +61,10 @@ use crate::policy::redact_credentials;
 
 pub const SHARE_CONTRACT_VERSION: &str = "forge-portfolio-share/0.1.0";
 
-/// Schema family of the consumed public manifest contract. The
-/// serialized shape is owned by `platform-contracts`, whose
-/// `public-portfolio-manifest.schema.json` declares this exact
-/// family as a closed enum. Forge pins the qualified name and the
-/// full version it produces and never invents a field.
+/// Schema family of the public manifest contract maintained by Forge.
 pub const MANIFEST_SCHEMA_FAMILY: &str = "platform.public-portfolio-manifest";
 
-/// Full semantic version of the consumed manifest contract, as the
-/// contract declares it (`^[0-9]+\.[0-9]+\.[0-9]+$`). Forge supports
-/// major 1 and produces no minor or patch variant, so the version it
-/// writes is `1.0.0` — a *string*, not the integer major.
+/// Full semantic version of the maintained manifest contract.
 pub const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Contract version of the request/response envelope exchanged with

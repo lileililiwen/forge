@@ -1630,7 +1630,13 @@
   }
 
   function assuranceListEntries(data, registry) {
-    if (data.contracts) return data.contracts;
+    if (data.contracts) {
+      const families = (data.platform_families || []).map((family) => ({
+        ...family,
+        entry_type: "platform-family",
+      }));
+      return [...data.contracts, ...families];
+    }
     if (data.specs) return data.specs;
     if (data.scan) return (data.scan.findings) || [];
     if (data.proposals) return data.proposals;

@@ -742,7 +742,11 @@ pub(crate) fn cmd_contract(
 ) -> Result<Output, ForgeError> {
     match command {
         ContractCommands::List => {
+            forge::contract::verify_manifest_digests()
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?;
             let manifest = forge::contract::load_manifest()?;
+            let families = forge::contract::family_support_catalog()
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?;
             let mut human = format!(
                 "{:<18} {:<28} {:<10} {}",
                 "Module", "Constant", "Version", "Family"
@@ -761,31 +765,55 @@ pub(crate) fn cmd_contract(
                 manifest.source,
                 &manifest.revision[..12.min(manifest.revision.len())]
             ));
+            human.push_str("\n\nPlatform families:");
+            for family in &families {
+                human.push_str(&format!("\n{}: {}", family.family, family.status));
+                if let Some(version) = &family.version {
+                    human.push_str(&format!(" ({version})"));
+                }
+                if let Some(reason) = &family.reason {
+                    human.push_str(&format!(" — {reason}"));
+                }
+            }
             let json = serde_json::json!({
                 "contracts": forge::contract::CONTRACTS.iter().map(|c| serde_json::json!({
                     "module": c.module, "constant": c.constant, "discriminator": c.discriminator,
                     "version": c.version, "platform_family": c.platform_family, "doc": c.doc
                 })).collect::<Vec<_>>(),
+                "platform_families": families,
                 "manifest": manifest,
             });
             Ok(as_output(format, human, json))
         }
         ContractCommands::Inspect { family } => {
+            forge::contract::verify_manifest_digests()
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?;
             let manifest = forge::contract::load_manifest()?;
-            let entry = manifest.files.iter().find(|f| {
-                let fam_file = family.strip_prefix("platform.").unwrap_or(family);
-                f.path.contains(fam_file)
-            });
-            let schema_path = forge::contract::family_schema_path(family).ok_or_else(|| {
-                ForgeError::ContractInvalid {
-                    reason: format!(
-                        "unknown family '{family}'; supported: {}",
-                        forge::contract::supported_families().join(", ")
-                    ),
-                }
+            let support = forge::contract::family_support(family)
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?;
+            let support = support.ok_or_else(|| ForgeError::ContractInvalid {
+                reason: format!(
+                    "unknown family '{family}'; supported: {}",
+                    forge::contract::supported_families()
+                        .unwrap_or_default()
+                        .join(", ")
+                ),
             })?;
+            if support.status == "unsupported" {
+                return Err(ForgeError::ContractUnsupportedFamily {
+                    family: family.to_string(),
+                    reason: support
+                        .reason
+                        .unwrap_or_else(|| "no reason recorded".to_string()),
+                });
+            }
+            let schema_path = forge::contract::family_schema_path(family)
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?
+                .ok_or_else(|| ForgeError::ContractInvalid {
+                    reason: format!("supported family '{family}' has no schema"),
+                })?;
             let schema_text =
-                std::fs::read_to_string(forge::contract::contracts_dir().join(schema_path))
+                std::fs::read_to_string(forge::contract::contracts_dir().join(&schema_path))
                     .map_err(|e| ForgeError::ContractInvalid {
                         reason: format!("cannot read schema {schema_path}: {e}"),
                     })?;
@@ -805,12 +833,29 @@ pub(crate) fn cmd_contract(
                 required.join(", "),
                 schema_text.lines().take(20).collect::<Vec<_>>().join("\n")
             );
-            let _ = entry;
             let json =
                 serde_json::json!({"family": family, "schema": schema, "manifest": manifest});
             Ok(as_output(format, human, json))
         }
         ContractCommands::Emit { family, target } => {
+            let support = forge::contract::family_support(family)
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?;
+            match support {
+                Some(row) if row.status == "unsupported" => {
+                    return Err(ForgeError::ContractUnsupportedFamily {
+                        family: family.clone(),
+                        reason: row
+                            .reason
+                            .unwrap_or_else(|| "no reason recorded".to_string()),
+                    });
+                }
+                None => {
+                    return Err(ForgeError::ContractInvalid {
+                        reason: format!("unknown family '{family}'"),
+                    });
+                }
+                _ => {}
+            }
             let doc = match family.as_str() {
                 "platform.gate-result" => {
                     let (dir, pid) = resolve_gate_target(db_path, target)?;
@@ -867,17 +912,13 @@ pub(crate) fn cmd_contract(
                     }
                     docs.into_iter().next().unwrap()
                 }
-                "platform.job-outcome" => {
-                    return Err(ForgeError::ContractInvalid {
-                        reason: "platform.job-outcome has no source record in this release"
-                            .to_string(),
-                    });
-                }
                 _ => {
                     return Err(ForgeError::ContractInvalid {
                         reason: format!(
                             "unknown family '{family}'; supported: {}",
-                            forge::contract::supported_families().join(", ")
+                            forge::contract::supported_families()
+                                .unwrap_or_default()
+                                .join(", ")
                         ),
                     })
                 }
@@ -906,6 +947,23 @@ pub(crate) fn cmd_contract(
                 serde_json::from_str(&text).map_err(|e| ForgeError::ContractInvalid {
                     reason: format!("invalid JSON: {e}"),
                 })?;
+            let family = doc
+                .get("contract")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| value.split('/').next())
+                .unwrap_or_default();
+            if let Some(row) = forge::contract::family_support(family)
+                .map_err(|reason| ForgeError::ContractInvalid { reason })?
+            {
+                if row.status == "unsupported" {
+                    return Err(ForgeError::ContractUnsupportedFamily {
+                        family: family.to_string(),
+                        reason: row
+                            .reason
+                            .unwrap_or_else(|| "no reason recorded".to_string()),
+                    });
+                }
+            }
             forge::contract::validate_envelope(&doc)
                 .map_err(|e| ForgeError::ContractInvalid { reason: e })?;
             let human = format!(

@@ -41,7 +41,52 @@ fn write_evidence(dir: &Path, evidence: crate::gate::GateEvidence) {
 
 #[test]
 fn manifest_digests_match() {
-    verify_manifest_digests().expect("vendored digests must match");
+    verify_manifest_digests().expect("Forge-maintained contract digests must match");
+}
+
+#[test]
+fn family_support_catalog_separates_supported_unsupported_and_unknown() {
+    let catalog = family_support_catalog().expect("Forge family support catalog");
+    let supported: Vec<_> = catalog
+        .iter()
+        .filter(|family| family.status == "supported")
+        .map(|family| family.family.as_str())
+        .collect();
+    let unsupported: Vec<_> = catalog
+        .iter()
+        .filter(|family| family.status == "unsupported")
+        .map(|family| family.family.as_str())
+        .collect();
+
+    for family in [
+        "platform.gate-result",
+        "platform.readiness",
+        "platform.release-evidence",
+        "platform.capability",
+        "platform.audit-event",
+        "platform.public-portfolio-manifest",
+    ] {
+        assert!(
+            supported.contains(&family),
+            "missing supported family {family}"
+        );
+    }
+    for family in [
+        "platform.identity-subject",
+        "platform.permission-decision",
+        "platform.tenant-context",
+        "platform.job-outcome",
+    ] {
+        assert!(
+            unsupported.contains(&family),
+            "missing unsupported family {family}"
+        );
+        assert!(
+            family_schema_path(family).unwrap().is_none(),
+            "unsupported family {family} must not resolve a schema"
+        );
+    }
+    assert!(family_schema_path("platform.not-real").unwrap().is_none());
 }
 
 #[test]
@@ -255,7 +300,7 @@ fn map_gate_check_rows() {
 }
 
 #[test]
-fn every_rendered_value_is_inside_the_vendored_schema_vocabulary() {
+fn every_rendered_value_is_inside_the_maintained_schema_vocabulary() {
     use crate::gate::{GateAggregate, GateCheckState};
     let schema: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(contracts_dir().join("schemas/gate-result.schema.json")).unwrap(),
@@ -276,7 +321,7 @@ fn every_rendered_value_is_inside_the_vendored_schema_vocabulary() {
         .collect();
     // The shared vocabulary of 1.0.0 is still nameable, so removing a
     // Forge value can never be mistaken for "the contract does not have
-    // it" — the mirror image of the "errored is never produced" test.
+    // it" — the counterpart of the "errored is never produced" test.
     for value in [
         "passed",
         "failed",
@@ -306,14 +351,14 @@ fn every_rendered_value_is_inside_the_vendored_schema_vocabulary() {
             if let Ok(rendered) = map_gate_result(&evidence_with(aggregate, &states)) {
                 assert!(
                     result_enum.contains(&rendered),
-                    "result {rendered} is not in the vendored enum"
+                    "result {rendered} is not in the maintained enum"
                 );
             }
             for state in states {
                 let rendered = map_gate_check_state(state).unwrap();
                 assert!(
                     check_enum.contains(&rendered),
-                    "checks status {rendered} is not in the vendored enum"
+                    "checks status {rendered} is not in the maintained enum"
                 );
             }
         }
@@ -330,7 +375,8 @@ fn registered_family_coverage() {
         PLATFORM_FAMILY_VERSIONS.len(),
         "a family is registered twice"
     );
-    let mut supported = supported_families();
+    let family_names = supported_families().unwrap();
+    let mut supported: Vec<_> = family_names.iter().map(String::as_str).collect();
     supported.sort_unstable();
     assert_eq!(
         seen, supported,
@@ -525,7 +571,7 @@ fn validate_refuses_unknown_family() {
 
 #[test]
 fn validate_refuses_major_mismatch() {
-    // A major the family's vendored registry record does not serve.
+    // A major the family's Forge-maintained registry record does not serve.
     let doc = serde_json::json!({
         "contract": "platform.gate-result/2.0.0",
         "generated_at": "2026-01-01T00:00:00Z",
@@ -539,7 +585,7 @@ fn validate_refuses_major_mismatch() {
     assert_eq!(
         supported_majors("platform.gate-result").unwrap(),
         vec![0, 1],
-        "the vendored registry must still serve major 0 while narrowing is declared"
+        "the maintained registry must still serve major 0 while narrowing is declared"
     );
 
     // A registry that cannot answer refuses rather than skipping.
@@ -559,7 +605,7 @@ fn validate_refuses_major_mismatch() {
 }
 
 #[test]
-fn validate_refuses_value_outside_the_vendored_enum() {
+fn validate_refuses_value_outside_the_maintained_enum() {
     let doc = serde_json::json!({
         "contract": "platform.gate-result/1.0.0",
         "generated_at": "2026-01-01T00:00:00Z",
@@ -602,20 +648,4 @@ fn extract_version(line: &str) -> Option<String> {
     let start = line.find('"')?;
     let end = line[start + 1..].find('"')?;
     Some(line[start + 1..start + 1 + end].to_string())
-}
-
-#[test]
-#[ignore]
-fn parity_walk() {
-    let src = std::env::var("PLATFORM_CONTRACTS_DIR")
-        .or_else(|_| std::env::var("FORGE_CONTRACTS_DIR"))
-        .unwrap_or_else(|_| format!("{}/../platform-contracts", env!("CARGO_MANIFEST_DIR")));
-    let path = Path::new(&src);
-    assert!(path.is_dir(), "parity source not found at {src}: set PLATFORM_CONTRACTS_DIR (next action: create a sibling checkout or set the env var)");
-    for fam in supported_families() {
-        let dir = path
-            .join("fixtures")
-            .join(fam.strip_prefix("platform.").unwrap());
-        assert!(dir.is_dir(), "missing fixture dir for {fam}");
-    }
 }

@@ -119,7 +119,7 @@ The templates currently target GitHub Actions on Ubuntu x86_64. Forge `v0.1.1` m
 
 ## 5. Flow C — Forge's own CI and binary release
 
-Forge's own [`ci.yml`](../.github/workflows/ci.yml) has named jobs for formatting, Clippy, fast tests, native scaffold evidence, MSRV, dependency/advisory checks, governance/OpenSpec, readiness, read surfaces, contract parity, Forge Gate, and package artifact verification. Each has an explicit timeout and read-only permissions, except the final release job which has `contents: write`.
+Forge's own [`ci.yml`](../.github/workflows/ci.yml) has named jobs for formatting, Clippy, fast tests, native scaffold evidence, MSRV, dependency/advisory checks, governance/OpenSpec, readiness, read surfaces, offline contract schema validation, Forge Gate, and package artifact verification. Each has an explicit timeout and read-only permissions, except the final release job which has `contents: write`.
 
 ```mermaid
 flowchart TD
@@ -132,7 +132,7 @@ flowchart TD
   EVT --> GOV[OpenSpec and governance]
   EVT --> READY[readiness]
   EVT --> SURF[read surfaces]
-  EVT --> PARITY[contract parity at pinned commit]
+  EVT --> CONTRACTS[offline contract manifest and schema checks]
   EVT --> GATE[real Forge Gate]
   EVT --> ART[package + checksum + install + smoke]
   FMT --> REL{matching pushed v<version> tag?}
@@ -144,7 +144,7 @@ flowchart TD
   GOV --> REL
   READY --> REL
   SURF --> REL
-  PARITY --> REL
+  CONTRACTS --> REL
   GATE --> REL
   ART --> REL
   REL -->|yes, all required jobs passed| PUB[GitHub Release from verified artifact]

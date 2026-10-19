@@ -228,6 +228,7 @@ pub(in crate::api) fn assurance_error_status(err: &crate::core::ForgeError) -> u
         | "remediation-invalid"
         | "semantic-invalid"
         | "contract-invalid"
+        | "contract-unsupported-family"
         | "governance-invalid"
         | "analytics-invalid"
         | "studio-invalid-spec" => 400,
@@ -344,14 +345,17 @@ pub(in crate::api) fn dispatch(
                     },
                     Err(response) => response,
                 },
-                ("contracts", "emit") => match deploy_id_gate(db_path, item) {
-                    Ok(dir) => match require_query(
-                        query,
-                        "family",
-                        "the contract `family` query value is required, e.g. ?family=platform.gate-result.",
-                    ) {
-                        Ok(family) => contract_emit(&dir, item, &family),
-                        Err(response) => response,
+                ("contracts", "emit") => match require_query(
+                    query,
+                    "family",
+                    "the contract `family` query value is required, e.g. ?family=platform.gate-result.",
+                ) {
+                    Ok(family) => match contract_family_gate(&family) {
+                        Some(response) => response,
+                        None => match deploy_id_gate(db_path, item) {
+                            Ok(dir) => contract_emit(&dir, item, &family),
+                            Err(response) => response,
+                        },
                     },
                     Err(response) => response,
                 },
@@ -389,6 +393,9 @@ pub(in crate::api) fn dispatch(
 /// `GET /v1/admin/contracts`: every versioned surface and its platform
 /// mapping — the same payload as `forge contract list --format json`.
 fn contract_list() -> ApiResponse {
+    if let Err(reason) = crate::contract::verify_manifest_digests() {
+        return error(500, "contract-unavailable", &reason);
+    }
     let manifest = match crate::contract::load_manifest() {
         Ok(manifest) => manifest,
         Err(err) => return typed_assurance_error(&err),
@@ -403,31 +410,72 @@ fn contract_list() -> ApiResponse {
             })
         })
         .collect();
+    let platform_families = match crate::contract::family_support_catalog() {
+        Ok(families) => families,
+        Err(reason) => return error(500, "contract-unavailable", &reason),
+    };
     ApiResponse::json(
         200,
         json!({
             "contracts": contracts,
+            "platform_families": platform_families,
             "manifest": manifest,
             "contract": API_CONTRACT_VERSION,
         }),
     )
 }
 
+fn contract_family_gate(family: &str) -> Option<ApiResponse> {
+    match crate::contract::family_support(family) {
+        Ok(Some(row)) if row.status == "unsupported" => Some(error(
+            400,
+            "admin-unsupported-contract-family",
+            row.reason.as_deref().unwrap_or("family is unsupported"),
+        )),
+        Ok(Some(_)) => None,
+        Ok(None) => Some(error(
+            400,
+            "admin-unknown-contract-family",
+            "unknown contract family; use the family shown in the contract list.",
+        )),
+        Err(reason) => Some(error(500, "contract-unavailable", &reason)),
+    }
+}
+
 /// `GET /v1/admin/contracts/{family}`: one platform family and its
 /// schema — the same `required` projection as `forge contract inspect`.
 fn contract_inspect(family: &str) -> ApiResponse {
-    let schema_path = match crate::contract::family_schema_path(family) {
-        Some(path) => path,
-        None => {
+    let support = match crate::contract::family_support(family) {
+        Ok(Some(row)) => row,
+        Ok(None) => {
             return error(
                 400,
                 "admin-unknown-contract-family",
                 "unknown contract family; use the family shown in the contract list.",
             )
         }
+        Err(reason) => return error(500, "contract-unavailable", &reason),
+    };
+    if support.status == "unsupported" {
+        return error(
+            400,
+            "admin-unsupported-contract-family",
+            support.reason.as_deref().unwrap_or("family is unsupported"),
+        );
+    }
+    let schema_path = match crate::contract::family_schema_path(family) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            return error(
+                500,
+                "contract-unavailable",
+                "supported family has no schema",
+            )
+        }
+        Err(reason) => return error(500, "contract-unavailable", &reason),
     };
     let schema_text = match std::fs::read_to_string(
-        crate::contract::contracts_dir().join(schema_path),
+        crate::contract::contracts_dir().join(&schema_path),
     ) {
         Ok(text) => text,
         Err(err) => {
@@ -721,25 +769,6 @@ fn semantic_show(project_dir: &Path, id: &str, raw: &str) -> ApiResponse {
 /// reports it honestly as unavailable instead of a 500.
 fn contract_emit(project_dir: &Path, id: &str, family: &str) -> ApiResponse {
     let family = family.trim();
-    if !crate::contract::supported_families().contains(&family) {
-        return error(
-            400,
-            "admin-unknown-contract-family",
-            "unknown contract family; use the family shown in the contract list.",
-        );
-    }
-    if family == "platform.job-outcome" {
-        return ApiResponse::json(
-            200,
-            json!({
-                "project": id,
-                "family": family,
-                "unavailable": true,
-                "reason": "platform.job-outcome has no source record in this release; run `forge contract emit` in a terminal for the typed refusal.",
-                "contract": API_CONTRACT_VERSION,
-            }),
-        );
-    }
     let doc: Result<Value, crate::core::ForgeError> = match family {
         "platform.gate-result" => crate::contract::emit_gate_result(project_dir, id).map_err(|e| {
             crate::core::ForgeError::ContractInvalid {

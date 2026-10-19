@@ -1,0 +1,9 @@
+{
+  "event_id": "evt-001",
+  "occurred_at": "2026-10-19T00:00:00Z",
+  "category": "lifecycle",
+  "action": "release.publish",
+  "outcome": "success",
+  "actor": {"subject_id": "forge-user", "subject_type": "user"},
+  "tenant_id": "default"
+}

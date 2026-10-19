@@ -181,6 +181,18 @@ fn package_and_installer_ship_split_quality_checker_helpers() {
 }
 
 #[test]
+fn package_and_installer_ship_forge_owned_contract_assets() {
+    let package = read("scripts/package.sh");
+    let installer = read("scripts/install.sh");
+    let smoke = read("scripts/smoke.sh");
+    assert!(package.contains("cp -R contracts"));
+    assert!(installer.contains("share/forge/contracts"));
+    assert!(installer.contains("cp -R \"$CONTRACTS_RESOURCE/.\""));
+    assert!(smoke.contains("contract list --format json"));
+    assert!(smoke.contains("cd \"$SCRATCH\""));
+}
+
+#[test]
 fn ci_jobs_honest_and_bounded() {
     let ci = read(".github/workflows/ci.yml");
     assert!(

@@ -1,104 +1,157 @@
 {
   "schema_version": 1,
-  "source": "platform-contracts",
-  "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a",
-  "synced_at": "2026-10-18T05:40:11.312Z",
+  "source": "forge",
+  "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3",
   "files": [
     {
+      "path": "family-support.json",
+      "sha256": "146ec112f9834be0db7a982f98a40800f5fe478f408d83a480658a61ab33a8ca",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/audit-event/invalid.json",
+      "sha256": "a7f725841884eba0f548272e9fb12991f9fceada4a35b3ab54c7807c4fe3c900",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/audit-event/valid.json",
+      "sha256": "c67b4b63d03bfa37b930f6f0a48cae8848bb16281e1ff8ed32db2d35de0b33ec",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/capability/invalid.json",
+      "sha256": "7ad1a79c68b808013a80bc74b710b7623820c1721f4d4d3148f65f79d86dc6b8",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/capability/valid.json",
+      "sha256": "73c2d3304c75329a66376887fed3338b5bb089204a11cfa5381811853f92ab16",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/gate-result/invalid.json",
+      "sha256": "34c4fcc2a6441a9c7325c7942e461dd8a47f0cf8a8cdeb4976204ad50d52bff1",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/gate-result/valid.json",
+      "sha256": "16fe8028a49499349a0b35a0f2706fab002e49bac67b9a49c5c43c7615ad324c",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/public-portfolio-manifest/invalid.json",
+      "sha256": "9032f78143129efe1dc889fbcafb28c31ee289c44d40c2ec94b7d13fff4efecc",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/public-portfolio-manifest/valid.json",
+      "sha256": "fb92d8a1a1831ea66d8b68b87189bf05e1f5d27714952e29f21bc9f5a83a43dd",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/readiness/invalid.json",
+      "sha256": "9e8018ed7f302d264db469a202044904df7368ede6b07fa4fb72804bf3deee75",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/readiness/valid.json",
+      "sha256": "283d9305f56d138fc57cc1c263c90d7212f259b3bf868712c4bcd7cb09d121f3",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/release-evidence/invalid.json",
+      "sha256": "4ef312bde30f369849267d3be513539160be71df6a9d5e97ea7de8740ef5d74d",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
+      "path": "fixtures/release-evidence/valid.json",
+      "sha256": "fd992e340f8ef6474244af73a3efdb539465df27010790544f85fdb0c59fbab4",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
+    },
+    {
       "path": "registry.json",
-      "sha256": "963272540beaa27710fd98356add13c61c2da7b4d5f910a6ccbd17ba17e062d6",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "sha256": "1e4e00d2119beed7ce587e79df7691d828e7c142309208ab408f3ebf944e3f0d",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/audit-event.schema.json",
       "sha256": "c16487861114a2f82b1b43c32b4a4adb47239b29276b0bb09e7b89c177f9eaa5",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/capability.schema.json",
       "sha256": "5ef3390f4099418cf8fbe7bb2d74da85a48a112763bbc26d994eb58d01260631",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/envelope.schema.json",
       "sha256": "9fc64a7631b8410e516b5463485bb7effeda521ed0e5453a99ac03ee635ee26d",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/gate-result.schema.json",
       "sha256": "49e7583cce9e2febc44af5b4bf45cbe46f724bf76d420be5d77989eb8e7d1a5a",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
-    },
-    {
-      "path": "schemas/identity-subject.schema.json",
-      "sha256": "1750fe0b4b5620c4bbf70ed23f5c6d7dcdcb6554270258b7d90ab6cc9938ac91",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
-    },
-    {
-      "path": "schemas/job-outcome.schema.json",
-      "sha256": "4e4808b642da189abc4aa5b2df7a32274b51e55476d6b2a66aae2a4a1f4a7a81",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
-    },
-    {
-      "path": "schemas/permission-decision.schema.json",
-      "sha256": "be200609ef3e92c2781ddbb340ce4779fa8249e3f33523609da938897b976994",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/public-portfolio-manifest.schema.json",
       "sha256": "07a3c47769da8923998273cda602ddffb195f983e3dcf344fb1d86540c6bc986",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/readiness.schema.json",
       "sha256": "d267a1825fcf3c40af9e2f0e0d30cdd21ffe3b479a5f6c8549c4aaef99f7fdda",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/registry.schema.json",
       "sha256": "4655866e9640068be06f8c7194becbf8a6b4e1c0711a85d02374841734fb6b0e",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "schemas/release-evidence.schema.json",
       "sha256": "66941485ba807939e74c1421591ac7e47515bf54546a9f70033d35d89ccedae5",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
-      "path": "schemas/tenant-context.schema.json",
-      "sha256": "bebd521e67048b2c521f152991dc4cd22048a84572f4c9879faa4fd24a559334",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "path": "vocabulary/README.md",
+      "sha256": "0b5a8e9ff2c1a5e5723206a818819b71049b2fc9b5319b890a2fa3808949cb18",
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "vocabulary/governance-vocabulary.json",
       "sha256": "86fad88208ad3038458a2b879b72151d1de4af0699ffe104cec2b7f24fb8927c",
       "source": "forge",
-      "revision": "61badfd298b1335e91bfe863a9555449db45c945"
-    },
-    {
-      "path": "vocabulary/README.md",
-      "sha256": "ba5f584f03c133492ec7c7ae5384bc71dbad52e55f376cc4680f394732e896c6",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     },
     {
       "path": "vocabulary/secret-field-substrings.json",
       "sha256": "edd871391f8770533ff750db018a16bb9405a57c8d604cf420282f3ec7c6fa7d",
-      "source": "platform-contracts",
-      "revision": "a3e6739edea3e9ed8be18ba12e03a8969d794b1a"
+      "source": "forge",
+      "revision": "d5fab943aa73f6f3fbe4bb3fe42c5120482cff20b802dbcb12c36e70fb402dd3"
     }
   ]
 }

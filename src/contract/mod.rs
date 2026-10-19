@@ -11,17 +11,17 @@ pub const CONTRACT_CONTRACT_VERSION: &str = "0.1.0";
 pub const CONTRACT_PATTERN: &str =
     r"^platform\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\/[0-9]+\.[0-9]+\.[0-9]+$";
 
+mod inventory;
+pub use inventory::{ContractSpec, CONTRACTS};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestFile {
     pub path: String,
     pub sha256: String,
-    /// Owning source for this file (`platform-contracts` or
-    /// `workspace-governance`). Entries written before per-file
-    /// provenance carry `None` and mean the manifest's top-level source.
+    /// Owner of this retained contract asset.
     #[serde(default)]
     pub source: Option<String>,
-    /// Source revision the file was vendored from (full commit SHA when
-    /// the sync could resolve one, else `"unknown"`).
+    /// Content revision for the Forge-maintained asset set.
     #[serde(default)]
     pub revision: Option<String>,
 }
@@ -31,282 +31,26 @@ pub struct ContractManifest {
     pub schema_version: u64,
     pub source: String,
     pub revision: String,
-    pub synced_at: String,
     pub files: Vec<ManifestFile>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ContractSpec {
-    pub module: &'static str,
-    pub constant: &'static str,
-    pub discriminator: &'static str,
-    pub version: &'static str,
-    pub platform_family: Option<&'static str>,
-    pub doc: &'static str,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlatformFamilySupport {
+    pub family: String,
+    pub status: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
-pub const CONTRACTS: &[ContractSpec] = &[
-    ContractSpec {
-        module: "agent",
-        constant: "AGENT_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/agent-runtime-workflows/spec.md",
-    },
-    ContractSpec {
-        module: "analytics",
-        constant: "ANALYTICS_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/external-planes-analytics/spec.md",
-    },
-    ContractSpec {
-        module: "api",
-        constant: "API_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/core-http-api/spec.md",
-    },
-    ContractSpec {
-        module: "checker",
-        constant: "CHECKER_CONTRACT_VERSION",
-        discriminator: "forge-checker/0.1.0",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/external-checker-emission/spec.md",
-    },
-    ContractSpec {
-        module: "component",
-        constant: "COMPONENT_CATALOG_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/semantic-component-registry/spec.md",
-    },
-    ContractSpec {
-        module: "deploy",
-        constant: "DEPLOY_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/adapter-deployment/spec.md",
-    },
-    ContractSpec {
-        module: "deploy",
-        constant: "DEPLOY_EXECUTOR_CONTRACT",
-        discriminator: "forge-deploy-executor/0.1.0",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/adapter-deployment/spec.md",
-    },
-    ContractSpec {
-        module: "distribution",
-        constant: "DISTRIBUTION_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/repository-distribution/spec.md",
-    },
-    ContractSpec {
-        module: "docs",
-        constant: "DOCS_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/documentation-translation/spec.md",
-    },
-    ContractSpec {
-        module: "doctor",
-        constant: "DOCTOR_POLICY_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/doctor-maturity-assessment/spec.md",
-    },
-    ContractSpec {
-        module: "feature",
-        constant: "FEATURE_CATALOG_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/feature-lifecycle/spec.md",
-    },
-    ContractSpec {
-        module: "fleet",
-        constant: "FLEET_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/fleet-registry-observation/spec.md",
-    },
-    ContractSpec {
-        module: "gate",
-        constant: "GATE_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: Some("platform.gate-result"),
-        doc: "openspec/specs/gate-runtime-evidence/spec.md",
-    },
-    ContractSpec {
-        module: "generate",
-        constant: "GENERATOR_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/deterministic-project-generation/spec.md",
-    },
-    ContractSpec {
-        module: "gitops",
-        constant: "GITOPS_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/agent-runtime-workflows/spec.md",
-    },
-    ContractSpec {
-        module: "governance",
-        constant: "GOVERNANCE_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/governance-provider-contract/spec.md",
-    },
-    ContractSpec {
-        module: "identity",
-        constant: "IDENTITY_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/central-admin-identity/spec.md",
-    },
-    // The shared-layer kit registry is a versioned surface: its descriptor
-    // contract, the .NET kit version it pins and the vendored token kit
-    // version are all registered here, so none can be bumped without the
-    // inventory noticing.
-    ContractSpec {
-        module: "kit",
-        constant: "KIT_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/scaffold-prewires-shared-layer/spec.md",
-    },
-    ContractSpec {
-        module: "kit",
-        constant: "PLATFORM_PACKAGE_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/scaffold-prewires-shared-layer/spec.md",
-    },
-    ContractSpec {
-        module: "kit",
-        constant: "PLATFORM_UI_KIT_VERSION",
-        discriminator: "",
-        version: "0.2.0",
-        platform_family: None,
-        doc: "openspec/specs/scaffold-prewires-shared-layer/spec.md",
-    },
-    ContractSpec {
-        module: "mcp",
-        constant: "MCP_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/mature-mcp-surface/spec.md",
-    },
-    ContractSpec {
-        module: "planner",
-        constant: "PLANNER_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/validated-intent-planner/spec.md",
-    },
-    ContractSpec {
-        module: "policy",
-        constant: "POLICY_CONTRACT_VERSION",
-        discriminator: "driftwatch-checker/0.1.0",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/quality-policy-integration/spec.md",
-    },
-    ContractSpec {
-        module: "portal",
-        constant: "PORTAL_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/control-plane-portal/spec.md",
-    },
-    ContractSpec {
-        module: "procedure",
-        constant: "PROCEDURE_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/ai-procedure-skills/spec.md",
-    },
-    ContractSpec {
-        module: "provider",
-        constant: "PROVIDER_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/external-planes-analytics/spec.md",
-    },
-    ContractSpec {
-        module: "readiness",
-        constant: "READINESS_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: Some("platform.readiness"),
-        doc: "openspec/specs/profile-registry/spec.md",
-    },
-    ContractSpec {
-        module: "release",
-        constant: "RELEASE_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: Some("platform.release-evidence"),
-        doc: "openspec/specs/release-publishing/spec.md",
-    },
-    ContractSpec {
-        module: "spec",
-        constant: "SPEC_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/specification-remediation/spec.md",
-    },
-    ContractSpec {
-        module: "ui_pattern",
-        constant: "UI_PATTERN_CATALOG_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/semantic-ui-patterns/spec.md",
-    },
-    ContractSpec {
-        module: "upgrade",
-        constant: "UPGRADE_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/project-upgrade-orchestration/spec.md",
-    },
-    ContractSpec {
-        module: "contract",
-        constant: "CONTRACT_CONTRACT_VERSION",
-        discriminator: "",
-        version: "0.1.0",
-        platform_family: None,
-        doc: "openspec/specs/platform-contract-consumption/spec.md",
-    },
-];
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PlatformFamilyCatalog {
+    schema_version: u64,
+    families: Vec<PlatformFamilySupport>,
+}
 
 #[derive(Debug, Clone)]
 pub struct ContractUnmappable {
@@ -330,6 +74,14 @@ pub fn contracts_dir() -> std::path::PathBuf {
     {
         return std::path::PathBuf::from(dir);
     }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin_dir) = exe.parent() {
+            let installed = bin_dir.join("../share/forge/contracts");
+            if installed.is_dir() {
+                return installed;
+            }
+        }
+    }
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("contracts")
 }
 
@@ -348,8 +100,42 @@ pub fn load_manifest() -> Result<ContractManifest, ForgeError> {
 
 pub fn verify_manifest_digests() -> Result<(), String> {
     let manifest = load_manifest().map_err(|e| e.to_string())?;
+    if manifest.source != "forge" {
+        return Err(format!(
+            "contracts/manifest.json owner must be forge, got '{}'",
+            manifest.source
+        ));
+    }
     let base = contracts_dir();
+    let mut declared = std::collections::BTreeSet::new();
+    let mut revision_rows = Vec::new();
     for entry in &manifest.files {
+        let rel = Path::new(&entry.path);
+        if rel.is_absolute()
+            || rel
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(format!(
+                "unsafe contract asset path '{}': refused",
+                entry.path
+            ));
+        }
+        if !declared.insert(entry.path.clone()) {
+            return Err(format!(
+                "duplicate contract asset path '{}': refused",
+                entry.path
+            ));
+        }
+        if entry.source.as_deref() != Some("forge") {
+            return Err(format!("{}: asset owner must be forge", entry.path));
+        }
+        if entry.revision.as_deref() != Some(manifest.revision.as_str()) {
+            return Err(format!(
+                "{}: asset revision disagrees with manifest",
+                entry.path
+            ));
+        }
         let file = base.join(&entry.path);
         let bytes = fs::read(&file).map_err(|e| format!("{}: cannot read: {e}", entry.path))?;
         let actual = crate::release::hash_bytes(&bytes);
@@ -359,19 +145,206 @@ pub fn verify_manifest_digests() -> Result<(), String> {
                 entry.path, entry.sha256, actual
             ));
         }
+        revision_rows.push((entry.path.clone(), entry.sha256.clone()));
+    }
+    revision_rows.sort();
+    let revision_input = revision_rows
+        .iter()
+        .map(|(path, digest)| format!("{path}\t{digest}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let revision = crate::release::hash_bytes(revision_input.as_bytes());
+    if revision != manifest.revision {
+        return Err(format!(
+            "contracts/manifest.json revision mismatch: expected {}, computed {revision}",
+            manifest.revision
+        ));
+    }
+    let mut actual = std::collections::BTreeSet::new();
+    collect_contract_assets(&base, &base, &mut actual)?;
+    actual.remove("manifest.json");
+    let declared_assets: std::collections::BTreeSet<_> = declared
+        .iter()
+        .filter(|path| path.as_str() != "manifest.json")
+        .cloned()
+        .collect();
+    if actual != declared_assets {
+        let unlisted: Vec<_> = actual.difference(&declared_assets).cloned().collect();
+        let missing: Vec<_> = declared_assets.difference(&actual).cloned().collect();
+        return Err(format!(
+            "contract asset inventory mismatch; unlisted: {unlisted:?}; missing: {missing:?}"
+        ));
     }
     Ok(())
 }
 
-pub fn supported_families() -> Vec<&'static str> {
-    vec![
-        "platform.gate-result",
-        "platform.readiness",
-        "platform.release-evidence",
-        "platform.capability",
-        "platform.audit-event",
-        "platform.job-outcome",
-    ]
+fn collect_contract_assets(
+    root: &Path,
+    current: &Path,
+    out: &mut std::collections::BTreeSet<String>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(current).map_err(|e| {
+        format!(
+            "cannot enumerate contract assets at {}: {e}",
+            current.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("cannot read contract asset entry: {e}"))?;
+        let path = entry.path();
+        let kind = entry
+            .file_type()
+            .map_err(|e| format!("cannot inspect {}: {e}", path.display()))?;
+        if kind.is_symlink() {
+            return Err(format!(
+                "contract asset symlink refused: {}",
+                path.display()
+            ));
+        }
+        if kind.is_dir() {
+            collect_contract_assets(root, &path, out)?;
+        } else if kind.is_file() {
+            let rel = path
+                .strip_prefix(root)
+                .map_err(|_| format!("contract asset escaped root: {}", path.display()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.insert(rel);
+        }
+    }
+    Ok(())
+}
+
+pub fn family_support_catalog() -> Result<Vec<PlatformFamilySupport>, String> {
+    verify_manifest_digests()?;
+    let path = contracts_dir().join("family-support.json");
+    let text = fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read family support catalog {}: {e}", path.display()))?;
+    let doc: PlatformFamilyCatalog = serde_json::from_str(&text)
+        .map_err(|e| format!("invalid family support catalog {}: {e}", path.display()))?;
+    if doc.schema_version != 1 {
+        return Err(format!("{} has unsupported schema_version", path.display()));
+    }
+    let mut names = std::collections::BTreeSet::new();
+    for family in &doc.families {
+        if !names.insert(family.family.as_str()) {
+            return Err(format!(
+                "{} duplicates family '{}'",
+                path.display(),
+                family.family
+            ));
+        }
+        match family.status.as_str() {
+            "supported" => {
+                let schema = family.schema.as_deref().ok_or_else(|| {
+                    format!(
+                        "{} supported family '{}' has no schema",
+                        path.display(),
+                        family.family
+                    )
+                })?;
+                if Path::new(schema).is_absolute()
+                    || Path::new(schema)
+                        .components()
+                        .any(|part| !matches!(part, std::path::Component::Normal(_)))
+                    || !contracts_dir().join(schema).is_file()
+                {
+                    return Err(format!(
+                        "{} has unsafe or missing schema for '{}'",
+                        path.display(),
+                        family.family
+                    ));
+                }
+                if family.version.as_deref().is_none_or(str::is_empty) {
+                    return Err(format!(
+                        "{} supported family '{}' has no version",
+                        path.display(),
+                        family.family
+                    ));
+                }
+                let version = family.version.as_deref().expect("version checked above");
+                if let Some(registered) = platform_family_version(&family.family) {
+                    if version != registered {
+                        return Err(format!(
+                            "{} version for '{}' is {version}, expected {registered}",
+                            path.display(),
+                            family.family
+                        ));
+                    }
+                    let major = version
+                        .split('.')
+                        .next()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .ok_or_else(|| {
+                            format!("{} has invalid version '{version}'", path.display())
+                        })?;
+                    if !supported_majors(&family.family)?.contains(&major) {
+                        return Err(format!(
+                            "{} registry does not serve {} version {version}",
+                            path.display(),
+                            family.family
+                        ));
+                    }
+                } else if family.family == crate::portfolio::share::MANIFEST_SCHEMA_FAMILY {
+                    if version != crate::portfolio::share::MANIFEST_SCHEMA_VERSION {
+                        return Err(format!(
+                            "{} portfolio manifest version is {version}, expected {}",
+                            path.display(),
+                            crate::portfolio::share::MANIFEST_SCHEMA_VERSION
+                        ));
+                    }
+                } else {
+                    return Err(format!(
+                        "{} supported family '{}' has no Forge producer or validator registration",
+                        path.display(),
+                        family.family
+                    ));
+                }
+                if family.reason.is_some() {
+                    return Err(format!(
+                        "{} supported family '{}' cannot declare an unsupported reason",
+                        path.display(),
+                        family.family
+                    ));
+                }
+            }
+            "unsupported" => {
+                if family.schema.is_some() || family.version.is_some() {
+                    return Err(format!(
+                        "{} unsupported family '{}' must not declare schema or version",
+                        path.display(),
+                        family.family
+                    ));
+                }
+                if family.reason.as_deref().is_none_or(str::is_empty) {
+                    return Err(format!(
+                        "{} unsupported family '{}' has no reason",
+                        path.display(),
+                        family.family
+                    ));
+                }
+            }
+            other => {
+                return Err(format!(
+                    "{} family '{}' has invalid status '{other}'",
+                    path.display(),
+                    family.family
+                ))
+            }
+        }
+    }
+    Ok(doc.families)
+}
+
+pub fn supported_families() -> Result<Vec<String>, String> {
+    Ok(family_support_catalog()?
+        .into_iter()
+        .filter(|family| {
+            family.status == "supported" && platform_family_version(&family.family).is_some()
+        })
+        .map(|family| family.family)
+        .collect())
 }
 
 /// The wire version Forge emits for every family it can project onto,
@@ -385,7 +358,6 @@ pub const PLATFORM_FAMILY_VERSIONS: &[(&str, &str)] = &[
     ("platform.audit-event", "0.1.0"),
     ("platform.capability", "0.1.0"),
     ("platform.gate-result", "1.0.0"),
-    ("platform.job-outcome", "0.1.0"),
     ("platform.readiness", "0.1.0"),
     ("platform.release-evidence", "0.1.0"),
 ];
@@ -405,16 +377,17 @@ pub fn platform_family_version(family: &str) -> Option<&'static str> {
         .map(|(_, version)| *version)
 }
 
-pub fn family_schema_path(family: &str) -> Option<&'static str> {
-    match family {
-        "platform.gate-result" => Some("schemas/gate-result.schema.json"),
-        "platform.readiness" => Some("schemas/readiness.schema.json"),
-        "platform.release-evidence" => Some("schemas/release-evidence.schema.json"),
-        "platform.capability" => Some("schemas/capability.schema.json"),
-        "platform.audit-event" => Some("schemas/audit-event.schema.json"),
-        "platform.job-outcome" => Some("schemas/job-outcome.schema.json"),
-        _ => None,
-    }
+pub fn family_schema_path(family: &str) -> Result<Option<String>, String> {
+    Ok(family_support_catalog()?
+        .into_iter()
+        .find(|item| item.family == family && item.status == "supported")
+        .map(|item| item.schema.expect("supported catalog row has schema")))
+}
+
+pub fn family_support(family: &str) -> Result<Option<PlatformFamilySupport>, String> {
+    Ok(family_support_catalog()?
+        .into_iter()
+        .find(|item| item.family == family))
 }
 
 pub fn contract_discriminator(family: &str) -> Option<String> {
@@ -593,7 +566,7 @@ pub fn build_envelope(family: &str, payload: serde_json::Value) -> serde_json::V
     })
 }
 
-/// The majors a family still serves, read from the vendored registry
+/// The majors a family still serves, read from the Forge-maintained registry
 /// record. The registry is the authority the source publishes and
 /// `verify_manifest_digests` pins; an unreadable, unparseable or
 /// family-less registry is a refusal, never a skipped check.
@@ -637,8 +610,14 @@ pub fn validate_envelope(doc: &serde_json::Value) -> Result<(), String> {
     }
     let family = contract.split('/').next().unwrap_or("");
     let version = contract.split('/').nth(1).unwrap_or("");
-    if !supported_families().contains(&family) {
-        return Err(format!("unsupported family '{family}'"));
+    let support = family_support(&family)?.ok_or_else(|| format!("unknown family '{family}'"))?;
+    if support.status != "supported" {
+        return Err(format!(
+            "unsupported family '{family}': {}",
+            support
+                .reason
+                .unwrap_or_else(|| "no support reason recorded".to_string())
+        ));
     }
     let major = version
         .split('.')
@@ -648,7 +627,7 @@ pub fn validate_envelope(doc: &serde_json::Value) -> Result<(), String> {
     let majors = supported_majors(family)?;
     if !majors.contains(&major) {
         return Err(format!(
-            "unsupported major for '{family}': {version} (the vendored registry serves {majors:?})"
+            "unsupported major for '{family}': {version} (the Forge registry serves {majors:?})"
         ));
     }
     doc.get("generated_at")
@@ -659,8 +638,8 @@ pub fn validate_envelope(doc: &serde_json::Value) -> Result<(), String> {
     if let Some(hit) = payload_contains_secret_field(payload, &subs) {
         return Err(format!("payload contains secret field '{hit}'"));
     }
-    if let Some(schema_path) = family_schema_path(family) {
-        let schema_text = fs::read_to_string(contracts_dir().join(schema_path))
+    if let Some(schema_path) = family_schema_path(family)? {
+        let schema_text = fs::read_to_string(contracts_dir().join(&schema_path))
             .map_err(|e| format!("cannot read schema {schema_path}: {e}"))?;
         let schema: serde_json::Value =
             serde_json::from_str(&schema_text).map_err(|e| format!("invalid schema: {e}"))?;

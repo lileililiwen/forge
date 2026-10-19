@@ -5,13 +5,11 @@ is the human entry point; the machine gate is `scripts/release-check.sh`
 (local) and `.github/workflows/ci.yml` (CI). Both run the same contract —
 local as one script, CI split across named jobs (`fmt`, `clippy`, `test`,
 `native-scaffold`, `msrv`, `deny`, `governance`, `readiness`, `surfaces`,
-`contract-parity`, `gate`, `artifact`) — and both block (non-zero exit
-with the exact failed or unavailable check named) instead of representing
-a gap as release-ready. The local parity walk runs only when the
-`platform-contracts` source resolves (`PLATFORM_CONTRACTS_DIR` or the
-`../platform-contracts` sibling checkout). Hosted CI obtains the immutable
-source revision recorded by `contracts/manifest.json` into `$RUNNER_TEMP` and
-passes that path to the same parity script.
+`gate`, `artifact`) — and both block (non-zero exit with the exact failed or
+unavailable check named) instead of representing a gap as release-ready.
+The `test` job and local release check verify the Forge-owned contract asset
+manifest and Draft 2020-12 fixtures offline. No sibling source checkout is
+required.
 
 ## Gate steps
 
@@ -20,14 +18,18 @@ passes that path to the same parity script.
    -- -D warnings` (the `native-scaffold` evidence runs the three
    long-running native-toolchain tests in its own job so a slow build
    never masks a fast-suite failure).
-2. `cargo deny check` and `cargo audit` (dependency/advisory policy,
+2. `node scripts/check-contracts.mjs` and
+   `python3 tests/contract_schema_tests.py` (Forge-owned asset digests,
+   supported/unsupported families, and schema fixtures); install the pinned
+   test validator with `python3 -m pip install -r requirements-dev.txt`.
+3. `cargo deny check` and `cargo audit` (dependency/advisory policy,
    `deny.toml`); `openspec validate --all --strict --no-interactive`
    (required; a missing CLI blocks the script, it never skips validation).
-3. `forge readiness matrix` over every supported profile: disposable
+4. `forge readiness matrix` over every supported profile: disposable
    fixture per profile, native build/test with Forge absent from `PATH`,
    toolchain version, source SHA-256 and timestamp captured per row, each
    row classified `passed` / `failed` / `unverified`.
-4. `forge readiness check [--profile ...]` over the runner-qualified
+5. `forge readiness check [--profile ...]` over the runner-qualified
    profiles plus the artifact smoke. Exit 0 with `gate ready=true` only
    when every selected row passes.
 
@@ -47,8 +49,9 @@ Unselected profiles are out of the gate but stay visible in the matrix.
 
 ## Artifact procedure
 
-The release artifact is the platform-native Forge binary plus `LICENSE`,
-`README.md` and `CHANGELOG.md`, packaged by `scripts/package.sh` into
+The release artifact is the platform-native Forge binary, `LICENSE`,
+`README.md`, `CHANGELOG.md`, and the maintained `share/forge/contracts/` data
+tree, packaged by `scripts/package.sh` into
 `dist/forge-<version>-<target>.tar.gz` with a `.sha256` digest file
 (`dist/` is gitignored output, never committed state). Verify and
 install it locally with:
@@ -62,8 +65,9 @@ scripts/smoke.sh --bin <dir>/bin/forge
 
 `forge readiness artifact` still reports the platform-native binary
 evidence (path, SHA-256, version smoke) for the locally built tree;
-installation is not a second code path — the packaged binary runs the
-same contract suites. Only a push of `v< Cargo.toml version >` triggers
+installation is not a second code path — the package smoke runs contract list
+and inspect from a scratch working directory using installed assets. Only a
+push of `v< Cargo.toml version >` triggers
 publication. The release job waits for every CI verification job, rechecks the
 workflow artifact checksum, and uses the built-in `gh` CLI to publish the exact
 archive and sidecar as a GitHub Release. The job has `contents: write`; all

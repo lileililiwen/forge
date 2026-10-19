@@ -18,8 +18,8 @@ without replacing its assets.
 #### Scenario: Matching version tag publishes verified assets
 
 - **GIVEN** the tag is `v` followed by the version in `Cargo.toml`
-- **AND** every required CI job, artifact checksum and installed-binary smoke
-  check succeeds
+- **AND** every required CI job, offline contract check, artifact checksum and
+  installed-binary smoke check succeeds
 - **WHEN** the tag push workflow completes
 - **THEN** the GitHub Release at that tag contains exactly the existing
   `forge-<version>-x86_64-unknown-linux-gnu.tar.gz` archive and its `.sha256`
@@ -35,8 +35,8 @@ without replacing its assets.
 #### Scenario: Required CI job fails
 
 - **WHEN** formatting, build, tests, native scaffold, MSRV, dependency policy,
-  governance, readiness, read surfaces, contract parity, Gate or artifact
-  verification fails
+  governance, readiness, read surfaces, offline contract validation, Gate or
+  artifact verification fails
 - **THEN** the release publication job does not run
 - **AND** no GitHub Release write occurs
 
@@ -46,37 +46,6 @@ without replacing its assets.
 - **WHEN** the publication job attempts to publish again
 - **THEN** publication fails without clobbering, deleting or replacing an
   existing asset
-
-### Requirement: Hosted contract parity uses the recorded source revision
-
-Forge's hosted CI contract-parity job SHALL obtain the public
-`platform-contracts` source at the immutable commit recorded in
-`contracts/manifest.json`, pass that checkout to the existing parity script,
-and fail if the revision is malformed, unavailable or differs after checkout.
-The local parity script SHALL remain offline and SHALL continue to fail when
-no source directory is supplied or resolvable.
-
-#### Scenario: Hosted parity uses pinned commit
-
-- **GIVEN** `contracts/manifest.json` records a valid source revision
-- **WHEN** Forge's CI contract-parity job runs
-- **THEN** it checks out that exact revision without sibling checkout or
-  write credentials
-- **AND** it passes the source directory to `scripts/contract-parity.sh`
-
-#### Scenario: Pinned source cannot be resolved
-
-- **WHEN** the revision is malformed, unavailable or checkout resolves to a
-  different commit
-- **THEN** contract parity fails with the requested and observed revisions
-- **AND** release publication remains blocked
-
-#### Scenario: Local parity remains offline
-
-- **WHEN** a local caller runs `scripts/contract-parity.sh` without an
-  explicit source or sibling checkout
-- **THEN** the script reports `parity-source-unresolvable` and exits nonzero
-- **AND** it does not fetch source or turn missing input into a pass
 
 ### Requirement: Generated CI installs an exact checksum-verified Forge
 

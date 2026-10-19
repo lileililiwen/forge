@@ -2,14 +2,12 @@
 //!
 //! Forge produces a document that a separate static site reads. That site's
 //! build fails unless the document validates against
-//! `platform-contracts`' `schemas/public-portfolio-manifest.schema.json`. Forge
+//! Forge's `contracts/schemas/public-portfolio-manifest.schema.json`. Forge
 //! used to emit three fields the schema rejects — a bare family name, an
 //! integer `schema_version` and an integer `manifest_revision` — and nothing
 //! inside this repository could catch it when the defect was found, because the
-//! mirror under `contracts/` did not retain that schema file. It does now, and
-//! `scripts/contract-parity.sh` compares it byte-for-byte against the resolved
-//! source. This test still resolves a `platform-contracts` checkout rather than
-//! the mirror; repointing it at `contracts/schemas/` is open work.
+//! Forge previously did not retain that schema file. It does now, and
+//! `scripts/check-contracts.mjs` hashes it as a Forge-owned asset.
 //!
 //! Two tests, failing differently:
 //!
@@ -17,16 +15,8 @@
 //!   ordinary suite. It drives the real CLI end to end, reads the file the
 //!   publisher actually wrote, and pins the three fields. It needs no sibling
 //!   checkout, so the wire shape cannot drift unnoticed.
-//! - `a_published_manifest_validates_against_the_pinned_schema` is the
-//!   decisive check and is `#[ignore]`d, because it needs the sibling
-//!   `platform-contracts` checkout and a Python with `jsonschema`. Run it with
-//!
-//!   ```sh
-//!   cargo test --test manifest_wire_contract -- --ignored
-//!   ```
-//!
-//!   It is ignored rather than silently skipped: a test that returns early when
-//!   its oracle is missing is a green result that never ran the check.
+//! - `a_published_manifest_validates_against_the_pinned_schema` is the decisive
+//!   check and runs in the ordinary suite with the pinned Python validator.
 
 #[path = "support/share.rs"]
 mod support;
@@ -96,7 +86,6 @@ fn a_published_manifest_file_carries_the_contract_wire_shape() {
 /// The decisive acceptance test: a real Forge-produced document, validated by
 /// `jsonschema` against the pinned contract schema.
 #[test]
-#[ignore = "needs the sibling platform-contracts checkout and python jsonschema"]
 fn a_published_manifest_validates_against_the_pinned_schema() {
     let schema = pinned_schema_path();
     let tmp = tempfile::tempdir().unwrap();
@@ -148,25 +137,6 @@ print(f"valid: {len(document['projects'])} project(s), revision "
 
 /// Locate the pinned contract schema, or say exactly what is missing.
 fn pinned_schema_path() -> PathBuf {
-    let relative = "schemas/public-portfolio-manifest.schema.json";
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Ok(dir) = std::env::var("PLATFORM_CONTRACTS_DIR") {
-        roots.push(PathBuf::from(dir));
-    }
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut cursor: Option<&Path> = Some(manifest_dir.as_path());
-    while let Some(dir) = cursor {
-        roots.push(dir.join("platform-contracts"));
-        cursor = dir.parent();
-    }
-    for root in &roots {
-        let candidate = root.join(relative);
-        if candidate.is_file() {
-            return candidate;
-        }
-    }
-    panic!(
-        "the pinned contract schema was not found. Check out platform-contracts beside \
-         this repository or set PLATFORM_CONTRACTS_DIR; looked for {relative} under {roots:?}"
-    );
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts/schemas/public-portfolio-manifest.schema.json")
 }

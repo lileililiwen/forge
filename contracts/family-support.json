@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "families": [
+    {
+      "family": "platform.audit-event",
+      "status": "supported",
+      "version": "0.1.0",
+      "schema": "schemas/audit-event.schema.json"
+    },
+    {
+      "family": "platform.capability",
+      "status": "supported",
+      "version": "0.1.0",
+      "schema": "schemas/capability.schema.json"
+    },
+    {
+      "family": "platform.gate-result",
+      "status": "supported",
+      "version": "1.0.0",
+      "schema": "schemas/gate-result.schema.json"
+    },
+    {
+      "family": "platform.public-portfolio-manifest",
+      "status": "supported",
+      "version": "1.0.0",
+      "schema": "schemas/public-portfolio-manifest.schema.json"
+    },
+    {
+      "family": "platform.readiness",
+      "status": "supported",
+      "version": "0.1.0",
+      "schema": "schemas/readiness.schema.json"
+    },
+    {
+      "family": "platform.release-evidence",
+      "status": "supported",
+      "version": "0.1.0",
+      "schema": "schemas/release-evidence.schema.json"
+    },
+    {
+      "family": "platform.identity-subject",
+      "status": "unsupported",
+      "reason": "Forge has no identity-subject producer or consumer."
+    },
+    {
+      "family": "platform.job-outcome",
+      "status": "unsupported",
+      "reason": "Forge has no job outcome source record, validator, or emitter."
+    },
+    {
+      "family": "platform.permission-decision",
+      "status": "unsupported",
+      "reason": "Forge has no permission-decision producer or consumer."
+    },
+    {
+      "family": "platform.tenant-context",
+      "status": "unsupported",
+      "reason": "Forge has no tenant-context producer or consumer."
+    }
+  ]
+}

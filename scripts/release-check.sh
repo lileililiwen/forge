@@ -5,8 +5,7 @@
 # and licence policy (`cargo deny check`, `cargo audit`), strict OpenSpec
 # validation, the full native profile matrix (evidence for every supported
 # profile), the readiness gate over the runner-qualified profiles, and the
-# contract parity comparison when the platform-contracts source is present.
-# That comparison blocks on any mismatch. Usage:
+# offline Forge-owned contract asset/schema/fixture checks. Usage:
 #
 #   scripts/release-check.sh [--gate-profile <id>]...
 #
@@ -19,10 +18,8 @@
 # `.github/workflows/ci.yml` `readiness` job); pass the same
 # `--gate-profile` flags locally to reproduce the CI verdict.
 #
-# The parity step runs when `PLATFORM_CONTRACTS_DIR` or the
-# `../platform-contracts` sibling checkout resolves, and a mismatch there blocks
-# this run. Only an absent source prints a note and continues. Hosted CI fetches
-# the immutable source revision recorded in `contracts/manifest.json`.
+# Contract checks are always local and offline. The pinned Python development
+# dependency must be installed before this script runs.
 #
 # Exit status: 0 only when every required check and every selected matrix
 # row passes. Anything else (including an unavailable `openspec`,
@@ -62,6 +59,12 @@ step() {
 
 step cargo fmt --check
 step cargo build
+if ! python3 -c 'import jsonschema' >/dev/null 2>&1; then
+  echo "release-check blocked: jsonschema is unavailable; install it with python3 -m pip install -r requirements-dev.txt" >&2
+  exit 1
+fi
+step node scripts/check-contracts.mjs
+step python3 tests/contract_schema_tests.py
 step cargo test --workspace --all-targets
 step cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -92,21 +95,6 @@ if command -v openspec >/dev/null 2>&1; then
 else
   echo "release-check blocked: openspec CLI is unavailable; install it to run strict validation" >&2
   exit 1
-fi
-
-# Contract parity: runs when the platform-contracts source resolves. The step
-# compares the vendored contract bytes against the source and exits non-zero on
-# any mismatch, so under `set -eu` a mismatch aborts this run — it is a block,
-# not a note. Only an absent local source prints a note and continues; hosted
-# CI checks out the immutable source revision recorded in the contract mirror.
-PARITY_SRC="${PLATFORM_CONTRACTS_DIR:-}"
-if [ -z "$PARITY_SRC" ] && [ -d "../platform-contracts" ]; then
-  PARITY_SRC="../platform-contracts"
-fi
-if [ -n "$PARITY_SRC" ] && [ -d "$PARITY_SRC" ]; then
-  step env PLATFORM_CONTRACTS_DIR="$PARITY_SRC" sh scripts/contract-parity.sh
-else
-  echo "release-check note: platform-contracts source absent, parity not run (hosted CI fetches the pinned source revision)" >&2
 fi
 
 # Full matrix: evidence for every supported profile. Informational on its

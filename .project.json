@@ -122,17 +122,6 @@
       "required": false
     },
     {
-      "id": "platform-contract-copy",
-      "consumes": true,
-      "provider": "platform-contracts",
-      "mechanism": "consume",
-      "entry": "contracts/manifest.json",
-      "digest": "sha256:90542c6c3483ed21eb4a3fece213124959a3f316d38a718a8af8d4282d33bd55",
-      "contract": "platform-contract-copy/1.0.0",
-      "evidence_ref": "src/contract/mod.rs",
-      "required": true
-    },
-    {
       "id": "platform-kit-feed",
       "consumes": true,
       "provider": "dotnet-platform-libs",
@@ -190,7 +179,7 @@
     {
       "id": "secret-field-vocabulary",
       "consumes": true,
-      "provider": "platform-contracts",
+      "provider": "forge",
       "mechanism": "consume",
       "entry": "contracts/vocabulary/secret-field-substrings.json",
       "digest": "sha256:edd871391f8770533ff750db018a16bb9405a57c8d604cf420282f3ec7c6fa7d",

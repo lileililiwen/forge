@@ -29,7 +29,6 @@ fn release_job_waits_for_every_ci_job_and_only_writes_on_version_tags() {
         "governance",
         "readiness",
         "surfaces",
-        "contract-parity",
         "gate",
         "artifact",
     ] {
@@ -86,21 +85,16 @@ fn release_tag_guard_matches_cargo_version_and_rejects_mismatch() {
 }
 
 #[test]
-fn hosted_contract_parity_fetches_only_the_recorded_revision() {
-    let pin = WORKFLOW
-        .split_once("name: Resolve pinned platform-contracts revision")
-        .and_then(|(_, tail)| tail.split_once("name: Fetch contract source at pinned revision"))
-        .map(|(pin, _)| pin)
-        .expect("revision resolution step exists");
-    let fetch = WORKFLOW
-        .split_once("name: Fetch contract source at pinned revision")
-        .and_then(|(_, tail)| tail.split_once("\n  gate:\n"))
-        .map(|(fetch, _)| fetch)
-        .expect("revision checkout step exists");
-    assert!(pin.contains("contracts/manifest.json"));
-    assert!(pin.contains("40-character commit"));
-    assert!(fetch.contains("https://github.com/lileililiwen/platform-contracts.git"));
-    assert!(fetch.contains("fetch --depth=1 origin \"$CONTRACTS_REVISION\""));
-    assert!(fetch.contains("rev-parse HEAD"));
-    assert!(fetch.contains("PLATFORM_CONTRACTS_DIR=\"$source_dir\" scripts/contract-parity.sh"));
+fn hosted_and_local_contract_checks_are_offline_and_required() {
+    assert!(!WORKFLOW.contains("contract-parity"));
+    assert!(!WORKFLOW.contains("platform-contracts.git"));
+    assert!(WORKFLOW.contains("pip install -r requirements-dev.txt"));
+    assert!(WORKFLOW.contains("node scripts/check-contracts.mjs"));
+    assert!(WORKFLOW.contains("python3 tests/contract_schema_tests.py"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let release = std::fs::read_to_string(root.join("scripts/release-check.sh")).unwrap();
+    assert!(release.contains("node scripts/check-contracts.mjs"));
+    assert!(release.contains("python3 tests/contract_schema_tests.py"));
+    assert!(!release.contains("PLATFORM_CONTRACTS_DIR"));
+    assert!(!release.contains("../platform-contracts"));
 }

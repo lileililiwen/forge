@@ -4,59 +4,6 @@
 
 Forge vendors the published contract schemas under `contracts/` behind a digest-manifest, maintains a versioned surface inventory, provides read-only `forge contract` projection commands, and maps status vocabularies to contract values only through a total mapping that refuses unmapped values instead of defaulting them to healthy.
 ## Requirements
-### Requirement: Digest-pinned vendored contract set
-
-Forge SHALL vendor the published contract schemas, the contract registry and the
-secret-field name list under `contracts/` behind a `contracts/manifest.json`
-that records the source revision and the sha256 of every vendored file, and
-SHALL verify those digests offline without reaching a sibling checkout or the
-network. That internal record SHALL be sufficient for offline tamper detection
-and SHALL NOT be treated as a statement of parity with the contract source:
-Forge SHALL additionally compare the vendored bytes against the resolved
-`platform-contracts` source, and for that comparison the digest authority SHALL
-be the contract source's own record rather than Forge's self-referential
-manifest.
-
-#### Scenario: Vendored bytes match the manifest
-
-- **WHEN** the digest test hashes every file listed in `contracts/manifest.json`
-- **THEN** each recorded sha256 matches and the recorded source revision is
-  reported
-
-#### Scenario: Vendored file was edited locally
-
-- **WHEN** a vendored schema's bytes differ from its recorded digest
-- **THEN** the check fails naming the file, the expected digest and the actual
-  digest, and no contract surface silently accepts the edited schema
-
-#### Scenario: Contract set absent
-
-- **WHEN** `contracts/manifest.json` is missing or unreadable and an operator
-  requests a contract surface
-- **THEN** the command refuses with a typed contract-invalid error naming the
-  exact path, and no embedded or cached copy of the schemas is used instead
-
-#### Scenario: Internal record agrees while the source has moved
-
-- **GIVEN** a vendored file whose bytes match its entry in
-  `contracts/manifest.json`
-- **AND** the resolved `platform-contracts` source publishes different bytes for
-  the same contract file
-- **WHEN** the parity comparison runs
-- **THEN** it fails naming the file and both digests, even though the offline
-  manifest check passes
-- **AND** the internal manifest's own digests are not consulted to decide the
-  verdict
-
-#### Scenario: Family digest is taken from the source's own record
-
-- **GIVEN** a family the source's `manifest.json` declares with a `schema_digest`
-- **WHEN** the parity comparison runs
-- **THEN** the mirror's digest for that family is compared against the source
-  manifest's `schema_digest` and the source's `registry_revision` is reported
-- **AND** a source file the source manifest does not digest is still compared
-  byte-for-byte
-
 ### Requirement: Versioned surface inventory
 
 Forge SHALL maintain one inventory table of every versioned contract surface it
@@ -84,41 +31,6 @@ inventory row disagrees with the live constant.
 - **WHEN** an inventory row's recorded version no longer equals the live
   constant's value
 - **THEN** the agreement test fails naming both values
-
-### Requirement: Read-only contract projection surface
-
-Forge SHALL provide `forge contract list`, `forge contract inspect <family>`,
-`forge contract emit <family> [TARGET]` and `forge contract validate <file|->`
-in human and JSON form, and `emit` SHALL derive its envelope from an existing
-Core record without writing files, journaling operations or mutating state.
-Each emitted envelope SHALL declare the registered version of its family.
-
-#### Scenario: Emit gate result from persisted evidence
-
-- **WHEN** a project has fresh revision-bound gate evidence and
-  `forge contract emit gate-result <target>` runs
-- **THEN** one `platform.gate-result/1.0.0` envelope prints, validates against
-  the vendored schema, and carries the same aggregate, revision, runtime name
-  and timestamp the evidence record holds
-
-#### Scenario: Emit with no underlying record
-
-- **WHEN** the requested family has no source record for the target
-- **THEN** the command reports the missing record and emits no envelope rather
-  than synthesizing a document
-
-#### Scenario: Projection reads nothing else
-
-- **WHEN** any `forge contract` command completes against a project tree
-- **THEN** the manifest, registry, operations journal, `.forge/**` files and git
-  HEAD are byte-identical to their state before the call
-
-#### Scenario: Validate accepts canonical and refuses invalid fixtures
-
-- **WHEN** `forge contract validate` reads a canonical valid fixture and then an
-  invalid one from the vendored fixture set
-- **THEN** the first exits zero and the second refuses naming the schema
-  location of the failure
 
 ### Requirement: Refusing status mapping
 
@@ -210,224 +122,189 @@ drop no previously redacted term.
 - **THEN** the module documentation identifies the contract registry for field
   names and Forge's redactor for captured runtime output
 
-### Requirement: Additive-only compatibility boundary
+### Requirement: Forge-owned digest-pinned contract assets
 
-Forge SHALL keep every existing document, discriminator, exit code, journal row
-and generated tree byte-identical when this capability is present, and SHALL
-limit contract surfaces to the CLI, exposing no MCP tool, API route or portal
-section.
+Forge SHALL maintain under `contracts/` only the platform schema families it
+actively consumes, plus the shared envelope, registry data, fixtures, and
+vocabularies required to validate those families. The active families are
+`platform.gate-result`, `platform.readiness`, `platform.release-evidence`,
+`platform.capability`, `platform.audit-event`, and
+`platform.public-portfolio-manifest`. Forge SHALL hash every retained contract
+asset in `contracts/manifest.json` and verify those digests offline without a
+sibling checkout or network. The manifest SHALL identify Forge ownership and
+SHALL NOT claim that upstream parity was checked. An unlisted contract asset,
+missing asset, malformed record, or digest mismatch SHALL fail closed.
 
-#### Scenario: Existing surfaces unchanged
+#### Scenario: Maintained assets match the Forge manifest
 
-- **WHEN** gate status JSON, the checker document, the fleet listing and the
-  provider matrix are captured before and after this capability is added
-- **THEN** the captured bytes are identical
+- **WHEN** the offline contract check hashes every listed asset
+- **THEN** each recorded SHA-256 matches and the report identifies Forge as
+  owner
 
-#### Scenario: Dependency graph of the shipped binary
+#### Scenario: Maintained schema changes without manifest update
 
-- **WHEN** the workspace dependency manifest is inspected
-- **THEN** no schema-validation dependency appears in the runtime dependency
-  set, only in the development set
+- **WHEN** a retained schema or fixture differs from its recorded digest
+- **THEN** the check fails naming the relative path and expected and actual
+  digests
 
-#### Scenario: Transports advertise nothing new
+#### Scenario: Unlisted or missing contract asset
 
-- **WHEN** the mature MCP tool registry, the API route table and the portal
-  section set are listed
-- **THEN** no contract surface appears in any of them
+- **WHEN** an asset under the contract data roots is not listed, or a listed
+  asset is missing or unreadable
+- **THEN** the check fails naming the path and does not report success
 
-### Requirement: The parity gate compares the vendored families against the contract source
+#### Scenario: No sibling source is available
 
-The contract parity check SHALL compare the actual bytes or the digests of every
-contract file the vendored copy retains against the resolved `platform-contracts`
-source, and SHALL compare every family the source's own record publishes, exiting
-non-zero on any mismatch, on any family the source publishes that the mirror
-does not retain, and on any retained file the source does not publish. The set
-compared SHALL be derived from what the mirror retains and what the source's
-record publishes rather than from a hard-coded list, and the check SHALL exclude
-Forge's own `contracts/manifest.json` and the derived `contracts/vocabulary/`
-tree from the parity decision.
+- **GIVEN** no `platform-contracts` sibling checkout and no
+  `PLATFORM_CONTRACTS_DIR`
+- **WHEN** the contract check and Forge contract commands run
+- **THEN** they operate from Forge-maintained assets without attempting a
+  network or sibling-path lookup
 
-#### Scenario: Mirror is byte-exact
+### Requirement: Contract projection stays read-only on every exposed surface
 
-- **GIVEN** a resolved `platform-contracts` source whose files are byte-identical
-  to every contract file the vendored copy retains
-- **WHEN** the parity check runs
-- **THEN** it reports the compared file count and the source's
-  `registry_revision` and exits zero
+Forge SHALL keep `forge contract list`, `inspect`, `emit`, and `validate`
+read-only with respect to project and journal state. The CLI and authenticated
+assurance API SHALL expose the existing Forge contract inventory and platform
+family inspection. The platform family catalog SHALL be additive; no MCP
+mutation tool or unauthenticated assurance disclosure SHALL be introduced.
 
-#### Scenario: Retained file drifted from the source
+#### Scenario: Existing contract inventory remains read-only
 
-- **WHEN** a retained schema's bytes differ from the same file in the resolved
-  source
-- **THEN** the check exits non-zero naming the file and both digests
-- **AND** it does not print a pass line
+- **WHEN** an operator lists or inspects contract records
+- **THEN** the output is derived from Forge-owned records and no files, journal
+  rows, or project state are changed
 
-#### Scenario: Source publishes a family the mirror does not retain
+#### Scenario: Assurance catalog remains authenticated
 
-- **GIVEN** a family the source's record publishes and the vendored copy does not
-  retain a schema for
-- **WHEN** the parity check runs
-- **THEN** it fails naming the family and the schema the mirror lacks
+- **WHEN** an unauthenticated caller requests platform family list or detail
+- **THEN** the route returns the existing unauthorized response without
+  revealing the catalog
 
-#### Scenario: Mirror retains a file the source does not publish
+### Requirement: Additive platform-family catalog compatibility boundary
 
-- **GIVEN** a retained contract file with no counterpart in the resolved source
-- **WHEN** the parity check runs
-- **THEN** it fails naming the retained path as undeclared rather than skipping
-  it
+Forge SHALL keep retained family wire shapes, discriminators, supported major
+versions, existing CLI contract inventory rows, and existing `contracts` and
+`manifest` JSON response fields compatible. The CLI and authenticated
+assurance API SHALL expose a separate `platform_families` catalog containing
+supported and explicitly unsupported families.
 
-#### Scenario: Unpublished source work is not demanded of the mirror
+#### Scenario: Existing inventory consumers remain compatible
 
-- **GIVEN** a file present in the source working tree that the source's record
-  does not publish as a family
-- **WHEN** the parity check runs
-- **THEN** it does not require the mirror to retain that file
-- **AND** the mirror is required to carry it once the record publishes a family
-  for it
+- **WHEN** an existing consumer reads `forge contract list --format json` or
+  `GET /v1/admin/contracts`
+- **THEN** existing `contracts` rows and `manifest` retain their prior shapes,
+  and the additive `platform_families` field reports family support status
 
-#### Scenario: Every drifted file is reported in one run
+#### Scenario: Unsupported family is visible and cannot be used
 
-- **GIVEN** two or more retained files that differ from the source
-- **WHEN** the parity check runs
-- **THEN** it names each one before exiting, rather than stopping at the first
+- **WHEN** a maintainer lists contract families and selects an unsupported
+  family
+- **THEN** both CLI and authenticated assurance surfaces show its status and
+  reason, and inspect, emit, and validate return a typed unsupported response
 
-### Requirement: A parity check that compared nothing is not a pass
-
-The parity check SHALL count the comparisons it performed. A run that performs
-zero comparisons SHALL exit non-zero and SHALL state explicitly that it verified
-nothing. The check SHALL NOT print a pass line on any path that has not compared
-the vendored bytes against the source, and the pass line SHALL be reachable only
-when every comparison passed and at least one comparison was made.
-
-#### Scenario: Nothing to compare
-
-- **GIVEN** a resolved source and a mirror that yield no comparable file
-- **WHEN** the parity check runs
-- **THEN** it exits non-zero stating that it verified nothing
-- **AND** it prints no pass line
-
-#### Scenario: Pass is printed only after a real comparison
-
-- **GIVEN** a run whose comparison count is greater than zero and whose failures
-  are empty
-- **WHEN** the parity check completes
-- **THEN** it prints the pass line together with the comparison count
-
-### Requirement: An unresolvable contract source is a hard failure
-
-The parity check SHALL exit non-zero when no `platform-contracts` source can be
-resolved, naming the resolution paths it tried. It SHALL NOT skip, SHALL NOT
-print a pass, and SHALL NOT fall back to comparing the vendored copy against
-itself or against Forge's own manifest.
-
-#### Scenario: No sibling checkout and no variable
-
-- **GIVEN** neither `PLATFORM_CONTRACTS_DIR` nor a `../platform-contracts`
-  sibling checkout
-- **WHEN** the parity check runs
-- **THEN** it exits non-zero naming both resolution paths
-- **AND** it does not print a pass line
-
-#### Scenario: Source present but its own record is unusable
-
-- **GIVEN** a resolved source whose `manifest.json` is missing, unparseable, or
-  declares no family
-- **WHEN** the parity check runs
-- **THEN** it exits non-zero naming the source record it could not use
-
-### Requirement: No input may weaken the comparison
-
-`PLATFORM_CONTRACTS_DIR` SHALL locate the contract source and SHALL NOT have any
-other effect on the comparison. The check SHALL provide no mode that skips,
-softens, inverts or downgrades a comparison, and a failure SHALL NOT be
-downgradable to a note. A resolved source that is the vendored tree itself SHALL
-be refused, because comparing the mirror against itself cannot detect drift.
-
-#### Scenario: Variable cannot turn the check off
-
-- **WHEN** the check is invoked with any value of `PLATFORM_CONTRACTS_DIR`
-- **THEN** the same files are compared with the same strictness
-- **AND** no invocation reports a pass without a non-zero comparison count
-
-#### Scenario: Variable points at the mirror
-
-- **GIVEN** `PLATFORM_CONTRACTS_DIR` resolving to Forge's own `contracts/`
-  directory
-- **WHEN** the parity check runs
-- **THEN** it exits non-zero naming the self-reference and does not report the
-  trivially matching digests as a pass
-
-#### Scenario: No advisory-only outcome
-
-- **WHEN** a compared file mismatches
-- **THEN** the check exits non-zero, and no flag, environment variable or
-  configuration file can reduce that to a warning
-
-### Requirement: The parity gate blocks release and CI
-
-`scripts/release-check.sh` and the CI contract-parity job SHALL invoke the
-parity check, and a mismatch SHALL block the run. Neither caller SHALL remove,
-downgrade or bypass the check, and the check's exit status SHALL propagate to the
-caller's exit status.
-
-#### Scenario: Mismatch blocks the release check
-
-- **GIVEN** a resolved source and a mirror that differs from it
-- **WHEN** `scripts/release-check.sh` runs
-- **THEN** the run stops at the parity step with a non-zero status and does not
-  report a successful release check
-
-#### Scenario: Mismatch blocks CI
-
-- **GIVEN** a CI run whose contract-parity job reaches a mirror mismatch
-- **WHEN** the job runs
-- **THEN** the job fails
-
-#### Scenario: The check is not removed from either caller
-
-- **WHEN** the workflow and the release script are inspected
-- **THEN** both still invoke the parity check, and no pre-existing job, gate or
-  failure path has been removed or weakened
-
-### Requirement: Declared contract version per family
+### Requirement: Declared contract version per supported family
 
 Forge SHALL register, in one reviewed table, the wire version it emits for
-every supported platform family, SHALL build each envelope's `contract`
-discriminator from that table rather than from a literal, and SHALL derive
-`forge contract inspect`'s declared version from the same table, so a
-consumer can tell a `0.1.0` document from a `1.0.0` document. The table
-SHALL cover exactly the supported families with no duplicate family and
-every value SHALL match the platform contract pattern. Validation SHALL
-accept a document whose major the family's vendored registry record still
-serves, SHALL refuse a major it does not, and SHALL fail closed when the
-vendored registry cannot be read or does not record the family.
+every supported platform envelope family, SHALL build each envelope's
+`contract` discriminator from that table rather than from a literal, and SHALL
+derive `forge contract inspect`'s declared version from the same table. The
+table SHALL cover exactly the five supported envelope families with no
+duplicates; every value SHALL match the platform contract pattern and the
+Forge-maintained registry SHALL still serve its major. The public portfolio
+manifest family SHALL be listed as supported with its schema path and version,
+and SHALL be validated against that schema by the publisher's normal test
+suite.
 
 #### Scenario: Emitted envelope declares the registered version
 
-- **WHEN** `forge contract emit gate-result <target>` runs and
-  `platform.gate-result` is registered at `1.0.0`
-- **THEN** the envelope's `contract` reads `platform.gate-result/1.0.0`, and
-  `forge contract inspect platform.gate-result` reports the same version
-  from the same table
+- **WHEN** an existing supported family is emitted
+- **THEN** its envelope discriminator and inspect output use the same
+  registered version
 
-#### Scenario: Undeclared major is refused
+#### Scenario: Family support records and schema set agree
 
-- **GIVEN** the vendored registry serves majors `[0, 1]` for
-  `platform.gate-result`
-- **WHEN** a document declaring `platform.gate-result/2.0.0` is validated
-- **THEN** validation refuses naming the family and the undeclared major,
-  and no schema check is reported as if it had passed
+- **WHEN** the family catalog is loaded
+- **THEN** each supported family has exactly one existing schema and required
+  version record, and no unsupported family is resolvable as a schema
 
-#### Scenario: Registry cannot answer, so validation refuses
+#### Scenario: Portfolio publisher validates its output
 
-- **GIVEN** the vendored registry is unreadable, unparseable, or records no
-  entry for the declared family
-- **WHEN** a document is validated
-- **THEN** validation refuses naming the registry and the family, and never
-  treats the missing major list as an accepted version
+- **WHEN** the ordinary contract test suite publishes a portfolio manifest
+- **THEN** the in-tree Draft 2020-12 schema accepts it and rejects the invalid
+  canonical fixtures
 
-#### Scenario: Registered version and supported families stay in step
+#### Scenario: Unsupported major is refused
 
-- **WHEN** the registry table and `supported_families()` are compared
-- **THEN** they cover the same families, with no duplicate family and no
-  family left unregistered
+- **WHEN** a supported family's envelope uses a major absent from the
+  Forge-maintained registry
+- **THEN** validation refuses the family and version rather than accepting a
+  fallback
+
+### Requirement: Unsupported contract families are explicit
+
+Forge SHALL maintain an explicit family support catalog. Each supported family
+SHALL identify its schema path and, for envelope families, a registered wire
+version. Each unsupported family SHALL identify a non-empty reason and SHALL
+not resolve to a schema path. The catalog SHALL include
+`platform.identity-subject`, `platform.permission-decision`,
+`platform.tenant-context`, and `platform.job-outcome` as unsupported until a
+Forge implementation change adds an actual consumer, validator, and/or
+producer appropriate to that family.
+
+#### Scenario: Unsupported families are listed with reasons
+
+- **WHEN** the catalog is loaded and rendered in CLI or authenticated web
+  output
+- **THEN** all four named families appear with `unsupported` status and a
+  non-empty actionable reason
+
+#### Scenario: Unsupported family has no validator or emitter fallback
+
+- **WHEN** inspect, validate, or emit receives an unsupported family
+- **THEN** Forge returns a typed unsupported-family result before reading a
+  target or emitting a document
+
+#### Scenario: Unknown family remains distinct
+
+- **WHEN** a family absent from both supported and unsupported catalog entries
+  is requested
+- **THEN** Forge returns the existing bounded unknown-family result
+
+### Requirement: CI and release validation are offline
+
+Forge CI and `scripts/release-check.sh` SHALL run the same manifest, family
+catalog, schema, and fixture validation without checking out
+`platform-contracts`. A missing validator dependency SHALL fail with an
+actionable install command; it SHALL NOT be skipped or downgraded to a note.
+
+#### Scenario: Required CI has no source checkout
+
+- **WHEN** Forge CI runs from a clean checkout
+- **THEN** schema, fixture, catalog, and manifest validation runs without
+  fetching or requiring a sibling repository
+
+#### Scenario: Release check is offline
+
+- **WHEN** `scripts/release-check.sh` runs with no external contract directory
+- **THEN** it executes the same offline contract validation and reports the
+  concrete failing asset or fixture
+
+#### Scenario: Required validator is unavailable
+
+- **WHEN** the schema validator is not installed
+- **THEN** the check fails and prints the pinned development dependency install
+  command
+
+### Requirement: Forge contracts are not declared as a sibling provider copy
+
+Forge SHALL own its retained contract assets and vocabulary within the Forge
+project declaration and contract manifest. Forge SHALL NOT declare
+`contracts/manifest.json` or its retained schemas as a consumed copy provided
+by the independent `platform-contracts` project.
+
+#### Scenario: Project declaration describes Forge ownership
+
+- **WHEN** the Forge project interface declaration is inspected
+- **THEN** its retained contract assets are accounted for by Forge's own
+  manifest and no required `platform-contract-copy` provider interface exists

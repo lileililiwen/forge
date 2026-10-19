@@ -4,8 +4,8 @@ name: ci
 # the checks it runs. The `artifact` job uploads the packaged archive and
 # digest as a workflow artifact; only a matching pushed version tag can run
 # the final release job, after every verification job passes. A required tool
-# that is absent fails loudly — never a skip to green. Local parity:
-# `scripts/release-check.sh` runs the same contract.
+# that is absent fails loudly — never a skip to green. Local contract checks:
+# `scripts/release-check.sh` runs the same offline asset and schema validation.
 
 on:
   push:
@@ -48,6 +48,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned contract schema validator
+        run: python3 -m pip install -r requirements-dev.txt
+      - name: Validate Forge-owned contract assets and fixtures
+        run: |
+          node scripts/check-contracts.mjs
+          python3 tests/contract_schema_tests.py
       - name: Install driftwatchdog (forge check runtime)
         run: |
           curl -fsSL https://github.com/lileililiwen/driftwatchdog/releases/latest/download/install.sh | sh
@@ -174,42 +183,6 @@ jobs:
           ./target/debug/forge fleet list
           ./target/debug/forge provider matrix
 
-  contract-parity:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Resolve pinned platform-contracts revision
-        id: contracts-pin
-        run: |
-          revision="$(python3 -c 'import json; print(json.load(open("contracts/manifest.json", encoding="utf-8"))["revision"])')"
-          case "$revision" in
-            ''|*[!0-9a-f]*) echo "contract-parity blocked: invalid pinned revision '$revision'" >&2; exit 1 ;;
-          esac
-          [ "${#revision}" -eq 40 ] || {
-            echo "contract-parity blocked: revision must be a full 40-character commit, got '$revision'" >&2
-            exit 1
-          }
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
-      - name: Fetch contract source at pinned revision
-        env:
-          CONTRACTS_REVISION: ${{ steps.contracts-pin.outputs.revision }}
-        run: |
-          set -eu
-          source_dir="$RUNNER_TEMP/platform-contracts"
-          git init "$source_dir"
-          git -C "$source_dir" remote add origin https://github.com/lileililiwen/platform-contracts.git
-          git -C "$source_dir" fetch --depth=1 origin "$CONTRACTS_REVISION"
-          git -C "$source_dir" checkout --detach FETCH_HEAD
-          actual="$(git -C "$source_dir" rev-parse HEAD)"
-          [ "$actual" = "$CONTRACTS_REVISION" ] || {
-            echo "contract-parity blocked: requested $CONTRACTS_REVISION but checked out $actual" >&2
-            exit 1
-          }
-          PLATFORM_CONTRACTS_DIR="$source_dir" scripts/contract-parity.sh
-
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -267,7 +240,6 @@ jobs:
       - governance
       - readiness
       - surfaces
-      - contract-parity
       - gate
       - artifact
     runs-on: ubuntu-latest

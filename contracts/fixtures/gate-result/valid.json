@@ -1,0 +1,7 @@
+{
+  "gate_id": "forge:driftwatchdog",
+  "pipeline": "driftwatchdog-gate",
+  "evaluated_at": "2026-10-19T00:00:00Z",
+  "result": "passed",
+  "checks": [{"check_id": "source-size", "status": "passed"}]
+}

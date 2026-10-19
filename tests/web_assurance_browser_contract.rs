@@ -265,6 +265,18 @@ fn contract_list_and_inspect_match_the_cli() {
         .and_then(Value::as_array)
         .is_some());
     assert!(body.pointer("/manifest").is_some());
+    let families = body
+        .pointer("/platform_families")
+        .and_then(Value::as_array)
+        .expect("platform family support catalog");
+    let job_outcome = families
+        .iter()
+        .find(|family| family["family"] == "platform.job-outcome")
+        .expect("job outcome is listed explicitly");
+    assert_eq!(job_outcome["status"], "unsupported");
+    assert!(job_outcome["reason"]
+        .as_str()
+        .is_some_and(|reason| !reason.is_empty()));
     let cli_count = forge::contract::CONTRACTS.len();
     assert_eq!(
         body.pointer("/contracts")
@@ -286,6 +298,34 @@ fn contract_list_and_inspect_match_the_cli() {
     let unknown = get(&config, &db, &token, "/v1/admin/contracts/no-such", None);
     assert_eq!(unknown.status, 400);
     assert!(!String::from_utf8_lossy(&unknown.body).contains("no-such"));
+    let unsupported = get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/contracts/platform.job-outcome",
+        None,
+    );
+    assert_eq!(unsupported.status, 400);
+    let unsupported_body = body_json(&unsupported);
+    assert_eq!(
+        unsupported_body["error"]["code"],
+        "admin-unsupported-contract-family"
+    );
+    assert!(unsupported_body["error"]["message"]
+        .as_str()
+        .is_some_and(|reason| reason.contains("no job outcome")));
+    let unsupported_emit = get(
+        &config,
+        &db,
+        &token,
+        "/v1/admin/projects/not-managed/contracts/emit",
+        Some("family=platform.job-outcome"),
+    );
+    assert_eq!(unsupported_emit.status, 400);
+    assert_eq!(
+        body_json(&unsupported_emit)["error"]["code"],
+        "admin-unsupported-contract-family"
+    );
 }
 
 #[test]
@@ -447,10 +487,10 @@ fn contract_emit_is_read_only_with_honest_gaps() {
         "/v1/admin/projects/alpha/contracts/emit",
         Some("family=platform.job-outcome"),
     );
-    assert_eq!(job.status, 200);
+    assert_eq!(job.status, 400);
     assert_eq!(
-        body_json(&job).pointer("/unavailable").unwrap(),
-        &Value::Bool(true)
+        body_json(&job).pointer("/error/code").unwrap(),
+        "admin-unsupported-contract-family"
     );
     let unknown = get(
         &config,

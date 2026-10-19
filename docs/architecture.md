@@ -128,8 +128,8 @@ spec id with the row's registered version.
   `scripts/governance/**` copies, the `scripts/vocabulary.json` list and
   both copies of the governance vocabulary are each declared with their own
   sha256; the *third* copy of the secret-field vocabulary
-  (`contracts/vocabulary/secret-field-substrings.json`) is one declared
-  edge against `platform-contracts` instead of an undeclared sibling copy.
+  (`contracts/vocabulary/secret-field-substrings.json`) is also declared and
+  maintained by Forge.
   Where an artifact publishes no release version, the declaration names the
   contract after the interface id and records the artifact's own schema
   version (`1` → `1.0.0`); it never asserts a release the provider does not

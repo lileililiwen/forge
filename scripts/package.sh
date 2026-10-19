@@ -51,6 +51,7 @@ cp "$BIN" "$STAGE/forge-$VERSION-$TARGET/forge"
 cp LICENSE README.md CHANGELOG.md "$STAGE/forge-$VERSION-$TARGET/"
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/governance/runtime-templates/runtime_templates.py list >/dev/null
 mkdir -p "$STAGE/forge-$VERSION-$TARGET/share/forge"
+cp -R contracts "$STAGE/forge-$VERSION-$TARGET/share/forge/contracts"
 cp -R scripts/governance/runtime-templates "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates"
 find "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates" -type d -name __pycache__ -prune -exec rm -rf {} +
 find "$STAGE/forge-$VERSION-$TARGET/share/forge/runtime-templates" -type f -name '*.pyc' -delete

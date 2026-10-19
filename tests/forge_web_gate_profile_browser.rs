@@ -1,4 +1,4 @@
-//! End-to-end browser oracle for selecting and displaying Forge Gate profiles.
+//! End-to-end browser oracle for the assurance contract catalog and Gate profiles.
 //!
 //! Starts real Forge API and web binaries in a temporary workspace, then
 //! drives the authenticated workbench in Chromium. If Playwright or Chromium
@@ -56,7 +56,7 @@ fn git(project: &Path, args: &[&str]) {
 }
 
 #[test]
-fn workbench_selects_and_displays_gate_profile_in_chromium() {
+fn assurance_contracts_and_workbench_gate_profile_run_in_chromium() {
     if !node_available() {
         eprintln!("UNVERIFIED: node unavailable; Gate profile browser flow not run");
         return;

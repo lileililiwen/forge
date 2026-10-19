@@ -378,8 +378,8 @@ they use different ports, otherwise the session cookie is not sent.
 
 Forge ships a versioned, checksummed release archive built by
 `scripts/package.sh` (release build, target triple discovered from
-`rustc -vV`; archive contains the binary plus `LICENSE`, `README.md`
-and `CHANGELOG.md` with repository-relative paths only):
+`rustc -vV`; archive contains the binary, `share/forge/contracts/`,
+`LICENSE`, `README.md` and `CHANGELOG.md` with repository-relative paths only):
 
 ```sh
 scripts/package.sh
@@ -392,7 +392,8 @@ scripts/smoke.sh --bin /tmp/opencode/forge-install/bin/forge
 `scripts/install.sh` refuses a missing archive, an unknown prefix or a
 digest mismatch before writing anything and never fetches from the
 network; `scripts/smoke.sh` exercises `--version`, `--help`, `list`,
-`doctor`, `readiness artifact` and the checker document. `scripts/bump.sh`
+`doctor`, `readiness artifact`, installed contract list/inspect, and the
+checker document from a scratch directory. `scripts/bump.sh`
 suggests version/changelog/tag steps without pushing — tag creation and
 any publication stay explicit operator actions. CI's `artifact` job
 uploads the archive plus digest as CI artifacts only; nothing is
@@ -400,6 +401,31 @@ published to crates.io, npm, a container registry or a Jenkins job. This
 packaging surface is delivered and owned by the archived
 `artifact-and-ci-baseline` change; this section describes what ships, not
 a plan.
+
+## Maintained platform contracts
+
+Forge maintains the six platform schema families its runtime consumes under
+`contracts/`: Gate result, readiness, release evidence, capability, audit
+event, and public portfolio manifest. The offline manifest check hashes every
+contract asset. The `identity-subject`, `permission-decision`, `tenant-context`
+and `job-outcome` families appear in the family catalog as unsupported, with
+reasons; Forge does not expose validators or producers for them.
+
+```sh
+forge contract list --format json
+forge contract inspect platform.gate-result --format json
+forge contract emit platform.gate-result <project>
+forge contract validate evidence.json
+node scripts/check-contracts.mjs
+python3 -m pip install -r requirements-dev.txt
+python3 tests/contract_schema_tests.py
+```
+
+The schemas are Forge-maintained assets, not files fetched from a sibling
+checkout. The released archive carries them beside the binary so contract
+commands work outside the source tree. Python `jsonschema` is pinned only for
+development checks; Forge's production binary has no schema-validator runtime
+dependency.
 
 ## Optional governance providers
 

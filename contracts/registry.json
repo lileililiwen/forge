@@ -1,101 +1,99 @@
 {
   "contracts": {
-    "platform.identity-subject": {
-      "schema": "schemas/identity-subject.schema.json",
-      "supported_major_versions": [0],
-      "current_version": "0.1.0",
-      "status_fields": ["subject_type", "authentication.method"],
-      "security_sensitive_fields": ["subject_id", "tenant_id", "authentication.expires_at"],
-      "owner_runtime": "identity-admin (C#) and identity-rs (Rust)",
-      "description": "Identifies the actor requesting an operation. The runtime owner resolves the subject before producing a permission decision."
-    },
-    "platform.permission-decision": {
-      "schema": "schemas/permission-decision.schema.json",
-      "supported_major_versions": [0],
-      "current_version": "0.1.0",
-      "status_fields": ["decision", "reason_code"],
-      "security_sensitive_fields": ["subject_id", "tenant_id", "policy_id"],
-      "owner_runtime": "identity-admin (C#) and identity-rs (Rust)",
-      "description": "Captures the result of an authorization check for a subject, action, and resource."
-    },
-    "platform.tenant-context": {
-      "schema": "schemas/tenant-context.schema.json",
-      "supported_major_versions": [0],
-      "current_version": "0.1.0",
-      "status_fields": ["environment", "isolation_level"],
-      "security_sensitive_fields": ["tenant_id"],
-      "owner_runtime": "identity-admin (C#) and identity-rs (Rust)",
-      "description": "Describes the tenant boundary under which an operation is executed."
-    },
     "platform.audit-event": {
       "schema": "schemas/audit-event.schema.json",
-      "supported_major_versions": [0],
+      "supported_major_versions": [
+        0
+      ],
       "current_version": "0.1.0",
-      "status_fields": ["category", "outcome"],
-      "security_sensitive_fields": ["actor.subject_id", "tenant_id", "resource"],
+      "status_fields": [
+        "category",
+        "outcome"
+      ],
+      "security_sensitive_fields": [
+        "actor.subject_id",
+        "tenant_id",
+        "resource"
+      ],
       "owner_runtime": "driftwatchdog (cross-runtime) and per-service emitters",
       "description": "Records a security- or governance-relevant event for later review. Producers MUST redact secrets before emitting."
     },
     "platform.readiness": {
       "schema": "schemas/readiness.schema.json",
-      "supported_major_versions": [0],
+      "supported_major_versions": [
+        0
+      ],
       "current_version": "0.1.0",
-      "status_fields": ["status", "checks.status"],
-      "security_sensitive_fields": ["tenant_id"],
+      "status_fields": [
+        "status",
+        "checks.status"
+      ],
+      "security_sensitive_fields": [
+        "tenant_id"
+      ],
       "owner_runtime": "per-service (C#/Rust/TypeScript) — emitted on /healthz and /readyz endpoints",
       "description": "Service health and readiness report. Status values are bounded and forward-compatible."
     },
     "platform.gate-result": {
       "schema": "schemas/gate-result.schema.json",
-      "supported_major_versions": [0, 1],
+      "supported_major_versions": [
+        0,
+        1
+      ],
       "current_version": "1.0.0",
-      "status_fields": ["result", "checks.status"],
-      "security_sensitive_fields": ["subject_ref", "tenant_id"],
+      "status_fields": [
+        "result",
+        "checks.status"
+      ],
+      "security_sensitive_fields": [
+        "subject_ref",
+        "tenant_id"
+      ],
       "owner_runtime": "driftwatchdog (gate runner)",
       "description": "Outcome of a release Gate evaluation. The result value controls whether a deploy may proceed. Major 1 adds `review_required` (a human decision is still open) and `unbound` (a required check was asserted and no command was ever bound to it, so nothing ran) to the shared `result` / `checks[].status` vocabulary; `unbound` is a configuration defect and is never a `skipped` exemption.",
       "narrowing": {
         "declared_on": "2026-10-12T00:00:00Z",
-        "drops": [0],
-        "previous_supported_major_versions": [0],
+        "drops": [
+          0
+        ],
+        "previous_supported_major_versions": [
+          0
+        ],
         "notice": "platform.gate-result major 0 is declared for removal. It is still served: supported_major_versions remains [0, 1] and a 0.x document is still accepted. A consumer MUST emit 1.0.0 or later and MUST NOT depend on a value outside the 1.x vocabulary. Major 0 is removed only in a separate change that moves this record to state 'enforced' once the sole producer, driftwatchdog, emits platform.gate-result/1.0.0.",
         "state": "declared"
       }
     },
-    "platform.job-outcome": {
-      "schema": "schemas/job-outcome.schema.json",
-      "supported_major_versions": [0],
-      "current_version": "0.1.0",
-      "status_fields": ["result"],
-      "security_sensitive_fields": ["tenant_id"],
-      "owner_runtime": "per-job runner (C#/Rust)",
-      "description": "Terminal outcome of a background job, including counts and timing."
-    },
     "platform.release-evidence": {
       "schema": "schemas/release-evidence.schema.json",
-      "supported_major_versions": [0],
+      "supported_major_versions": [
+        0
+      ],
       "current_version": "0.1.0",
-      "status_fields": ["evidence_kind"],
-      "security_sensitive_fields": ["tenant_id", "artifact_refs"],
+      "status_fields": [
+        "evidence_kind"
+      ],
+      "security_sensitive_fields": [
+        "tenant_id",
+        "artifact_refs"
+      ],
       "owner_runtime": "driftwatchdog (release publisher)",
       "description": "Evidence envelope that ties a release to its artifacts, gates, and metadata."
     },
     "platform.capability": {
       "schema": "schemas/capability.schema.json",
-      "supported_major_versions": [0],
+      "supported_major_versions": [
+        0
+      ],
       "current_version": "0.1.0",
-      "status_fields": ["stability"],
-      "security_sensitive_fields": ["capability_id", "service"],
+      "status_fields": [
+        "stability"
+      ],
+      "security_sensitive_fields": [
+        "capability_id",
+        "service"
+      ],
       "owner_runtime": "per-service manifest publisher (C#/Rust)",
       "description": "Self-declared capability of a service: which contracts it can produce or consume, and at what stability level."
-    },
-    "platform.public-portfolio-manifest": {
-      "schema": "schemas/public-portfolio-manifest.schema.json",
-      "supported_major_versions": [1],
-      "current_version": "1.0.0",
-      "status_fields": ["showcase_status"],
-      "security_sensitive_fields": ["manifest_sha256", "projects.id", "source_url"],
-      "owner_runtime": "Forge (Rust) producer; Hugo (Go) consumer",
-      "description": "Public, language-neutral catalog of approved project metadata for the portfolio site. Only explicitly public fields are valid; admin, account, private, and internal surfaces are rejected. The manifest sha256 covers the projects[] catalog."
     }
   },
   "secret_field_substrings": [

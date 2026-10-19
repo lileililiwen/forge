@@ -131,10 +131,9 @@ pub(super) struct ManifestFile {
     #[serde(default)]
     pub(super) revision: Option<String>,
 }
-/// The vendored-asset manifest. Same discipline as
-/// `contracts/manifest.json`: schema version, owning source, the source
-/// revision, the released source version the mirrored bytes were generated
-/// at, and one digest per file.
+/// The vendored-asset manifest: schema version, owning source, source
+/// revision, released source version, and one digest per file. Contract
+/// assets have their own Forge-owned manifest and no upstream source pin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct KitManifest {
     pub(super) schema_version: u64,

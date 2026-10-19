@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional Redis adapter for Platform.Caching with bounded operations and health state.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Caching/Platform.Caching.csproj" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+</Project>

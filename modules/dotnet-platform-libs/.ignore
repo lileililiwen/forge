@@ -1,0 +1,9 @@
+# Generic local and generated files
+.codegraph/
+.cache/
+.pytest_cache/
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db

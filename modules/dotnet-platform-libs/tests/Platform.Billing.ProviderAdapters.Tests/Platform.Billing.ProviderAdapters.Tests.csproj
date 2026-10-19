@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <ProjectReference Include="../../src/Platform.Billing.Stripe/Platform.Billing.Stripe.csproj" />
+    <ProjectReference Include="../../src/Platform.Billing.LemonSqueezy/Platform.Billing.LemonSqueezy.csproj" />
+    <ProjectReference Include="../../src/Platform.Billing/Platform.Billing.csproj" />
+    <ProjectReference Include="../../src/Platform.Billing.Contracts/Platform.Billing.Contracts.csproj" />
+  </ItemGroup>
+</Project>

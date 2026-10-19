@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Provider-neutral cache contracts, keys, telemetry, and in-memory implementation.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Core/Platform.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+</Project>

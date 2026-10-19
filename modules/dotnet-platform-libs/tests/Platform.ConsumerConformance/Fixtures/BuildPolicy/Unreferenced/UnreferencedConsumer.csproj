@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build policy conformance fixture: no reference, no policy.
+
+    A net10.0 consumer that does not reference Platform.Build. It must receive
+    none of the package's policy, which is the negative half of "a reference
+    receives the policy": without this fixture a props file that is never
+    evaluated and a props file that is evaluated and sets nothing look
+    identical from the positive fixture alone.
+
+    ImportDirectoryBuildProps/Targets are off for the same reason as the other
+    build-policy fixtures: nothing but the SDK may set a property here.
+  -->
+
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.BuildPolicy.Unreferenced</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.BuildPolicy.Unreferenced</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BuildPolicyFixtureSource.cs" Link="BuildPolicyFixtureSource.cs" />
+  </ItemGroup>
+
+</Project>

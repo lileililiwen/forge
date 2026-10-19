@@ -1,0 +1,67 @@
+@import "../design-tokens/dist/tokens.css";
+
+/* Every value below is a var(--token) declared in ui/tokens/tokens.json. There is no
+   color literal in this file: the dark palette is reached by the [data-theme="dark"]
+   block the token generator already emits. Every color this file names is measured
+   against every background it is drawn on by tests/auth.test.mjs, which resolves the
+   token values out of tokens.json rather than trusting the name. */
+
+.platform-auth-card { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; max-width: 24rem; margin-inline: auto; border-color: var(--color-border); }
+.platform-auth-skip:focus { position: static; width: auto; height: auto; margin: var(--space-2); overflow: visible; clip: auto; white-space: normal; outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.platform-auth-header { display: flex; flex-direction: column; gap: var(--space-3); }
+.platform-auth-footer-heading { margin: 0; font: var(--font-body); color: var(--color-foreground); }
+.platform-auth-title { margin: 0; font: var(--font-title, var(--font-large)); color: var(--color-foreground); }
+.platform-auth-description { margin: 0; color: var(--color-muted-foreground); }
+.platform-auth-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.platform-auth-form label { display: flex; flex-direction: column; gap: var(--space-1); color: var(--color-foreground); }
+.platform-auth-form label > * { min-width: 0; }
+.platform-auth-form .platform-control { box-sizing: border-box; max-width: 100%; min-height: var(--component-control-min-height, var(--control-min-height, 2.5rem)); border-color: var(--color-border); border-radius: var(--component-control-radius, var(--radius-md)); }
+.platform-auth-form .platform-card, .platform-auth-card { border-radius: var(--radius-lg); }
+
+/* WCAG 2.2 AA 1.4.3: the dark theme re-points --color-primary at a light shade, so
+   the button label colour has to be a token. White on that shade measures 1.8:1. */
+.platform-auth-card .platform-button { box-sizing: border-box; color: var(--color-on-primary); }
+.platform-auth-card .platform-button:hover { color: var(--color-on-primary); }
+
+.platform-auth-secondary { font: inherit; color: var(--color-muted-foreground); background: transparent; border: 0; cursor: pointer; padding: var(--space-2); text-align: left; }
+.platform-auth-secondary:focus-visible, .platform-auth-card .platform-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.platform-auth-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.platform-auth-footer { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-6) 0; border-top: 1px solid var(--color-border); color: var(--color-muted-foreground); }
+.platform-auth-footer-group { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.platform-auth-footer-link { color: var(--color-primary); min-height: 1.5rem; display: inline-flex; align-items: center; }
+.platform-auth-logo { max-height: 2rem; max-width: 100%; }
+
+/* WCAG 2.2 AA 2.5.8: every pointer target is at least 24 by 24 CSS pixels. The unit
+   is px and not rem so the target stays 24 CSS px at a reduced root font size. */
+.platform-auth-card .platform-button, .platform-auth-footer-link, .platform-auth-secondary { min-height: 24px; min-width: 24px; }
+
+/* WCAG 2.2 AA 2.4.11: the focus indicator is not obscured. Sticky content keeps a
+   background so the indicator underneath it never blends into the page. */
+.platform-auth-sticky { position: sticky; top: 0; background: var(--color-background); z-index: 1; }
+
+/* WCAG 2.2 AA 2.4.11: following the skip link must not park the target under the
+   sticky header, which would hide the indicator the reader just moved focus to. */
+#main-content { scroll-margin-top: var(--space-8); }
+
+/* Reflow at 320 CSS px: nothing declares a fixed width, long content wraps, and
+   flex children may shrink below their content width, so no horizontal scrollbar
+   is required and every control stays reachable. */
+.platform-auth-card, .platform-auth-form, .platform-auth-header, .platform-auth-nav, .platform-auth-footer-group { overflow-wrap: break-word; }
+.platform-auth-card > *, .platform-auth-form > * { min-width: 0; max-width: 100%; }
+
+/* The 30rem breakpoint is the documented kit scale, so it covers the 320 CSS px
+   case the requirement names and adds no undeclared width of its own. */
+@media (max-width: 30rem) {
+  .platform-auth-card { padding: var(--space-4); max-width: none; }
+  .platform-auth-nav, .platform-auth-footer-group { flex-direction: column; align-items: flex-start; }
+}
+
+/* WCAG 2.2 AA / prefers-reduced-motion: non-essential motion is suppressed. */
+@media (prefers-reduced-motion: reduce) {
+  .platform-auth-card *, .platform-auth-card *::before, .platform-auth-card *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

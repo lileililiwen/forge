@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional Hangfire adapter for Platform.Jobs. Payload dispatch, recurring registration, scoped tenant/subject context restoration, opt-in protected dashboard, and safe storage health; the application owns storage configuration, job definitions, and retry ownership.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Jobs\Platform.Jobs.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Hangfire.AspNetCore" />
+    <PackageReference Include="Hangfire.Core" />
+    <PackageReference Include="Hangfire.InMemory" />
+    <PackageReference Include="Hangfire.PostgreSql" />
+  </ItemGroup>
+
+</Project>

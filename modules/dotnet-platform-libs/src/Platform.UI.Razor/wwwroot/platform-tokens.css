@@ -1,0 +1,7 @@
+/* Hand-authored Razor subset of ui/tokens/tokens.json (the kit remains the single
+   source; consolidation into a generated artifact is a recorded boundary).
+   Value-synced by ui-design-guideline-adoption: Outfit primary family with the
+   system-ui fallback, and the documented --color-focus-ring alias of --focus-ring. */
+:root { --color-background: #f8fafc; --color-surface: #ffffff; --color-foreground: #0f172a; --color-muted: #f1f5f9; --color-muted-foreground: #334155; --color-primary: #1d4ed8; --color-primary-hover: #1e40af; --color-danger: #b91c1c; --color-success: #15803d; --color-warning: #b45309; --focus-ring: #1d4ed8; --color-focus-ring: #1d4ed8; --space-2: 0.5rem; --space-4: 1rem; --space-6: 1.5rem; --radius-md: 0.5rem; --radius-lg: 0.75rem; --font-sans: Outfit, system-ui, sans-serif; }
+[data-theme="dark"], .theme-dark { --color-background: #0f172a; --color-surface: #334155; --color-foreground: #f8fafc; --color-muted: #334155; --color-muted-foreground: #f1f5f9; --color-primary: #93c5fd; --color-primary-hover: #bfdbfe; --color-danger: #fca5a5; --color-success: #86efac; --color-warning: #fcd34d; --focus-ring: #bfdbfe; --color-focus-ring: #bfdbfe; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; } }

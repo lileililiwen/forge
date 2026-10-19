@@ -1,0 +1,13 @@
+@page
+@model StarterApp.Pages.Identity.Account.LogoutModel
+@{
+    ViewData["Title"] = "Sign out";
+}
+<h1>Sign out</h1>
+<form method="post" asp-page="/Identity/Account/Logout">
+    @Html.AntiForgeryToken()
+    <p>Click the button below to end your session.</p>
+    <div class="actions">
+        <button type="submit">Sign out</button>
+    </div>
+</form>

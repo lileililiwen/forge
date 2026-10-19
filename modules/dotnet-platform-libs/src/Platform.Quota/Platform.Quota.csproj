@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Provider-neutral quota contracts and thread-safe in-memory store.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Core/Platform.Core.csproj" /><PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" /></ItemGroup>
+</Project>

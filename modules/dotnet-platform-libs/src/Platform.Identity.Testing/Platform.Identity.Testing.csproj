@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Deterministic identity and authorization test providers.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj" />
+    <ProjectReference Include="../Platform.Authorization/Platform.Authorization.csproj" />
+  </ItemGroup>
+</Project>

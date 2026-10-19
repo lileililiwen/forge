@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional application-owned feature flag integration. Evaluates flags through an application-provided context resolver and tenant feature filter, and gates endpoints with a safe disabled response. Must not own feature names, rollout state, billing plans, or tenant records. References Microsoft.FeatureManagement only; no EF Core, Polly, or providers.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.Web.Telemetry\Platform.Web.Telemetry.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.FeatureManagement" />
+  </ItemGroup>
+</Project>

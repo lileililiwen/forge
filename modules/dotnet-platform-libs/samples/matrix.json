@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "toolVersion": "0.1.0",
+  "samples": [
+    {
+      "name": "minimal-web",
+      "directory": "samples/Platform.MinimalWeb.Sample",
+      "project": "Platform.MinimalWeb.Sample.csproj",
+      "targetFramework": "net10.0",
+      "platformReferences": ["Platform.Starter"],
+      "externalPrerequisites": [],
+      "verifyCommand": "dotnet test tests/Platform.SampleMatrix.Tests --filter MinimalWeb",
+      "rollback": "Remove the Platform.Starter reference and the AddPlatformApplication/UsePlatformApplication/MapPlatformApplicationEndpoints calls."
+    },
+    {
+      "name": "efcore",
+      "directory": "samples/Platform.EfCore.Sample",
+      "project": "Platform.EfCore.Sample.csproj",
+      "targetFramework": "net10.0",
+      "platformReferences": ["Platform.Persistence.EfCore"],
+      "externalPrerequisites": [],
+      "verifyCommand": "dotnet test tests/Platform.SampleMatrix.Tests --filter EfCore",
+      "rollback": "Remove the Platform.Persistence.EfCore reference and the AddPlatformPersistenceEfCore call; the context and migrations keep working standalone."
+    },
+    {
+      "name": "identity",
+      "directory": "samples/Platform.Identity.Sample",
+      "project": "Platform.Identity.Sample.csproj",
+      "targetFramework": "net10.0",
+      "platformReferences": ["Platform.Identity.Contracts"],
+      "externalPrerequisites": [],
+      "verifyCommand": "dotnet test tests/Platform.SampleMatrix.Tests --filter Identity",
+      "rollback": "Remove the Platform.Identity.Contracts reference and implement the two-record result shape locally."
+    },
+    {
+      "name": "tenancy",
+      "directory": "samples/Platform.Tenancy.Sample",
+      "project": "Platform.Tenancy.Sample.csproj",
+      "targetFramework": "net10.0",
+      "platformReferences": ["Platform.Tenant.Lifecycle", "Platform.Tenant.Lifecycle.Contracts"],
+      "externalPrerequisites": [],
+      "verifyCommand": "dotnet test tests/Platform.SampleMatrix.Tests --filter Tenancy",
+      "rollback": "Remove the Platform.Tenant.Lifecycle references and run the two steps inline without the orchestrator."
+    },
+    {
+      "name": "provider-storage",
+      "directory": "samples/Platform.ProviderStorage.Sample",
+      "project": "Platform.ProviderStorage.Sample.csproj",
+      "targetFramework": "net10.0",
+      "platformReferences": ["Platform.Storage", "Platform.Storage.Local"],
+      "externalPrerequisites": [],
+      "verifyCommand": "dotnet test tests/Platform.SampleMatrix.Tests --filter ProviderStorage",
+      "rollback": "Remove the Platform.Storage references and call LocalFileStorage or System.IO directly."
+    }
+  ]
+}

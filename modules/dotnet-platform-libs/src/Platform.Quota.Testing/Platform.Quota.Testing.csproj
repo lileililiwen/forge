@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Deterministic quota testing builders and inspection helpers.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Quota/Platform.Quota.csproj" /></ItemGroup>
+</Project>

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "source_revision": "2c766c64eb54560fa898115dec27c32abbf4968e",
   "workspace_root": "../../../",
-  "reason": "The four tooling origins are now ordinary Forge Cargo workspace members; preserve their project ids while pointing the portfolio registry at their current in-tree declarations.",
+  "reason": "Consolidated tooling and platform-library origins are ordinary Forge modules; preserve their project ids while pointing the portfolio registry at their current in-tree declarations.",
   "changes": [
     {
       "id": "cargo-audit-boost",
@@ -27,6 +27,12 @@
       "from": "driftwatchdog",
       "to": "forge/crates/driftwatchdog",
       "declaration": "forge/crates/driftwatchdog/.project.json"
+    },
+    {
+      "id": "dotnet-platform-libs",
+      "from": "dotnet-platform-libs",
+      "to": "forge/modules/dotnet-platform-libs",
+      "declaration": "forge/modules/dotnet-platform-libs/.project.json"
     }
   ]
 }

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional ASP.NET Core helpers that capture raw request bytes and sign outbound webhook deliveries.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../Platform.Core/Platform.Core.csproj" />
+    <ProjectReference Include="../Platform.Webhooks.Contracts/Platform.Webhooks.Contracts.csproj" />
+  </ItemGroup>
+</Project>

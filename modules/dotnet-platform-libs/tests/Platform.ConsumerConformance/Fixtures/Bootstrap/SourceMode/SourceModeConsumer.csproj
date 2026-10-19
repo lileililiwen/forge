@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap conformance fixture: source mode.
+
+    A net10.0 consumer that opts into the platform bootstrap with
+    PlatformAsSource=true. The bootstrap must inject a ProjectReference
+    to Platform.Core and apply the consumer defaults. The expected
+    checkout path resolves to the platform source root in this repository.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.Bootstrap.SourceMode</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.Bootstrap.SourceMode</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <PlatformConsumerBootstrap>true</PlatformConsumerBootstrap>
+    <PlatformConsumerSourceRoot Condition="'$(PlatformConsumerSourceRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../../..'))</PlatformConsumerSourceRoot>
+    <PlatformAsSource>true</PlatformAsSource>
+    <!--
+      Clear the repository's Directory.Build.props defaults and point
+      DirectoryPackagesPropsPath at the empty bootstrap fixture file so
+      the SDK stops auto-importing the repo's Directory.Packages.props.
+      This lets the bootstrap's own default-application be observed
+      without the repo's defaults masking it.
+    -->
+    <Nullable></Nullable>
+    <LangVersion></LangVersion>
+    <AnalysisLevel></AnalysisLevel>
+    <TreatWarningsAsErrors></TreatWarningsAsErrors>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BootstrapFixtureSource.cs" Link="BootstrapFixtureSource.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

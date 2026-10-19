@@ -21,8 +21,9 @@ import generate_ui_conformance_baseline as baseline_generator  # noqa: E402
 import ui_conformance as ui  # noqa: E402
 
 
-TOKEN_SOURCE = Path("/home/paul/code/dotnet-platform-libs/ui/tokens/tokens.json")
-TOKEN_MODULE = Path("/home/paul/code/dotnet-platform-libs/ui/scripts/lib/token-model.mjs")
+PLATFORM_UI_ROOT = Path(__file__).resolve().parents[2] / "dotnet-platform-libs" / "ui"
+TOKEN_SOURCE = PLATFORM_UI_ROOT / "tokens" / "tokens.json"
+TOKEN_MODULE = PLATFORM_UI_ROOT / "scripts" / "lib" / "token-model.mjs"
 
 
 def write(root: Path, relative: str, text: str) -> Path:
@@ -717,6 +718,12 @@ class CliTests(unittest.TestCase):
 
 
 class ShippedBaselineTests(unittest.TestCase):
+    def test_relocated_platform_module_keeps_provider_role(self):
+        self.assertEqual(
+            "provider",
+            baseline_generator.record_role("forge/modules/dotnet-platform-libs"),
+        )
+
     def test_the_committed_baseline_matches_its_generator(self):
         path = ui._governance_root() / ui.BASELINE_FILE
         self.assertTrue(path.is_file(), f"{ui.BASELINE_FILE} must be committed")

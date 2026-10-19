@@ -319,7 +319,7 @@
     },
     {
       "id": "dotnet-platform-libs",
-      "path": "dotnet-platform-libs",
+      "path": "forge/modules/dotnet-platform-libs",
       "profile": "dotnet-library",
       "role": "platform",
       "stack": "dotnet",

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Opt-in ASP.NET Core administration endpoints.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../Platform.Admin.Contracts/Platform.Admin.Contracts.csproj" />
+    <ProjectReference Include="../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj" />
+    <ProjectReference Include="../Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj" />
+  </ItemGroup>
+</Project>

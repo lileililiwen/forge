@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Platform.Storage/Platform.Storage.csproj" />
+    <ProjectReference Include="../../src/Platform.Storage.Local/Platform.Storage.Local.csproj" />
+    <ProjectReference Include="../../src/Platform.Storage.S3/Platform.Storage.S3.csproj" />
+    <PackageReference Include="AWSSDK.S3" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+  <ItemGroup><Using Include="Xunit" /></ItemGroup>
+</Project>

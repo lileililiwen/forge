@@ -13,10 +13,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "modules" / "workspace-governance"
 ALLOWED_SOURCE_ADAPTATIONS = {
+    b"README.md",
+    b"scripts/bind_gate_commands.py",
+    b"scripts/product_code_quality.py",
+    b"scripts/ui_conformance.py",
+    b"scripts/workspace_check.py",
+    b"scripts/generate_ui_conformance_baseline.py",
+    b"ui-conformance-baseline.json",
     b"projects.json",
     b"scripts/axis_migration.py",
     b"tests/test_identity_and_taxonomy.py",
     b"tests/test_bind_gate_commands.py",
+    b"tests/test_capability_adoption_gate.py",
+    b"tests/test_cross_repo_adoption_grant.py",
+    b"tests/test_promote_project.py",
+    b"tests/test_ui_conformance.py",
     b"tests/test_workspace_verification_baseline.py",
     b"MATURITY_PROGRESS_SUMMARY.md",
     b"openspec/changes/archive/2026-10-01-standalone-project-boundary/proposal.md",
@@ -52,7 +63,24 @@ WHITESPACE_ONLY_ADAPTATIONS = {
     b"openspec/specs/workspace-verification-baseline/spec.md",
 }
 ADDED_MODULE_FILES = {
+    b"gate.toml",
+    b"scripts/bind_gate_commands_declarations.py",
+    b"scripts/bind_gate_commands_discovery.py",
+    b"scripts/bind_gate_commands_execution.py",
+    b"scripts/product_code_quality_claims.py",
+    b"scripts/product_code_quality_scope.py",
+    b"scripts/ui_conformance_cli.py",
+    b"scripts/workspace_check_capabilities.py",
+    b"scripts/workspace_check_cli.py",
+    b"scripts/workspace_check_interfaces.py",
+    b"scripts/workspace_check_openspec.py",
+    b"scripts/workspace_check_project.py",
+    b"scripts/workspace_check_projects.py",
+    b"scripts/workspace_check_quality.py",
+    b"scripts/workspace_check_standalone.py",
+    b"tests/test_gate_manifest_contract.py",
     b"migration/forge-monorepo-path-reconciliation.json",
+    b"tests/test_platform_module_paths.py",
     b"tests/workspace_root.py",
 }
 SOURCE_REVISION = "2c766c64eb54560fa898115dec27c32abbf4968e"

@@ -55,6 +55,7 @@ from ui_conformance import (  # noqa: E402
 ROLES = {
     "alltools-platform": "tooling",
     "dotnet-platform-libs": "provider",
+    "forge/modules/dotnet-platform-libs": "provider",
 }
 
 

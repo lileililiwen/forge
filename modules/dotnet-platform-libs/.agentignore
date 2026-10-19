@@ -1,0 +1,9 @@
+bin/
+obj/
+.git/
+.vs/
+TestResults/
+coverage/
+*.nupkg
+*.snupkg
+.codegraph/

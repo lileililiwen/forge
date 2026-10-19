@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>ASP.NET Core identity registration and policy helpers.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj" />
+    <ProjectReference Include="../Platform.Authorization/Platform.Authorization.csproj" />
+  </ItemGroup>
+</Project>

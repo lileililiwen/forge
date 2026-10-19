@@ -1,0 +1,20 @@
+{
+  "name": "@platform/react-templates",
+  "version": "0.2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./styles.css"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "@types/react": ">=18",
+    "antd": ">=5 <7"
+  },
+  "dependencies": {
+    "@platform/design-tokens": "0.2.0",
+    "@platform/react-ui": "0.2.0",
+    "@platform/react-shell": "0.2.0"
+  },
+  "files": ["src", "styles.css"]
+}

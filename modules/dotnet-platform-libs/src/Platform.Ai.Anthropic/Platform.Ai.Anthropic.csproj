@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Raw HTTP Anthropic AI adapter.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj" /><PackageReference Include="Microsoft.Extensions.Http" /><PackageReference Include="Microsoft.Extensions.Options" /></ItemGroup>
+</Project>

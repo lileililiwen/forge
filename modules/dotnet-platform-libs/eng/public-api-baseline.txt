@@ -1,0 +1,288 @@
+[Platform.Core]
+public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+public DateTimeOffset UtcNow => _provider();
+public Error? Error { get; }
+public FixedClock(DateTimeOffset value)
+public FixedClock(Func<DateTimeOffset> provider)
+public Result ToResult() => IsSuccess
+public T? Value { get; }
+public TenantScopeNotResolvedException()
+public TenantScopeNotResolvedException(string reason)
+public bool HasTenant => !string.IsNullOrWhiteSpace(TenantId);
+public bool IsAnonymous => string.IsNullOrWhiteSpace(SubjectId);
+public bool IsSuccess { get; }
+public const string NotFoundCode = "platform.not_found";
+public const string ValidationCode = "platform.validation";
+public enum TenantResolutionStatus
+public interface IAmbientTenantScope
+public interface IAuditable
+public interface IClock
+public interface ITenantConnectionReadinessProbe
+public interface ITenantConnectionResolver
+public interface ITenantInfo
+public interface ITenantResolver
+public interface ITenantScopeFactory
+public readonly record struct TenantConnectionReadinessResult(
+public readonly record struct TenantResolutionResult(
+public sealed class FixedClock : IClock
+public sealed class Result
+public sealed class Result<T>
+public sealed class SystemClock : IClock
+public sealed class TenantScopeNotResolvedException : InvalidOperationException
+public sealed record CallerContext(string? SubjectId = null, string? TenantId = null)
+public sealed record Error(
+public sealed record TenantConnectionDescriptor(
+public static CallerContext Anonymous { get; } = new();
+public static Error NotFound(string message) =>
+public static Error Validation(string message) =>
+public static Result Failure(Error error)
+public static Result Success() => new(true, null);
+public static Result<T> Failure(Error error)
+public static Result<T> Success(T value) => new(true, value, null);
+public static TenantConnectionDescriptor Shared(string connectionString, string providerName) =>
+public static TenantConnectionReadinessResult Failed(string name, string error) => new(false, name, error);
+public static TenantConnectionReadinessResult Ready(string name) => new(true, name, null);
+public static TenantResolutionResult GlobalOperation(string reason) =>
+public static TenantResolutionResult Resolved(ITenantInfo tenant) =>
+public static TenantResolutionResult Unresolved(string reason) =>
+public static class PlatformCoreAssemblyMarker
+[Platform.Billing.Contracts]
+public IReadOnlyDictionary<FeatureKey, long> FeaturesFor(PlanId plan) =>
+public IReadOnlyDictionary<FeatureKey, long> Limits => FeatureLimits ?? new Dictionary<FeatureKey, long>();
+public PlanCatalog Add(BillingPlan plan, IEnumerable<ProviderPlanReference> references)
+public PlanCatalog Add(BillingPlan plan, ProviderPlanReference reference)
+public ProviderPlanReference ReferenceFor(PlanId plan, ProviderName provider) =>
+public bool Grants(FeatureKey feature) => ActiveFeatures.Contains(feature);
+public bool IsActive => Status is SubscriptionStatus.Free or SubscriptionStatus.Active;
+public bool IsAllowed => Reason == FeatureCheckReason.Allowed;
+public bool IsAnonymous => Value == Anonymous.Value;
+public bool IsWithinLimit => Limit is null || Used <= Limit.Value;
+public bool IsWithinPeriod(DateTimeOffset now) =>
+public bool Succeeded => Event is not null && Error is null;
+public enum FeatureCheckReason
+public enum ProcessedEventDecision
+public enum ProviderFailureKind
+public enum SubscriptionStatus
+public interface IBillingProvider
+public interface IEntitlementStore
+public interface IProcessedEventStore
+public interface IUsageMeter
+public long? LimitFor(FeatureKey feature) =>
+public readonly record struct FeatureKey(string Value)
+public readonly record struct PlanId(string Value)
+public readonly record struct ProviderEventId(string Value)
+public readonly record struct ProviderName(string Value)
+public readonly record struct SubjectKey(string Value)
+public sealed class PlanCatalog
+public sealed record BillingCustomer(SubjectKey Subject, string? Email = null, string? Name = null);
+public sealed record BillingPlan(PlanId Id, string DisplayName, IReadOnlyDictionary<FeatureKey, long>? FeatureLimits = null)
+public sealed record BillingProviderStatus(ProviderName Provider, bool Available, string? Detail = null);
+public sealed record CancellationRequest(SubjectKey Subject, bool AtPeriodEnd = true, string? Reason = null);
+public sealed record CheckoutRequest(BillingCustomer Customer, PlanId Plan, Uri SuccessUrl, Uri CancelUrl, string? Tenant = null);
+public sealed record CheckoutSession(ProviderName Provider, string SessionId, Uri CheckoutUrl, DateTimeOffset ExpiresAt);
+public sealed record Entitlement(
+public sealed record FeatureCheckResult(
+public sealed record PortalSession(ProviderName Provider, string SessionId, Uri PortalUrl, DateTimeOffset ExpiresAt);
+public sealed record ProcessedEvent(
+public sealed record ProviderEvent(
+public sealed record ProviderFailure(ProviderFailureKind Kind, string Operation, string SafeMessage);
+public sealed record ProviderPlanReference(ProviderName Provider, string ProviderValue);
+public sealed record Subscription(
+public sealed record SubscriptionLookup(SubjectKey Subject, string? ProviderSubscriptionId = null);
+public sealed record UsageCheckResult(
+public sealed record WebhookNormalizationResult(ProviderEvent? Event, string? Error = null)
+public static Entitlement Anonymous(DateTimeOffset capturedAt) =>
+public static Entitlement Inactive(SubjectKey subject, DateTimeOffset capturedAt) =>
+public static Entitlement Unknown(SubjectKey subject, Subscription subscription, DateTimeOffset capturedAt) =>
+public static FeatureCheckResult Allowed(FeatureKey feature) =>
+public static FeatureCheckResult Denied(
+public static FeatureCheckResult Evaluate(Entitlement entitlement, FeatureKey feature)
+public static FeatureCheckResult Evaluate(Entitlement entitlement, FeatureKey feature, DateTimeOffset now)
+public static FeatureKey Create(string value)
+public static PlanId Create(string value)
+public static ProviderEventId Create(string value)
+public static ProviderFailure Classify(Exception exception, string operation)
+public static ProviderName Create(string value)
+public static SubjectKey Anonymous { get; } = new("anonymous");
+public static SubjectKey Create(string value)
+public static class EntitlementDefaults
+public static class FeatureCheck
+public static class PlatformBillingContractsAssemblyMarker
+public static class ProviderFailureClassifier
+[Platform.Identity.Contracts]
+public DefaultIdentityLifecycleCoordinator(
+public DefaultRefreshTokenService(IRefreshTokenStore store, IIdentityAuditHook? audit = null)
+public IImpersonationService Impersonation { get; }
+public IPasswordRecoveryService PasswordRecovery { get; }
+public IReadOnlyCollection<string> PermissionSet => Permissions ?? Array.Empty<string>();
+public IReadOnlyCollection<string> RoleSet => Roles ?? Array.Empty<string>();
+public IRefreshTokenService RefreshTokens { get; }
+public ITwoFactorService TwoFactor { get; }
+public IdentityLifecycleOutcome Failure => Succeeded ? IdentityLifecycleOutcome.Succeeded : Outcome;
+public async ValueTask<IdentityLifecycleOutcome> RevokeAsync(string handle, CancellationToken cancellationToken = default)
+public async ValueTask<IdentityLifecycleResult<RefreshTokenRotation>> IssueAsync(string subjectId, string sessionId, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
+public async ValueTask<IdentityLifecycleResult<RefreshTokenRotation>> RotateAsync(string handle, CancellationToken cancellationToken = default)
+public bool IsActive => !string.IsNullOrEmpty(GrantId);
+public bool IsAuthenticated => !string.IsNullOrWhiteSpace(SubjectId);
+public bool IsExpired(DateTimeOffset now) => now >= ExpiresAt;
+public bool IsValid => !string.IsNullOrWhiteSpace(Identifier) && !string.IsNullOrEmpty(Secret);
+public bool Succeeded => Failure is null && Value is not null;
+public bool Succeeded => Outcome == IdentityLifecycleOutcome.Succeeded && Value is not null;
+public enum IdentityFailureReason
+public enum IdentityLifecycleOutcome
+public interface ICredentialVerifier
+public interface ICurrentUserAccessor
+public interface IExternalIdentityProvider
+public interface IIdentityAuditHook
+public interface IIdentityLifecycleCoordinator
+public interface IImpersonationPolicy
+public interface IImpersonationService
+public interface IPasswordRecoveryService
+public interface IRefreshTokenService
+public interface IRefreshTokenStore
+public interface ISessionStore
+public interface ITwoFactorService
+public interface IVerificationProvider
+public sealed class DefaultIdentityLifecycleCoordinator : IIdentityLifecycleCoordinator
+public sealed class DefaultRefreshTokenService : IRefreshTokenService
+public sealed class PlatformIdentityContractsAssemblyMarker;
+public sealed record Credential(string Identifier, string Secret)
+public sealed record CurrentUser(
+public sealed record ExternalIdentity(string Provider, string Subject, string? Email = null, string? DisplayName = null);
+public sealed record IdentityAuditEvent(string Action, string? SubjectId, bool Succeeded, DateTimeOffset OccurredAt);
+public sealed record IdentityLifecycleResult<T>(T? Value, IdentityLifecycleOutcome Outcome)
+public sealed record IdentityProviderResult<T>(T? Value, IdentityFailureReason? Failure = null)
+public sealed record IdentitySession(string SessionId, string SubjectId, DateTimeOffset ExpiresAt);
+public sealed record ImpersonationAuthorizationRequest(
+public sealed record ImpersonationContext(
+public sealed record ImpersonationGrant(
+public sealed record PasswordRecoveryChallenge(string ChallengeId, DateTimeOffset ExpiresAt);
+public sealed record RefreshToken(
+public sealed record RefreshTokenRotation(string Token, string Handle, DateTimeOffset ExpiresAt);
+public sealed record TwoFactorChallenge(string ChallengeId, DateTimeOffset ExpiresAt, IReadOnlyCollection<string> Channels);
+public sealed record VerificationChallenge(string ChallengeId, string Destination, DateTimeOffset ExpiresAt);
+public static CurrentUser Anonymous { get; } = new();
+public static IdentityLifecycleResult<T> Failed<T>(IdentityLifecycleOutcome outcome) => new(default, outcome);
+public static IdentityLifecycleResult<T> Success<T>(T value) => new(value, IdentityLifecycleOutcome.Succeeded);
+public static IdentityProviderResult<T> Failed<T>(IdentityFailureReason reason) => new(default, reason);
+public static IdentityProviderResult<T> Success<T>(T value) => new(value);
+public static ImpersonationContext None { get; } = new(string.Empty, string.Empty, string.Empty);
+public static class IdentityLifecycleResults
+public static class IdentityProviderResults
+[Platform.Admin.Contracts]
+public AdminQuery Normalize(int maximumPageSize, IReadOnlySet<string> allowedSorts)
+public const string AuditRead = "admin.audit.read";
+public const string Impersonation = "admin.impersonation";
+public const string PermissionsRead = "admin.permissions.read";
+public const string ProvidersRead = "admin.providers.read";
+public const string RolesManage = "admin.roles.manage";
+public const string RolesRead = "admin.roles.read";
+public const string SessionsManage = "admin.sessions.manage";
+public const string SessionsRead = "admin.sessions.read";
+public const string SubscriptionsRead = "admin.subscriptions.read";
+public const string UsersManage = "admin.users.manage";
+public const string UsersRead = "admin.users.read";
+public interface IAdminAuditSink
+public interface IAdminImpersonationService
+public interface IAdminStore
+public interface IAdminTenantScope
+public sealed class PlatformAdminContractsAssemblyMarker;
+public sealed record AdminAuditEntry(string Id, string Action, string ActorId, string? SubjectId, string? TenantId, DateTimeOffset OccurredAt, string? CorrelationId, string? Reason = null, DateTimeOffset? ExpiresAt = null);
+public sealed record AdminEndpointDescriptor(string Route, string Method, string Permission);
+public sealed record AdminImpersonationResult(bool Succeeded, string? ImpersonationId = null, DateTimeOffset? ExpiresAt = null, string? Code = null);
+public sealed record AdminMutationResult(bool Succeeded, string? Code = null)
+public sealed record AdminPage<T>(IReadOnlyList<T> Items, int Page, int PageSize, long TotalCount);
+public sealed record AdminPermission(string Key, string Resource, string Action);
+public sealed record AdminProviderStatus(string Name, bool Available, string? Detail = null);
+public sealed record AdminQuery(int Page = 1, int PageSize = 25, string? Search = null, string? SortBy = null, bool Descending = false, string? TenantId = null)
+public sealed record AdminRole(string Id, string Name, string? TenantId, IReadOnlyCollection<string> Permissions);
+public sealed record AdminSession(string Id, string SubjectId, string? TenantId, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, bool Revoked);
+public sealed record AdminSubscriptionSummary(string SubjectId, string? TenantId, string Status, string? Product, DateTimeOffset? EndsAt);
+public sealed record AdminUser(string Id, string? Email, string? DisplayName, string? TenantId, bool Enabled, IReadOnlyCollection<string> Roles);
+public static AdminMutationResult Failure(string code) => new(false, code);
+public static AdminMutationResult Success() => new(true);
+public static IReadOnlyList<AdminEndpointDescriptor> All { get; } =
+public static class AdminEndpointCatalog
+public static class AdminPermissions
+[Platform.Eventing.Contracts]
+public DateTimeOffset CreatedAt { get; }
+public DateTimeOffset OccurredAt { get; }
+public DateTimeOffset ReceivedAt { get; }
+public DateTimeOffset? LeaseExpiresAt { get; }
+public DateTimeOffset? NextAttemptAt { get; }
+public DurableDispatchFailure(string code, string message, bool permanent = false)
+public DurableDispatchFailure? LastFailure { get; }
+public DurableEventEnvelope Envelope { get; }
+public DurableEventEnvelope(
+public DurableMessageState State { get; }
+public InMemoryInboxStore(IClock clock, DurableEventingOptions? options = null)
+public InMemoryOutboxStore(IClock clock, DurableEventingOptions? options = null)
+public InboxMessage WithPersistedState(
+public OutboxMessage WithPersistedState(
+public Task AddAsync(OutboxMessage message, CancellationToken cancellationToken = default)
+public Task MarkFailedAsync(string messageId, string leaseOwnerId, DurableDispatchFailure failure, CancellationToken cancellationToken = default)
+public Task MarkSucceededAsync(string messageId, string leaseOwnerId, CancellationToken cancellationToken = default)
+public Task<IReadOnlyList<OutboxMessage>> ClaimAsync(DateTimeOffset now, string leaseOwnerId, TimeSpan leaseDuration, int maximum, CancellationToken cancellationToken = default)
+public Task<InboxClaimResult> TryClaimAsync(InboxMessage message, DateTimeOffset now, string leaseOwnerId, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
+public Task<InboxMessage?> GetAsync(string messageId, CancellationToken cancellationToken = default)
+public Task<OutboxMessage?> GetAsync(string messageId, CancellationToken cancellationToken = default)
+public TimeSpan GetRetryDelay(int attempt)
+public TimeSpan InitialRetryDelay { get; set; } = TimeSpan.FromSeconds(5);
+public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(5);
+public TimeSpan MaxRetryDelay { get; set; } = TimeSpan.FromMinutes(5);
+public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
+public bool Permanent { get; }
+public const string SectionName = "DurableEventing";
+public enum DurableMessageState
+public enum InboxClaimDecision
+public int AttemptCount { get; }
+public int BatchSize { get; set; } = 50;
+public int MaxAttempts { get; set; } = 5;
+public interface IDurableEventPublisher
+public interface IInboxStore
+public interface IOutboxStore
+public sealed class DurableEventingOptions
+public sealed class InMemoryInboxStore : IInboxStore
+public sealed class InMemoryOutboxStore : IOutboxStore
+public sealed record DurableDispatchFailure
+public sealed record DurableEventEnvelope
+public sealed record InboxClaimResult(InboxClaimDecision Decision, InboxMessage? Message);
+public sealed record InboxMessage
+public sealed record OutboxMessage
+public static InboxMessage Create(DurableEventEnvelope envelope, DateTimeOffset receivedAt)
+public static OutboxMessage Create(DurableEventEnvelope envelope, DateTimeOffset createdAt)
+public string Code { get; }
+public string Message { get; }
+public string MessageId => Envelope.MessageId;
+public string MessageId { get; }
+public string PayloadJson { get; }
+public string PayloadType { get; }
+public string? CorrelationId { get; }
+public string? LeaseOwnerId { get; }
+public string? TenantId { get; }
+public void Validate()
+[Platform.Testing.AspNetCore]
+public PlatformTestWebApplicationFactory<TEntryPoint> ConfigureTestServices(
+public PlatformTestWebApplicationFactory<TEntryPoint> ConfigureWebHost(Action<IWebHostBuilder> configure)
+public PlatformTestWebApplicationFactory<TEntryPoint> DecorateService<TService, TWrapper>(
+public PlatformTestWebApplicationFactory<TEntryPoint> OnDispose(Action action)
+public PlatformTestWebApplicationFactory<TEntryPoint> OnDispose(Func<ValueTask> action)
+public PlatformTestWebApplicationFactory<TEntryPoint> ReplaceService<TService, TImplementation>()
+public PlatformTestWebApplicationFactory<TEntryPoint> ReplaceService<TService>(TService instance)
+public PlatformTestWebApplicationFactory<TEntryPoint> UseTemporaryDirectory(
+public PlatformTestWebApplicationFactory<TEntryPoint> WithClock(IClock clock)
+public PlatformTestWebApplicationFactory<TEntryPoint> WithClock(TimeProvider timeProvider)
+public PlatformTestWebApplicationFactory<TEntryPoint> WithConfiguration(string key, string? value)
+public PlatformTestWebApplicationFactory<TEntryPoint> WithEnvironment(string environmentName)
+public class PlatformTestWebApplicationFactory<TEntryPoint> : WebApplicationFactory<TEntryPoint>
+public const string Testing = "Testing";
+public delegate void PlatformTestHostConfiguration(IServiceCollection services, IConfigurationBuilder configuration);
+public enum PlatformTestTemporaryDirectoryScope
+public new HttpClient CreateClient() => WithEntryPointDiagnostic(base.CreateClient);
+public new HttpClient CreateClient(WebApplicationFactoryClientOptions options)
+public new TestServer Server => WithEntryPointDiagnostic(() => base.Server);
+public override IServiceProvider Services => WithEntryPointDiagnostic(() => base.Services);
+public override async ValueTask DisposeAsync()
+public static class PlatformTestEnvironments
+public static class PlatformTestingAspNetCoreAssemblyMarker
+public string EnvironmentName => _environmentName;

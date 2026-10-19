@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\samples\Platform.EfCore.Sample\Platform.EfCore.Sample.csproj" />
+    <ProjectReference Include="..\..\samples\Platform.Identity.Sample\Platform.Identity.Sample.csproj" />
+    <ProjectReference Include="..\..\samples\Platform.MinimalWeb.Sample\Platform.MinimalWeb.Sample.csproj" />
+    <ProjectReference Include="..\..\samples\Platform.ProviderStorage.Sample\Platform.ProviderStorage.Sample.csproj" />
+    <ProjectReference Include="..\..\samples\Platform.Tenancy.Sample\Platform.Tenancy.Sample.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Identity.Contracts\Platform.Identity.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Persistence.EfCore\Platform.Persistence.EfCore.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Storage\Platform.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Storage.Local\Platform.Storage.Local.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Tenant.Lifecycle\Platform.Tenant.Lifecycle.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Tenant.Lifecycle.Contracts\Platform.Tenant.Lifecycle.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

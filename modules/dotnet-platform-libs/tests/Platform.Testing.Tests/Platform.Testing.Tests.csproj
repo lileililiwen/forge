@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Platform.Testing\Platform.Testing.csproj" />
+    <ProjectReference Include="..\..\src\Platform.Testing.AspNetCore\Platform.Testing.AspNetCore.csproj" />
+    <!-- Real application booted by PlatformTestWebApplicationFactory. -->
+    <ProjectReference Include="..\Platform.Testing.TestApplication\Platform.Testing.TestApplication.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

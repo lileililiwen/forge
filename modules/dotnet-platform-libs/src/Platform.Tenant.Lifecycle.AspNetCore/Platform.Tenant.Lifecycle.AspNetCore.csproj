@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Provider-neutral readiness and status adapter for tenant lifecycle. Depends on Platform.Tenant.Lifecycle.Contracts and Platform.Tenant.Lifecycle. No third-party packages.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj" />
+    <ProjectReference Include="../Platform.Tenant.Lifecycle/Platform.Tenant.Lifecycle.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

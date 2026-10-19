@@ -1,0 +1,5 @@
+/* Fixture: 823px is neither the documented kit scale nor the frozen baseline. */
+.layout { display: block; }
+@media (min-width: 823px) {
+  .layout { display: grid; }
+}

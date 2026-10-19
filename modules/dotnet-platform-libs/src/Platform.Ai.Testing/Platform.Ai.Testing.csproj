@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Deterministic AI provider test doubles.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj" /></ItemGroup>
+</Project>

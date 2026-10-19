@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Platform.Auditing.Contracts/Platform.Auditing.Contracts.csproj" />
+    <ProjectReference Include="../../src/Platform.Auditing.AspNetCore/Platform.Auditing.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/Platform.Auditing.EfCore/Platform.Auditing.EfCore.csproj" />
+    <ProjectReference Include="../../src/Platform.Core/Platform.Core.csproj" />
+    <ProjectReference Include="../../src/Platform.Testing/Platform.Testing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

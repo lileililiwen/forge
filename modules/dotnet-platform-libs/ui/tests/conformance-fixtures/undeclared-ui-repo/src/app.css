@@ -1,0 +1,2 @@
+/* Fixture: a user interface with no ui-conformance.json. Must fail ui-conformance-undeclared. */
+.card { padding: 1rem; }

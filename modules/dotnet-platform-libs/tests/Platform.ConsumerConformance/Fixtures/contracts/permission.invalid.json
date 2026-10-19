@@ -1,0 +1,6 @@
+{
+  "contract": "platform.authorization.permission/v1",
+  "resource": "documents",
+  "action": "read",
+  "effect": "maybe"
+}

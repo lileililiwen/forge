@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Platform.Tenant.Lifecycle/Platform.Tenant.Lifecycle.csproj" />
+    <ProjectReference Include="../../src/Platform.Tenant.Lifecycle.AspNetCore/Platform.Tenant.Lifecycle.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj" />
+    <ProjectReference Include="../../src/Platform.Tenant.Lifecycle.Testing/Platform.Tenant.Lifecycle.Testing.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

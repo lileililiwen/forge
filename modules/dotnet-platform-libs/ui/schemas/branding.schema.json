@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.example/schemas/branding.schema.json",
+  "title": "branding.json",
+  "description": "Per-project branding consumed at render time by @platform/react-auth. Replace the logo, navigation, and footer links here, not in component code.",
+  "type": "object",
+  "required": ["name", "logo", "navigation", "footerLinks", "locale"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Project name, used as the document and accessible-header name."
+    },
+    "logo": {
+      "description": "Either a path to an image or an inline data URI.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "src"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "path" },
+            "src": { "type": "string", "minLength": 1, "not": { "pattern": "^data:" } }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "src"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "data" },
+            "src": { "type": "string", "minLength": 1, "pattern": "^data:" }
+          }
+        }
+      ]
+    },
+    "theme": {
+      "enum": ["light", "dark"],
+      "default": "light",
+      "description": "Default theme when the visitor has expressed no preference. The system preference still wins over this value only while nothing is stored."
+    },
+    "navigation": {
+      "type": "array",
+      "description": "Primary navigation, rendered in ascending `order`.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "href", "order"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "href": { "type": "string", "minLength": 1 },
+          "order": { "type": "number" },
+          "icon": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "footerLinks": {
+      "type": "array",
+      "description": "Footer links, grouped by `group`. This carries the 友情链接 requirement as data.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "href", "group"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "href": { "type": "string", "minLength": 1 },
+          "group": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "locale": {
+      "type": "string",
+      "minLength": 1,
+      "description": "BCP 47 locale tag, applied to the rendered document."
+    }
+  }
+}

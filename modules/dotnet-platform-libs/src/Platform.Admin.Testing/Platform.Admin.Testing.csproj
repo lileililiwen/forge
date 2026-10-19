@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Deterministic test doubles for platform administration contracts.</Description>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Admin.Contracts/Platform.Admin.Contracts.csproj" /></ItemGroup>
+</Project>

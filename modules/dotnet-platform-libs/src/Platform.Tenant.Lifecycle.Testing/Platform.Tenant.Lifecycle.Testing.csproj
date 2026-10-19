@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Deterministic fakes for tenant lifecycle tests. Depends on Platform.Tenant.Lifecycle.Contracts; must not reference ASP.NET Core, EF Core, Hangfire, or any consumer code.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Deliberately empty.
+
+    MSBuild finds the nearest Directory.Build.props by walking up and imports
+    only that one, so a file here stops the fixtures in this subtree from
+    inheriting tests/Platform.ConsumerConformance/Directory.Build.props, which
+    sets Nullable, TreatWarningsAsErrors and a NoWarn list of its own.
+
+    That inheritance has to be broken for these fixtures specifically. They
+    assert which properties the policy package asserts, and a property already
+    set by a nearer file is skipped by the package's == '' guard - so a
+    leftover inherited value would make a package assertion look like a no-op
+    and a package non-assertion look like it worked.
+
+    Setting ImportDirectoryBuildProps=false in a fixture's own project body
+    does not achieve this: the property is read while
+    tests/Platform.ConsumerConformance/Directory.Build.props is being
+    imported, long before the body is evaluated.
+  -->
+
+</Project>

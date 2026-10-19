@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Framework-neutral domain primitives: typed entity identity, aggregate roots, transient domain events, money, opt-in markers, and safe domain errors. Must not reference ASP.NET Core, EF Core, Mediator, validation libraries, provider SDKs, or application projects.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- This is the application under test, not a test project. Without this,
+         `dotnet test Platform.sln` tries to run it through testhost and aborts. -->
+    <IsTestProject>false</IsTestProject>
+    <RootNamespace>Platform.Testing.TestApplication</RootNamespace>
+    <!-- The factory resolves the entry point by assembly entry point, so the
+         assembly name must be stable and distinct from the test assembly. -->
+    <AssemblyName>Platform.Testing.TestApplication</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Platform.Core\Platform.Core.csproj" />
+  </ItemGroup>
+
+</Project>

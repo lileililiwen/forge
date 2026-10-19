@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Platform.Web.Cors/Platform.Web.Cors.csproj" />
+    <ProjectReference Include="../../src/Platform.Web.OpenApi/Platform.Web.OpenApi.csproj" />
+    <ProjectReference Include="../../src/Platform.Web.Resilience/Platform.Web.Resilience.csproj" />
+    <ProjectReference Include="../../src/Platform.Web.Telemetry/Platform.Web.Telemetry.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

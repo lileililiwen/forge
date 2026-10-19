@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional ASP.NET Core privacy adapter over Platform.Privacy contracts: consent-cookie state and category enforcement. No product routes, no banner markup, no subject data knowledge.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.Privacy\Platform.Privacy.csproj" />
+  </ItemGroup>
+
+</Project>

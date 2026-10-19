@@ -1,0 +1,6 @@
+.local-feed/
+.nuget-packages/
+TestResults/
+.logs/
+bin/
+obj/

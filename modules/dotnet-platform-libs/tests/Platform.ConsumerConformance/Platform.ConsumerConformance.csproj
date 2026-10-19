@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance</AssemblyName>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Fixtures/ holds real source that this project's tests compile and use
+       (18 test files reference Platform.ConsumerConformance.Fixtures), so the
+       fixture sources stay in the glob. What must stay out is the *generated*
+       output: scripts/conformance.sh builds those fixtures as standalone
+       projects, which leaves AssemblyInfo/GlobalUsings under
+       Fixtures/**/obj/**. The default SDK glob is **/*.cs, so on the second
+       conformance run those generated files were compiled into this project
+       and collided on duplicate attributes — the script was not idempotent.
+       Excluding only the obj/ subtree keeps the sources and drops the
+       generated residue. -->
+  <ItemGroup>
+    <Compile Remove="Fixtures/**/obj/**" />
+    <None Remove="Fixtures/**/obj/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.AspNetCore" Version="0.1.0" />
+    <PackageReference Include="Platform.Core" Version="0.1.0" />
+    <PackageReference Include="Platform.Billing.Contracts" Version="0.1.0" />
+    <PackageReference Include="Platform.Identity.Contracts" Version="0.1.0" />
+    <PackageReference Include="Platform.Authorization" Version="0.1.0" />
+    <PackageReference Include="Platform.Identity.Testing" Version="0.1.0" />
+    <PackageReference Include="Platform.Admin.Contracts" Version="0.1.0" />
+    <PackageReference Include="Platform.Admin.Testing" Version="0.1.0" />
+    <PackageReference Include="Platform.Billing" Version="0.1.0" />
+    <PackageReference Include="Platform.Billing.Testing" Version="0.1.0" />
+    <PackageReference Include="Platform.Quota" Version="0.1.0" />
+    <PackageReference Include="Platform.Quota.Testing" Version="0.1.0" />
+    <PackageReference Include="Platform.Mailing" Version="0.1.0" />
+    <PackageReference Include="Platform.Jobs" Version="0.1.0" />
+    <PackageReference Include="Platform.Eventing" Version="0.1.0" />
+    <PackageReference Include="Platform.Eventing.Contracts" Version="0.1.0" />
+    <PackageReference Include="Platform.Caching" Version="0.1.0" />
+    <PackageReference Include="Platform.Storage" Version="0.1.0" />
+    <PackageReference Include="Platform.Idempotency" Version="0.1.0" />
+    <PackageReference Include="Platform.RateLimiting" Version="0.1.0" />
+    <PackageReference Include="Platform.Webhooks.Contracts" Version="0.1.0" />
+    <PackageReference Include="Platform.Persistence.EfCore" Version="0.1.0" />
+    <PackageReference Include="Platform.Testing" Version="0.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

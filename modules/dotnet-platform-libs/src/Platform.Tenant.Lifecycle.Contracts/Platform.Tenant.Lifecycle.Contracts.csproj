@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Provider-neutral tenant provisioning and lifecycle contracts. Framework-neutral; targets net10.0. Zero third-party dependencies. The platform never owns tenant entities, migrations, connection strings, plans, or seed data.</Description>
+  </PropertyGroup>
+</Project>

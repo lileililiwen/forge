@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Central package management file for the bootstrap conformance fixtures.
+
+    Each fixture points DirectoryPackagesPropsPath here from its own
+    project file so the SDK stops auto-importing the repository's
+    Directory.Packages.props for every fixture in this subtree.
+
+    Platform.Core is declared here so the package-mode fixture can
+    resolve its version when the bootstrap enables central package
+    management (the default). The version is read from the
+    PlatformPackageVersion property that the fixture sets on its own
+    project, so the fixture exercises the same path a real consumer
+    takes: declare the version centrally, opt into the bootstrap, and
+    let the bootstrap inject the unversioned PackageReference.
+  -->
+
+  <ItemGroup>
+    <PackageVersion Include="Platform.Core" Version="$(PlatformPackageVersion)" />
+  </ItemGroup>
+
+</Project>

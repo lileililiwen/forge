@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>StarterApp</RootNamespace>
+    <AssemblyName>StarterApp</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Platform.Starter" Version="0.1.0" />
+    <!--#if (EnablePersistence) -->
+    <PackageReference Include="Platform.Persistence.EfCore" Version="0.1.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+    <!--#endif -->
+    <!--#if (EnableSiteUsers) -->
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+    <PackageReference Include="Platform.Identity.AspNetCore" Version="0.1.0" />
+    <PackageReference Include="Platform.Authorization" Version="0.1.0" />
+    <!--#endif -->
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+</Project>

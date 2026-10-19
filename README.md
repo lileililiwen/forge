@@ -19,6 +19,10 @@ These are registered as workspace members via `members = ["crates/*"]` in
 `Cargo.toml`. Forge owns governance checks internally; concrete projects use
 Forge commands and do not need a separate governance checkout. The in-tree
 owner and remaining migration work are documented in [the import boundary](docs/workspace-governance-import.md).
+The .NET platform libraries also live as an independently runnable module at
+[`modules/dotnet-platform-libs/`](modules/dotnet-platform-libs/); its CI,
+manual package release boundary, and local verification commands are in the
+[module guide](docs/dotnet-platform-libs-module.md).
 Build the whole workspace with `cargo build --workspace` (or
 `cargo check --workspace`).
 

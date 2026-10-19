@@ -1,0 +1,136 @@
+<Project>
+
+  <!--
+    Platform consumer bootstrap.
+
+    A consumer that imports this file opts into the platform's source/package
+    reference switch and the shared consumer defaults. The bootstrap is
+    gated by an explicit opt-in property (PlatformConsumerBootstrap) so the
+    workspace's default projects remain unaffected unless they actively
+    ask for the platform behavior.
+
+    Contract (read-only documentation; do not duplicate in this file):
+
+    - PlatformConsumerBootstrap=true     Activates the bootstrap.
+    - PlatformConsumerOptOut=true        Suppresses every default, every
+                                         reference, and every diagnostic.
+                                         Honored even when the bootstrap
+                                         is active.
+    - PlatformAsSource=true              Inject a ProjectReference to the
+                                         local platform source at
+                                         $(PlatformConsumerSourceRoot). The
+                                         checkout must exist or evaluation
+                                         fails with a named diagnostic.
+    - PlatformAsSource=false (or unset)  Inject a PackageReference at the
+                                         pinned $(PlatformPackageVersion).
+                                         Version is required.
+    - TargetFramework=net10.0            Supported target.
+    - Any other TargetFramework          Named diagnostic naming the
+                                         consumer's target and the
+                                         supported target; the bootstrap
+                                         does not silently inject nothing.
+
+    Every default this file applies is overridable by the consumer.
+  -->
+
+  <PropertyGroup Condition="'$(PlatformConsumerBootstrap)' != 'true'">
+    <!--
+      The bootstrap is opt-in. Consumers that have not set
+      PlatformConsumerBootstrap=true receive no reference, no defaults, and
+      no diagnostic. This keeps the workspace's default projects silent
+      and gives every consumer a single documented entry point.
+    -->
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' == 'true'">
+    <!--
+      The consumer explicitly opted out. The bootstrap is a no-op: no
+      reference, no defaults, no diagnostic. This branch wins over every
+      other condition in the file.
+    -->
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' != 'net10.0'">
+    <!--
+      Unsupported target framework. Fail loudly instead of silently
+      injecting nothing, so a default-target consumer cannot think it
+      adopted the platform. The error names both the consumer's target
+      and the supported target.
+    -->
+    <PlatformConsumerUnsupportedTargetError>
+      Platform consumer bootstrap: target framework '$(TargetFramework)' is not supported by the platform. Set TargetFramework='net10.0' or set PlatformConsumerOptOut=true to opt out of the bootstrap.
+    </PlatformConsumerUnsupportedTargetError>
+    <PlatformConsumerBootstrapFailed>true</PlatformConsumerBootstrapFailed>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' == 'net10.0' and '$(PlatformAsSource)' == 'true' and !Exists('$(PlatformConsumerSourceRoot)/src/Platform.Core/Platform.Core.csproj')">
+    <!--
+      Source mode is enabled but the platform checkout is missing at
+      $(PlatformConsumerSourceRoot). Fail loudly; do not fall back to
+      a package reference.
+    -->
+    <PlatformConsumerMissingCheckoutError>
+      Platform consumer bootstrap: PlatformAsSource=true but the platform checkout is missing at '$(PlatformConsumerSourceRoot)'. Restore the platform source or set PlatformAsSource=false to consume a published feed.
+    </PlatformConsumerMissingCheckoutError>
+    <PlatformConsumerBootstrapFailed>true</PlatformConsumerBootstrapFailed>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' == 'net10.0' and '$(PlatformAsSource)' != 'true' and '$(PlatformPackageVersion)' == ''">
+    <!--
+      Package mode is enabled but the version source is unset. Fail loudly
+      so the consumer cannot accidentally restore an unpinned platform.
+    -->
+    <PlatformConsumerMissingVersionError>
+      Platform consumer bootstrap: PlatformAsSource!=true but PlatformPackageVersion is unset. Declare PlatformPackageVersion or set PlatformAsSource=true to use a local checkout.
+    </PlatformConsumerMissingVersionError>
+    <PlatformConsumerBootstrapFailed>true</PlatformConsumerBootstrapFailed>
+  </PropertyGroup>
+
+  <!--
+    Consumer defaults. Each default only applies when the consumer has not
+    set the property itself, so the consumer's value always wins.
+  -->
+  <PropertyGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' == 'net10.0' and '$(PlatformConsumerBootstrapFailed)' != 'true'">
+    <Nullable Condition="'$(Nullable)' == ''">enable</Nullable>
+    <LangVersion Condition="'$(LangVersion)' == ''">latest</LangVersion>
+    <AnalysisLevel Condition="'$(AnalysisLevel)' == ''">latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors Condition="'$(TreatWarningsAsErrors)' == ''">true</TreatWarningsAsErrors>
+    <ManagePackageVersionsCentrally Condition="'$(ManagePackageVersionsCentrally)' == ''">true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!--
+    Source mode: ProjectReference to the local Platform.Core checkout.
+  -->
+  <ItemGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' == 'net10.0' and '$(PlatformAsSource)' == 'true' and '$(PlatformConsumerBootstrapFailed)' != 'true'">
+    <ProjectReference Include="$(PlatformConsumerSourceRoot)/src/Platform.Core/Platform.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Package mode: PackageReference at the pinned version.
+
+    When the consumer uses central package management (the default that
+    this bootstrap enables), the version is declared centrally in
+    Directory.Packages.props and the PackageReference carries no version.
+    Otherwise the version is set inline at $(PlatformPackageVersion).
+  -->
+  <ItemGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' == 'net10.0' and '$(PlatformAsSource)' != 'true' and '$(PlatformPackageVersion)' != '' and '$(ManagePackageVersionsCentrally)' == 'true'">
+    <PackageReference Include="Platform.Core" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PlatformConsumerBootstrap)' == 'true' and '$(PlatformConsumerOptOut)' != 'true' and '$(TargetFramework)' == 'net10.0' and '$(PlatformAsSource)' != 'true' and '$(PlatformPackageVersion)' != '' and '$(ManagePackageVersionsCentrally)' != 'true'">
+    <PackageReference Include="Platform.Core" Version="$(PlatformPackageVersion)" />
+  </ItemGroup>
+
+  <!--
+    Surface every bootstrap failure as a build-time error with a stable
+    message so CI can detect a misconfigured consumer. The
+    PlatformConsumerBootstrapFailed property is the single switch that
+    makes MSBuild treat the bootstrap as broken.
+  -->
+  <Target Name="PlatformConsumerBootstrapValidate"
+          BeforeTargets="Build;CoreCompile"
+          Condition="'$(PlatformConsumerBootstrapFailed)' == 'true'">
+    <Error Text="$(PlatformConsumerUnsupportedTargetError)$(PlatformConsumerMissingCheckoutError)$(PlatformConsumerMissingVersionError)"
+           Condition="'$(PlatformConsumerUnsupportedTargetError)' != '' or '$(PlatformConsumerMissingCheckoutError)' != '' or '$(PlatformConsumerMissingVersionError)' != ''" />
+  </Target>
+
+</Project>

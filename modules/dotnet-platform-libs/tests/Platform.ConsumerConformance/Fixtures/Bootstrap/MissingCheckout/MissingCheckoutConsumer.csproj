@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap conformance fixture: missing checkout in source mode.
+
+    A net10.0 consumer that opts into the platform bootstrap with
+    PlatformAsSource=true but with PlatformConsumerSourceRoot pointing
+    at a non-existent path. The bootstrap must surface a named error
+    naming the missing path and the switch, and must NOT fall back to
+    a package reference.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.Bootstrap.MissingCheckout</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.Bootstrap.MissingCheckout</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <PlatformConsumerBootstrap>true</PlatformConsumerBootstrap>
+    <PlatformConsumerSourceRoot>/this/path/does/not/exist/dotnet-platform-libs</PlatformConsumerSourceRoot>
+    <PlatformAsSource>true</PlatformAsSource>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BootstrapFixtureSource.cs" Link="BootstrapFixtureSource.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

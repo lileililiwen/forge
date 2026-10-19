@@ -1,0 +1,1687 @@
+{
+  "name": "platform-package-manifest",
+  "packages": [
+    {
+      "description": "Opt-in ASP.NET Core administration endpoints.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Admin.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Admin.AspNetCore/Platform.Admin.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Admin.Contracts/Platform.Admin.Contracts.csproj",
+        "../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
+        "../Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral administration contracts and extension points.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Admin.Contracts",
+      "packageReferences": [],
+      "path": "src/Platform.Admin.Contracts/Platform.Admin.Contracts.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic test doubles for platform administration contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Admin.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Admin.Testing/Platform.Admin.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Admin.Contracts/Platform.Admin.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral adoption diagnostics core: explicit-directory SDK, package pinning, test-boundary, and project-quality checks with preview-only alignment suggestions, stable JSON, and secret-free evidence. No production package dependencies; never modifies the inspected target.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Adoption",
+      "packageReferences": [],
+      "path": "src/Platform.Adoption/Platform.Adoption.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "AI provider routing and policy orchestration.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Ai",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Ai/Platform.Ai.csproj",
+      "projectReferences": [
+        "../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj",
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Raw HTTP Anthropic AI adapter.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Ai.Anthropic",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.Http",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Ai.Anthropic/Platform.Ai.Anthropic.csproj",
+      "projectReferences": [
+        "../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral AI contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Ai.Contracts",
+      "packageReferences": [],
+      "path": "src/Platform.Ai.Contracts/Platform.Ai.Contracts.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Raw HTTP Ollama AI adapter.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Ai.Ollama",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.Http",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Ai.Ollama/Platform.Ai.Ollama.csproj",
+      "projectReferences": [
+        "../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Raw HTTP OpenAI-compatible AI adapter.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Ai.OpenAiCompatible",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.Http",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Ai.OpenAiCompatible/Platform.Ai.OpenAiCompatible.csproj",
+      "projectReferences": [
+        "../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic AI provider test doubles.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Ai.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Ai.Testing/Platform.Ai.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Ai.Contracts/Platform.Ai.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "ASP.NET Core integration helpers built on top of Platform.Core.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.AspNetCore/Platform.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional ASP.NET Core request, exception, and security audit capture adapters.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Auditing.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Auditing.AspNetCore/Platform.Auditing.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Auditing.Contracts/Platform.Auditing.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral audit event, scope, enrichment, masking, sink, retention, and failure-policy contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Auditing.Contracts",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Auditing.Contracts/Platform.Auditing.Contracts.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional EF Core change-capture interceptor for the auditing contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Auditing.EfCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.EntityFrameworkCore.Relational",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Auditing.EfCore/Platform.Auditing.EfCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Auditing.Contracts/Platform.Auditing.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral permission and authorization contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Authorization",
+      "packageReferences": [],
+      "path": "src/Platform.Authorization/Platform.Authorization.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral billing orchestration contracts and workflows.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Billing",
+      "packageReferences": [],
+      "path": "src/Platform.Billing/Platform.Billing.csproj",
+      "projectReferences": [
+        "../Platform.Billing.Contracts/Platform.Billing.Contracts.csproj",
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Normalized subscription and entitlement contracts. Must not reference ASP.NET Core, EF Core, Stripe SDKs, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Billing.Contracts",
+      "packageReferences": [],
+      "path": "src/Platform.Billing.Contracts/Platform.Billing.Contracts.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional Lemon Squeezy billing provider adapter.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Billing.LemonSqueezy",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Http",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Billing.LemonSqueezy/Platform.Billing.LemonSqueezy.csproj",
+      "projectReferences": [
+        "../Platform.Billing/Platform.Billing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional Stripe billing provider adapter.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Billing.Stripe",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Http",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Billing.Stripe/Platform.Billing.Stripe.csproj",
+      "projectReferences": [
+        "../Platform.Billing/Platform.Billing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic billing provider and entitlement test doubles.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Billing.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Billing.Testing/Platform.Billing.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Billing.Contracts/Platform.Billing.Contracts.csproj",
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Build-only package carrying the platform's shared MSBuild policy in buildTransitive/Platform.Build.props. Reference it at an exact version to receive the policy with no per-repository copy and no import-by-path.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Build",
+      "packageReferences": [],
+      "path": "src/Platform.Build/Platform.Build.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral cache contracts, keys, telemetry, and in-memory implementation.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Caching",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Caching/Platform.Caching.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional Microsoft HybridCache adapter for Platform.Caching.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Caching.Hybrid",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.Caching.Hybrid",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Caching.Hybrid/Platform.Caching.Hybrid.csproj",
+      "projectReferences": [
+        "../Platform.Caching/Platform.Caching.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional Redis adapter for Platform.Caching with bounded operations and health state.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Caching.Redis",
+      "packageReferences": [
+        {
+          "name": "StackExchange.Redis",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Caching.Redis/Platform.Caching.Redis.csproj",
+      "projectReferences": [
+        "../Platform.Caching/Platform.Caching.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Framework-independent shared platform contracts. Must not reference ASP.NET Core, EF Core, Stripe SDKs, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Core",
+      "packageReferences": [],
+      "path": "src/Platform.Core/Platform.Core.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Framework-neutral domain primitives: typed entity identity, aggregate roots, transient domain events, money, opt-in markers, and safe domain errors. Must not reference ASP.NET Core, EF Core, Mediator, validation libraries, provider SDKs, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Domain",
+      "packageReferences": [],
+      "path": "src/Platform.Domain/Platform.Domain.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Transport-agnostic event-bus contract, envelope shape, and in-process default adapter. Must not reference ASP.NET Core, EF Core, RabbitMQ, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Eventing",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Eventing/Platform.Eventing.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Framework-neutral durable eventing contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Eventing.Contracts",
+      "packageReferences": [],
+      "path": "src/Platform.Eventing.Contracts/Platform.Eventing.Contracts.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional EF Core durable eventing persistence adapter.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Eventing.EfCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.EntityFrameworkCore.Relational",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Hosting.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Eventing.EfCore/Platform.Eventing.EfCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Eventing.Contracts/Platform.Eventing.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional RabbitMQ adapter for the platform durable eventing contracts. Confirmed publishing, application-owned topology registration, safe transient/permanent failure classification, and bounded waits; the application owns event schemas, queues, migrations, and retry policy.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Eventing.RabbitMq",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        },
+        {
+          "name": "RabbitMQ.Client",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Eventing.RabbitMq/Platform.Eventing.RabbitMq.csproj",
+      "projectReferences": [
+        "../Platform.Eventing.Contracts/Platform.Eventing.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional application-owned feature flag integration. Evaluates flags through an application-provided context resolver and tenant feature filter, and gates endpoints with a safe disabled response. Must not own feature names, rollout state, billing plans, or tenant records. References Microsoft.FeatureManagement only; no EF Core, Polly, or providers.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.FeatureManagement",
+      "packageReferences": [
+        {
+          "name": "Microsoft.FeatureManagement",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.FeatureManagement/Platform.FeatureManagement.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Web.Telemetry/Platform.Web.Telemetry.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional outbound HTTP resilience integration built on the Microsoft.Extensions.Http.Resilience resilience primitives. Provides bounded retry, timeout, circuit-breaker, and concurrency policies that skip non-idempotent methods by default and preserve caller cancellation. Framework-neutral; no ASP.NET Core, EF Core, or provider references.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Http.Resilience",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.Http",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Http.Resilience",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Http.Resilience/Platform.Http.Resilience.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Web.Telemetry/Platform.Web.Telemetry.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Framework-neutral idempotency contract and in-memory default store. Must not reference ASP.NET Core, EF Core, StackExchange.Redis, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Idempotency",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Idempotency/Platform.Idempotency.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "ASP.NET Core identity registration and policy helpers.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Identity.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
+        "../Platform.Authorization/Platform.Authorization.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral identity and authentication contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Identity.Contracts",
+      "packageReferences": [],
+      "path": "src/Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional schema-independent EF Core identity store contracts.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Identity.EntityFrameworkCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Identity.EntityFrameworkCore/Platform.Identity.EntityFrameworkCore.csproj",
+      "projectReferences": [
+        "../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
+        "../Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic identity and authorization test providers.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Identity.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Identity.Testing/Platform.Identity.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Identity.Contracts/Platform.Identity.Contracts.csproj",
+        "../Platform.Authorization/Platform.Authorization.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Engine-neutral scheduling contract: recurring-job attribute, dispatcher, registry, and telemetry surface. Must not reference ASP.NET Core, EF Core, Hangfire, Quartz, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Jobs",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Jobs/Platform.Jobs.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional Hangfire adapter for Platform.Jobs. Payload dispatch, recurring registration, scoped tenant/subject context restoration, opt-in protected dashboard, and safe storage health; the application owns storage configuration, job definitions, and retry ownership.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Jobs.Hangfire",
+      "packageReferences": [
+        {
+          "name": "Hangfire.AspNetCore",
+          "version": ""
+        },
+        {
+          "name": "Hangfire.Core",
+          "version": ""
+        },
+        {
+          "name": "Hangfire.InMemory",
+          "version": ""
+        },
+        {
+          "name": "Hangfire.PostgreSql",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Jobs.Hangfire/Platform.Jobs.Hangfire.csproj",
+      "projectReferences": [
+        "../Platform.Jobs/Platform.Jobs.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral mailing contract: mail message value type, renderer abstraction, and structured send result. Must not reference ASP.NET Core, EF Core, mail providers, or templating engines.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Mailing",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Mailing/Platform.Mailing.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional SendGrid adapter for Platform.Mailing. Normalized send outcomes, safe response classification, and attachments; the application owns retries, templates, and delivery records.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Mailing.SendGrid",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        },
+        {
+          "name": "SendGrid",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Mailing.SendGrid/Platform.Mailing.SendGrid.csproj",
+      "projectReferences": [
+        "../Platform.Mailing/Platform.Mailing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional SMTP adapter for Platform.Mailing using MailKit. Normalized send outcomes, explicit TLS/authentication configuration, and attachments; the application owns retries, templates, and delivery records.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Mailing.Smtp",
+      "packageReferences": [
+        {
+          "name": "MailKit",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Mailing.Smtp/Platform.Mailing.Smtp.csproj",
+      "projectReferences": [
+        "../Platform.Mailing/Platform.Mailing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral notification and SMS contracts with explicit delivery orchestration.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Notifications",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Notifications/Platform.Notifications.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Idempotency/Platform.Idempotency.csproj",
+        "../Platform.Jobs/Platform.Jobs.csproj",
+        "../Platform.Mailing/Platform.Mailing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic notification and SMS fakes.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Notifications.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Notifications.Testing/Platform.Notifications.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Notifications/Platform.Notifications.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Opt-in host observability registration with safe correlation, logging enrichment, tracing, metrics, and provider-status contracts. Does not include an exporter; consumers add their own.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Observability",
+      "packageReferences": [],
+      "path": "src/Platform.Observability/Platform.Observability.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Web.Telemetry/Platform.Web.Telemetry.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional provider-neutral EF Core persistence conventions.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Persistence.EfCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.EntityFrameworkCore.Relational",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional application-owned EF Core migration execution boundary: pending inspection, apply, optional seed and exclusive-execution callbacks, and secret-free failure results. Depends on Platform.Persistence.EfCore and provider-neutral EF Core only. No provider packages, locks, tenant iteration, or seed data.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Persistence.EfCore.Migrator",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.EntityFrameworkCore.Relational",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Persistence.EfCore.Migrator/Platform.Persistence.EfCore.Migrator.csproj",
+      "projectReferences": [
+        "../Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional multitenancy adapter for Platform.Persistence.EfCore with ASP.NET Core scope installation. The package owns no tenant entities, tenant catalog, or migrations.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Persistence.Multitenancy",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Persistence.Multitenancy/Platform.Persistence.Multitenancy.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.AspNetCore/Platform.AspNetCore.csproj",
+        "../Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional PostgreSQL adapter for Platform.Persistence.EfCore.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Persistence.Postgres",
+      "packageReferences": [
+        {
+          "name": "Npgsql.EntityFrameworkCore.PostgreSQL",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Persistence.Postgres/Platform.Persistence.Postgres.csproj",
+      "projectReferences": [
+        "../Platform.Persistence.EfCore/Platform.Persistence.EfCore.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Assembly-shared PostgreSQL Testcontainers fixture with template-database cloning for platform consumers. Production projects must not reference this package.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Persistence.Postgres.Testing",
+      "packageReferences": [
+        {
+          "name": "Npgsql",
+          "version": ""
+        },
+        {
+          "name": "Testcontainers.PostgreSql",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Persistence.Postgres.Testing/Platform.Persistence.Postgres.Testing.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral privacy vocabulary: consent records and policy evaluation, subject-rights contracts, anonymization helpers.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Privacy",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Privacy/Platform.Privacy.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional ASP.NET Core privacy adapter over Platform.Privacy contracts: consent-cookie state and category enforcement. No product routes, no banner markup, no subject data knowledge.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Privacy.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Privacy.AspNetCore/Platform.Privacy.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Privacy/Platform.Privacy.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral quota contracts and thread-safe in-memory store.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Quota",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Quota/Platform.Quota.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional ASP.NET Core quota enforcement adapter over Platform.Quota contracts. Depends on the Microsoft.AspNetCore.App framework reference and Platform.Quota only; no plans, prices, entitlements, units, persistence, or quota limits are embedded.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Quota.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Quota.AspNetCore/Platform.Quota.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Quota/Platform.Quota.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic quota testing builders and inspection helpers.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Quota.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Quota.Testing/Platform.Quota.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Quota/Platform.Quota.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Framework-neutral rate-limit contract and in-memory default backend. Must not reference ASP.NET Core, EF Core, StackExchange.Redis, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.RateLimiting",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.RateLimiting/Platform.RateLimiting.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Transport-neutral realtime connection, authorization, tenant-routing, payload, and provider-status contracts. Must not reference ASP.NET Core, SignalR, EF Core, Redis, or application projects.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Realtime",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Realtime/Platform.Realtime.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional ASP.NET Core SignalR and SSE realtime adapters over Platform.Realtime contracts. Depends on the Microsoft.AspNetCore.App framework reference only; no Redis, SignalR provider, or application dependencies. Backplane selection is application-owned and optional.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Realtime.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Realtime.AspNetCore/Platform.Realtime.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Realtime/Platform.Realtime.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Composable application bootstrap over independently adoptable platform capabilities.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Starter",
+      "packageReferences": [],
+      "path": "src/Platform.Starter/Platform.Starter.csproj",
+      "projectReferences": [
+        "../Platform.Web/Platform.Web.csproj",
+        "../Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj",
+        "../Platform.Admin.AspNetCore/Platform.Admin.AspNetCore.csproj",
+        "../Platform.Billing/Platform.Billing.csproj",
+        "../Platform.Mailing/Platform.Mailing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral object storage contracts, safe keys, and provider status.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Storage",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Storage/Platform.Storage.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional local filesystem adapter for Platform.Storage.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Storage.Local",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Storage.Local/Platform.Storage.Local.csproj",
+      "projectReferences": [
+        "../Platform.Storage/Platform.Storage.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional S3-compatible adapter for Platform.Storage.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Storage.S3",
+      "packageReferences": [
+        {
+          "name": "AWSSDK.S3",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Storage.S3/Platform.Storage.S3.csproj",
+      "projectReferences": [
+        "../Platform.Storage/Platform.Storage.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Default tenant lifecycle orchestrator. Depends on Platform.Tenant.Lifecycle.Contracts; integration with Platform.Persistence.Multitenancy is application-owned. No third-party packages.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Tenant.Lifecycle",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Tenant.Lifecycle/Platform.Tenant.Lifecycle.csproj",
+      "projectReferences": [
+        "../Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj",
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral readiness and status adapter for tenant lifecycle. Depends on Platform.Tenant.Lifecycle.Contracts and Platform.Tenant.Lifecycle. No third-party packages.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Tenant.Lifecycle.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Tenant.Lifecycle.AspNetCore/Platform.Tenant.Lifecycle.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj",
+        "../Platform.Tenant.Lifecycle/Platform.Tenant.Lifecycle.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral tenant provisioning and lifecycle contracts. Framework-neutral; targets net10.0. Zero third-party dependencies. The platform never owns tenant entities, migrations, connection strings, plans, or seed data.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Tenant.Lifecycle.Contracts",
+      "packageReferences": [],
+      "path": "src/Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Deterministic fakes for tenant lifecycle tests. Depends on Platform.Tenant.Lifecycle.Contracts; must not reference ASP.NET Core, EF Core, Hangfire, or any consumer code.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Tenant.Lifecycle.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Tenant.Lifecycle.Testing/Platform.Tenant.Lifecycle.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Tenant.Lifecycle.Contracts/Platform.Tenant.Lifecycle.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Reusable testing helpers for platform consumers. Production projects must not reference this package.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Testing",
+      "packageReferences": [],
+      "path": "src/Platform.Testing/Platform.Testing.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.AspNetCore/Platform.AspNetCore.csproj",
+        "../Platform.Billing.Contracts/Platform.Billing.Contracts.csproj",
+        "../Platform.Eventing/Platform.Eventing.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "ASP.NET Core TestServer host builder for platform consumers. Production projects must not reference this package.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Testing.AspNetCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.AspNetCore.Mvc.Testing",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Testing.AspNetCore/Platform.Testing.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Razor static web assets and conventions equivalent to the platform UI contract.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.UI.Razor",
+      "packageReferences": [],
+      "path": "src/Platform.UI.Razor/Platform.UI.Razor.csproj",
+      "projectReferences": [],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Composable web runtime foundations built on Platform.AspNetCore.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Web",
+      "packageReferences": [],
+      "path": "src/Platform.Web/Platform.Web.csproj",
+      "projectReferences": [
+        "../Platform.AspNetCore/Platform.AspNetCore.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional explicit ASP.NET Core module composition: stable module contract, deterministic ordered registration with duplicate rejection, and opt-in middleware/endpoint mapping without assembly scanning or static state. Depends on Platform.Core only. No Mediator, FluentValidation, EF Core, or product references.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Web.Composition",
+      "packageReferences": [],
+      "path": "src/Platform.Web.Composition/Platform.Web.Composition.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional CORS configuration and production validation built on ASP.NET Core. Must not reference EF Core, third-party CORS providers, or application projects.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Web.Cors",
+      "packageReferences": [],
+      "path": "src/Platform.Web.Cors/Platform.Web.Cors.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Web.Telemetry/Platform.Web.Telemetry.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional OpenAPI document registry and explicit mapping helper. The platform does not own a specific OpenAPI implementation; applications supply the document JSON through a provider. Must not reference Swashbuckle, NSwag, EF Core, or application projects.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Web.OpenApi",
+      "packageReferences": [],
+      "path": "src/Platform.Web.OpenApi/Platform.Web.OpenApi.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Web.Telemetry/Platform.Web.Telemetry.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional HTTP client resilience conventions (retry, timeout, circuit breaker) with bounded defaults. Skips retries for non-idempotent methods unless explicitly enabled. Must not reference EF Core, Polly, or application projects.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Web.Resilience",
+      "packageReferences": [],
+      "path": "src/Platform.Web.Resilience/Platform.Web.Resilience.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Web.Telemetry/Platform.Web.Telemetry.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Framework-neutral redaction-safe web telemetry names and option-validation helpers. Must not reference ASP.NET Core, EF Core, or third-party providers.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Web.Telemetry",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Web.Telemetry/Platform.Web.Telemetry.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional API versioning and API Explorer conventions for ASP.NET Core. Application opt-in; unversioned endpoints are unchanged. Depends on the centrally managed Asp.Versioning.Http and Asp.Versioning.Mvc.ApiExplorer packages. Must not reference EF Core, application projects, or non-platform adapters.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Web.Versioning",
+      "packageReferences": [
+        {
+          "name": "Asp.Versioning.Http",
+          "version": ""
+        },
+        {
+          "name": "Asp.Versioning.Mvc.ApiExplorer",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Web.Versioning/Platform.Web.Versioning.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional ASP.NET Core helpers that capture raw request bytes and sign outbound webhook deliveries.",
+      "frameworkReferences": [
+        "Microsoft.AspNetCore.App"
+      ],
+      "isPackable": true,
+      "packageId": "Platform.Webhooks.AspNetCore",
+      "packageReferences": [],
+      "path": "src/Platform.Webhooks.AspNetCore/Platform.Webhooks.AspNetCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Webhooks.Contracts/Platform.Webhooks.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Provider-neutral inbound verification, replay decisions, outbound subscription, and delivery contracts for webhooks.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Webhooks.Contracts",
+      "packageReferences": [
+        {
+          "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Logging.Abstractions",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.Extensions.Options",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Webhooks.Contracts/Platform.Webhooks.Contracts.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    },
+    {
+      "description": "Optional EF Core persistence adapters for the webhook inbox, subscriptions, and delivery stores.",
+      "frameworkReferences": [],
+      "isPackable": true,
+      "packageId": "Platform.Webhooks.EfCore",
+      "packageReferences": [
+        {
+          "name": "Microsoft.EntityFrameworkCore",
+          "version": ""
+        },
+        {
+          "name": "Microsoft.EntityFrameworkCore.Relational",
+          "version": ""
+        }
+      ],
+      "path": "src/Platform.Webhooks.EfCore/Platform.Webhooks.EfCore.csproj",
+      "projectReferences": [
+        "../Platform.Core/Platform.Core.csproj",
+        "../Platform.Webhooks.Contracts/Platform.Webhooks.Contracts.csproj"
+      ],
+      "targetFrameworks": [
+        "net10.0"
+      ],
+      "version": "0.1.0"
+    }
+  ],
+  "schemaVersion": 1
+}

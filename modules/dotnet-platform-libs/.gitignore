@@ -1,0 +1,27 @@
+bin/
+obj/
+.vs/
+.idea/
+.vscode/
+TestResults/
+*.user
+*.suo
+*.nupkg
+*.snupkg
+artifacts/
+packages/
+!ui/packages/
+!ui/packages/react-templates/
+!ui/packages/react-templates/**
+coverage/
+*.DotSettings.user
+.codegraph/
+.zvec-grep/
+.sisyphusfy.toml
+
+
+# Driftwatch local runtime state. This directory holds per-machine state
+# (state.db and local caches), never project configuration, so it must
+# never be committed. A root-level driftwatch.toml is different: that is
+# real project config and IS tracked.
+.driftwatch/

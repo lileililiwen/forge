@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build policy conformance fixture: the package imposes no target framework.
+
+    A consumer on net8.0 - a framework the platform does not publish - that
+    references the pinned Platform.Build package. The package must leave the
+    target framework exactly as the project declared it. A shared policy
+    package that asserted a TFM would silently retarget this project to
+    net10.0, so the resolved TargetFramework is asserted rather than inferred
+    from a successful build.
+
+    net8.0 is deliberate and matches the existing bootstrap fixtures: the
+    platform publishes net10.0 only, so anything else proves the point.
+  -->
+
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.BuildPolicy.NonDefaultTarget</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.BuildPolicy.NonDefaultTarget</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BuildPolicyFixtureSource.cs" Link="BuildPolicyFixtureSource.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.Build" Version="0.1.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap conformance fixture: package mode with central package
+    management disabled.
+
+    A net10.0 consumer that opts into the platform bootstrap with
+    PlatformAsSource unset and ManagePackageVersionsCentrally=false. The
+    bootstrap must inject a PackageReference to Platform.Core with the
+    version set inline at $(PlatformPackageVersion) because CPM is off.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.Bootstrap.PackageModeNoCpm</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.Bootstrap.PackageModeNoCpm</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <PlatformConsumerBootstrap>true</PlatformConsumerBootstrap>
+    <PlatformPackageVersion>0.1.0</PlatformPackageVersion>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <Nullable></Nullable>
+    <LangVersion></LangVersion>
+    <AnalysisLevel></AnalysisLevel>
+    <TreatWarningsAsErrors></TreatWarningsAsErrors>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BootstrapFixtureSource.cs" Link="BootstrapFixtureSource.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

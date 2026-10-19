@@ -1,0 +1,8 @@
+{
+  "contract": "platform.audit.event/v1",
+  "action": "document.read",
+  "subjectId": "user-001",
+  "succeeded": true,
+  "occurredAt": "2026-09-25T00:00:00Z",
+  "severity": "info"
+}

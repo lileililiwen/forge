@@ -17,20 +17,17 @@ The source import does not yet mean that all consumers are migrated. Forge's
 provider adapter, legacy project registry readers, vocabulary sync, pinned
 standard assets and generated concern shims still have sibling-layout
 compatibility references. Those are explicit follow-up work. The four tooling
-entries already moved under `forge/crates/` keep their IDs and now resolve to
-their new declarations in the Workspace Governance portfolio registry. The
-path changes are recorded in
+entries already moved under `forge/crates/` and the consolidated platform
+modules keep their project IDs and resolve to their in-tree declarations in
+the Workspace Governance portfolio registry. The path changes are recorded in
 `modules/workspace-governance/migration/forge-monorepo-path-reconciliation.json`.
 
-The imported module Gate currently finds no source-size candidates because
-its Python implementation lives in `scripts/`; four production scripts exceed
-the 1,000-line Forge baseline: `workspace_check.py` (4,405),
-`bind_gate_commands.py` (2,493), `product_code_quality.py` (1,763), and
-`ui_conformance.py` (1,096). The Gate passing does not claim those files meet
-the baseline. A dedicated conformance package is queued to bring the Forge
-copy under the built-in source-size baseline. It is independent of source-origin
-archival and does not block migration of product consumers to Forge-owned
-interfaces.
+The imported module's Forge conformance work has split its large Python
+entry points into focused modules. The current entry points are each below
+the 1,000-line source-size baseline (`workspace_check.py` 731,
+`bind_gate_commands.py` 475, `product_code_quality.py` 778, and
+`ui_conformance.py` 956 lines). The import verifier records those code
+adaptations and the corresponding added modules explicitly.
 
 The original source repository is archived. `modules/workspace-governance/`
 is the maintained copy; any required source change is made in Forge. Consumer
@@ -39,7 +36,7 @@ status.
 
 Run `python3 scripts/check-workspace-governance-import.py` from the Forge root
 to compare imported paths, Git modes and blob hashes against the recorded
-source revision, allow only declared monorepo registry/test/path and
-whitespace adaptations, and confirm the source-only commits remain ancestors. The Workspace
+source revision, allow only declared Forge/Governance adaptations and
+additions, and confirm the source-only commits remain ancestors. The Workspace
 Governance fleet tests resolve their root from `WORKSPACE_ROOT`; absent that
 override they derive the portfolio root from the ordinary Forge module layout.

@@ -1,0 +1,9 @@
+{
+  "contract": "platform.release.evidence/v1",
+  "packageId": "Platform.Core",
+  "version": "0.1.0",
+  "evidence": [
+    { "kind": "vulnerability-audit", "status": "available", "uri": "https://example.com/audits/platform-core-0.1.0" },
+    { "kind": "package-signature", "status": "unavailable" }
+  ]
+}

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap conformance fixture: consumer defaults.
+
+    A net10.0 consumer that opts into the platform bootstrap without
+    overriding any defaulted property. The bootstrap must apply
+    Nullable=enable, LangVersion=latest, AnalysisLevel=latest-recommended,
+    TreatWarningsAsErrors=true, and ManagePackageVersionsCentrally=true.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.Bootstrap.ConsumerDefaults</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.Bootstrap.ConsumerDefaults</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <PlatformConsumerBootstrap>true</PlatformConsumerBootstrap>
+    <PlatformConsumerSourceRoot Condition="'$(PlatformConsumerSourceRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../../..'))</PlatformConsumerSourceRoot>
+    <PlatformAsSource>true</PlatformAsSource>
+    <Nullable></Nullable>
+    <LangVersion></LangVersion>
+    <AnalysisLevel></AnalysisLevel>
+    <TreatWarningsAsErrors></TreatWarningsAsErrors>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BootstrapFixtureSource.cs" Link="BootstrapFixtureSource.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

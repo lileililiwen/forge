@@ -1,0 +1,45 @@
+schema: spec-driven
+
+context: |
+  This repository contains small, privately maintained .NET platform libraries used by
+  multiple independent demo and development applications. The platform is not a shared
+  runtime service. Each library is compiled into the consuming application and must be
+  adoptable independently.
+
+  Initial compatibility targets are .NET 8 applications, with a path for .NET 10
+  applications. Keep pure contracts free of ASP.NET Core and EF Core dependencies.
+  Do not place product-specific entities, migrations, Stripe price IDs, invoice rules,
+  or application plans in this repository.
+
+  Every change must contain proposal.md, design.md, tasks.md, and at least one
+  specs/<capability>/spec.md with ADDED or MODIFIED Requirements and Scenario blocks.
+
+rules:
+  proposal:
+    - State explicit non-goals for shared-platform changes.
+    - Identify whether the change affects public package APIs.
+  design:
+    - Define dependency direction and package ownership.
+    - Prefer the smallest independently adoptable boundary.
+  tasks:
+    - Include implementation, tests, documentation, and verification tasks.
+    - Keep tasks ordered so only one active change needs implementation at a time.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

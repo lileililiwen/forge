@@ -1,0 +1,6 @@
+{
+  "contract": "platform.release.evidence/v1",
+  "packageId": "Platform.Core",
+  "version": "0.1.0",
+  "evidence": []
+}

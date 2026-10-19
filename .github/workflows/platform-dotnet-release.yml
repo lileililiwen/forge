@@ -1,0 +1,135 @@
+name: platform-dotnet-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer package version
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: dotnet-platform-pages
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+  NUGET_SOURCE: https://repo.huaweicloud.com/repository/nuget/v3/index.json
+  PLATFORM_FEED_BASE_URI: https://lileililiwen.github.io/forge/nuget/
+
+defaults:
+  run:
+    working-directory: modules/dotnet-platform-libs
+
+jobs:
+  build-feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.400
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - "$VERSION" <<'NODE'
+          const version = process.argv[2];
+          const identifier = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)';
+          const semver = new RegExp(`^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(${identifier}(?:\\.${identifier})*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`);
+          if (!semver.test(version)) {
+            console.error('VERSION must be SemVer (for example 1.2.3 or 1.2.3-rc.1).');
+            process.exit(2);
+          }
+          NODE
+      - name: Restore pinned feed tool
+        run: dotnet tool restore
+      - name: Verify quality and API compatibility
+        run: |
+          ./scripts/quality-gate.sh
+          ./scripts/check-public-api.sh
+          ./scripts/audit-packages.sh
+          ./scripts/conformance.sh
+      - name: Pack release artifacts
+        run: dotnet pack Platform.sln -c Release --no-build -p:Version="$VERSION" -o artifacts/packages --nologo -m:1
+      - name: Restore retained Pages feed tree
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          remote_ref="$(git ls-remote --heads origin refs/heads/gh-pages)"
+          if [ -n "$remote_ref" ]; then
+            git fetch origin refs/heads/gh-pages:refs/heads/gh-pages
+          else
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            empty_commit="$(printf '%s\n' 'Initialize static NuGet feed' | git commit-tree "$empty_tree")"
+            git branch gh-pages "$empty_commit"
+          fi
+          git worktree add artifacts/site gh-pages
+      - name: Add packages to retained static feed
+        run: |
+          python3 scripts/prepare-static-feed.py \
+            --packages artifacts/packages \
+            --feed-root artifacts/site/nuget \
+            --base-uri "$PLATFORM_FEED_BASE_URI" \
+            --sleet-config artifacts/sleet.json
+          dotnet sleet push artifacts/packages \
+            --config artifacts/sleet.json \
+            --source platform-pages \
+            --skip-existing \
+            --verbosity minimal
+          dotnet sleet validate \
+            --config artifacts/sleet.json \
+            --source platform-pages \
+            --verbosity minimal
+          touch artifacts/site/.nojekyll
+      - name: Persist immutable feed history
+        run: |
+          set -euo pipefail
+          git -C artifacts/site config user.name github-actions[bot]
+          git -C artifacts/site config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C artifacts/site add .nojekyll nuget
+          if git -C artifacts/site diff --cached --quiet; then
+            echo "Feed already contains identical package bytes."
+          else
+            git -C artifacts/site commit -m "release: publish .NET platform packages $VERSION"
+            git -C artifacts/site push origin HEAD:gh-pages
+          fi
+          mkdir -p artifacts/pages
+          git -C artifacts/site archive HEAD | tar -x -C artifacts/pages
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: modules/dotnet-platform-libs/artifacts/pages
+      - name: Upload package and feed evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-dotnet-packages-${{ inputs.version }}
+          path: |
+            modules/dotnet-platform-libs/artifacts/packages/
+            modules/dotnet-platform-libs/artifacts/site/nuget/platform-feed-manifest.json
+          if-no-files-found: error
+
+  deploy-pages:
+    needs: build-feed
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy static NuGet feed
+        id: deployment
+        uses: actions/deploy-pages@v4

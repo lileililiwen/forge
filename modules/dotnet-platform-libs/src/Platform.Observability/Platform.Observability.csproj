@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Opt-in host observability registration with safe correlation, logging enrichment, tracing, metrics, and provider-status contracts. Does not include an exporter; consumers add their own.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.Web.Telemetry\Platform.Web.Telemetry.csproj" />
+  </ItemGroup>
+</Project>

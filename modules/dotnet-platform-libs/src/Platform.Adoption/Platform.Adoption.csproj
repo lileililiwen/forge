@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Provider-neutral adoption diagnostics core: explicit-directory SDK, package pinning, test-boundary, and project-quality checks with preview-only alignment suggestions, stable JSON, and secret-free evidence. No production package dependencies; never modifies the inspected target.</Description>
+  </PropertyGroup>
+
+</Project>

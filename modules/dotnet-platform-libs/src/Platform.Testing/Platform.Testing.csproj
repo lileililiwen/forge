@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Reusable testing helpers for platform consumers. Production projects must not reference this package.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.AspNetCore\Platform.AspNetCore.csproj" />
+    <ProjectReference Include="..\Platform.Billing.Contracts\Platform.Billing.Contracts.csproj" />
+    <ProjectReference Include="..\Platform.Eventing\Platform.Eventing.csproj" />
+  </ItemGroup>
+
+</Project>

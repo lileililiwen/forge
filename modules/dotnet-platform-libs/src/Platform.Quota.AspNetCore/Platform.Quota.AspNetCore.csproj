@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional ASP.NET Core quota enforcement adapter over Platform.Quota contracts. Depends on the Microsoft.AspNetCore.App framework reference and Platform.Quota only; no plans, prices, entitlements, units, persistence, or quota limits are embedded.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.Quota\Platform.Quota.csproj" />
+  </ItemGroup>
+
+</Project>

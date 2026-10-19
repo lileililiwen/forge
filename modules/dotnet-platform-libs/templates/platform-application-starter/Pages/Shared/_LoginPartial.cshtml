@@ -1,0 +1,18 @@
+@using Microsoft.AspNetCore.Http
+@inject IHttpContextAccessor HttpContextAccessor
+@{
+    var user = HttpContextAccessor.HttpContext?.User;
+    var isAuthenticated = user?.Identity?.IsAuthenticated ?? false;
+}
+@if (isAuthenticated)
+{
+    <form method="post" action="/Identity/Account/Logout" class="muted">
+        @Html.AntiForgeryToken()
+        <span>Signed in as <strong>@user!.Identity!.Name</strong>.</span>
+        <button type="submit" style="background:none;color:#0071e3;border:0;padding:0;cursor:pointer;">Sign out</button>
+    </form>
+}
+else
+{
+    <span class="muted">Not signed in. <a href="/Identity/Account/Login">Sign in</a></span>
+}

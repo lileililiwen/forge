@@ -1,0 +1,7 @@
+{
+  "contract": "platform.tenancy.operation/v1",
+  "operationId": "op-001",
+  "workflow": "provision",
+  "state": "succeeded",
+  "tenantId": "tenant-a"
+}

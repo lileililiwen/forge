@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "kitVersion": "0.2.0",
+  "generatedBy": "ui/scripts/pack-ui.mjs",
+  "deterministic": "members sorted by path; mtime 0; uid/gid 0; empty uname/gname; mode 0644; gzip level 9",
+  "packages": [
+    {
+      "name": "@platform/design-tokens",
+      "version": "0.2.0",
+      "file": "platform-design-tokens-0.2.0.tgz",
+      "sha256": "e48284cbc105cd6ded61b2d6320cc38d109a5f0306d565e4f9c1b07dd91cbc8c",
+      "members": [
+        "package/dist/tailwind/preset.js",
+        "package/dist/tailwind/theme.css",
+        "package/dist/tokens.css",
+        "package/dist/tokens.ts",
+        "package/package.json"
+      ]
+    },
+    {
+      "name": "@platform/react-ui",
+      "version": "0.2.0",
+      "file": "platform-react-ui-0.2.0.tgz",
+      "sha256": "cfa76744ae7b0e57b187f5d405566ea7256ba5b84a84599eccccafab246097cf",
+      "members": [
+        "package/package.json",
+        "package/src/components.tsx",
+        "package/src/index.ts",
+        "package/styles.css"
+      ]
+    },
+    {
+      "name": "@platform/react-shell",
+      "version": "0.2.0",
+      "file": "platform-react-shell-0.2.0.tgz",
+      "sha256": "be0666206873a5ce62dee020bfae78298563aecf85ce84f99839c2b6ebaafd6e",
+      "members": [
+        "package/package.json",
+        "package/src/index.ts",
+        "package/src/shell.tsx"
+      ]
+    },
+    {
+      "name": "@platform/react-auth",
+      "version": "0.2.0",
+      "file": "platform-react-auth-0.2.0.tgz",
+      "sha256": "0f1bfd63dacd27385d09974dd7dab5df2fac6881eeeaac95d34c3e48da8d0732",
+      "members": [
+        "package/package.json",
+        "package/src/auth-forms.tsx",
+        "package/src/branding.ts",
+        "package/src/index.ts",
+        "package/src/theme.tsx",
+        "package/styles.css"
+      ]
+    },
+    {
+      "name": "@platform/react-templates",
+      "version": "0.2.0",
+      "file": "platform-react-templates-0.2.0.tgz",
+      "sha256": "86b9e8888cc3ee993a3ed0205ef4d66336efd7abda0ae1fe04f0cab9d785a8d0",
+      "members": [
+        "package/package.json",
+        "package/src/index.ts",
+        "package/src/layouts.tsx",
+        "package/src/theme.tsx",
+        "package/styles.css"
+      ]
+    }
+  ]
+}

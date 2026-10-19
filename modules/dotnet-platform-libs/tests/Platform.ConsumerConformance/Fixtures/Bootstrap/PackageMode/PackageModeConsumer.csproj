@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap conformance fixture: package mode.
+
+    A net10.0 consumer that opts into the platform bootstrap with
+    PlatformAsSource unset. The bootstrap must inject a PackageReference
+    to Platform.Core at the pinned version and apply the consumer defaults.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.Bootstrap.PackageMode</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.Bootstrap.PackageMode</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <PlatformConsumerBootstrap>true</PlatformConsumerBootstrap>
+    <PlatformPackageVersion>0.1.0</PlatformPackageVersion>
+    <Nullable></Nullable>
+    <LangVersion></LangVersion>
+    <AnalysisLevel></AnalysisLevel>
+    <TreatWarningsAsErrors></TreatWarningsAsErrors>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BootstrapFixtureSource.cs" Link="BootstrapFixtureSource.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

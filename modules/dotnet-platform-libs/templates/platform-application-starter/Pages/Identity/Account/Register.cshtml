@@ -1,0 +1,31 @@
+@page
+@model StarterApp.Pages.Identity.Account.RegisterModel
+@{
+    ViewData["Title"] = "Create account";
+}
+<h1>Create account</h1>
+@if (!string.IsNullOrEmpty(Model.Message))
+{
+    <div class="alert" role="status">@Model.Message</div>
+}
+@if (Model.IsRegistrationEnabled)
+{
+    <p class="muted">Enter an email address and a password to create an account on this site.</p>
+    <form method="post" asp-page="/Identity/Account/Register">
+        @Html.AntiForgeryToken()
+        <label asp-for="Input.Email">Email</label>
+        <input asp-for="Input.Email" type="email" autocomplete="username" required />
+        <label asp-for="Input.Password">Password</label>
+        <input asp-for="Input.Password" type="password" autocomplete="new-password" required />
+        <label asp-for="Input.ConfirmPassword">Confirm password</label>
+        <input asp-for="Input.ConfirmPassword" type="password" autocomplete="new-password" required />
+        <div class="actions">
+            <button type="submit">Create account</button>
+            <a class="muted" href="/Identity/Account/Login">Back to sign in</a>
+        </div>
+    </form>
+}
+else
+{
+    <p class="muted">This site does not accept public registrations. Ask the site owner for an account.</p>
+}

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional API versioning and API Explorer conventions for ASP.NET Core. Application opt-in; unversioned endpoints are unchanged. Depends on the centrally managed Asp.Versioning.Http and Asp.Versioning.Mvc.ApiExplorer packages. Must not reference EF Core, application projects, or non-platform adapters.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Asp.Versioning.Http" />
+    <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" />
+  </ItemGroup>
+</Project>

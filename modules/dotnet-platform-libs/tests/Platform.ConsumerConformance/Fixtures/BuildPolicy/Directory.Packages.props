@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    Package-management file for the build-policy conformance fixtures.
+
+    It exists for one reason: to stop MSBuild auto-importing the repository's
+    own Directory.Packages.props, which enables central package management and
+    would reject the fixtures' inline exact Version attribute with NU1008. The
+    bootstrap fixtures under Fixtures/Bootstrap/ do the same thing.
+
+    Platform.Build is deliberately NOT declared here. A central version
+    declaration would hide whether the exact inline version is the thing that
+    actually pins the package.
+
+    CentralPackageTransitivePinningEnabled is deliberately not set here. It is
+    one of the properties the policy package owns, and any value written here
+    would satisfy the package's == '' guard and quietly suppress the very
+    assertion these fixtures exist to make.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+</Project>

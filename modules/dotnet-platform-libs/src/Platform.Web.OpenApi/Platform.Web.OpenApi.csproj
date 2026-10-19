@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional OpenAPI document registry and explicit mapping helper. The platform does not own a specific OpenAPI implementation; applications supply the document JSON through a provider. Must not reference Swashbuckle, NSwag, EF Core, or application projects.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.Web.Telemetry\Platform.Web.Telemetry.csproj" />
+  </ItemGroup>
+</Project>

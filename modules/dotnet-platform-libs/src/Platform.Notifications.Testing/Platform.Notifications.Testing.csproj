@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Deterministic notification and SMS fakes.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Notifications/Platform.Notifications.csproj" /></ItemGroup>
+</Project>

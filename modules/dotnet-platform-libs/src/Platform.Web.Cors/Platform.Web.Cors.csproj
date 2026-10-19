@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional CORS configuration and production validation built on ASP.NET Core. Must not reference EF Core, third-party CORS providers, or application projects.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+    <ProjectReference Include="..\Platform.Web.Telemetry\Platform.Web.Telemetry.csproj" />
+  </ItemGroup>
+</Project>

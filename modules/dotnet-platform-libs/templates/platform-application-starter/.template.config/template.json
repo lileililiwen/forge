@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Platform Team",
+  "classifications": ["Web", "Platform"],
+  "identity": "Platform.ApplicationStarter",
+  "name": "Platform application starter",
+  "shortName": "platform-app",
+  "sourceName": "StarterApp",
+  "preferNameDirectory": true,
+  "symbols": {
+    "IncludeTests": {
+      "type": "parameter",
+      "dataType": "bool",
+      "defaultValue": "true",
+      "displayName": "Include test project",
+      "description": "When true, an xUnit test project with HTTP smoke tests is generated. When false, the tests/ tree is omitted."
+    },
+    "EnableIdentity": {
+      "type": "parameter",
+      "dataType": "bool",
+      "defaultValue": "false",
+      "displayName": "Enable identity capability",
+      "description": "When true, the generated host enables the platform identity lifecycle capability with missing-provider fallbacks. Application-owned stores stay application-owned."
+    },
+    "EnablePersistence": {
+      "type": "parameter",
+      "dataType": "bool",
+      "defaultValue": "false",
+      "displayName": "Enable persistence capability",
+      "description": "When true, the generated host references Platform.Persistence.EfCore plus an application-owned SQLite provider, ships an application-owned AppDbContext, and registers the platform audit/soft-delete interceptor. Providers, migrations, and seed data stay application-owned."
+    },
+    "EnableSiteUsers": {
+      "type": "parameter",
+      "dataType": "bool",
+      "defaultValue": "false",
+      "displayName": "Enable site user authentication",
+      "description": "When true, the generated host adds application-owned ASP.NET Core Identity users, cookie authentication, login/logout/recovery Razor pages, a deny-by-default permission catalog, an opt-in self-registration toggle, and a Development-only bootstrap-owner command. When false, no Identity dependencies, routes, or schema are emitted. Independent of EnableIdentity (lifecycle) and EnableAdmin (manager capability)."
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(!IncludeTests)",
+          "exclude": ["tests/**"]
+        },
+        {
+          "condition": "(!EnablePersistence)",
+          "exclude": ["Data/**"]
+        },
+        {
+          "condition": "(!EnableSiteUsers)",
+          "exclude": ["SiteUsers/**", "Pages/Identity/**", "Pages/Shared/**", "tools/BootstrapOwner/**", "tests/**/SiteUserAuthTests.cs"]
+        }
+      ]
+    }
+  ],
+  "SpecialCustomOperations": {
+    "**/*.cs": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": ["//#if"],
+            "else": ["//#else"],
+            "endif": ["//#endif"],
+            "trim": true,
+            "wholeLine": true
+          }
+        }
+      ]
+    },
+    "**/*.cshtml": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": ["@*#if"],
+            "else": ["@*#else"],
+            "endif": ["@*#endif"],
+            "trim": true,
+            "wholeLine": true
+          }
+        }
+      ]
+    },
+    "**/*.csproj": {
+      "operations": [
+        {
+          "type": "conditional",
+          "configuration": {
+            "if": ["<!--#if"],
+            "else": ["<!--#else"],
+            "endif": ["<!--#endif"],
+            "trim": true,
+            "wholeLine": true
+          }
+        }
+      ]
+    }
+  }
+}

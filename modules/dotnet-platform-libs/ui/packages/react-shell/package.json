@@ -1,0 +1,7 @@
+{
+  "name": "@platform/react-shell",
+  "version": "0.2.0",
+  "type": "module",
+  "peerDependencies": { "react": ">=18" },
+  "dependencies": { "@platform/react-ui": "0.2.0", "@platform/design-tokens": "0.2.0" }
+}

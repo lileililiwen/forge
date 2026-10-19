@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Platform.Build: shared MSBuild policy as a packed, versioned artifact.
+
+    Build-only package. It ships buildTransitive/Platform.Build.props and no
+    runtime assembly, so a consumer opts in with one pinned
+    PackageReference and receives the platform's warnings, code-style,
+    determinism, central-pinning and CI policy without importing a file by
+    path or copying a Directory.Build.props.
+
+    The package asserts policy, never project identity: it deliberately does
+    not set TargetFramework, RootNamespace, or the five properties that
+    build/Platform.Consumer.props already owns. See Platform.Build.props and
+    openspec/changes/platform-build-policy-package/design.md section 3.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.Build</RootNamespace>
+    <PackageId>Platform.Build</PackageId>
+    <Title>Platform shared MSBuild policy</Title>
+    <Description>Build-only package carrying the platform's shared MSBuild policy in buildTransitive/Platform.Build.props. Reference it at an exact version to receive the policy with no per-repository copy and no import-by-path.</Description>
+    <PackageTags>platform;build;msbuild;policy</PackageTags>
+
+    <!-- Build-only: no assembly reaches the feed. No NU5128 suppression is
+         needed here - verified by packing this project with and without it and
+         getting zero diagnostics both times. The content-only template pack
+         does need one; this package does not, because it has no build output
+         folder for NU5128 to complain about. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+
+    <!-- The repository's Directory.Build.props declares
+         PackageReadmeFile=README.md and packs README.md at the package root.
+         A build-only package has no readme of its own, so both are cleared: a
+         declared readme that is not packed fails the pack outright, and
+         packing the platform README would document a different package. The
+         pack then emits the same uncoded "package has no readme" notice the
+         content-only template pack emits, which is informational, not a
+         diagnostic, and does not trip TreatWarningsAsErrors. -->
+    <PackageReadmeFile></PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="$(MSBuildProjectDirectory)/../../README.md" />
+
+    <!--
+      The one item this package exists to ship, and the only reason the source
+      props file sits at the project root rather than in a buildTransitive/
+      sub-folder: NuGet resolves a packed item's target path as PackagePath
+      plus the item's %(RecursiveDir)%(Filename)%(Extension). A sub-folder
+      source with PackagePath="buildTransitive/" therefore packs as
+      buildTransitive/buildTransitive/Platform.Build.props, which fails the
+      pack with NU5129 while leaving no .nupkg behind. A root-level source
+      lands at exactly buildTransitive/Platform.Build.props, which is the
+      path NuGet imports and the one BuildPolicyConformanceTests asserts is
+      present in the archive.
+    -->
+    <None Update="Platform.Build.props" Pack="true" PackagePath="buildTransitive/" />
+  </ItemGroup>
+
+</Project>

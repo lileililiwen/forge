@@ -1,0 +1,57 @@
+name: platform-dotnet-quality
+
+on:
+  pull_request:
+    paths:
+      - 'modules/dotnet-platform-libs/**'
+      - 'modules/workspace-governance/projects.json'
+      - 'modules/workspace-governance/migration/forge-monorepo-path-reconciliation.json'
+      - 'modules/workspace-governance/scripts/ui_conformance.py'
+      - 'modules/workspace-governance/tests/test_ui_conformance.py'
+      - 'modules/workspace-governance/tests/test_platform_module_paths.py'
+      - '.github/workflows/platform-dotnet-quality.yml'
+      - '.github/workflows/platform-dotnet-release.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'modules/dotnet-platform-libs/**'
+      - 'modules/workspace-governance/projects.json'
+      - 'modules/workspace-governance/migration/forge-monorepo-path-reconciliation.json'
+      - 'modules/workspace-governance/scripts/ui_conformance.py'
+      - 'modules/workspace-governance/tests/test_ui_conformance.py'
+      - 'modules/workspace-governance/tests/test_platform_module_paths.py'
+      - '.github/workflows/platform-dotnet-quality.yml'
+      - '.github/workflows/platform-dotnet-release.yml'
+
+permissions:
+  contents: read
+
+env:
+  NUGET_SOURCE: https://repo.huaweicloud.com/repository/nuget/v3/index.json
+
+defaults:
+  run:
+    working-directory: modules/dotnet-platform-libs
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.400
+      - name: Run quality gate
+        env:
+          CI: true
+        run: ./scripts/quality-gate.sh
+      - name: Check public API baseline
+        run: ./scripts/check-public-api.sh
+      - name: Pack and consume artifacts
+        run: ./scripts/conformance.sh
+      - name: Audit dependencies
+        run: ./scripts/audit-packages.sh
+      - name: Verify in-tree platform module registry and UI token paths
+        working-directory: modules/workspace-governance
+        run: python3 -m unittest discover -s tests -p 'test_platform_module_paths.py' -v

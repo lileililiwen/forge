@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional application-owned EF Core migration execution boundary: pending inspection, apply, optional seed and exclusive-execution callbacks, and secret-free failure results. Depends on Platform.Persistence.EfCore and provider-neutral EF Core only. No provider packages, locks, tenant iteration, or seed data.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Persistence.EfCore\Platform.Persistence.EfCore.csproj" />
+  </ItemGroup>
+
+</Project>

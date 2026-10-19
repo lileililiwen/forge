@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><Description>Provider-neutral privacy vocabulary: consent records and policy evaluation, subject-rights contracts, anonymization helpers.</Description></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Platform.Core/Platform.Core.csproj" /><PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" /></ItemGroup>
+</Project>

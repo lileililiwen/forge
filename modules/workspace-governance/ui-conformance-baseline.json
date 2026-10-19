@@ -427,7 +427,7 @@
       "counts": {}
     },
     {
-      "project": "dotnet-platform-libs",
+      "project": "forge/modules/dotnet-platform-libs",
       "role": "provider",
       "ui_files": 30,
       "scope_ceiling": 400,

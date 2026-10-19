@@ -1,0 +1,8 @@
+{
+  "contract": "platform.identity.subject/v1",
+  "subjectId": "user-001",
+  "email": "user-001@example.com",
+  "tenantId": "tenant-a",
+  "roles": ["reader"],
+  "permissions": ["documents:read"]
+}

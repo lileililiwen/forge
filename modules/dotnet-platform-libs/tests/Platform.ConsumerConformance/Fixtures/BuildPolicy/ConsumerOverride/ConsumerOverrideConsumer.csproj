@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build policy conformance fixture: the consumer's own value wins.
+
+    A net10.0 consumer that adds the pinned Platform.Build reference and then
+    sets the properties the package would otherwise assert, in its own project
+    body. Two things are proven at once:
+
+      * the package does not override a value the consumer set, because every
+        assertion in the package's props is == '' guarded; and
+      * the package's buildTransitive props are imported BEFORE the project
+        body, because a guard that only ever skips an already-set property can
+        never win a later write. The resolved values below therefore also
+        establish the import order empirically, which design section 3
+        previously only inherited from measurement.
+
+    Each value differs from the package's so an accidental "the package won"
+    result cannot be mistaken for a pass.
+  -->
+
+  <PropertyGroup>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.BuildPolicy.ConsumerOverride</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.BuildPolicy.ConsumerOverride</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <Deterministic>false</Deterministic>
+    <ContinuousIntegrationBuild>consumer-set</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BuildPolicyFixtureSource.cs" Link="BuildPolicyFixtureSource.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Platform.Build" Version="0.1.0" />
+  </ItemGroup>
+
+</Project>

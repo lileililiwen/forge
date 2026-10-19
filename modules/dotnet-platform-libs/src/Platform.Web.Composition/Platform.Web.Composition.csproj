@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Optional explicit ASP.NET Core module composition: stable module contract, deterministic ordered registration with duplicate rejection, and opt-in middleware/endpoint mapping without assembly scanning or static state. Depends on Platform.Core only. No Mediator, FluentValidation, EF Core, or product references.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Platform.Core\Platform.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+{
+  "contract": "platform.release.gate/v1",
+  "gate": "solution-quality",
+  "status": "passed-ish",
+  "checkedAt": "2026-09-25T00:00:00Z"
+}

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Bootstrap conformance fixture: not opted in.
+
+    A net10.0 consumer that does NOT set PlatformConsumerBootstrap.
+    The bootstrap must be a no-op: no reference, no defaults, no
+    diagnostic. This is the guard that keeps the workspace's
+    default-target projects silent.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Platform.ConsumerConformance.Fixtures.Bootstrap.NotOptedIn</RootNamespace>
+    <AssemblyName>Platform.ConsumerConformance.Fixtures.Bootstrap.NotOptedIn</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <PlatformPackageVersion>0.1.0</PlatformPackageVersion>
+    <Nullable></Nullable>
+    <LangVersion></LangVersion>
+    <AnalysisLevel></AnalysisLevel>
+    <TreatWarningsAsErrors></TreatWarningsAsErrors>
+    <DirectoryPackagesPropsPath>$(MSBuildThisFileDirectory)..\Directory.Packages.props</DirectoryPackagesPropsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\BootstrapFixtureSource.cs" Link="BootstrapFixtureSource.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../../../../build/Platform.Consumer.props" />
+
+</Project>

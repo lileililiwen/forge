@@ -34,3 +34,6 @@ cargo test --workspace --all-targets -- \
   --skip declaration_is_inert_for_native_builds_present_and_absent \
   --test-threads=1 \
   "$@"
+
+python3 scripts/tests/test_dotnet_platform_libraries_import.py
+python3 scripts/check-dotnet-platform-libs-import.py

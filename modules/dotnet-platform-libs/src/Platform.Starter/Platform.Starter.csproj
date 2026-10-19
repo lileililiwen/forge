@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Composable application bootstrap over independently adoptable platform capabilities.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Web/Platform.Web.csproj" />
+    <ProjectReference Include="../Platform.Identity.AspNetCore/Platform.Identity.AspNetCore.csproj" />
+    <ProjectReference Include="../Platform.Admin.AspNetCore/Platform.Admin.AspNetCore.csproj" />
+    <ProjectReference Include="../Platform.Billing/Platform.Billing.csproj" />
+    <ProjectReference Include="../Platform.Mailing/Platform.Mailing.csproj" />
+  </ItemGroup>
+</Project>

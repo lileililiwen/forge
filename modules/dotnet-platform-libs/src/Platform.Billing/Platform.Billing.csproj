@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Provider-neutral billing orchestration contracts and workflows.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform.Billing.Contracts/Platform.Billing.Contracts.csproj" />
+    <ProjectReference Include="../Platform.Core/Platform.Core.csproj" />
+  </ItemGroup>
+</Project>

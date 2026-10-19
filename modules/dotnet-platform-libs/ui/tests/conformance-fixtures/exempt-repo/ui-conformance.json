@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "state": "exempt",
+  "reason": "Fixture: an application whose UI is scheduled for migration in its own change; the shared layer is not adopted yet.",
+  "owner": "fixture-owner",
+  "reviewBy": "2026-12-31"
+}

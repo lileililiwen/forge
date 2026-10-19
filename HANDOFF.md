@@ -2,6 +2,28 @@
 
 ## Latest delivery
 
+### `forge-web-module-workflow` implemented and archived (2026-10-19)
+
+Forge now shares validated discovery for its own declared source modules
+between the CLI and admin API. The authenticated Modules portal lists each
+module's latest Gate evidence and can run its Fast or Full profile through the
+existing Gate engine. Module execution is guarded per module, journaled in the
+Forge Registry, and returns relative paths only. The CLI remains a facade over
+the same catalog.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Module API, catalog and frontend contracts | PASS | `forge_web_module_workflow_contract` (3), `module_catalog_contract` (3), `forge_web_command_catalog_contract` (9), and `forge_web_navigation_contract` (9) passed. |
+| Browser flows | PASS | Chromium portal flow verified unavailable/empty/populated inventory, authenticated module selection, Fast Gate PASS/FAIL, running state, recoverable errors, keyboard operation, visible focus and 360px reflow. Workspace onboarding browser flow passes with the Modules route. |
+| Workspace tests | PASS | `scripts/check-tests.sh` completed successfully, including Rust workspace tests, Chromium journeys, Python checks and both platform import verifiers. |
+| Formatting and whitespace | PASS for changed files | Changed Rust files passed `rustfmt --check`; frontend and browser scripts passed `node --check`; `git diff --check` passed. `cargo fmt --all -- --check` still reports formatting drift in untouched files. |
+| OpenSpec | PASS for this change | Change archived without `--skip-specs` at `openspec/changes/archive/2026-10-19-forge-web-module-workflow/`; promoted canonical spec passes strict validation. Repository-wide validation remains 116/124 because eight existing specs fail SHALL/MUST wording: `fleet-manage-deep-link`, `origin-repository-retirement`, `portal-web-ui`, `readiness`, `remove-api-ui`, `web-agent-identity-readonly`, `web-creation-catalog-browser`, and `web-project-catalog-browser`. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. Full Gate passed all eight at `2026-10-19T11:36:21Z`; source-size evaluated 433/433 files under the 1,000-line limit. Evidence is in `.forge/gate/forge/evidence.json`. |
+
+Implementation/archive commit: `303310c` (`feat: add Forge modules portal workflow`).
+This HANDOFF-only commit records completion. No active OpenSpec change
+remains, so there is no `current_spec` pointer. Nothing was pushed.
+
 ### `forge-origin-repository-retirement` implemented and archived (2026-10-19)
 
 Forge now owns the consolidated developer tooling and the active consumer

@@ -2,6 +2,38 @@
 
 ## Latest delivery
 
+### `forge-rust-platform-libraries-monorepo` implemented and archived (2026-10-19)
+
+Imported the committed Rust platform libraries source at
+`4762746e35b3886b21e2c87bf602aed14bc9dea8` as ordinary files under
+`modules/rust-platform-libs/`, retaining all 30 source commits as the
+implementation commit's second parent. The nested eight-crate Cargo workspace,
+toolchain and package identities remain independently runnable. Forge now
+owns the root quality and owner-gated publication workflows, Governance
+registration, import verification, and default parity against its own
+contracts. Contract checks cover the five registry-backed families, the
+standalone public portfolio schema, and four explicitly unsupported families;
+the legacy nine-family `PLATFORM_CONTRACTS_DIR` override still passes. No
+crate was published and no source checkout or consumer project was changed.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Rust workspace | PASS | From `modules/rust-platform-libs/`: pinned Rust 1.95.0 `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check`, `cargo build --workspace`, `cargo test --workspace`, and `scripts/conformance.sh` with a writable scratch path. Dependency policy emits existing duplicate-version and unused-license-allowance warnings. |
+| Contract compatibility | PASS | `cargo test --workspace` against Forge `contracts/`; repeated full workspace suite with `PLATFORM_CONTRACTS_DIR=/home/paul/code/platform-contracts` against the legacy nine-family layout. |
+| Provenance and Governance | PASS | Rust import tests 10/10; import verifier confirms 161 source files and 30 source commits; Governance path tests 5/5 and `workspace_check.py --self-check` reports 0 errors / 0 warnings. No `.gitmodules`, source lockfile, or build output is tracked in the import. |
+| Workflow and publisher guards | PASS | Both root workflow YAML files parse; quality workflow stays read-only; simulated refusal checks cover missing approval marker/token, malformed tag and version mismatch, plus the explicit dispatch confirmation condition. |
+| OpenSpec and whitespace | PASS | Name preflight; strict validation 121/121 after archive; canonical `rust-platform-libs-monorepo` requirement promoted; `git diff --check` and staged checks pass. |
+| Gate dry-run and full Forge Gate | PASS | Root and module dry-runs resolve all eight required checks with none unbound. Full root Gate passed all eight at HEAD `db2e079716b2`, observed `2026-10-19T03:34:18Z`; source-size evaluated 430/430 candidates under 1,000 lines. Existing `paste` and `unsafe-libyaml` advisories remain informational. |
+
+Archived at
+`openspec/changes/archive/2026-10-19-forge-rust-platform-libraries-monorepo/`.
+Implementation/archive merge commit: `cb4a295` (`feat: import Rust platform
+libraries module`); parents are Forge `db2e079` and Rust source
+`4762746e35b3886b21e2c87bf602aed14bc9dea8`. Roadmap order 12 is complete.
+No active OpenSpec change remains. Next is roadmap order 13,
+`forge-developer-workflow-facade`; its package must be authored before
+implementation. Nothing was pushed.
+
 ### `forge-dotnet-platform-libraries-monorepo` implemented and archived (2026-10-19)
 
 Imported the committed .NET platform libraries source at `d11fd9b` as ordinary

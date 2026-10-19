@@ -1,0 +1,61 @@
+# Rust platform workspace cargo-deny configuration.
+#
+# A consumer adopting the platform copies this file verbatim. The
+# rules below are the platform's dependency-policy baseline:
+#
+#   * License: the workspace and its transitive dependencies MUST
+#     resolve to one of the allowlisted permissive licenses. The list
+#     below is intentionally broad to cover the standard transitive
+#     graph of serde, time, uuid, jsonschema, toml, and once_cell.
+#   * Advisories: the RustSec advisory database is consulted and a
+#     known-vulnerable crate fails the check.
+#   * Bans: duplicate semver versions warn, wildcard versions are
+#     denied, and the sources check trusts only crates.io.
+#   * The provider-neutral boundary (no Axum/SQLx/provider crates in
+#     foundation crates) is enforced by `platform-arch-tests`, not by
+#     cargo-deny; deny.toml only covers licenses, advisories, bans,
+#     and sources.
+
+[graph]
+all-features = false
+
+[advisories]
+db-path = "~/.cargo/advisory-dbs"
+db-urls = ["https://github.com/RustSec/advisory-db"]
+yanked = "warn"
+ignore = []
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "CC0-1.0",
+    "ISC",
+    "MPL-2.0",
+    "LGPL-2.1-or-later",
+    "0BSD",
+]
+confidence-threshold = 0.8
+unused-allowed-license = "warn"
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

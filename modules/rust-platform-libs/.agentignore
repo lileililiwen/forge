@@ -1,0 +1,7 @@
+/target/
+.cargo/
+.codegraph/
+.zvec-grep/
+.git/
+.idea/
+.vscode/

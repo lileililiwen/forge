@@ -1,0 +1,28 @@
+[package]
+name = "platform-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Foundation primitives: bounded strings, opaque IDs, clocks, correlation IDs, redaction, and safe errors."
+documentation = "https://docs.rs/platform-core"
+keywords = ["platform", "rust", "core", "primitives", "id-type"]
+categories = ["data-structures"]
+# `exclude` is intentionally a per-crate field: the workspace root
+# paths below do not exist inside this crate today, but the explicit
+# list documents intent and protects against accidental future
+# inclusions.
+exclude = ["/.github", "/openspec", "/tests/**/fixtures", "docs/**", ".project.json"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

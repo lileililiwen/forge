@@ -1,0 +1,164 @@
+name: platform-rust-publish
+
+on:
+  push:
+    tags:
+      - 'rust-platform-libs-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact workspace SemVer version to publish
+        required: true
+        type: string
+      confirm_owner_approval:
+        description: Type "approve" after confirming the owner release preconditions
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-platform-crates
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: modules/rust-platform-libs
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require dispatch confirmation
+        if: github.event_name == 'workflow_dispatch' && inputs.confirm_owner_approval != 'approve'
+        run: |
+          echo "::error::Type approve in confirm_owner_approval after verifying the release preconditions."
+          exit 1
+      - name: Verify module toolchain
+        run: test "$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)" = '1.95.0'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: modules/rust-platform-libs -> target
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Refuse without PUBLICATION-APPROVED marker
+        run: |
+          if [ ! -f PUBLICATION-APPROVED ]; then
+            echo "::error::PUBLICATION-APPROVED is missing. Crates.io release remains blocked on owner approval."
+            exit 1
+          fi
+      - name: Refuse without CARGO_REGISTRY_TOKEN
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not configured."
+            exit 1
+          fi
+      - name: Resolve and validate release version
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            VERSION="${GITHUB_REF#refs/tags/rust-platform-libs-v}"
+          else
+            VERSION="$DISPATCH_VERSION"
+          fi
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release version must be plain SemVer (X.Y.Z); got '$VERSION'."
+            exit 1
+          fi
+          WORKSPACE_VERSION="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
+          if [ "$VERSION" != "$WORKSPACE_VERSION" ]; then
+            echo "::error::Requested version $VERSION does not match workspace version $WORKSPACE_VERSION."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Validated rust-platform-libs v$VERSION."
+      - name: Read publish order
+        id: order
+        run: |
+          if [ ! -f .publish-order ]; then
+            echo "::error::.publish-order is missing from the module root."
+            exit 1
+          fi
+          ORDER="$(grep -v '^\s*#' .publish-order | grep -v '^\s*$' | tr '\n' ' ' | sed 's/ $//')"
+          if [ -z "$ORDER" ]; then
+            echo "::error::.publish-order is empty."
+            exit 1
+          fi
+          echo "order=$ORDER" >> "$GITHUB_OUTPUT"
+      - name: Run Rust release verification
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo deny check
+          cargo build --workspace
+          cargo test --workspace
+          ./scripts/conformance.sh
+      - name: Verify crates.io names are available
+        env:
+          CRATE_NAMES: ${{ steps.order.outputs.order }}
+        run: |
+          for crate in $CRATE_NAMES; do
+            STATUS="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/$crate")"
+            if [ "$STATUS" != "404" ]; then
+              echo "::error::crates.io name preflight for $crate returned HTTP $STATUS (expected 404)."
+              exit 1
+            fi
+          done
+      - name: Publish crates in topological order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CRATE_NAMES: ${{ steps.order.outputs.order }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for crate in $CRATE_NAMES; do
+            echo "::group::Publish $crate v$VERSION"
+            EXISTING="$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://crates.io/api/v1/crates/$crate/$VERSION")"
+            if [ "$EXISTING" = "200" ]; then
+              echo "::notice::$crate v$VERSION already exists; skipping for safe rerun."
+              echo "::endgroup::"
+              continue
+            fi
+            if [ "$EXISTING" != "404" ]; then
+              echo "::error::$crate v$VERSION preflight returned HTTP $EXISTING."
+              exit 1
+            fi
+            cargo publish -p "$crate"
+            propagated=0
+            for i in $(seq 1 30); do
+              sleep 30
+              CODE="$(curl -s -o /dev/null -w '%{http_code}' \
+                "https://crates.io/api/v1/crates/$crate/$VERSION")"
+              if [ "$CODE" = "200" ]; then
+                echo "::notice::$crate v$VERSION propagated after $((i * 30))s."
+                propagated=1
+                break
+              fi
+              echo "Propagation attempt $i/30: HTTP $CODE"
+            done
+            if [ "$propagated" -ne 1 ]; then
+              echo "::error::$crate v$VERSION did not propagate within 15 minutes."
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+          echo "::notice::All crates are published and propagated at v$VERSION."

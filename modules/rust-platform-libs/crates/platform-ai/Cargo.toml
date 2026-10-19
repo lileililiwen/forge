@@ -1,0 +1,48 @@
+[package]
+name = "platform-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Provider-neutral AI capability contract: chat, structured, embedding, and stream types, plus opt-in OpenAI-compatible and ollama adapters and a deterministic in-crate mock."
+documentation = "https://docs.rs/platform-ai"
+keywords = ["platform", "rust", "ai", "llm", "openai", "ollama", "embeddings"]
+categories = ["api-bindings", "asynchronous"]
+exclude = ["/.github", "/openspec", "/tests/**/fixtures", "docs/**", ".project.json"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# In-crate deterministic mock for consumer tests. Mirrors platform-mailing
+# `mock` so production crates can script provider outcomes without
+# depending on the test-only `platform-testing` crate.
+mock = []
+# OpenAI-compatible HTTP adapter. Covers OpenAI, DeepSeek, Zhipu, and any
+# vendor that exposes the OpenAI `/v1/chat/completions` and
+# `/v1/embeddings` wire shapes, configurable via `base_url` and path
+# overrides. Streaming, tool calls, and JSON-schema structured output
+# are supported.
+openai-compat = ["dep:reqwest", "dep:tokio"]
+# Native ollama adapter (`/api/chat` NDJSON, `/api/embed`). Defaults to
+# the loopback endpoint and carries no credential material.
+ollama = ["dep:reqwest", "dep:tokio"]
+
+[dependencies]
+platform-core = { path = "../platform-core", version = "0.1.0" }
+async-trait = { workspace = true }
+async-stream = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+futures = { workspace = true }
+wiremock = "0.6"
+toml = { workspace = true }

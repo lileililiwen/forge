@@ -1,0 +1,14 @@
+# Rust platform workspace toolchain pin.
+#
+# A consumer adopting the platform copies this file verbatim. The
+# pinned channel is the lowest installed stable toolchain that builds
+# the workspace today (`time 0.3.55` requires rustc >= 1.88, so the
+# effective floor is 1.88 even though the declared MSRV below is lower).
+# Cargo, rustup, and `rust-toolchain.toml`-aware CI all use this
+# channel automatically; a consumer on an older compiler gets the
+# rustup toolchain-not-found message and, when the pin is removed, a
+# "package requires rustc 1.75 or newer" error from `cargo build`.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

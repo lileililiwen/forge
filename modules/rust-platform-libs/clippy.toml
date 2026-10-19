@@ -1,0 +1,9 @@
+# Rust platform workspace clippy configuration.
+#
+# A consumer adopting the platform copies this file verbatim. The
+# `msrv` setting tells clippy which language features to assume are
+# available; it MUST match `[workspace.package].rust-version` in the
+# root `Cargo.toml` so clippy lints never suggest a feature newer than
+# the declared minimum supported Rust version.
+msrv = "1.75"
+avoid-breaking-exported-api = false

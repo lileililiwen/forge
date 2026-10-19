@@ -1,0 +1,26 @@
+[package]
+name = "consumer-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+# Local conformance fixture; not published to crates.io. The
+# registry-publication change keeps this override so the consumer
+# stays a workspace-internal tool even though the workspace default
+# is now `publish = true`. The path dependencies on `../../crates/*`
+# are intentional (the fixture exercises the verbatim path-dependency
+# adoption recipe from `docs/consumer-baseline.md`).
+publish = false
+description = "Conformance fixture: a minimal in-workspace consumer of the platform crates, exercised by scripts/conformance.sh."
+
+[lints]
+workspace = true
+
+[dependencies]
+platform-core = { path = "../../crates/platform-core" }
+platform-contracts = { path = "../../crates/platform-contracts" }
+platform-identity = { path = "../../crates/platform-identity" }
+platform-audit = { path = "../../crates/platform-audit" }
+
+[dev-dependencies]
+platform-testing = { path = "../../crates/platform-testing" }

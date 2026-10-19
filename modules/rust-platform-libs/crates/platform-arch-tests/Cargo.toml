@@ -1,0 +1,21 @@
+[package]
+name = "platform-arch-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+# Workspace-internal tooling. The registry-publication change ships
+# `publish = true` at workspace level and explicitly keeps
+# `platform-arch-tests` unpublishable so the dep-direction oracle never
+# appears on crates.io. Any future reversal is a separate OpenSpec
+# change.
+publish = false
+description = "Workspace-level architecture tests: dependency direction and forbidden-dep enforcement."
+
+[lints]
+workspace = true
+
+[dependencies]
+toml = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

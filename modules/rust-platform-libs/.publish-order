@@ -1,0 +1,39 @@
+# Topological publish order for the rust-platform-libs crates.
+#
+# This list is the single source of truth for the order in which
+# `.github/workflows/publish.yml` publishes the workspace's crates to
+# crates.io. The order MUST respect the dependency DAG (a crate may
+# only be published after every `platform-*` dependency of its
+# published form is already on the registry), MUST be deterministic
+# (no parallel publishes; one at a time, so a partial failure leaves
+# a coherent registry state), and MUST exclude `platform-arch-tests`
+# (workspace-internal tooling, `publish = false`).
+#
+# A unit test in `platform-arch-tests` reads this file and asserts the
+# order is consistent with the manifest DAG, so the workflow and the
+# source of truth cannot drift silently.
+#
+# Lines starting with `#` are comments; non-comment, non-blank lines
+# are the ordered crate names.
+
+# 1. Foundation, no platform-* deps.
+platform-core
+
+# 2. Foundation; depends on platform-core.
+platform-contracts
+
+# 3. Foundation; depends on platform-core + platform-contracts.
+platform-identity
+
+# 4. Foundation; depends on platform-core + platform-contracts + platform-identity.
+platform-audit
+
+# 5. Public test-only support crate; depends on the four foundation
+#    crates. Published so consumers can `cargo add --dev platform-testing`.
+platform-testing
+
+# 6. Satellite; depends on platform-core.
+platform-mailing
+
+# 7. Satellite; depends on platform-core.
+platform-ai

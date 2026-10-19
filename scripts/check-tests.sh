@@ -37,3 +37,5 @@ cargo test --workspace --all-targets -- \
 
 python3 scripts/tests/test_dotnet_platform_libraries_import.py
 python3 scripts/check-dotnet-platform-libs-import.py
+python3 scripts/tests/test_rust_platform_libraries_import.py
+python3 scripts/check-rust-platform-libs-import.py

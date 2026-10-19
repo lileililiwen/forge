@@ -1,0 +1,13 @@
+# Rust platform workspace rustfmt configuration.
+#
+# A consumer adopting the platform copies this file verbatim. Every
+# option here is supported on stable rustfmt so `cargo fmt --check`
+# is warning-free on the pinned toolchain. The settings are
+# intentionally minimal: stable rustfmt defaults plus a 100-column
+# line width and Unix newlines so a check on Linux CI matches a check
+# on macOS contributors.
+edition = "2021"
+max_width = 100
+newline_style = "Unix"
+use_small_heuristics = "Default"
+reorder_imports = true

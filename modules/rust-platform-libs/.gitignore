@@ -1,0 +1,24 @@
+# Build output (any level: workspace target plus scratch-consumer targets).
+target/
+# Library workspace: the lockfile is generated locally (platform-arch-tests
+# reads it) and stays untracked.
+Cargo.lock
+.cargo/
+.codegraph/
+.zvec-grep/
+.idea/
+.vscode/
+*.swp
+# rustfmt / editor backups.
+*.rs.bk
+# Merge-conflict artifacts.
+*.orig
+*.rej
+# macOS dev matrices (see mailing design: Linux/macOS).
+.DS_Store
+
+# Driftwatch local runtime state. This directory holds per-machine state
+# (state.db and local caches), never project configuration, so it must
+# never be committed. A root-level driftwatch.toml is different: that is
+# real project config and IS tracked.
+.driftwatch/

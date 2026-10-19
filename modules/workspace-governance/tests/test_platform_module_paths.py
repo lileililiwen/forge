@@ -31,6 +31,17 @@ class PlatformModulePathTests(unittest.TestCase):
         self.assertEqual(entry["to"], "forge/modules/dotnet-platform-libs")
         self.assertEqual(WORKSPACE_ROOT / entry["declaration"], MODULES_ROOT / "dotnet-platform-libs" / ".project.json")
 
+    def test_rust_project_path_resolves_to_the_forge_module(self) -> None:
+        project = next(item for item in self.registry["projects"] if item["id"] == "rust-platform-libs")
+        self.assertEqual(project["path"], "forge/modules/rust-platform-libs")
+        self.assertEqual(WORKSPACE_ROOT / project["path"] / ".project.json", MODULES_ROOT / "rust-platform-libs" / ".project.json")
+
+    def test_rust_import_reconciliation_preserves_project_identity(self) -> None:
+        entry = next(item for item in self.reconciliation["changes"] if item["id"] == "rust-platform-libs")
+        self.assertEqual(entry["from"], "rust-platform-libs")
+        self.assertEqual(entry["to"], "forge/modules/rust-platform-libs")
+        self.assertEqual(WORKSPACE_ROOT / entry["declaration"], MODULES_ROOT / "rust-platform-libs" / ".project.json")
+
     def test_ui_token_sources_are_module_relative(self) -> None:
         ui_root = MODULES_ROOT / "dotnet-platform-libs" / "ui"
         self.assertTrue((ui_root / "tokens" / "tokens.json").is_file())

@@ -4,7 +4,7 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 ## Status
 
-Implemented baseline: the 24 baseline capabilities, five archived audit/foundation follow-ups, ten archived sibling-integration packages (orders 30–39, newest `gate-evidence-export-consumption`) and the later publish, portal, portfolio, catalog and studio packages — including the `portal-browser-sign-in` browser OIDC sign-in and `portal-accessible-responsive-ui` responsive/accessibility portal work — are implemented, archived and promoted to their canonical specs. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 118 archived OpenSpec changes and 94 promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. Native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
+Implemented baseline: the 24 baseline capabilities, five archived audit/foundation follow-ups, ten archived sibling-integration packages (orders 30–39, newest `gate-evidence-export-consumption`) and the later publish, portal, portfolio, catalog and studio packages — including the `portal-browser-sign-in` browser OIDC sign-in and `portal-accessible-responsive-ui` responsive/accessibility portal work — are implemented, archived and promoted to their canonical specs. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 167 archived OpenSpec changes and 121 promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. Native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
 
 ## Consolidated tooling crates
 
@@ -23,6 +23,10 @@ The .NET platform libraries also live as an independently runnable module at
 [`modules/dotnet-platform-libs/`](modules/dotnet-platform-libs/); its CI,
 manual package release boundary, and local verification commands are in the
 [module guide](docs/dotnet-platform-libs-module.md).
+The Rust platform crates also remain an independently runnable module at
+[`modules/rust-platform-libs/`](modules/rust-platform-libs/); their native
+verification and owner-gated crates.io workflow are described in the
+[Rust module guide](docs/rust-platform-libs-module.md).
 Build the whole workspace with `cargo build --workspace` (or
 `cargo check --workspace`).
 

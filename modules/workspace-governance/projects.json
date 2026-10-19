@@ -678,11 +678,11 @@
     },
     {
       "id": "rust-platform-libs",
-      "path": "rust-platform-libs",
+      "path": "forge/modules/rust-platform-libs",
       "profile": "rust-platform",
       "role": "platform",
       "stack": "rust",
-      "lifecycle": "planning",
+      "lifecycle": "active",
       "adoption": "adopted"
     },
     {

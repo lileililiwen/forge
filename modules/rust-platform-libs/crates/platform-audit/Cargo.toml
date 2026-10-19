@@ -1,0 +1,27 @@
+[package]
+name = "platform-audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Normalized audit event types and sink trait."
+documentation = "https://docs.rs/platform-audit"
+keywords = ["platform", "rust", "audit", "logging", "compliance", "redaction"]
+categories = ["logging", "development-tools"]
+exclude = ["/.github", "/openspec", "/tests/**/fixtures", "docs/**", ".project.json"]
+
+[lints]
+workspace = true
+
+[dependencies]
+platform-core = { path = "../platform-core", version = "0.1.0" }
+platform-contracts = { path = "../platform-contracts", version = "0.1.0" }
+platform-identity = { path = "../platform-identity", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

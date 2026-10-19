@@ -1,0 +1,28 @@
+[package]
+name = "platform-testing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Deterministic fakes, builders, and assertions for testing platform code."
+documentation = "https://docs.rs/platform-testing"
+keywords = ["platform", "rust", "testing", "fakes", "test-doubles", "deterministic"]
+categories = ["development-tools::testing"]
+exclude = ["/.github", "/openspec", "/tests/**/fixtures", "docs/**", ".project.json"]
+
+[lints]
+workspace = true
+
+[dependencies]
+platform-core = { path = "../platform-core", version = "0.1.0" }
+platform-contracts = { path = "../platform-contracts", version = "0.1.0" }
+platform-identity = { path = "../platform-identity", version = "0.1.0" }
+platform-audit = { path = "../platform-audit", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

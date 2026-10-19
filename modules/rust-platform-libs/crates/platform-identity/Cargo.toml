@@ -1,0 +1,26 @@
+[package]
+name = "platform-identity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Provider-neutral identity, session, permission, tenant, and lifecycle contracts."
+documentation = "https://docs.rs/platform-identity"
+keywords = ["platform", "rust", "identity", "authentication", "authorization", "permission"]
+categories = ["authentication", "authorization"]
+exclude = ["/.github", "/openspec", "/tests/**/fixtures", "docs/**", ".project.json"]
+
+[lints]
+workspace = true
+
+[dependencies]
+platform-core = { path = "../platform-core", version = "0.1.0" }
+platform-contracts = { path = "../platform-contracts", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

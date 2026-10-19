@@ -1,0 +1,76 @@
+name: platform-rust-quality
+
+on:
+  pull_request:
+    paths:
+      - 'modules/rust-platform-libs/**'
+      - 'modules/workspace-governance/projects.json'
+      - 'modules/workspace-governance/migration/forge-monorepo-path-reconciliation.json'
+      - 'modules/workspace-governance/tests/test_platform_module_paths.py'
+      - 'contracts/**'
+      - 'scripts/check-rust-platform-libs-import.py'
+      - 'scripts/tests/test_rust_platform_libraries_import.py'
+      - '.github/workflows/platform-rust-quality.yml'
+      - '.github/workflows/platform-rust-publish.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'modules/rust-platform-libs/**'
+      - 'modules/workspace-governance/projects.json'
+      - 'modules/workspace-governance/migration/forge-monorepo-path-reconciliation.json'
+      - 'modules/workspace-governance/tests/test_platform_module_paths.py'
+      - 'contracts/**'
+      - 'scripts/check-rust-platform-libs-import.py'
+      - 'scripts/tests/test_rust_platform_libraries_import.py'
+      - '.github/workflows/platform-rust-quality.yml'
+      - '.github/workflows/platform-rust-publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: modules/rust-platform-libs
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify pinned module toolchain
+        run: test "$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)" = '1.95.0'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: modules/rust-platform-libs -> target
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Dependency policy
+        run: cargo deny check
+      - name: Workspace build
+        run: cargo build --workspace
+      - name: Workspace tests against Forge contracts
+        run: cargo test --workspace
+      - name: Consumer conformance
+        run: ./scripts/conformance.sh
+      - name: Verify Rust source import
+        working-directory: .
+        run: python3 scripts/check-rust-platform-libs-import.py
+      - name: Verify Forge Governance paths
+        working-directory: .
+        run: python3 -m unittest modules/workspace-governance/tests/test_platform_module_paths.py

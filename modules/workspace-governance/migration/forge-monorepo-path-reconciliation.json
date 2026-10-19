@@ -33,6 +33,12 @@
       "from": "dotnet-platform-libs",
       "to": "forge/modules/dotnet-platform-libs",
       "declaration": "forge/modules/dotnet-platform-libs/.project.json"
+    },
+    {
+      "id": "rust-platform-libs",
+      "from": "rust-platform-libs",
+      "to": "forge/modules/rust-platform-libs",
+      "declaration": "forge/modules/rust-platform-libs/.project.json"
     }
   ]
 }

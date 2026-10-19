@@ -46,6 +46,12 @@ start with `-`). The product's own exit code is returned unchanged, so scripts
 that already depend on `driftwatchdog`/`cargo-audit-boost`/etc. keep working
 through `forge use`.
 
+For local development runs, use the narrower runtime entry points instead of
+the generic product facade: `forge run compose` delegates a full service graph
+to Docker Compose, while `forge run local <PATH>` delegates one app directory
+to an installed GitRunByKaru. This run path never uses the generic facade's
+`npx` fallback. See [local runtime entry points](local-runtime-entrypoints.md).
+
 ## Catalog
 
 Products are enumerated in `src/cli/use_cmd.rs` (`PRODUCTS`). Each entry has:

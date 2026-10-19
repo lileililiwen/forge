@@ -23,10 +23,11 @@ const CATALOG_CONTRACT: &str = "forge-command-catalog/0.1.0";
 /// Every top-level command name rendered by `forge --help`, asserted to be
 /// a catalog row. The design's verification oracle calls this out
 /// explicitly, transport and terminal commands included.
-const TOP_LEVEL_COMMANDS: [&str; 48] = [
+const TOP_LEVEL_COMMANDS: [&str; 49] = [
     "list",
     "inspect",
     "register",
+    "run",
     "import",
     "graduation",
     "profile",
@@ -406,8 +407,25 @@ fn authenticated_catalog_is_exhaustive_consistent_and_truthful() {
         "agent.new-session",
         "ui-pattern.install",
         "inventory.show",
+        "run.compose",
+        "run.local",
     ] {
         assert!(ids.contains(path), "nested `{path}` missing");
+    }
+    for path in ["run.compose", "run.local"] {
+        let row = commands
+            .iter()
+            .find(|row| row["id"] == path)
+            .unwrap_or_else(|| panic!("{path} is missing"));
+        assert_eq!(row["availability"], "cli_only", "{path}");
+        assert!(
+            row["reason"].as_str().unwrap().contains("browser"),
+            "{path}"
+        );
+        assert!(
+            row["execution"].is_null(),
+            "{path} must not be web-executable"
+        );
     }
 
     // Web availability is evidence-based: only routes that really exist. The

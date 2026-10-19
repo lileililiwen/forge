@@ -11,6 +11,8 @@ Forge composes several owners:
 | Forge project model | Project identity, profile, standard pack, declared checks and configured targets | `forge.yaml`, `.project.json`, `.forge/` | Local project files and the Forge SQLite registry |
 | Forge Gate | Mandatory baseline, project extensions, verdict, source revision | `forge gate`, `forge gate status`, authenticated admin Gate routes | `.forge/gate/<project-id>/evidence.json` plus local operation journal |
 | Project verification | Language/framework-specific checks supplied by the standard snapshot or project extension | `.standard/scripts/verify.sh`, `verify-local.sh`, declared Gate commands | Command output captured in Gate or hosted CI logs |
+| Local development runtime | Start one Compose project graph or one app process directory | `forge run compose`, `forge run local` | Runtime-owned process/container state; Forge does not persist a session or claim readiness |
+| Runtime providers | Multi-service Compose lifecycle or one GitRunByKaru local session | Docker Compose CLI; installed `gitrunbykaru` executable | Compose owns its project containers; GitRunByKaru owns detection/readiness/process cleanup |
 | GitHub Actions | Hosted job scheduling, checkout, logs, status checks, workflow artifacts | Generated workflow or Forge's `.github/workflows/ci.yml` | GitHub workflow run, job results and uploaded artifacts |
 | Forge release plane | Evaluate release checks and run configured release stages | `forge release prepare` / `forge release apply` | Project release state and local registry operation record |
 | Delivery provider | Provider preflight, staged publish/health, production promotion | `forge delivery ...` and `forge-publish-provider/0.1.0` | Local operation journal plus provider-owned external state |
@@ -21,6 +23,9 @@ The central architectural fact is that these are **separate state stores and wor
 ```mermaid
 flowchart LR
   P[Project source and declarations] --> S[Versioned Forge standard snapshot]
+  P --> RUN[forge run]
+  RUN --> CMP[Docker Compose multi-service graph]
+  RUN --> GRBK[GitRunByKaru local app session]
   S --> H[Local pre-commit]
   S --> GHA[Project GitHub Actions]
   H --> GE[Forge Gate engine]
@@ -93,6 +98,25 @@ the declaration, and explicitly omits project extensions. Hosted CI runs the
 full profile and remains responsible for project build, test, security and
 other declared checks. Delivery accepts only fresh passing full-profile
 evidence.
+
+### Local development runtime entry points
+
+`forge run compose` delegates a project service graph to `docker compose`;
+Compose owns service selection, dependencies, health checks and teardown. When
+no action is supplied, Forge defaults to `up`; an explicit Compose action and
+remaining arguments pass through after `--`. `forge run local [PATH]`
+delegates one app directory to an installed `gitrunbykaru` executable, which
+owns detection, preparation, readiness and process-session cleanup. This
+explicit route never downloads or installs GitRunByKaru. Forge validates
+inputs, launches the child with inherited standard streams, and returns its
+exit result; it writes no runtime session or readiness evidence. Projects
+with multiple related services should represent them in Compose, rather than
+expecting Forge to coordinate independent process sessions. Both commands are
+CLI-only in the web catalog because they launch processes on the operator's
+machine; they are unrelated to hosted CI execution and deployment readiness.
+
+Examples and exact CLI options are documented in
+[`local-runtime-entrypoints.md`](local-runtime-entrypoints.md).
 
 ## 4. Flow B — generated project GitHub Actions
 
@@ -219,7 +243,7 @@ Ranks describe system risk and dependency order, not a claim that all work belon
 | **P1 — duplicate test cost inside Forge CI** | Forge's `.ai-gate/gate.yaml` still binds `tests` and `declared-verification` to overlapping test suites; named CI jobs overlap further | Manifest comments identify both test-bearing Gate checks; `.github/workflows/ci.yml` separately runs named test jobs | Forge CI repeats expensive tests and can spend time rebuilding test dependencies | Measure each suite and remove only proven duplicate execution while preserving `.project.json` declared-verification and named CI coverage. |
 | **P1 — template/runtime version maintenance** | New pack workflow pins Forge `0.1.1`; local hook still resolves whichever `forge` is on `PATH` | Installer is exact and checksum-verified; pre-commit invokes the CLI from PATH | Local and hosted behavior can differ by Forge version; old snapshots do not silently receive fixes | Add a visible supported-version check to hook/CI output and a conflict-safe pack upgrade path; document version support and deprecation cadence. Keep old snapshots reproducible. |
 | **P1 — binary portability** | Current generated CI supports GitHub Actions Ubuntu x86_64 only | Installer hard-codes `x86_64-unknown-linux-gnu`; README states additional platforms need native evidence | Projects on macOS/Windows/ARM or another CI host cannot use the same generated path without adaptation | Add target-specific binary assets and installer variants only with native package, checksum, install, and smoke evidence. Keep host selection explicit. |
-| **P1 — service topology/runtime model** | CI templates and `forge.yaml` profile flow do not provide one unified multi-service Compose/local-run orchestration model | Roadmap retains `forge-multiservice-local-runtime` to model multiple services and integrate `gitrunbykaru` | Projects with API, worker, UI and dependencies have no single Forge-owned local/CI entry point across Compose and local processes | Complete the roadmap package for service graph and entry points before connecting its graph to CI checks; avoid treating a single repository as necessarily one service. |
+| **Done — local development runtime entry points** | `forge run` exposes explicit Compose-stack and local-app entry points with executable, path, argument and status boundaries | `src/cli/local_runtime.rs`, `tests/local_runtime_entrypoints.rs`, the authenticated command catalog and this guide; Docker Compose and GitRunByKaru retain runtime ownership | Operators get one discoverable Forge command surface for multi-service Compose projects and single local app processes without a second service schema | Implemented in `forge-multiservice-local-runtime`. Compose is the coordinated multi-service model; separate local process sessions are intentionally not jointly supervised. CI remains a separate verification lane. |
 | **P2 — external policy proof** | Repository source cannot prove branch protection, GitHub required-check configuration, provider credentials/health, or actual deployment state | These are remote settings/runtime outcomes, not encoded as local source facts | A green workflow may not be required for merge; configured adapters may be unavailable | Capture live, read-only GitHub/provider evidence in operational readiness checks; label missing permissions/config as unknown, never infer from YAML. |
 
 ### Suggested dependency sequence

@@ -41,6 +41,7 @@ use cli::governance::cmd_governance;
 use cli::identity::cmd_identity;
 use cli::intent::cmd_intent;
 use cli::inventory::cmd_inventory;
+use cli::local_runtime::cmd_run;
 use cli::plugins::cmd_plugins;
 use cli::procedure::cmd_procedure;
 use cli::project::cmd_project;
@@ -522,8 +523,53 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Launch a local Compose stack or one app process through its runtime owner.
+    Run {
+        #[command(subcommand)]
+        command: RunCommands,
+    },
     /// Print the facade overview for `forge use` and the consolidated products.
     Help,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum RunCommands {
+    /// Delegate a multi-service application lifecycle to Docker Compose.
+    Compose {
+        /// Project directory (default: current directory).
+        #[arg(long, default_value = ".")]
+        project_root: PathBuf,
+        /// Compose file, relative to the project root unless absolute.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Compose profile to enable (repeatable).
+        #[arg(long = "profile")]
+        profiles: Vec<String>,
+        /// Compose action and arguments. Defaults to `up` when no action is given.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Delegate one local application directory to GitRunByKaru.
+    Local {
+        /// Application directory (default: current directory).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Preferred application port.
+        #[arg(long)]
+        port: Option<u16>,
+        /// Do not open the application in a browser.
+        #[arg(long)]
+        no_open: bool,
+        /// Keep temporary runtime files after the session exits.
+        #[arg(long)]
+        keep: bool,
+        /// Run the application in GitRunByKaru's Docker isolation mode.
+        #[arg(long)]
+        docker: bool,
+        /// Request GitRunByKaru's JSON session output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -621,6 +667,10 @@ fn main() -> ExitCode {
     } = &cli.command
     {
         return cmd_use(*list, product.as_deref(), args, cli.format);
+    }
+
+    if let Commands::Run { command } = &cli.command {
+        return cmd_run(command);
     }
 
     let result = match &cli.command {
@@ -787,6 +837,7 @@ fn main() -> ExitCode {
             // arm exists only to keep the match exhaustive.
             return ExitCode::from(2);
         }
+        Commands::Run { .. } => return ExitCode::from(2),
         Commands::Gate { .. } | Commands::GateEngine { .. } => {
             // Handled by the early `if let` above (the gate run owns its
             // exit code to mirror the sibling's blocking semantics); this

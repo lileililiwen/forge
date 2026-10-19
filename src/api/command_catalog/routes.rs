@@ -561,6 +561,7 @@ pub(super) const REASON_CAP_PREVIEW: &str = "This command only prints the flat `
 pub(super) const REASON_TRANSPORT: &str = "This command starts a long-running server process bound to a loopback listener; it is a transport, not a browser workflow. Next step: run it in a terminal and open the page or API it serves.";
 
 pub(super) const REASON_LOCAL_FS: &str = "This command reads or writes the local project tree directly; a browser cannot safely touch the filesystem and no typed JSON route for it exists yet. Next step: run it in a terminal inside the project.";
+pub(super) const REASON_LOCAL_RUNTIME: &str = "This command launches a process on the developer's machine; the browser does not control local processes. Next step: run `forge run compose` for a Compose stack or `forge run local` for one app directory in a terminal.";
 
 pub(super) const REASON_FILE_STDIN: &str = "This command consumes a local file path or stdin document; the browser form for it would be a file upload the API does not accept. Next step: run it in a terminal.";
 

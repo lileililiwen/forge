@@ -49,6 +49,24 @@ Resolution order for a product id:
 `forge use <product> -- --help` forwards flags verbatim to the product, and the
 product's own exit code is returned unchanged. See [docs/facade.md](docs/facade.md).
 
+## Local development runtime
+
+Use Docker Compose for a project stack with multiple services. Use GitRunByKaru
+for one local application directory:
+
+```sh
+forge run compose                         # docker compose up for compose.yaml
+forge run compose --profile dev -- up api web
+forge run local . --port 3000 --no-open   # requires gitrunbykaru on PATH
+```
+
+Compose owns multi-service selection and lifecycle. GitRunByKaru owns app
+detection, readiness and process cleanup. Forge only validates the path,
+builds an argument vector, delegates and returns the runtime's exit result; it
+does not create a second service manifest or supervise runtime sessions. The
+`forge run local` route requires an installed executable and never invokes
+`npx`. See [the runtime entry points](docs/local-runtime-entrypoints.md).
+
 ## MVP and delivery
 
 v0.1 is deliberately limited to `forge.yaml`, project/profile registries, and `forge import`, `forge list`, `forge inspect`, `forge new`, `forge doctor`. Its profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`, and `python-service`. These commands are available from this checkout via `cargo build`.

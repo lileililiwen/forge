@@ -5,7 +5,7 @@ use super::builder::CatalogBuilder;
 use super::model::{Availability, Category, Risk, Scope};
 use super::routes::{
     REASON_AGENT, REASON_CAP_PREVIEW, REASON_HELP, REASON_LEGACY_HTML, REASON_LOCAL_FS,
-    REASON_LOCAL_SECRET, REASON_TRANSPORT, REASON_TTY_HIDDEN,
+    REASON_LOCAL_RUNTIME, REASON_LOCAL_SECRET, REASON_TRANSPORT, REASON_TTY_HIDDEN,
 };
 use super::routes::{
     WEB_ROUTE_ADMIN_AGENT_LIST, WEB_ROUTE_ADMIN_AGENT_STATUS, WEB_ROUTE_ADMIN_ANALYTICS_METRICS,
@@ -515,6 +515,33 @@ impl CatalogBuilder {
             Project,
             LocalWrite,
             REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.group(
+            None,
+            "run",
+            "Launch a local multi-service Compose stack or delegate one app directory to GitRunByKaru.",
+            Reference,
+            Project,
+        );
+        self.cli_only(
+            Some("run"),
+            "compose",
+            "Delegate a multi-service local application lifecycle to Docker Compose; Compose owns service selection and lifecycle.",
+            Reference,
+            Project,
+            LocalWrite,
+            REASON_LOCAL_RUNTIME,
+            caps_local,
+        );
+        self.cli_only(
+            Some("run"),
+            "local",
+            "Delegate one local application directory to GitRunByKaru; it owns detection, readiness and process-session cleanup.",
+            Reference,
+            Project,
+            LocalWrite,
+            REASON_LOCAL_RUNTIME,
             caps_local,
         );
         self.cli_only(

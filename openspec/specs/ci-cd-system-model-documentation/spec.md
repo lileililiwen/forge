@@ -5,7 +5,20 @@ TBD - created by archiving change ci-cd-data-command-flow. Update Purpose after 
 ## Requirements
 ### Requirement: Current CI/CD flows are traceable
 
-Forge SHALL provide a maintainer guide that distinguishes generated-project local hooks and hosted CI, Forge's own verification and binary release workflow, project release checks, and provider-backed staged delivery. The guide SHALL show command order, execution owner, inputs, outputs, evidence persistence, revision binding, and failure transitions using current implementation references.
+Forge SHALL provide a maintainer guide that distinguishes generated-project
+local hooks and hosted CI, Forge's own verification and binary release
+workflow, project release checks, provider-backed staged delivery, and local
+development runtime entry points. The guide SHALL show command order,
+execution owner, inputs, outputs, evidence persistence, revision binding,
+and failure transitions using current implementation references. It SHALL
+state that Docker Compose owns the declared multi-service graph and lifecycle,
+while GitRunByKaru owns a single local app process session; neither is a Forge
+CI executor or delivery provider.
+
+#### Scenario: Maintainer traces local runtime startup
+
+- **WHEN** a maintainer follows `forge run compose` or `forge run local`
+- **THEN** the guide identifies Forge as an argv-preserving entry-point facade, names the delegated runtime owner, and states the limits of any session/evidence Forge stores
 
 #### Scenario: Maintainer traces a Gate result
 

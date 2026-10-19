@@ -34,13 +34,20 @@ verified as part of the root change `forge-auth-provider-extensions`.
 ## Evidence
 
 - `cargo test --workspace` in this module: 13 contract fixture tests pass.
-- `forge module verify identity-providers`: the module Gate runs its own
-  format, build, test and security checks.
-- Real Keycloak evidence was collected on this machine: three realms
-  (`forge-alpha-app`, `forge-beta-app`, `forge-demo-shop`), each with its own
-  client and its own issuer, an administrator token from one instance refused
-  by another, a preview that wrote nothing, a confirmed setup that wrote the
-  manifest, and a repeated setup that changed nothing.
+- `forge module verify identity-providers` returned `aggregate: passed` for
+  `build`, `declared-verification`, `format`, `repository`, `security`,
+  `source-file-size` and `tests`, observed `2026-10-19T22:57:35Z` at revision
+  `738b40cbddfc`. Evidence is in
+  `.forge/gate/identity-providers/evidence.json` inside this module.
+- The Gate's build check is the release build, so it leaves the pack
+  executables the descriptors name. `forge auth provider list` then reports
+  both packs as present.
+- Real Keycloak evidence was collected on this machine: two realms
+  (`forge-evidence-one`, `forge-evidence-two`), each with its own client and
+  its own issuer, an administrator token from one instance refused by the
+  other, a preview that wrote nothing, a confirmed setup that wrote the
+  manifest, a repeated setup that changed nothing, and a runtime that did not
+  accept the stored credential refused with the exact reset command.
 
 ## Deferred
 
@@ -49,3 +56,5 @@ verified as part of the root change `forge-auth-provider-extensions`.
   project.
 - The module is not registered in the workspace governance registry, so its
   Gate has no `governance-quality` concern.
+- The module has no CI workflow of its own, and the repository's test suite
+  does not run these 13 fixtures. They run in the module's own Gate.

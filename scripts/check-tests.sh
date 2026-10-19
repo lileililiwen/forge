@@ -39,3 +39,8 @@ python3 scripts/tests/test_dotnet_platform_libraries_import.py
 python3 scripts/check-dotnet-platform-libs-import.py
 python3 scripts/tests/test_rust_platform_libraries_import.py
 python3 scripts/check-rust-platform-libs-import.py
+
+# The identity-provider packs are their own Cargo workspace, so the root
+# workspace suite does not reach their contract fixtures. They are part of this
+# suite, and CI's `test` job runs the same command.
+cargo test --workspace --manifest-path modules/identity-providers/Cargo.toml

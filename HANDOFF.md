@@ -2,6 +2,57 @@
 
 ## Latest delivery
 
+### `forge-auth-provider-extensions` implemented and archived (2026-10-19)
+
+A generated application had no way to get its own end-user sign-in
+population. The only identity surfaces were Forge's operator login and the
+per-project admin OIDC session, and both are operator surfaces. Decision D9 in
+the workspace governance register now requires a provider-neutral, replaceable,
+project-scoped answer, and this change is the Forge side of it.
+
+The new in-tree module `modules/identity-providers` holds the provider packs
+as independent processes behind the versioned `forge-identity-provider/1.0`
+JSON-lines contract. Forge Core links no provider code, calls no vendor API,
+and never falls back to another provider. Two packs ship: `keycloak-local`
+gives every project its own Keycloak realm and public OIDC client on the
+pinned `quay.io/keycloak/keycloak:26.0.5` container, and `supabase` prepares
+an isolated hosted project and refuses to report itself ready before its OIDC
+and registration capability is verified.
+
+`forge auth setup` previews a plan, writes nothing without an explicit
+confirmation, and records the population in the project manifest with secret
+references only. `forge auth provider list` and `forge auth provider inspect`
+show the installed packs. Every answer is validated: the contract major, the
+provider, the operation, the project, the project revision, the plan digest,
+secret material and URL safety. The secret scan runs on the raw answer, before
+the typed response drops the fields the contract does not define. A local
+runtime that does not accept the stored credential is refused with the exact
+reset command; the pack never removes the runtime or its users on its own.
+
+The module is its own Cargo workspace with its own identity and Gate, so
+`forge module list` and `forge module verify identity-providers` resolve it.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Forge Core contract tests | PASS | `cargo test --test auth_setup_contract` ran 12 tests, all passed: the preview that writes nothing, the confirmed setup that records one population, the repeated setup that does not duplicate the entry, two projects that get two populations, the answer for another project that is refused, the answer that carries a secret that is refused, the provider failure that leaves the project unchanged, the uninstalled provider that is blocked, the installed pack list, and the JSON envelope. |
+| Module contract fixtures | PASS | `cargo test --workspace --manifest-path modules/identity-providers/Cargo.toml` ran 13 tests, all passed: the unknown contract major, another project, another operation, a stale revision, secret material, a value that pretends to be a reference, a registration URL on another host, a plain HTTP issuer that is not loopback, a plan without a digest, an empty request field, a secret in the summary, a secret in the plan changes, and the one accepted answer. |
+| Module Gate | PASS | `forge module verify identity-providers` returned `aggregate: passed` for `build`, `declared-verification`, `format`, `repository`, `security`, `source-file-size` and `tests`, observed `2026-10-19T15:44:15Z` at revision `d49e836bf091`. Evidence is in `modules/identity-providers/.forge/gate/identity-providers/evidence.json`. |
+| Repository test suite | PASS | `scripts/check-tests.sh` completed with no failing test target. The command catalog gained the five `auth` rows, so its row count moved from 253 to 258; the catalog parity test, the module workflow contract and the two web contracts were updated to the new count. |
+| Real Keycloak evidence | PASS | Two projects on one runtime produced two realms, two clients and two issuers: `http://127.0.0.1:18095/realms/forge-evidence-one` and `http://127.0.0.1:18096/realms/forge-evidence-two`. The administrator token of the first instance was refused by the second with HTTP 401. A preview left the project manifest byte-identical; a confirmed setup wrote one `auth:` block; the repeated confirmed setup left one block. A runtime that did not accept the stored credential was refused with `provider_credential_mismatch` and the exact reset command, the manifest kept its working configuration, and the documented reset command recovered the setup. |
+| OpenSpec and whitespace | PASS for this change | Change archived without `--skip-specs` at `openspec/changes/archive/2026-10-19-forge-auth-provider-extensions/`; seven requirements promoted into `openspec/specs/forge-auth-provider-extensions/spec.md`. `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 125 passed, 0 failed (125 items)` before and after the archive; `git diff --check` and the staged whitespace check reported no findings. |
+| Gate dry-run and full Forge Gate | PASS | Dry-run resolved all eight required checks with none unbound. The full Gate returned `aggregate: passed` for all eight at `2026-10-19T16:09:52Z` against revision `d49e836bf091`. Evidence is in `.forge/gate/forge/evidence.json`. |
+
+Not delivered, and stated plainly: the local Keycloak mode is loopback HTTP,
+not TLS; the Supabase pack is proven against the contract, not against a live
+Supabase project; and the generated application's own sign-in and registration
+pages and their browser and accessibility evidence were not built here. Those
+pages belong to the application, and the reusable host adapter belongs to the
+.NET module.
+
+Implementation/archive commit: `5198f94`
+(`feat: add replaceable identity provider packs for project end users`).
+This HANDOFF-only commit records completion. Nothing was pushed.
+
 ### Local sibling checkouts removed (2026-10-19)
 
 The workspace held a second copy of three projects Forge owns: `workspace-governance`,
@@ -6618,5 +6669,3 @@ Implementation/archive commit: `be806476a74aa2cf11cf9ae1508af7b426f6b0c9`
 (`feat: consolidate workspace governance into forge`). This HANDOFF-only
 commit records the completed import. Nothing was pushed. No active OpenSpec
 change remains, so there is no `current_spec` pointer.
-
-current_spec: forge-auth-provider-extensions

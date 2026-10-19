@@ -13,11 +13,19 @@ blocking:
   - FAIL
   - REVIEW_REQUIRED
 
+# Per-check execution deadlines. The release build compiles the whole module
+# from scratch on a cold cache, which does not fit the 60s default.
+timeouts:
+  build: 600000
+
 commands:
   # The module is its own Cargo workspace, so every command runs inside it.
   repository: 'git diff --check'
   format: 'cargo fmt --all --check'
-  build: 'cargo build --workspace'
+  # The release build is the one the pack descriptors name
+  # (`../target/release/<pack>`), so the Gate leaves the checkout with the
+  # executables that `forge auth setup` runs.
+  build: 'cargo build --release --workspace'
   tests: 'cargo test --workspace'
   security: 'cargo audit'
   # Generated from .project.json verification.command: cargo test --workspace.

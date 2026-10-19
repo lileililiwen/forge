@@ -81,7 +81,8 @@ cargo test --workspace                 # the contract fixtures
 
 Forge Core finds the pack executables in `target/release/`. Before they are
 built, `forge auth setup` reports the pack as `provider_not_built` instead of
-failing.
+failing. The module Gate runs the same release build, so
+`forge module verify identity-providers` leaves the checkout ready to use.
 
 ## Limits
 

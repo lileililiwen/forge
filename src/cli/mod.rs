@@ -31,6 +31,7 @@ pub mod identity;
 pub mod intent;
 pub mod inventory;
 pub mod local_runtime;
+pub mod module;
 pub mod plugins;
 pub mod procedure;
 pub mod project;

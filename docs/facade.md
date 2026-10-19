@@ -23,6 +23,29 @@ drift, `forge use` is a stable, tiny dispatcher:
   from `PATH`, then `npx -y <product>` — but only for products *cataloged* as
   external, so an arbitrary typo never triggers a network install.
 
+## Local module workflows
+
+`forge use` resolves product binaries. To discover and verify modules whose
+source is consolidated in this Forge checkout, use the module workflow:
+
+```sh
+forge module list
+forge module list --format json
+forge module verify rust-platform-libs --dry-run
+forge module verify dotnet-platform-libs --profile full
+```
+
+The module catalog reads immediate `modules/*/.project.json` declarations and
+their `gate.toml` or `.ai-gate/gate.yaml` files. It resolves IDs only and runs
+the selected module through the same `forge gate` path and evidence contract
+as `forge gate <PATH>`. Each module retains ownership of its native commands;
+Forge owns path resolution and orchestration. Unknown IDs, malformed metadata,
+duplicate IDs and paths escaping the checkout fail closed. A binary-only Forge
+installation without the in-tree `modules/` assets reports that these local
+workflows require a source checkout. There is no CWD, sibling, PATH or network
+fallback. Hosted CI, publication, deployment and the product-binary `use`
+facade remain separate operations.
+
 ## Usage
 
 ```sh

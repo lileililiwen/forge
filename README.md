@@ -57,6 +57,13 @@ Resolution order for a product id:
 `forge use <product> -- --help` forwards flags verbatim to the product, and the
 product's own exit code is returned unchanged. See [docs/facade.md](docs/facade.md).
 
+Use `forge module list` to discover consolidated modules in this Forge source
+checkout and `forge module verify <id>` to run one module's declared checks
+through the existing Forge Gate. This local route preserves Gate profile,
+dry-run, evidence and failure behavior; it does not invoke hosted CI,
+publish or deploy. It requires the Forge source checkout because a portable
+binary archive does not include the module source trees.
+
 ## Local development runtime
 
 Use Docker Compose for a project stack with multiple services. Use GitRunByKaru

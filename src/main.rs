@@ -42,6 +42,7 @@ use cli::identity::cmd_identity;
 use cli::intent::cmd_intent;
 use cli::inventory::cmd_inventory;
 use cli::local_runtime::cmd_run;
+use cli::module::{cmd_module_list, resolve_module};
 use cli::plugins::cmd_plugins;
 use cli::procedure::cmd_procedure;
 use cli::project::cmd_project;
@@ -523,6 +524,11 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Discover and verify modules from this Forge source checkout.
+    Module {
+        #[command(subcommand)]
+        command: ModuleCommands,
+    },
     /// Launch a local Compose stack or one app process through its runtime owner.
     Run {
         #[command(subcommand)]
@@ -530,6 +536,26 @@ enum Commands {
     },
     /// Print the facade overview for `forge use` and the consolidated products.
     Help,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ModuleCommands {
+    /// List declared local modules that have a Forge Gate declaration.
+    List,
+    /// Run one module's declared checks through the existing Forge Gate.
+    Verify {
+        /// Exact `.project.json` module id.
+        id: String,
+        /// Rehearse the plan without executing or persisting evidence.
+        #[arg(long)]
+        dry_run: bool,
+        /// Gate profile; defaults to full.
+        #[arg(long, value_enum)]
+        profile: Option<GateProfile>,
+        /// Bound Gate command execution timeout in seconds.
+        #[arg(long, value_name = "SECS")]
+        timeout_secs: Option<u64>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -667,6 +693,48 @@ fn main() -> ExitCode {
     } = &cli.command
     {
         return cmd_use(*list, product.as_deref(), args, cli.format);
+    }
+
+    if let Commands::Module { command } = &cli.command {
+        return match command {
+            ModuleCommands::List => match cmd_module_list(cli.format) {
+                Ok(Output::Human(text)) => {
+                    println!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Ok(Output::Json(value)) => {
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                    ExitCode::SUCCESS
+                }
+                Ok(Output::Raw(text)) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    render_error(&error, cli.format);
+                    ExitCode::from(error.exit_code() as u8)
+                }
+            },
+            ModuleCommands::Verify {
+                id,
+                dry_run,
+                profile,
+                timeout_secs,
+            } => match resolve_module(id) {
+                Ok(path) => cmd_gate(
+                    &db_path,
+                    &[path.display().to_string()],
+                    *dry_run,
+                    *timeout_secs,
+                    *profile,
+                    cli.format,
+                ),
+                Err(error) => {
+                    render_error(&error, cli.format);
+                    ExitCode::from(error.exit_code() as u8)
+                }
+            },
+        };
     }
 
     if let Commands::Run { command } = &cli.command {
@@ -837,6 +905,7 @@ fn main() -> ExitCode {
             // arm exists only to keep the match exhaustive.
             return ExitCode::from(2);
         }
+        Commands::Module { .. } => return ExitCode::from(2),
         Commands::Run { .. } => return ExitCode::from(2),
         Commands::Gate { .. } | Commands::GateEngine { .. } => {
             // Handled by the early `if let` above (the gate run owns its

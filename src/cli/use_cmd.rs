@@ -87,7 +87,7 @@ fn resolve_product(id: &str) -> Option<&'static Product> {
 
 /// Walk up from the current executable to the Cargo workspace root so the
 /// resolver keeps working regardless of the caller's working directory.
-fn workspace_root() -> Option<PathBuf> {
+pub(crate) fn workspace_root() -> Option<PathBuf> {
     let exe = env::current_exe().ok()?;
     let profile = exe.parent()?; // .../target/<profile>
     let target = profile.parent()?; // .../target
@@ -229,6 +229,8 @@ pub(crate) fn render_help() -> String {
     out.push_str("USAGE:\n");
     out.push_str("  forge use <product> [--] [ARGS...]   run a product in the current directory\n");
     out.push_str("  forge use --list                    list routable products\n");
+    out.push_str("  forge module list                   discover in-tree modules\n");
+    out.push_str("  forge module verify <id>            run one module's Forge Gate\n");
     out.push_str("  forge help                          show this overview\n\n");
     out.push_str("Resolution, in priority order:\n");
     out.push_str("  1. in-repo Rust crate binary   (crates/* -> target/{debug,release}/<bin>)\n");

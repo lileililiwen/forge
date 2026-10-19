@@ -325,6 +325,15 @@ pub enum ForgeError {
     #[error("gate evidence unavailable: {reason}")]
     GateEvidenceUnavailable { reason: String },
 
+    #[error("Forge module catalog is unavailable at {path}; use a Forge source checkout")]
+    ModuleCatalogUnavailable { path: String },
+
+    #[error("Forge module catalog is invalid: {reason}")]
+    ModuleCatalogInvalid { reason: String },
+
+    #[error("Forge module not found: '{id}'")]
+    ModuleNotFound { id: String },
+
     #[error("contract invalid: {reason}")]
     ContractInvalid { reason: String },
 
@@ -539,6 +548,9 @@ impl ForgeError {
             ForgeError::GateInvalid { .. } => "gate-invalid",
             ForgeError::GateRuntimeUnavailable { .. } => "gate-runtime-unavailable",
             ForgeError::GateEvidenceUnavailable { .. } => "gate-evidence-unavailable",
+            ForgeError::ModuleCatalogUnavailable { .. } => "module-catalog-unavailable",
+            ForgeError::ModuleCatalogInvalid { .. } => "module-catalog-invalid",
+            ForgeError::ModuleNotFound { .. } => "module-not-found",
             ForgeError::ContractInvalid { .. } => "contract-invalid",
             ForgeError::ContractUnsupportedFamily { .. } => "contract-unsupported-family",
             ForgeError::StandardInvalid { .. } => "standard-invalid",

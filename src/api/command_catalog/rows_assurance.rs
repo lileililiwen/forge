@@ -384,5 +384,32 @@ impl CatalogBuilder {
             REASON_LOCAL_FS,
             caps_local,
         );
+        self.group(
+            None,
+            "module",
+            "Discover and verify modules declared in the Forge source checkout.",
+            Quality,
+            Forge,
+        );
+        self.cli_only(
+            Some("module"),
+            "list",
+            "List in-tree modules with valid Forge Gate declarations.",
+            Quality,
+            Forge,
+            Read,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
+        self.cli_only(
+            Some("module"),
+            "verify",
+            "Run one declared module through the local Forge Gate.",
+            Quality,
+            Forge,
+            LocalWrite,
+            REASON_LOCAL_FS,
+            caps_local,
+        );
     }
 }

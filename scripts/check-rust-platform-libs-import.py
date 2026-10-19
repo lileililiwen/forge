@@ -41,6 +41,12 @@ ADAPTED_SOURCE_PATHS = {
     *WHITESPACE_ONLY_ADAPTATIONS,
     *MOVED_PATHS,
 }
+ADDED_DESTINATION_PATHS: set[bytes] = {
+    # Per-project local files that the sibling checkout kept untracked and
+    # that the module owns now that the source lives in Forge.
+    b"modules/rust-platform-libs/driftwatch.toml",
+    b"modules/rust-platform-libs/verify-local.sh",
+}
 
 
 def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -189,7 +195,7 @@ def verify(root: Path) -> list[str]:
             prefix=MODULE_PREFIX,
             moved_paths=MOVED_PATHS,
             adapted_source_paths=ADAPTED_SOURCE_PATHS,
-            added_destination_paths=set(),
+            added_destination_paths=ADDED_DESTINATION_PATHS,
         )
     )
     problems.extend(

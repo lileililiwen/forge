@@ -748,6 +748,22 @@ class ConcernOutcome:
 # resolves for every repository that is a sibling of this one, and resolves
 # to nothing for one that is not.
 #
+# This module is the Forge-owned governance module. It lives inside the Forge
+# source tree at `forge/modules/workspace-governance`, so the path that reaches
+# it depends on where the repository being configured is: a workspace-root
+# repository reaches it through `../forge/modules/workspace-governance`, and a
+# repository inside Forge's own `modules/` tree reaches it through
+# `../workspace-governance`. The path is therefore derived from the repository
+# rather than hard-coded, so one source of truth has two correct spellings and
+# no repository is told to reach a checkout that no longer exists.
+GOVERNANCE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def governance_prefix(repo: Path) -> str:
+    """The repository-relative path that reaches this governance module."""
+    return Path(os.path.relpath(GOVERNANCE_ROOT, repo)).as_posix()
+
+
 # `workspace_check.py --root .. --project <this repository>` is passed the
 # workspace root *and* this repository's own name, both explicitly, and both
 # omissions are defects rather than defaults:
@@ -771,14 +787,16 @@ class ConcernOutcome:
 # repository's own directory name resolves for every repository here.
 GOVERNANCE_CHECKER = "scripts/workspace_check.py"
 GOVERNANCE_COMMAND = (
-    "python3 ../workspace-governance/scripts/workspace_check.py "
+    "python3 {governance}/scripts/workspace_check.py "
     "--root .. --project {project} --json"
 )
-GOVERNANCE_EVIDENCE = "the portfolio checker at ../workspace-governance/scripts/workspace_check.py"
+GOVERNANCE_EVIDENCE = "the portfolio checker at {governance}/scripts/workspace_check.py"
 
 PRODUCT_QUALITY_CHECKER = "scripts/product_code_quality.py"
-PRODUCT_QUALITY_COMMAND = "python3 ../workspace-governance/scripts/product_code_quality.py ."
-PRODUCT_QUALITY_EVIDENCE = "the product-quality checker at ../workspace-governance/scripts/product_code_quality.py"
+PRODUCT_QUALITY_COMMAND = "python3 {governance}/scripts/product_code_quality.py ."
+PRODUCT_QUALITY_EVIDENCE = (
+    "the product-quality checker at {governance}/scripts/product_code_quality.py"
+)
 
 # Concern -> the checker that answers it, in this workspace.
 #

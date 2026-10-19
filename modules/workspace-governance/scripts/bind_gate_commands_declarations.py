@@ -13,6 +13,25 @@ def interface_id_for(relative: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
 
 
+def governance_provider(relative: str) -> str | None:
+    """The provider id when the reached path descends into a Forge module.
+
+    A module inside Forge's monorepo is reached as
+    `forge/modules/<module>/…`, so the first path segment of the invocation is
+    the monorepo and not the provider. The provider is the module's own
+    project id — the one the registry records for exactly that path — so the
+    declared edge names the same project the registry does, and a consumer's
+    interface declaration keeps meaning what it meant before the module
+    moved into Forge.
+    """
+    parts = relative.split("/")
+    if "modules" in parts:
+        index = parts.index("modules")
+        if index + 1 < len(parts):
+            return parts[index + 1]
+    return None
+
+
 def sibling_interface(command: str) -> tuple[str, dict] | None:
     """`(provider, interfaces[] entry)` declaring `command`, or None.
 
@@ -27,10 +46,11 @@ def sibling_interface(command: str) -> tuple[str, dict] | None:
     interface_id = interface_id_for(relative)
     if not interface_id:
         return None
-    return match.group("provider"), {
+    provider = governance_provider(relative) or match.group("provider")
+    return provider, {
         "id": interface_id,
         "consumes": True,
-        "provider": match.group("provider"),
+        "provider": provider,
         "mechanism": "sibling",
         "entry": command,
         "digest": "sha256:" + hashlib.sha256(command.encode("utf-8")).hexdigest(),
@@ -334,7 +354,7 @@ def interface_ids_for(repo: Path, shape: Shape, required: list[str]) -> list[str
         if checker is None:
             continue
         relative = checker[0]
-        if not (repo.parent / SIBLING_PROVIDER / relative).is_file():
+        if not (repo / governance_prefix(repo) / relative).is_file():
             continue
         if concern in QUALITY_CONCERNS and not (
             has_quality_policy(repo) or derive_quality_block(repo, shape)[0] is not None
@@ -378,13 +398,14 @@ def governance_concern(repo: Path, concern: str, shape: Shape) -> tuple[str, str
         return own_command, own_evidence, own_reason
 
     relative, command, evidence = entry
+    prefix = governance_prefix(repo)
 
-    if not (repo.parent / "workspace-governance" / relative).is_file():
+    if not (repo / prefix / relative).is_file():
         return (
             "",
             "",
-            f"this repository is not a sibling of a workspace-governance checkout, so "
-            f"../workspace-governance/{relative} does not exist and the {concern} "
+            f"this repository does not sit next to the Forge-owned governance "
+            f"module, so {prefix}/{relative} does not exist and the {concern} "
             f"checker cannot be reached from it; {own_reason}",
         )
 
@@ -433,7 +454,7 @@ def governance_concern(repo: Path, concern: str, shape: Shape) -> tuple[str, str
             "",
             "",
             f"the {concern} checker is reachable at "
-            f"../workspace-governance/{relative}, but a command that reaches another "
+            f"{prefix}/{relative}, but a command that reaches another "
             f"checkout is lawful only when the edge is declared and this repository has "
             f"no {PROJECT_JSON} to declare it in; the declaration is the registry's "
             f"document and this tool never creates one, so the concern stays unbound "
@@ -444,7 +465,14 @@ def governance_concern(repo: Path, concern: str, shape: Shape) -> tuple[str, str
     # `path` in the registry for all 81 registered projects. It is read from
     # the path, not from `.project.json`, on the same rule as everything else
     # here: the label is not an input.
-    return command.format(project=repo.name), evidence, ""
+    #
+    # `{governance}` is the path from this repository to the Forge-owned
+    # governance module, derived from where this repository is.
+    return (
+        command.format(governance=prefix, project=repo.name),
+        evidence.format(governance=prefix),
+        "",
+    )
 
 
 def derive(concern: str, shape: Shape, repo: Path) -> tuple[str, str, str]:

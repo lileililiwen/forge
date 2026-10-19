@@ -46,6 +46,17 @@ ALLOWED_SOURCE_ADAPTATIONS = {
     b"openspec/specs/ui-convention-guidance/spec.md",
     b"openspec/specs/workspace-decision-register/spec.md",
     b"openspec/specs/workspace-verification-baseline/spec.md",
+    # Provider-neutral workspace identity policy (D9). The module is the
+    # maintained source after the import, so the decision register, its
+    # documentation, the promoted canonical spec, the register test and the
+    # module handoff carry the change that the import commit did not contain.
+    b"HANDOFF.md",
+    b"decisions.json",
+    # Import-time adaptation: the UI conformance command path is derived per
+    # repository, because this module is the Forge-owned governance module.
+    b"scripts/bind_ui_gate.py",
+    b"docs/toolchain-decisions.md",
+    b"tests/test_decisions.py",
 }
 WHITESPACE_ONLY_ADAPTATIONS = {
     b"MATURITY_PROGRESS_SUMMARY.md",
@@ -61,7 +72,6 @@ WHITESPACE_ONLY_ADAPTATIONS = {
     b"openspec/specs/rules-baseline/spec.md",
     b"openspec/specs/ui-convention-check/spec.md",
     b"openspec/specs/ui-convention-guidance/spec.md",
-    b"openspec/specs/workspace-decision-register/spec.md",
     b"openspec/specs/workspace-verification-baseline/spec.md",
 }
 ADDED_MODULE_FILES = {
@@ -84,6 +94,12 @@ ADDED_MODULE_FILES = {
     b"migration/forge-monorepo-path-reconciliation.json",
     b"tests/test_platform_module_paths.py",
     b"tests/workspace_root.py",
+    # The provider-neutral identity policy (D9) package, archived in the
+    # module after the import commit.
+    b"openspec/changes/archive/2026-10-19-provider-neutral-identity-policy/design.md",
+    b"openspec/changes/archive/2026-10-19-provider-neutral-identity-policy/proposal.md",
+    b"openspec/changes/archive/2026-10-19-provider-neutral-identity-policy/specs/workspace-decision-register/spec.md",
+    b"openspec/changes/archive/2026-10-19-provider-neutral-identity-policy/tasks.md",
 }
 SOURCE_REVISION = "2c766c64eb54560fa898115dec27c32abbf4968e"
 SOURCE_ONLY_COMMITS = (

@@ -1,8 +1,33 @@
 # Forge handoff
 
-current_spec: forge-multiservice-local-runtime
+current_spec: forge-platform-libraries-monorepo
 
 ## Latest delivery
+
+### `forge-multiservice-local-runtime` implemented and archived (2026-10-19)
+
+Added `forge run compose` and `forge run local` as local runtime entry points.
+Compose remains the owner of a multi-service graph and lifecycle; GitRunByKaru
+remains the owner of a single local app process session. Forge preserves argv,
+working directory, child output and exit status, reports missing tools without
+network installation, and does not claim to persist or supervise sessions.
+The command catalog exposes the new routes as CLI-only. The CI/CD system model
+and local runtime guide now document these boundaries. Canonical specs were
+promoted, and roadmap order 11 is complete.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Runtime boundary tests | PASS, 7/7 | `cargo test --test local_runtime_entrypoints`; argv/cwd, passthrough, invalid input, missing tools, exit propagation, signals and spawn errors. |
+| Web command catalog | PASS, 9/9 | `cargo test --test forge_web_command_catalog_contract`, including CLI help/catalog parity. |
+| Workspace tests | PASS | `RUSTC_WRAPPER= CARGO_INCREMENTAL=0 scripts/check-tests.sh`; Forge library and integration suites completed without failures. |
+| Build and CLI help | PASS | `cargo build --bin forge`; `forge run --help`, `run compose --help`, and `run local --help`. |
+| Formatting and whitespace | PASS | Changed Rust files pass Rustfmt; `git diff --check`. Clippy reports seven existing `uninlined_format_args` warnings in `crates/driftwatchdog`; remediation is a separate imported-tooling lint cleanup. |
+| OpenSpec | PASS | Name preflight and strict validation **119/119**; archived as `openspec/changes/archive/2026-10-19-forge-multiservice-local-runtime/`, promoting the local-runtime spec and updating the CI/CD model and command catalog. |
+| Gate dry-run and full Gate | PASS | Dry-run resolved all 8 required checks. Full Gate passed all 8 at source revision `ea9d5e6091d0`, observed `2026-10-19T02:20:01Z`; source-size evaluated 430/430 candidates under 1,000 lines. `cargo-audit 0.22.2` was installed because the host initially lacked `cargo audit`; audit exits 0 with four allowed advisories. |
+
+Implementation/archive commit: `72aafac` (`feat: add local runtime entry
+points`). No sibling repository was changed, and nothing was published or pushed.
+The following eligible roadmap item is `forge-platform-libraries-monorepo`.
 
 ### `forge-platform-schema-ownership` implemented and archived (2026-10-19)
 

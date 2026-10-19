@@ -8,7 +8,12 @@ command = "python3 -m unittest discover -s tests -v"
 
 [[checks]]
 id = "governance-quality"
-command = "python3 ../workspace-governance/scripts/workspace_check.py --root .. --project workspace-governance --json"
+# The module checks itself. `--root ..` would make the workspace root this
+# module's parent directory inside the Forge tree, and the registry's project
+# paths are relative to the workspace root, so every registered project would
+# report PROJECT_MISSING against a directory that does not exist there.
+# `--self-check` roots the audit at the module that owns the registry.
+command = "python3 ../workspace-governance/scripts/workspace_check.py --self-check --json"
 
 [[checks]]
 id = "product_quality"

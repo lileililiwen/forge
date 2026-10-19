@@ -23,7 +23,7 @@ verification:
     - id: governance-quality
       source: bound
       root: governance-workspace
-      path: workspace-governance/scripts/workspace_check.py
+      path: forge/modules/workspace-governance/scripts/workspace_check.py
     - id: placeholder-threshold
       source: bound
       root: project

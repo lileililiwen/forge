@@ -116,7 +116,7 @@
       "consumes": true,
       "provider": "workspace-governance",
       "mechanism": "invoke",
-      "entry": "python3 ../workspace-governance/scripts/forge_governance_adapter.py",
+      "entry": "python3 modules/workspace-governance/scripts/forge_governance_adapter.py",
       "contract": "governance-provider-contract/0.1.0",
       "evidence_ref": "src/governance/contract.rs",
       "required": false

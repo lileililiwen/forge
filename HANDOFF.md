@@ -2,6 +2,40 @@
 
 ## Latest delivery
 
+### Local sibling checkouts removed (2026-10-19)
+
+The workspace held a second copy of three projects Forge owns: `workspace-governance`,
+`rust-platform-libs` and `dotnet-platform-libs`. Their source and history were
+already in the Forge tree, their GitHub origins were already read-only, and the
+local copies had begun to drift: the governance copy was missing decision D9, and
+its stale registry reported four `PROJECT_MISSING` errors for the tool crates that
+now live in `forge/crates/`. The local copies are gone, the workspace has one
+source of truth, and every consumer names the Forge module path.
+
+The removal needed the consumers migrated first. Sixty-three repository gate
+manifests, one `gate.toml` and nine consumer scripts still named the sibling
+checkout; they now name `../forge/modules/workspace-governance` and
+`../forge/modules/{rust,dotnet}-platform-libs`. The gate-command generator
+derives that path from where the governance module is instead of writing it as
+a constant, so a repository inside Forge's own `modules/` tree and a
+workspace-root repository both reach the same checker, and the declared sibling
+edge keeps naming the module's own project id.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Import provenance | PASS | `check-workspace-governance-import.py` reports 400 source paths, 40 declared adaptations and 23 additions with all 6 source-only commits as ancestors; `check-dotnet-platform-libs-import.py` reports 1604 source files and 38 source-only commits; `check-rust-platform-libs-import.py` reports 161 source files and 30 source commits. All three siblings' HEAD commits are ancestors of this repository's HEAD. |
+| GitHub origin state | PASS | `workspace-governance` and `dotnet-platform-libs` read back `isArchived=true` (archived 2026-10-19T05:02:37Z and 05:02:45Z); `rust-platform-libs` has no GitHub repository. No repository was created, deleted, transferred or renamed, and nothing was pushed. |
+| Consumer migration | PASS | 71 repositories committed the path change with explicit paths, plus the four `sutravia` worktrees. `trailCrew`'s `platform-core` Cargo path dependency now resolves to `../forge/modules/rust-platform-libs/crates/platform-core` (`cargo metadata --offline --no-deps` exit 0). |
+| Governance verdict | Improved | `metiscope` reports 5 errors and 1 warning, down from 8 errors and 1 warning before the migration: the four `PROJECT_MISSING` errors and three `DISCOVERED_UNREGISTERED` errors for the migrated projects are gone. The remaining `DISCOVERED_UNREGISTERED` findings name `blindmesh`, `gitrunbykaru` and `herdr`, and `metiscope`'s own discoverability and publication findings are unchanged. |
+| Module gate roots | Fixed | The governance and Rust platform module gate manifests rooted their audit at the module's parent directory inside the Forge tree, where the registry's project paths do not resolve, and reported 87 `PROJECT_MISSING` errors. They now root the audit at the workspace root, as the .NET module already did. The governance module's own check uses the checker's self-check: 0 errors, 0 warnings. |
+| Governance module tests | PASS with one unrelated failure | 1026 tests ran; the one failure is the fleet corpus test, which reports the `blindmesh` project that another process scaffolded in the workspace and has not registered in the registry yet. It is not caused by this change. |
+| OpenSpec and whitespace | PASS | Name preflight `check-openspec-change-names: PASS`; `openspec validate --all --strict --no-interactive` passed 125/125; `git diff --check` reported no findings. |
+| Gate dry-run and full Forge Gate | 6 of 8 PASS, 2 blocked by unrelated in-flight work | Dry-run resolved all eight required checks with none unbound. The full Gate at `2026-10-19T14:43:07Z` against revision `b55f0a12955a` passed `build`, `repository`, `security`, `placeholder-threshold`, `product-code-boundary` and `source-file-size` (438 of 438 candidate files under the 1,000-line limit), and failed `declared-verification` and `tests` on the four failing assertions in `tests/auth_setup_contract.rs` — an untracked test file belonging to the in-flight `forge-auth-provider-extensions` implementation in this worktree. Every other test target passes. The three commits in this delivery touch no Rust source. Evidence is in `.forge/gate/forge/evidence.json`. |
+
+The three local checkouts were moved to the recoverable trash, not deleted
+outright. The `blindmesh` project, the `forge-auth-provider-extensions`
+implementation and the `sutravia` worktrees' in-flight work were left alone.
+
 ### `project-oidc-auth-adoption` implemented and archived (2026-10-19)
 
 An application that wanted its own end users to sign in through an OpenID Connect provider had no supported way to do it. The new `Platform.Identity.OpenIdConnect.AspNetCore` package registers the sign-in scheme and validates the callback: authorization code with PKCE, the discovery issuer, the signature, the audience, the redirect URI, the nonce, the token time bounds, and a one-use callback state. The application keeps its users — the package has no user table, no migration, no session store and no automatic enrollment — and provider role claims grant no local permission unless the application names a role claim type.

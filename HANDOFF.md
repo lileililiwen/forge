@@ -1,8 +1,32 @@
 # Forge handoff
 
-current_spec: forge-platform-schema-ownership
+current_spec: forge-multiservice-local-runtime
 
 ## Latest delivery
+
+### `forge-platform-schema-ownership` implemented and archived (2026-10-19)
+
+Forge now owns and validates only the six contract families it actively
+consumes. Four unsupported families are explicit and refuse through the
+catalog, CLI and assurance surface. Contract assets and fixtures are checked
+offline, included in packaged installations, and resolved without sibling
+checkouts or environment overrides. The change also removed upstream parity
+and sync scripts and promoted the affected canonical specifications.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Contract schemas and inventory | PASS | `node scripts/check-contracts.mjs` (25 owned assets); `python3 tests/contract_schema_tests.py` (4 tests). |
+| Focused and full test suites | PASS | Contract ownership (4), assurance browser contract (12), release distribution (4), artifact baseline (8), manifest wire (2), Gate profile browser (1), plugin declaration (17); `scripts/check-tests.sh` passed the applicable workspace suite (1,264 library tests plus integration suites). |
+| Package/install smoke | PASS | Packaged Forge archive installed into a temporary prefix; `scripts/smoke.sh --bin <prefix>/bin/forge` verified contract list/inspect from an unrelated working directory. |
+| Scripts, changed-file formatting, whitespace | PASS | `node --check`, `sh -n`, targeted Rustfmt checks and `git diff --check`. |
+| OpenSpec | PASS | Name preflight and strict validation **118/118** after archive; canonical specs promoted without `--skip-specs`. |
+| Gate dry-run and full Gate | PASS | Dry-run resolved all 8 required checks; full Gate passed all 8 at pre-commit source revision `fca2b9c8604a10b41c0d56a6235ace07a082a8d0`, observed `2026-10-19T00:58:22Z`; source-size evaluated 429/429 candidates under 1,000 lines. |
+| Existing repository-wide format / lint debt | REVIEW | `scripts/release-check.sh --gate-profile rust-web` is blocked by formatting drift in 12 untouched files; workspace Clippy is blocked by existing warnings in `crates/cargo-audit-boost`. Changed files and the full Forge Gate pass. Remediation is a separate imported cargo-* formatting/Clippy cleanup. |
+
+Archived at `openspec/changes/archive/2026-10-19-forge-platform-schema-ownership/`.
+Implementation/archive commit: `0517890` (`feat: own consumed platform
+contract schemas`). Roadmap order 10 is complete. No sibling repository was
+changed, and nothing was published or pushed. Roadmap order 11 is next.
 
 ### `gate-profile-portal-controls` implemented and archived (2026-10-18)
 

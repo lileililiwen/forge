@@ -2,6 +2,94 @@
 
 ## Latest delivery
 
+### `deploy-target-ssh` implemented and archived (2026-10-20)
+
+`requirement.md` §30 names "SSH server" as an initial deployment target and
+says deployment should be adapter-based. The `ssh` deploy target kind was
+known but deliberately not wired, so the promised target did not exist, and
+three gaps sat behind that one refusal.
+
+A kind could not say what it needed. The manifest's target entry carries
+`host`, `user`, `path` and `service`, and nothing validated any of them:
+`host` and `user` were read by nothing, `path` and `service` only by the
+Compose health check. An `ssh` target with no host is not a target, and the
+refusal should have said so at validation time.
+
+One adapter served every kind. `DeployAdapterConfig` resolved a single binary
+from `FORGE_DEPLOYER_BIN` for every kind, and the reference Jenkins adapter
+refuses the kinds it does not know — so a project with a Jenkins target and an
+SSH target could not be served at all.
+
+The three gaps were the same gap. A branch is a specialisation behind a
+declared extension point, and an extension point that cannot declare its own
+requirements or own its own implementation is a switch, not a port.
+
+The shared kind registry now carries three more declarations per kind: the
+target fields a target of that kind must state, the variable that names the
+kind's own adapter binary, and the binary the kind uses when nothing else
+names one. The `ssh` kind is wired, requires `host` and `path`, and names
+`FORGE_DEPLOYER_SSH_BIN` with the default `forge-deployer-ssh`.
+
+The adapter is resolved per kind, in one order: the kind's own binary, then
+the shared binary, then the kind's default. An operator with one adapter that
+serves every kind still sets only `FORGE_DEPLOYER_BIN`; an operator with a
+Jenkins adapter and an SSH adapter sets both and loses neither. A target that
+does not state the fields its kind requires is refused by name, in the
+configuration validator, before any adapter runs:
+
+```
+error[deploy-invalid]: deploy invalid: deployment target `vps` of kind `ssh` must
+declare `host` and `path`
+```
+
+A reference SSH adapter ships in `adapters/ssh/forge-deployer-ssh`. It
+contains no deployment logic beyond the transfer and the health check, and it
+uses the transport facts the publish lane already uses: a staged copy and an
+atomic rename, so a half-copied artifact is never visible on the host. The
+health check runs on the host, because the health check describes the
+target's runtime. A host that cannot be reached is `unknown`, never `failed`:
+disconnected means unknown, not offline proof.
+
+The executor contract is unchanged. The `ssh` kind needs no new operation, so
+the discriminator stays `forge-deploy-executor/0.1.0`, and the argv, the
+envelope schema and the classification table are untouched. The manifest is
+unchanged: no field was added, and the `host`, `user` and `path` fields keep
+their names. What changed is that the `ssh` kind now depends on two of them.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3971 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 3971 passed, 0 failed, 1 ignored. `cargo build` finished with no finding and no warning. Focused runs: `cargo test -p forge --lib extension::` 12 passed; `cargo test -p forge --lib deploy::` 49 passed; `cargo test -p forge --test deploy_contract` 21 passed; `cargo test -p forge --test deploy_ssh_adapter_contract` 13 passed; all 0 failed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T14:25:03Z"` on revision `3ff3fac`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. |
+| Real deploy, served | PASS | A fixture project with a committed `forge.yaml` declaring an `ssh` target with `host: home-server-01`, `user: deploy` and `path: /srv/app/docker-compose.yml`, a recording `ssh`/`scp` pair on `FORGE_SSH_BIN` / `FORGE_SCP_BIN`, the reference adapter on `FORGE_DEPLOYER_SSH_BIN`, and real Gate evidence for the project (`forge gate` → `aggregate: passed`, `profile: full`, bound to the project's HEAD). `forge deploy plan` reported `target: vps (ssh)`. `forge deploy apply --target-name vps --confirm` reached the adapter, and the recording programs logged exactly `ssh deploy@home-server-01 /bin/mkdir -p /srv/app`, `scp docker-compose.yml deploy@home-server-01:/srv/app/docker-compose.yml.forge-new`, `ssh deploy@home-server-01 /bin/mv -f /srv/app/docker-compose.yml.forge-new /srv/app/docker-compose.yml` — the three commands, in that order, with the staged name in between. The stage evidence reported `executor=forge-deployer-ssh/0.1.0@unknown` and the remote path appeared only as `<host-path>`. |
+| Real deploy, observed | PASS | `forge deploy observe` with the host answering `Up 4 minutes` recorded `observe target=vps running: the host reports the service is up`, with the evidence `docker ps --filter name=app: Up 4 minutes` and the host-side command `ssh deploy@home-server-01 docker ps --filter name=app --format '{{.Status}}'`. The same observe with `ssh` exiting 255 recorded `observe target=vps unknown: the host could not be reached; unknown is not offline proof`. |
+| Real deploy, refused | PASS | A target with neither field gave `error[deploy-invalid]: deploy invalid: deployment target `vps` of kind `ssh` must declare `host` and `path``. A target with only a host gave `error[deploy-invalid]: deploy invalid: deployment target `vps` of kind `ssh` must declare `path``. Every refusal exited 1. |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 131 passed, 0 failed (131 items)`. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-deploy-target-ssh/`; four requirements promoted into `openspec/specs/deploy-target-ssh/spec.md` and the deploy contract's "Explicit adapter deployment" requirement replaced in `openspec/specs/adapter-deployment/spec.md`. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings. Every changed Rust file is rustfmt-clean under `rustfmt --edition 2021 --check`. The twelve files that already differed under rustfmt before this change were left alone; `cargo fmt --all` was not run. The adapter passes `python3 -m py_compile` and is executable (`-rwxr-xr-x`). Every touched file is under 1000 physical lines; the largest is `src/deploy/engine/stages_tests.rs` at 952. |
+
+Two behaviour changes a reviewer must know about. The `ssh` kind is served
+instead of refused, and the configuration validator now refuses a target that
+does not state the fields its kind requires — including the legacy
+`deployment.type: ssh` form, which cannot state a host and is therefore
+refused in the same words. And `DeployAdapterConfig::deployer_bin` is now
+empty when `FORGE_DEPLOYER_BIN` is unset, because the resolution has to tell
+"unset" from "set to the default"; the `forge-deployer` default moved into
+the kind registry, and the admin API's view now scrubs the adapter binary
+that will actually run.
+
+Not delivered, and stated plainly: the transfer is not production-proven. The
+reference adapter was exercised against recording programs and a fixture
+project, never against a real host; `adapters/ssh/ssh-adapter.md` states the
+adoption checklist and says so in as many words. No SSH transport was added
+to Forge Core — the transfer belongs to the adapter, because `requirement.md`
+§30 says deployment is adapter-based and the publish lane's `SshTransport` is
+a publish-lane contract with its own scope. No key management, no agent
+installation, no remote command execution beyond the transfer and the health
+check. No new manifest field, no change to the executor contract, and no
+convergence of the other extension surfaces onto the shared contract, which
+is a later change, one surface at a time.
+
+Implementation/archive commit: `fa68e04` (`feat: serve the SSH deploy target behind the extension contract`). This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
 ### `extension-point-contract` implemented and archived (2026-10-20)
 
 Every extension boundary in Forge had invented its own contract. A repository-wide

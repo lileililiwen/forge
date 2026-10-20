@@ -131,6 +131,48 @@ fn write_inventory(dir: &Path) -> PathBuf {
     path
 }
 
+/// Write an inventory document that mixes an own-process entry, a
+/// shared-host module and an entry with no Compose file.
+fn write_mixed_host_inventory(dir: &Path) -> PathBuf {
+    let alpha = stage_project_dir(dir, "alpha");
+    let modules = stage_project_dir(dir, "platform-modules");
+    let document = serde_json::json!({
+        "contract": "forge-project-inventory/0.1.0",
+        "provider": "local",
+        "generated_at": "2026-09-29T00:00:00Z",
+        "projects": [
+            {
+                "id": "alpha",
+                "repository": "https://example.invalid/alpha.git",
+                "revision": "0123456789abcdef0123456789abcdef01234567",
+                "profile": "rust-product",
+                "runtime": "web",
+                "compose_file": "docker-compose.yml",
+                "source_path": alpha.to_str().unwrap(),
+            },
+            {
+                "id": "platform-modules",
+                "repository": "https://example.invalid/platform-modules.git",
+                "revision": "0123456789abcdef0123456789abcdef01234567",
+                "profile": "rust-product",
+                "runtime": "library",
+                "compose_file": "docker-compose.yml",
+                "source_path": modules.to_str().unwrap(),
+            },
+            {
+                "id": "gamma",
+                "repository": "https://example.invalid/gamma.git",
+                "revision": "0123456789abcdef0123456789abcdef01234567",
+                "profile": "rust-product",
+                "runtime": "worker",
+            },
+        ],
+    });
+    let path = dir.join("mixed-host-inventory.json");
+    fs::write(&path, serde_json::to_string_pretty(&document).unwrap()).expect("write inventory");
+    path
+}
+
 /// Write a legacy `projects.json` registry pointing at staged dirs.
 /// Returns `(registry_path, workspace_root)`: entry paths resolve
 /// against the workspace root, so the caller passes `--workspace-root`.
@@ -260,7 +302,7 @@ fn jobs_one_dry_run_matches_default_dry_run() {
     assert_eq!(
         summary
             .get("fleet")
-            .and_then(|f| f.get("compose_ready"))
+            .and_then(|f| f.get("publishable"))
             .and_then(Value::as_u64),
         Some(2)
     );
@@ -340,7 +382,7 @@ fn fleet_registry_flag_loads_through_legacy_adapter() {
     assert_eq!(
         summary
             .get("fleet")
-            .and_then(|f| f.get("compose_ready"))
+            .and_then(|f| f.get("publishable"))
             .and_then(Value::as_u64),
         Some(2)
     );
@@ -405,5 +447,119 @@ fn fleet_registry_missing_file_refuses_typed() {
         lossy(&out.stderr).contains("publish-invalid"),
         "expected publish-invalid; got {}",
         lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn fleet_counts_publishable_and_held_back_entries() {
+    // A shared-host module is compose-ready but never published: the
+    // host that adopts it owns its lifecycle. The summary counts it
+    // as held back and names its host model.
+    let tmp = tempfile::tempdir().unwrap();
+    let inventory = write_mixed_host_inventory(tmp.path());
+    let db = registry_in(tmp.path());
+    let out = run(
+        &db,
+        &[
+            "--format",
+            "json",
+            "publish",
+            "fleet",
+            "--inventory",
+            inventory.to_str().unwrap(),
+            "--dry-run",
+        ],
+    );
+    assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
+    let docs = fleet_docs(&out.stdout);
+    let summary = docs.last().unwrap();
+    let fleet = summary.get("fleet").expect("fleet summary");
+    assert_eq!(
+        fleet.get("declared").and_then(Value::as_u64),
+        Some(3),
+        "every declared entry is counted; got {summary}"
+    );
+    assert_eq!(
+        fleet.get("publishable").and_then(Value::as_u64),
+        Some(1),
+        "only the own-process entry is publishable; got {summary}"
+    );
+    assert_eq!(
+        fleet.get("held_back").and_then(Value::as_u64),
+        Some(1),
+        "the shared-host module is held back; got {summary}"
+    );
+    assert_eq!(
+        fleet.get("skipped").and_then(Value::as_u64),
+        Some(1),
+        "the entry without a Compose file is skipped; got {summary}"
+    );
+    let held_back = fleet
+        .get("held_back_entries")
+        .and_then(Value::as_array)
+        .expect("held back rows");
+    assert_eq!(held_back.len(), 1);
+    assert_eq!(
+        held_back[0].get("id").and_then(Value::as_str),
+        Some("platform-modules")
+    );
+    assert_eq!(
+        held_back[0].get("runtime").and_then(Value::as_str),
+        Some("library")
+    );
+    assert_eq!(
+        held_back[0].get("host_model").and_then(Value::as_str),
+        Some("shared_host"),
+        "every fleet row names its host model; got {summary}"
+    );
+    assert!(
+        held_back[0]
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("module"),
+        "the held-back row names the module; got {summary}"
+    );
+    // The module is never published: only the own-process entry has a
+    // per-project report.
+    let published: Vec<&str> = docs
+        .iter()
+        .filter(|doc| doc.get("project").is_some())
+        .filter_map(|doc| doc.get("project").and_then(Value::as_str))
+        .collect();
+    assert!(
+        !published.contains(&"platform-modules"),
+        "a shared-host module is never published; got {published:?}"
+    );
+}
+
+#[test]
+fn fleet_summary_names_the_shared_host_rule() {
+    let tmp = tempfile::tempdir().unwrap();
+    let inventory = write_mixed_host_inventory(tmp.path());
+    let db = registry_in(tmp.path());
+    let out = run(
+        &db,
+        &[
+            "publish",
+            "fleet",
+            "--inventory",
+            inventory.to_str().unwrap(),
+            "--dry-run",
+        ],
+    );
+    assert!(out.status.success(), "stderr={}", lossy(&out.stderr));
+    let stdout = lossy(&out.stdout);
+    assert!(
+        stdout.contains("publishable"),
+        "the summary counts what was publishable; got {stdout}"
+    );
+    assert!(
+        stdout.contains("held back"),
+        "the summary counts what was held back; got {stdout}"
+    );
+    assert!(
+        stdout.contains("a shared-host module is never started by the fleet"),
+        "the summary names the rule that held it back; got {stdout}"
     );
 }

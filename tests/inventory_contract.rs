@@ -340,7 +340,7 @@ fn publish_fleet_inventory_reports_zero_eligible_when_all_missing() {
             inventory.to_str().unwrap(),
         ],
     );
-    assert_eq!(out.get("compose_ready").and_then(Value::as_u64), Some(0));
+    assert_eq!(out.get("publishable").and_then(Value::as_u64), Some(0));
     let mut cmd = clean_cmd();
     cmd.arg("--registry").arg(tmp.path());
     cmd.arg("publish")

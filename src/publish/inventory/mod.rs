@@ -7,8 +7,35 @@
 //! inventory carries every project, including ones that lack a
 //! Compose file — `compose_missing`, `invalid`, and
 //! `source_unavailable` are reported per project instead of being
-//! filtered out. Only `compose_ready` entries start a Mac Docker
-//! workload through the existing provider transport.
+//! filtered out.
+//!
+//! ## Runtime kinds and the host model
+//!
+//! Every entry declares a runtime kind. Forge Core owns that
+//! vocabulary in [`crate::runtime`], and every kind declares how its
+//! artifact is hosted:
+//!
+//! - `web`, `worker` and `job` are **own-process** kinds: the
+//!   artifact runs as a process of its own, with its own container and
+//!   its own deploy target.
+//! - `library` is the **shared-host** kind: the artifact is a module
+//!   loaded into a host another project owns, and several modules can
+//!   share one host.
+//!
+//! ## The publishing rule
+//!
+//! An entry is published when it is compose-ready **and** its runtime
+//! kind is an own-process kind. A shared-host entry is reported and
+//! never published, whatever Compose file it declares, because the
+//! host that adopts the module owns its lifecycle. Every reported row
+//! whose runtime kind was read names its host model, and a shared-host
+//! row carries the reason that it is a module hosted by the project
+//! that adopts it. A row whose runtime kind could not be read names
+//! neither: it carries the refusal and nothing else.
+//!
+//! The rule lives in one function — `is_publishable` — and the
+//! observe lane (`forge fleet online`) reads it too, so a module the
+//! fleet never started is never probed.
 //!
 //! ## Contract (`forge-project-inventory/0.1.0`)
 //!
@@ -44,10 +71,12 @@
 //! - `invalid`           — contract validation refused the entry.
 //! - `source_unavailable`— `source_path` does not resolve on this host.
 //!
-//! `forge publish fleet` reports every entry; only `compose_ready`
-//! entries invoke the provider, never the others. Missing Compose
-//! and unresolvable sources are explicit fleet outcomes, never
-//! silent omissions.
+//! The classification is a fact about the declared source path, not a
+//! verdict on the entry. `forge publish fleet` reports every entry;
+//! only the compose-ready entries whose kind is an own-process kind
+//! invoke the provider, never the others. Missing Compose and
+//! unresolvable sources are explicit fleet outcomes, never silent
+//! omissions.
 //!
 //! ## Routing
 //!
@@ -57,15 +86,16 @@
 //! Caddy/cloudflare wildcard boundary on the Mac; non-web runtimes
 //! run privately regardless of any other flag; databases,
 //! Redis, Jenkins and explicit private workers never reach the
-//! router. Forge owns the decision; the jenkins-local sibling owns
-//! the Caddy renderer and the tunnel refresh.
+//! router. A shared-host module may not expose HTTP at all, and the
+//! refusal names the host model. Forge owns the decision; the
+//! jenkins-local sibling owns the Caddy renderer and the tunnel
+//! refresh.
 
 pub mod classification_display;
 pub mod limits;
 pub mod model;
 pub mod payload;
 pub mod pipeline;
-pub mod runtime_display;
 
 // Re-export all types
 pub use limits::*;

@@ -29,7 +29,8 @@ pub(crate) fn cmd_inventory(
             let mut human = format!(
                 "inventory {contract}: {provider} at {source}, declared={declared}, \
                  compose_ready={ready}, compose_missing={missing}, \
-                 source_unavailable={unavailable}, invalid={invalid}\n",
+                 source_unavailable={unavailable}, invalid={invalid}, \
+                 publishable={publishable}\n",
                 contract = report.contract,
                 provider = report.provider,
                 source = source_label(&snapshot),
@@ -66,12 +67,15 @@ pub(crate) fn cmd_inventory(
                         forge::publish::inventory::InventoryClassification::Invalid
                     ))
                     .count(),
+                publishable = report.publishable().count(),
             );
             for entry in &report.entries {
                 human.push_str(&format!(
-                    "  {id:<20} {runtime:<8} {classification:<18} subdomain={subdomain}\n",
+                    "  {id:<20} {runtime:<8} {host_model:<13} {classification:<18} \
+                     subdomain={subdomain}\n",
                     id = entry.id,
-                    runtime = entry.runtime.as_str(),
+                    runtime = entry.runtime.map(|kind| kind.as_str()).unwrap_or("-"),
+                    host_model = entry.host_model.map(|model| model.as_str()).unwrap_or("-"),
                     classification = entry.classification.as_str(),
                     subdomain = entry.subdomain.as_deref().unwrap_or("-"),
                 ));
@@ -119,7 +123,7 @@ fn render_fleet_online_plan(
         "  probe plan: 2) ssh {target} env PATH=<docker-desktop> /usr/local/bin/docker ps --no-trunc --format ...\n"
     ));
     out.push_str(&format!(
-        "  probe plan: 3) per compose-ready entry with a served route, one bounded HTTPS GET (curl -s -m {timeout_secs} --max-filesize 65536 https://<host>); per-host list is resolved at runtime from the served Caddyfile, not printed here\n"
+        "  probe plan: 3) per publishable entry (compose-ready and an own-process runtime kind) with a served route, one bounded HTTPS GET (curl -s -m {timeout_secs} --max-filesize 65536 https://<host>); per-host list is resolved at runtime from the served Caddyfile, not printed here\n"
     ));
     out
 }
@@ -128,11 +132,14 @@ fn render_fleet_online_plan(
 /// whether every routed host is online. Mirrors `cmd_publish_fleet`'s
 /// inventory resolution exactly: explicit `--inventory` first, then
 /// the legacy workspace-governance registry compatibility adapter,
-/// then the inventory classification. Only `compose_ready` entries
-/// are probed; the others are reported with their classification,
-/// never silently omitted. The whole surface is read-only: no
-/// journal rows, no registry writes, no target writes, and every
-/// captured string passes through `policy::redact_credentials`.
+/// then the inventory classification. An entry is probed when the
+/// fleet would have published it — compose-ready **and** an
+/// own-process runtime kind — so a module the fleet never started is
+/// reported, never probed. The others are reported with their
+/// classification, never silently omitted. The whole surface is
+/// read-only: no journal rows, no registry writes, no target writes,
+/// and every captured string passes through
+/// `policy::redact_credentials`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn cmd_fleet_online(
     inventory: Option<&std::path::Path>,
@@ -144,9 +151,9 @@ pub(super) fn cmd_fleet_online(
     format: Format,
 ) -> Result<Output, ForgeError> {
     use forge::fleet::online::{
-        caddyfile_path_from_env, cat_caddyfile_command, classify, docker_ps_command,
-        match_container, parse_caddyfile_hosts, probe_http, route_for_project, ssh_target_from_env,
-        ProbeFacts, DEFAULT_HTTP_TIMEOUT_SECS, LIVENESS_CONTRACT_VERSION, MAX_HTTP_TIMEOUT_SECS,
+        caddyfile_path_from_env, cat_caddyfile_command, docker_ps_command, match_container,
+        parse_caddyfile_hosts, probe_http, route_for_project, ssh_target_from_env, ProbeFacts,
+        DEFAULT_HTTP_TIMEOUT_SECS, LIVENESS_CONTRACT_VERSION, MAX_HTTP_TIMEOUT_SECS,
         SSH_TARGET_ENV,
     };
     use forge::publish::fleet::{default_registry_path, default_workspace_root};
@@ -199,10 +206,15 @@ pub(super) fn cmd_fleet_online(
             .map(|entry| forge::fleet::online::LivenessEntry {
                 id: entry.id.clone(),
                 classification: entry.classification.as_str().to_string(),
+                host_model: entry.host_model,
                 container: None,
                 route: None,
                 http_status: None,
-                verdict: forge::fleet::online::Verdict::Unavailable,
+                verdict: if entry.is_publishable() {
+                    forge::fleet::online::Verdict::Unavailable
+                } else {
+                    forge::fleet::online::Verdict::Skipped
+                },
                 detail: None,
             })
             .collect();
@@ -313,99 +325,85 @@ pub(super) fn cmd_fleet_online(
         });
     }
 
-    let mut assembled: Vec<(String, String, ProbeFacts, Option<String>)> =
+    let mut assembled: Vec<forge::fleet::online::LivenessCandidate> =
         Vec::with_capacity(fleet_report.entries.len());
     for entry in &fleet_report.entries {
         let id = entry.id.clone();
-        let classification = entry.classification.as_str().to_string();
-        if classification != "compose_ready" {
-            // Non-ready entries are reported with their classification
-            // and never probed. No container / route / http probe.
-            assembled.push((
+        let classification = entry.classification;
+        let host_model = entry.host_model;
+        if !entry.is_publishable() {
+            // Entries the fleet never published are reported with
+            // their classification and host model and never probed.
+            // No container / route / http probe. A shared-host module
+            // belongs here: the fleet never started it, so probing it
+            // would report a false alarm.
+            assembled.push(forge::fleet::online::LivenessCandidate {
                 id,
                 classification,
-                ProbeFacts {
+                host_model,
+                facts: ProbeFacts {
                     container: None,
                     route: None,
                     http_status: None,
                     body: None,
                     probe_error: None,
                 },
-                None,
-            ));
+            });
             continue;
         }
-        // Compose-ready: build the public URL the served router
+        // Publishable: build the public URL the served router
         // claims, then verify the container is up.
         let route = route_for_project(&routes, &id, &domain);
         let container = match_container(&docker_stdout, &id);
         match route {
-            None => assembled.push((
+            None => assembled.push(forge::fleet::online::LivenessCandidate {
                 id,
                 classification,
-                ProbeFacts {
+                host_model,
+                facts: ProbeFacts {
                     container,
                     route: None,
                     http_status: None,
                     body: None,
                     probe_error: None,
                 },
-                None,
-            )),
+            }),
             Some(host) => {
                 let url = format!("https://{host}");
                 let probe = probe_http(&url, timeout_secs);
                 match probe {
-                    Ok((status, body)) => assembled.push((
+                    Ok((status, body)) => assembled.push(forge::fleet::online::LivenessCandidate {
                         id,
                         classification,
-                        ProbeFacts {
+                        host_model,
+                        facts: ProbeFacts {
                             container,
                             route: Some(host.clone()),
                             http_status: Some(status),
                             body: Some(body),
                             probe_error: None,
                         },
-                        Some(url),
-                    )),
-                    Err(err) => assembled.push((
+                    }),
+                    Err(err) => assembled.push(forge::fleet::online::LivenessCandidate {
                         id,
                         classification,
-                        ProbeFacts {
+                        host_model,
+                        facts: ProbeFacts {
                             container,
                             route: Some(host.clone()),
                             http_status: None,
                             body: None,
                             probe_error: Some(err.to_string()),
                         },
-                        Some(url),
-                    )),
+                    }),
                 }
             }
         }
     }
 
-    // Run every entry through the classifier (one place so the
-    // verdict matrix has exactly one source of truth).
-    let entries: Vec<(String, String, ProbeFacts)> = assembled
-        .into_iter()
-        .map(|(id, classification, facts, _url)| (id, classification, facts))
-        .collect();
-    let probe_results: Vec<(String, String, ProbeFacts)> = entries.clone();
-    let mut entries_for_report: Vec<(String, String, ProbeFacts)> =
-        Vec::with_capacity(entries.len());
-    let mut probe_summary: std::collections::BTreeMap<&'static str, usize> =
-        std::collections::BTreeMap::new();
-    for (id, classification, facts) in probe_results {
-        let (verdict, _status, _detail) = classify(facts.clone());
-        *probe_summary.entry(verdict.as_str()).or_insert(0) += 1;
-        entries_for_report.push((id, classification, facts));
-    }
-    let _ = probe_summary;
-
     let now = forge::publish::inventory::now_rfc3339();
     let report = forge::fleet::online::build_report(
-        entries_for_report,
+        assembled,
         source_label.clone(),
         target.clone(),
         domain.clone(),
@@ -437,11 +435,15 @@ pub(super) fn cmd_fleet_online(
             .unwrap_or_else(|| "-".to_string());
         let detail = entry.detail.as_deref().unwrap_or("");
         human.push_str(&format!(
-            "  {id:<24} {verdict:<13} classification={classification:<14} \
+            "  {id:<24} {verdict:<13} classification={classification:<14} host_model={host_model:<13} \
              container={container:<24} route={route:<32} http={status:<4} {detail}\n",
             id = entry.id,
             verdict = entry.verdict.as_str(),
             classification = entry.classification,
+            host_model = entry
+                .host_model
+                .map(|model| model.as_str())
+                .unwrap_or("-"),
             container = container,
             route = route,
             status = status,

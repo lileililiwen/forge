@@ -73,11 +73,24 @@ pub(super) fn cmd_publish_fleet(
     };
 
     let fleet_report = classify(&snapshot, DEFAULT_DOMAIN);
+    // An entry is publishable when it is compose-ready **and** its
+    // runtime kind is an own-process kind. A shared-host entry is a
+    // module: the host that adopts it owns its lifecycle, so the
+    // fleet never starts it.
     let eligible: Vec<forge::publish::inventory::InventoryFleetEntry> = fleet_report
         .entries
         .iter()
-        .filter(|entry| entry.classification == InventoryClassification::ComposeReady)
+        .filter(|entry| entry.is_publishable())
         .cloned()
+        .collect();
+    // Held back by the host model: compose-ready, but hosted by
+    // another project.
+    let held_back: Vec<&forge::publish::inventory::InventoryFleetEntry> = fleet_report
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.classification == InventoryClassification::ComposeReady && !entry.is_publishable()
+        })
         .collect();
     let skipped: Vec<&forge::publish::inventory::InventoryFleetEntry> = fleet_report
         .entries
@@ -93,23 +106,22 @@ pub(super) fn cmd_publish_fleet(
             "provider": snapshot.provider,
             "generated_at": snapshot.generated_at,
             "declared": declared,
-            "compose_ready": 0,
-            "skipped": skipped.iter().map(|entry| {
-                serde_json::json!({
-                    "id": entry.id,
-                    "classification": entry.classification.as_str(),
-                    "reason": entry.reason,
-                })
-            }).collect::<Vec<_>>(),
+            "publishable": 0,
+            "held_back": held_back.len(),
+            "skipped": skipped.iter().cloned().map(fleet_row).collect::<Vec<_>>(),
+            "held_back_entries": held_back.iter().cloned().map(fleet_row).collect::<Vec<_>>(),
         });
         let human = format!(
-            "fleet publish: 0/{declared} compose_ready in {source_label}; nothing to publish"
+            "fleet publish: 0/{declared} publishable in {source_label}; nothing to publish{}",
+            shared_host_note(held_back.len())
         );
         render_output(as_output(format, human, summary));
         return Err(ForgeError::PublishInvalid {
             reason: format!(
-                "no compose_ready entries in inventory source `{source_label}`; \
-                 check that every project declares a Compose file at a resolvable source path"
+                "no publishable entries in inventory source `{source_label}`; \
+                 an entry is publishable when it is compose-ready and its runtime kind is \
+                 an own-process kind{}",
+                shared_host_note(held_back.len())
             ),
         });
     }
@@ -728,17 +740,9 @@ pub(super) fn cmd_publish_fleet(
         }
     }
 
-    let skipped_summary: Vec<serde_json::Value> = skipped
-        .iter()
-        .map(|entry| {
-            serde_json::json!({
-                "id": entry.id,
-                "runtime": entry.runtime.as_str(),
-                "classification": entry.classification.as_str(),
-                "reason": entry.reason,
-            })
-        })
-        .collect();
+    let skipped_summary: Vec<serde_json::Value> = skipped.iter().cloned().map(fleet_row).collect();
+    let held_back_summary: Vec<serde_json::Value> =
+        held_back.iter().cloned().map(fleet_row).collect();
     let summary = serde_json::json!({
         "contract": forge::publish::inventory::INVENTORY_CONTRACT_VERSION,
         "inventory_source": source_label,
@@ -747,20 +751,25 @@ pub(super) fn cmd_publish_fleet(
         "fleet": {
             "queue_id": queue_id,
             "declared": snapshot.declared_count(),
-            "compose_ready": eligible.len(),
+            "publishable": eligible.len(),
+            "held_back": held_back.len(),
             "skipped": skipped.len(),
             "success": success_count,
             "failed": failure_count,
             "projects": summaries,
             "skipped_entries": skipped_summary,
+            "held_back_entries": held_back_summary,
         },
     });
     let human = format!(
-        "fleet publish: {}/{} compose_ready succeeded, {} skipped ({} in {source_label})",
+        "fleet publish: {}/{} publishable succeeded, {} held back, {} skipped \
+         ({} in {source_label}){}",
         success_count,
         eligible.len(),
+        held_back.len(),
         skipped.len(),
         snapshot.declared_count(),
+        shared_host_note(held_back.len()),
     );
 
     let summary = {
@@ -782,4 +791,40 @@ pub(super) fn cmd_publish_fleet(
     } else {
         Ok(Output::Human(String::new()))
     }
+}
+
+/// The rule that held a shared-host entry back, named in the
+/// operator's summary. Empty when nothing was held back, so the
+/// message stays true either way.
+fn shared_host_note(held_back: usize) -> &'static str {
+    if held_back > 0 {
+        "; a shared-host module is never started by the fleet"
+    } else {
+        ""
+    }
+}
+
+/// One reported fleet row: the entry, the runtime kind it declares,
+/// the host model that kind declares, its classification and the
+/// reason it was not published. A refused entry names no runtime
+/// kind and no host model — the keys are absent rather than filled
+/// with a placeholder.
+fn fleet_row(entry: &forge::publish::inventory::InventoryFleetEntry) -> serde_json::Value {
+    let mut row = serde_json::Map::new();
+    row.insert("id".to_string(), serde_json::json!(entry.id));
+    if let Some(runtime) = entry.runtime {
+        row.insert("runtime".to_string(), serde_json::json!(runtime.as_str()));
+    }
+    if let Some(host_model) = entry.host_model {
+        row.insert(
+            "host_model".to_string(),
+            serde_json::json!(host_model.as_str()),
+        );
+    }
+    row.insert(
+        "classification".to_string(),
+        serde_json::json!(entry.classification.as_str()),
+    );
+    row.insert("reason".to_string(), serde_json::json!(entry.reason));
+    serde_json::Value::Object(row)
 }

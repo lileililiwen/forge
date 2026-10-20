@@ -4,7 +4,14 @@
 Read-only `forge fleet online` verdicts that join the target’s running containers, served router rules and application answers into one typed online/offline status per roster project.
 ## Requirements
 ### Requirement: Read-only fleet online verdicts
-Forge SHALL provide `forge fleet online` which joins, per `compose_ready` roster entry, the target container state, the served router rules, and one bounded HTTPS probe into a typed verdict of `ONLINE`, `DOWN`, `NO-ROUTE`, or `NOT-DEPLOYED`, without writing the journal, registry, or target and without reading secret values.
+Forge SHALL provide `forge fleet online` which joins, per publishable roster
+entry — one the fleet would have published: compose-ready and an own-process
+runtime kind — the target container state, the served router rules, and one
+bounded HTTPS probe into a typed verdict of `ONLINE`, `DOWN`, `NO-ROUTE`, or
+`NOT-DEPLOYED`, without writing the journal, registry, or target and without
+reading secret values. An entry the fleet never published SHALL be reported
+with its classification and host model and SHALL NOT be probed, so a module
+never reads as a service that failed to start.
 
 #### Scenario: Online fleet renders all-online
 - **WHEN** every routed host answers through its public URL with a non-fallback, non-gateway-error status and every container is present
@@ -17,6 +24,10 @@ Forge SHALL provide `forge fleet online` which joins, per `compose_ready` roster
 #### Scenario: Missing route or container is explicit
 - **WHEN** a roster project has no served router rule or no target container
 - **THEN** it verdicts `NO-ROUTE` or `NOT-DEPLOYED` respectively, is never probed further than needed, and the command exits non-zero
+
+#### Scenario: A module is never probed
+- **WHEN** a roster entry declares a shared-host runtime kind and is compose-ready
+- **THEN** it is reported as `SKIPPED` with its host model and the reason that the project which adopts it owns the lifecycle, and it is never probed
 
 #### Scenario: Read-only guarantee
 - **WHEN** `forge fleet online` runs against any target

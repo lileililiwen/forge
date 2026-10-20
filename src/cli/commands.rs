@@ -119,8 +119,10 @@ pub(crate) enum PublishCommands {
     /// `forge-project-inventory/0.1.0` contract (local file or
     /// external adapter) and reports every entry as
     /// `compose_ready`, `compose_missing`, `invalid`, or
-    /// `source_unavailable`. Only `compose_ready` entries invoke a
-    /// provider; the others are reported, never silently dropped.
+    /// `source_unavailable`. An entry invokes a provider when it is
+    /// compose-ready **and** its runtime kind is an own-process kind;
+    /// a shared-host module is reported and never started. Every
+    /// other entry is reported, never silently dropped.
     /// The legacy `--fleet-registry` flag is retained as a
     /// compatibility adapter for the seven-project handoff.
     Fleet {

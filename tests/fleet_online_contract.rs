@@ -457,6 +457,68 @@ fn fleet_online_reports_skipped_for_non_ready_entries_and_exits_non_zero() {
 }
 
 #[test]
+fn fleet_online_never_probes_a_shared_host_module() {
+    let tmp = tempdir();
+    let db = bootstrap_registry(&tmp);
+    // A compose-ready `library` entry is a module: the fleet never
+    // started it, so probing it would report a false alarm. The
+    // served Caddyfile routes `alethefy.tooosall.uk` and the target
+    // lists a container for it, so a probe would read `ONLINE` for a
+    // workload that was never started.
+    let source = stage_project_dir(tmp.path(), "alethefy");
+    let inventory = write_inventory_with_entries(
+        tmp.path(),
+        vec![serde_json::json!({
+            "id": "alethefy",
+            "repository": "https://example.invalid/alethefy.git",
+            "revision": SHA,
+            "profile": "rust-product",
+            "runtime": "library",
+            "compose_file": "docker-compose.yml",
+            "source_path": source.to_str().unwrap(),
+            "public_http": false,
+        })],
+    );
+    let fake = FakeSsh::new(SIMPLE_CADDYFILE, SIMPLE_DOCKER_PS);
+    let out = run_with_env(
+        &db,
+        &[
+            "fleet",
+            "online",
+            "--inventory",
+            inventory.to_str().unwrap(),
+        ],
+        &[("FORGE_PUBLISH_SSH_TARGET", fake.target().to_str().unwrap())],
+    );
+    let json = serde_json::from_slice::<Value>(&out.stdout)
+        .unwrap_or_else(|_| panic!("invalid json: stdout={}", lossy(&out.stdout)));
+    let entries = json
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .expect("entries array");
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    assert_eq!(entry["classification"], "compose_ready");
+    assert_eq!(entry["host_model"], "shared_host");
+    assert_eq!(entry["verdict"], "SKIPPED");
+    assert_eq!(json["summary"]["skipped"], 1);
+    assert_eq!(json["summary"]["online"], 0);
+    assert_eq!(json["summary"]["not_deployed"], 0);
+    assert_eq!(json["summary"]["no_route"], 0);
+    let detail = entry["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("module"),
+        "the detail must say the artifact is a module, got {detail}"
+    );
+    assert!(
+        detail.contains("adopts"),
+        "the detail must name the adopter that owns it, got {detail}"
+    );
+    // No probed host is ONLINE; exit must be non-zero.
+    assert!(!out.status.success(), "skipped-only run must exit non-zero");
+}
+
+#[test]
 fn fleet_online_reports_unavailable_when_fake_ssh_returns_empty_stdout_and_nonzero() {
     let tmp = tempdir();
     let db = bootstrap_registry(&tmp);
@@ -561,6 +623,7 @@ fn fleet_online_reports_online_when_route_and_container_are_up() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["verdict"], "ONLINE");
     assert_eq!(entries[0]["http_status"], 200);
+    assert_eq!(entries[0]["host_model"], "own_process");
     assert!(
         out.status.success(),
         "online must exit 0; stderr={}",

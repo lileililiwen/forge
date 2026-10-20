@@ -18,9 +18,11 @@ pub(super) const PLUGINS_CONTRACT: &str = "forge-plugins/0.1.0";
 ///    adapter that synthesizes an inventory snapshot).
 ///
 /// Every declared entry is reported as `compose_ready`,
-/// `compose_missing`, `invalid`, or `source_unavailable`. Only
-/// `compose_ready` entries invoke a provider; the others are
-/// surfaced to the operator instead of silently omitted.
+/// `compose_missing`, `invalid`, or `source_unavailable`. An entry
+/// invokes a provider when it is compose-ready **and** its runtime
+/// kind is an own-process kind; a shared-host module is reported and
+/// never started. Every other entry is surfaced to the operator
+/// instead of silently omitted.
 /// Maximum `--jobs` value: 32 workers bound the target and the
 /// controller without a thread-per-project explosion on large
 /// rosters (`fleet-live-rollout`).

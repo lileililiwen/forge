@@ -41,7 +41,7 @@ After successful per-project deploys, Forge SHALL render the host's `platform/Ca
 
 #### Scenario: Caddy renders after fleet
 - **WHEN** `forge publish fleet` finishes with 20/20 healthy
-- **THEN** `PLATFORM_ROOT/Caddyfile` contains one host rule per `compose_ready` project at `<project>.tooosall.uk` and the `apps` nav host
+- **THEN** `PLATFORM_ROOT/Caddyfile` contains one host rule per published project at `<project>.tooosall.uk` and the `apps` nav host
 
 ### Requirement: Secrets remain target-local
 Forge SHALL NOT read or copy `SECRETS_ROOT/<project>/.env` or `.shared-db.env` contents over SSH; deploys SHALL reference them via `--env-file RUNTIME_ROOT/<project>/production.env` (or `--env-file SECRETS_ROOT/<project>/.env`), and no secret value SHALL appear in the journal, evidence, or Caddy rendering.
@@ -58,11 +58,15 @@ A new cloud host SHALL be targeted by changing only `FORGE_PUBLISH_SSH_TARGET`, 
 - **THEN** `forge publish fleet --dry-run` renders `cloud:<remote_root>/<project>/` and cloud runtime/secret paths without any shell script path
 
 ### Requirement: Contract preservation for roster, journal, and wildcard routing
-`forge publish fleet` SHALL continue to derive the roster from `workspace-governance/projects.json` (or explicit `--inventory` / `--fleet-registry`), filter to `compose_ready` entries only, report every skipped entry explicitly, persist the existing queue/phase `operations` journal without new columns, and route public HTTP hosts through the existing wildcard Cloudflare → Caddy boundary.
+`forge publish fleet` SHALL continue to derive the roster from `workspace-governance/projects.json` (or explicit `--inventory` / `--fleet-registry`), filter to the entries the fleet may publish — compose-ready entries whose runtime kind is an own-process kind — report every entry it did not publish explicitly, persist the existing queue/phase `operations` journal without new columns, and route public HTTP hosts through the existing wildcard Cloudflare → Caddy boundary.
 
 #### Scenario: Fleet eligibility unchanged
 - **WHEN** `forge publish fleet --dry-run --format json` is run against the current `workspace-governance/projects.json`
-- **THEN** it reports `compose_ready=20`, `skipped=48` with each skipped entry's typed classification, and only `compose_ready` entries receive a journal row
+- **THEN** it reports `publishable=20`, `skipped=48` with each skipped entry's typed classification, and only the entries it publishes receive a journal row
+
+#### Scenario: A shared-host module is held back
+- **WHEN** the roster declares an entry whose runtime kind is a shared-host kind
+- **THEN** the fleet reports it with its host model and the reason the adopting project owns it, and does not publish it or write a journal row for it
 
 ### Requirement: Legacy Mac-script adapter retained for one-cycle rollback
 `JenkinsAdapter` (`ssh bash scripts/*.sh`) SHALL remain compiled and selectable for one release cycle after this change so a real-deploy failure can be reverted by an adapter-id/env flag without rebuilding Forge.

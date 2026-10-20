@@ -53,6 +53,7 @@ pub mod model;
 /// Read-only per-project liveness verdicts for a managed fleet
 /// (`fleet-liveness-status`).
 pub mod online;
+pub mod online_tests;
 pub mod registry;
 pub mod registry_tests;
 

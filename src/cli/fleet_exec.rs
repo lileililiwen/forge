@@ -146,9 +146,9 @@ pub(super) fn legacy_inventory_snapshot(
 ) -> Result<forge::publish::inventory::InventorySnapshot, ForgeError> {
     use forge::publish::fleet::{filter_eligible, load_registry};
     use forge::publish::inventory::{
-        InventoryEntry, InventoryMalformedEntry, InventorySnapshot, RuntimeClass,
-        INVENTORY_CONTRACT_VERSION,
+        InventoryEntry, InventoryMalformedEntry, InventorySnapshot, INVENTORY_CONTRACT_VERSION,
     };
+    use forge::runtime::RuntimeKind;
 
     let registry = load_registry(registry_path).map_err(|err| match err {
         ForgeError::PublishInvalid { reason } => ForgeError::PublishInvalid {
@@ -198,7 +198,7 @@ pub(super) fn legacy_inventory_snapshot(
             repository: format!("legacy-registry:{}", registry_path.display()),
             revision,
             profile: entry.profile.clone().unwrap_or_default(),
-            runtime: RuntimeClass::Web,
+            runtime: RuntimeKind::Web,
             compose_file: Some(compose.to_string()),
             source_path: entry
                 .path
@@ -692,7 +692,8 @@ pub(super) mod fleet_jobs_tests {
         let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..8)
             .map(|i| forge::publish::inventory::InventoryFleetEntry {
                 id: format!("proj-{i:02}"),
-                runtime: forge::publish::inventory::RuntimeClass::Web,
+                runtime: Some(forge::runtime::RuntimeKind::Web),
+                host_model: Some(forge::runtime::HostModel::OwnProcess),
                 profile: String::new(),
                 revision: "0".repeat(40),
                 classification: forge::publish::inventory::InventoryClassification::ComposeReady,
@@ -732,7 +733,8 @@ pub(super) mod fleet_jobs_tests {
         let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..5)
             .map(|i| forge::publish::inventory::InventoryFleetEntry {
                 id: format!("proj-{i:02}"),
-                runtime: forge::publish::inventory::RuntimeClass::Web,
+                runtime: Some(forge::runtime::RuntimeKind::Web),
+                host_model: Some(forge::runtime::HostModel::OwnProcess),
                 profile: String::new(),
                 revision: "0".repeat(40),
                 classification: forge::publish::inventory::InventoryClassification::ComposeReady,
@@ -764,7 +766,8 @@ pub(super) mod fleet_jobs_tests {
         let entries: Vec<forge::publish::inventory::InventoryFleetEntry> = (0..6)
             .map(|i| forge::publish::inventory::InventoryFleetEntry {
                 id: format!("proj-{i:02}"),
-                runtime: forge::publish::inventory::RuntimeClass::Web,
+                runtime: Some(forge::runtime::RuntimeKind::Web),
+                host_model: Some(forge::runtime::HostModel::OwnProcess),
                 profile: String::new(),
                 revision: "0".repeat(40),
                 classification: forge::publish::inventory::InventoryClassification::ComposeReady,

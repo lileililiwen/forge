@@ -5,6 +5,7 @@
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
 use crate::publish::providers::validate_revision;
+use crate::runtime::{parse_runtime_kind, HostModel, RuntimeKind, RUNTIME_KIND_NAMES};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use super::limits::{
 };
 use super::model::{
     InventoryClassification, InventoryEntry, InventoryFleetEntry, InventoryFleetReport,
-    InventoryMalformedEntry, InventorySnapshot, RuntimeClass,
+    InventoryMalformedEntry, InventorySnapshot,
 };
 use super::payload::ValidatedPayload;
 
@@ -270,10 +271,19 @@ fn project_entry(raw: &Value) -> Result<InventoryEntry, String> {
         ));
     }
     let profile = string_field(object, "profile").unwrap_or_default();
-    let runtime_raw = string_field(object, "runtime")
-        .ok_or_else(|| format!("entry `{id}` is missing `runtime` (web|worker|job|library)"))?;
-    let runtime = RuntimeClass::parse(&runtime_raw).ok_or_else(|| {
-        format!("entry `{id}` runtime `{runtime_raw}` is not one of web|worker|job|library")
+    let runtime_raw = string_field(object, "runtime").ok_or_else(|| {
+        format!(
+            "entry `{id}` is missing `runtime` ({})",
+            RUNTIME_KIND_NAMES.join("|")
+        )
+    })?;
+    // The shared parser owns the refusal; the pipeline rewords it so
+    // the entry that failed is named.
+    let runtime = parse_runtime_kind(&runtime_raw).map_err(|_| {
+        format!(
+            "entry `{id}` runtime `{runtime_raw}` is not one of {}",
+            RUNTIME_KIND_NAMES.join("|")
+        )
     })?;
     let compose_file = object
         .get("compose_file")
@@ -300,10 +310,21 @@ fn project_entry(raw: &Value) -> Result<InventoryEntry, String> {
             }
         })
         .unwrap_or(None);
-    if public_http && !matches!(runtime, RuntimeClass::Web) {
-        return Err(format!(
-            "entry `{id}` declares public_http but runtime is `{runtime}`; only web may expose HTTP"
-        ));
+    if public_http && !matches!(runtime, RuntimeKind::Web) {
+        // The refusal names the host model the runtime declares: a
+        // shared-host module is hosted by the project that adopts it,
+        // so it never exposes HTTP; an own-process runtime may only
+        // do so when it is a web service.
+        return Err(match runtime.host_model() {
+            HostModel::SharedHost => format!(
+                "entry `{id}` declares public_http but runtime `{runtime}` is a shared-host module; \
+                 only an own-process runtime may expose HTTP"
+            ),
+            HostModel::OwnProcess => format!(
+                "entry `{id}` declares public_http but runtime `{runtime}` is an own-process runtime; \
+                 only a web runtime may expose HTTP"
+            ),
+        });
     }
     if public_http && public_port.is_none() {
         return Err(format!(
@@ -388,7 +409,12 @@ pub fn classify(snapshot: &InventorySnapshot, domain: &str) -> InventoryFleetRep
     for malformed in &snapshot.malformed {
         entries.push(InventoryFleetEntry {
             id: malformed.name.clone(),
-            runtime: RuntimeClass::Library,
+            // The entry was refused before its runtime could be
+            // read, so the row names no kind and no host model. A
+            // placeholder would read as a claim the entry never
+            // made.
+            runtime: None,
+            host_model: None,
             profile: String::new(),
             revision: String::new(),
             classification: InventoryClassification::Invalid,
@@ -436,7 +462,8 @@ fn classify_entry(entry: &InventoryEntry, domain: &str) -> InventoryFleetEntry {
     };
     InventoryFleetEntry {
         id: entry.id.clone(),
-        runtime: entry.runtime,
+        runtime: Some(entry.runtime),
+        host_model: Some(entry.runtime.host_model()),
         profile: entry.profile.clone(),
         revision: entry.revision.clone(),
         classification,
@@ -445,8 +472,18 @@ fn classify_entry(entry: &InventoryEntry, domain: &str) -> InventoryFleetEntry {
         public_http: entry.public_http,
         public_port: entry.public_port,
         subdomain: entry.subdomain(domain),
-        reason: None,
+        reason: shared_host_reason(entry.runtime),
     }
+}
+
+/// The reason a row carries when its runtime kind is a shared-host
+/// kind. A module is hosted by the project that adopts it, so the
+/// fleet never starts one — whatever Compose file it declares.
+fn shared_host_reason(runtime: RuntimeKind) -> Option<String> {
+    runtime
+        .host_model()
+        .hold_back_reason()
+        .map(|reason| reason.to_string())
 }
 
 /// Optional deterministic clock for tests.
@@ -464,6 +501,7 @@ pub fn fleet_report(
 pub(super) mod tests {
     use super::*;
     use crate::publish::inventory::limits::DEFAULT_DOMAIN;
+    use crate::runtime::SHARED_HOST_REASON;
     use tempfile::TempDir;
 
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -501,12 +539,12 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn runtime_class_parses_known_values() {
-        assert_eq!(RuntimeClass::parse("web"), Some(RuntimeClass::Web));
-        assert_eq!(RuntimeClass::parse("WORKER"), Some(RuntimeClass::Worker));
-        assert_eq!(RuntimeClass::parse("job"), Some(RuntimeClass::Job));
-        assert_eq!(RuntimeClass::parse("library"), Some(RuntimeClass::Library));
-        assert_eq!(RuntimeClass::parse("database"), None);
+    fn runtime_kind_parses_known_values() {
+        assert_eq!(RuntimeKind::parse("web"), Some(RuntimeKind::Web));
+        assert_eq!(RuntimeKind::parse("WORKER"), Some(RuntimeKind::Worker));
+        assert_eq!(RuntimeKind::parse("job"), Some(RuntimeKind::Job));
+        assert_eq!(RuntimeKind::parse("library"), Some(RuntimeKind::Library));
+        assert_eq!(RuntimeKind::parse("database"), None);
     }
 
     #[test]
@@ -585,16 +623,40 @@ pub(super) mod tests {
             "provider": "local",
             "generated_at": "2026-09-28T00:00:00Z",
             "projects": [{
-                "id": "demo",
-                "repository": "https://example.invalid/demo.git",
+                "id": "app",
+                "repository": "https://example.invalid/app.git",
                 "revision": SHA,
                 "profile": "rust-product",
-                "runtime": "database"
+                "runtime": "svc"
             }]
         });
         let (_, _, entries) = validated_document(&document).unwrap();
         assert_eq!(entries.1.len(), 1);
-        assert!(entries.1[0].reason.contains("runtime"));
+        assert_eq!(
+            entries.1[0].reason,
+            "entry `app` runtime `svc` is not one of web|worker|job|library"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_runtime() {
+        let document = serde_json::json!({
+            "contract": INVENTORY_CONTRACT_VERSION,
+            "provider": "local",
+            "generated_at": "2026-09-28T00:00:00Z",
+            "projects": [{
+                "id": "app",
+                "repository": "https://example.invalid/app.git",
+                "revision": SHA,
+                "profile": "rust-product"
+            }]
+        });
+        let (_, _, entries) = validated_document(&document).unwrap();
+        assert_eq!(entries.1.len(), 1);
+        assert_eq!(
+            entries.1[0].reason,
+            "entry `app` is missing `runtime` (web|worker|job|library)"
+        );
     }
 
     #[test]
@@ -616,6 +678,36 @@ pub(super) mod tests {
         let (_, _, entries) = validated_document(&document).unwrap();
         assert_eq!(entries.1.len(), 1);
         assert!(entries.1[0].reason.contains("public_http"));
+        assert!(
+            entries.1[0].reason.contains("own-process"),
+            "the refusal must name the host model, got {}",
+            entries.1[0].reason
+        );
+    }
+
+    #[test]
+    fn rejects_public_http_for_a_shared_host_module() {
+        let document = serde_json::json!({
+            "contract": INVENTORY_CONTRACT_VERSION,
+            "provider": "local",
+            "generated_at": "2026-09-28T00:00:00Z",
+            "projects": [{
+                "id": "platform-modules",
+                "repository": "https://example.invalid/platform-modules.git",
+                "revision": SHA,
+                "profile": "rust-product",
+                "runtime": "library",
+                "public_http": true,
+                "public_port": 8080
+            }]
+        });
+        let (_, _, entries) = validated_document(&document).unwrap();
+        assert_eq!(entries.1.len(), 1);
+        assert_eq!(
+            entries.1[0].reason,
+            "entry `platform-modules` declares public_http but runtime `library` is a \
+             shared-host module; only an own-process runtime may expose HTTP"
+        );
     }
 
     #[test]
@@ -753,6 +845,79 @@ pub(super) mod tests {
         }]);
         let report = classify(&snapshot, DEFAULT_DOMAIN);
         assert!(report.entries[0].subdomain.is_none());
+    }
+
+    #[test]
+    fn a_shared_host_entry_is_reported_and_never_publishable() {
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("platform-modules");
+        std::fs::create_dir(&project).unwrap();
+        std::fs::write(project.join("docker-compose.yml"), "services: {}").unwrap();
+        let snapshot = snapshot_from(vec![{
+            let mut value = entry_json("platform-modules", "library", Some("docker-compose.yml"));
+            value["source_path"] = serde_json::json!(project.display().to_string());
+            value
+        }]);
+        let report = classify(&snapshot, DEFAULT_DOMAIN);
+        assert_eq!(report.entries.len(), 1);
+        let entry = &report.entries[0];
+        assert_eq!(entry.runtime, Some(RuntimeKind::Library));
+        assert_eq!(entry.host_model, Some(HostModel::SharedHost));
+        assert_eq!(
+            entry.classification,
+            InventoryClassification::ComposeReady,
+            "the compose file exists; the classification is a fact"
+        );
+        assert_eq!(entry.reason.as_deref(), Some(SHARED_HOST_REASON));
+        assert!(
+            !entry.is_publishable(),
+            "a shared-host module is never published"
+        );
+        assert_eq!(
+            report.publishable().count(),
+            0,
+            "a shared-host module is not in the publishable set"
+        );
+    }
+
+    #[test]
+    fn an_own_process_entry_is_publishable_when_compose_ready() {
+        let tmp = TempDir::new().unwrap();
+        let mut projects = Vec::new();
+        for (id, runtime) in [("webapp", "web"), ("worker", "worker"), ("job", "job")] {
+            let project = tmp.path().join(id);
+            std::fs::create_dir(&project).unwrap();
+            std::fs::write(project.join("docker-compose.yml"), "services: {}").unwrap();
+            let mut value = entry_json(id, runtime, Some("docker-compose.yml"));
+            value["source_path"] = serde_json::json!(project.display().to_string());
+            projects.push(value);
+        }
+        let snapshot = snapshot_from(projects);
+        let report = classify(&snapshot, DEFAULT_DOMAIN);
+        assert_eq!(report.entries.len(), 3);
+        for entry in report.entries.iter() {
+            assert_eq!(entry.host_model, Some(HostModel::OwnProcess));
+            assert_eq!(entry.classification, InventoryClassification::ComposeReady);
+            assert!(entry.reason.is_none());
+            assert!(entry.is_publishable());
+        }
+        assert_eq!(report.publishable().count(), 3);
+    }
+
+    #[test]
+    fn a_shared_host_entry_without_a_compose_file_is_still_reported_as_a_module() {
+        let snapshot = snapshot_from(vec![entry_json("platform-modules", "library", None)]);
+        let report = classify(&snapshot, DEFAULT_DOMAIN);
+        assert_eq!(
+            report.entries[0].classification,
+            InventoryClassification::ComposeMissing
+        );
+        assert_eq!(report.entries[0].host_model, Some(HostModel::SharedHost));
+        assert_eq!(
+            report.entries[0].reason.as_deref(),
+            Some(SHARED_HOST_REASON)
+        );
+        assert_eq!(report.publishable().count(), 0);
     }
 
     #[test]

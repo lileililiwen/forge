@@ -4,6 +4,15 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::runtime::{HostModel, RuntimeKind};
+
+/// The reason a shared-host entry carries. A module is hosted by the
+/// project that adopts it, so the fleet never starts one.
+///
+/// The wording lives in [`crate::runtime`], which owns the host model;
+/// it is re-exported here so the publish lane reads it from one place.
+pub use crate::runtime::SHARED_HOST_REASON;
+
 /// The normalized inventory snapshot returned by every source
 /// (local file or external adapter). Stable across sources so the
 /// fleet summary can render the same shape regardless of provider.
@@ -56,7 +65,7 @@ pub struct InventoryEntry {
     pub repository: String,
     pub revision: String,
     pub profile: String,
-    pub runtime: RuntimeClass,
+    pub runtime: RuntimeKind,
     /// Compose file name relative to `source_path` (typically
     /// `docker-compose.yml`). `None` means the entry is reported
     /// as `compose_missing`; it is never silently dropped.
@@ -79,7 +88,7 @@ impl InventoryEntry {
     /// The subdomain this entry receives when it is `compose_ready`
     /// and `public_http`. Empty string for non-public services.
     pub fn subdomain(&self, domain: &str) -> Option<String> {
-        if self.public_http && matches!(self.runtime, RuntimeClass::Web) {
+        if self.public_http && matches!(self.runtime, RuntimeKind::Web) {
             Some(format!("{}.{}", self.id, domain))
         } else {
             None
@@ -100,7 +109,18 @@ pub struct InventoryMalformedEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryFleetEntry {
     pub id: String,
-    pub runtime: RuntimeClass,
+    /// The runtime kind this entry declares. `None` only when the
+    /// entry was refused before its runtime could be read — the row
+    /// then carries no kind at all rather than a placeholder that
+    /// would read as a claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<RuntimeKind>,
+    /// How this entry's runtime kind is hosted. An own-process kind
+    /// runs as a workload of its own; a shared-host kind is a module
+    /// hosted by the project that adopts it. `None` when the runtime
+    /// kind could not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_model: Option<HostModel>,
     pub profile: String,
     pub revision: String,
     pub classification: InventoryClassification,
@@ -114,39 +134,38 @@ pub struct InventoryFleetEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
-/// The runtime class of a project. The vocabulary is intentionally
-/// narrow: only these four strings are accepted; any other value
-/// surfaces as `invalid`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RuntimeClass {
-    Web,
-    Worker,
-    Job,
-    Library,
+impl InventoryFleetEntry {
+    /// Whether the fleet may publish this entry.
+    ///
+    /// An entry is publishable when it is compose-ready **and** its
+    /// runtime kind is an own-process kind. A shared-host entry is a
+    /// module: the project that adopts it owns its lifecycle, so the
+    /// fleet never starts it.
+    pub fn is_publishable(&self) -> bool {
+        is_publishable(self.classification, self.host_model)
+    }
 }
-impl RuntimeClass {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RuntimeClass::Web => "web",
-            RuntimeClass::Worker => "worker",
-            RuntimeClass::Job => "job",
-            RuntimeClass::Library => "library",
-        }
-    }
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "web" => Some(RuntimeClass::Web),
-            "worker" => Some(RuntimeClass::Worker),
-            "job" => Some(RuntimeClass::Job),
-            "library" => Some(RuntimeClass::Library),
-            _ => None,
-        }
-    }
+
+/// The fleet's publishing rule, in one place.
+///
+/// An entry is publishable when it is compose-ready **and** its
+/// runtime kind is an own-process kind. A shared-host entry is a
+/// module: the project that adopts it owns its lifecycle, so the
+/// fleet never starts it. An entry whose runtime kind could not be
+/// read is never publishable.
+///
+/// The publish lane and the observe lane both read this rule, so a
+/// module the fleet never started is never probed either.
+pub fn is_publishable(
+    classification: InventoryClassification,
+    host_model: Option<HostModel>,
+) -> bool {
+    classification == InventoryClassification::ComposeReady
+        && host_model == Some(HostModel::OwnProcess)
 }
 /// The full fleet classification result. Every declared entry is
-/// present exactly once; only `compose_ready` entries are eligible
-/// for provider invocation.
+/// present exactly once; only the entries that are compose-ready and
+/// hosted by their own process are eligible for provider invocation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryFleetReport {
     pub contract: String,
@@ -157,9 +176,9 @@ pub struct InventoryFleetReport {
     pub entries: Vec<InventoryFleetEntry>,
 }
 impl InventoryFleetReport {
-    pub fn compose_ready(&self) -> impl Iterator<Item = &InventoryFleetEntry> {
-        self.entries
-            .iter()
-            .filter(|e| e.classification == InventoryClassification::ComposeReady)
+    /// The entries the fleet may publish: compose-ready and hosted by
+    /// their own process.
+    pub fn publishable(&self) -> impl Iterator<Item = &InventoryFleetEntry> {
+        self.entries.iter().filter(|entry| entry.is_publishable())
     }
 }

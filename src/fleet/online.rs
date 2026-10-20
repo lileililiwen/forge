@@ -8,8 +8,8 @@
 //! Cloudflare 502s (rule without upstream), and crash loops
 //! (missing target secrets) — all invisible to the journal.
 //!
-//! This module joins three live facts per `compose_ready` roster
-//! entry into one typed verdict:
+//! This module joins three live facts per publishable roster entry
+//! into one typed verdict:
 //!
 //! - **container**: the target's `docker ps` names+status over the
 //!   existing SSH transport.
@@ -23,6 +23,16 @@
 //! [`crate::policy::redact_credentials`] before it reaches a report
 //! or the operator.
 //!
+//! ## The roster rule
+//!
+//! An entry is probed when the fleet would have published it:
+//! compose-ready **and** an own-process runtime kind. That is the
+//! fleet's publishing rule, read from the same place the publish
+//! lane reads it ([`crate::publish::inventory::is_publishable`]).
+//! A shared-host entry is a module the fleet never started, so
+//! probing it would report a false alarm; it is reported as skipped
+//! with the reason that names the host that owns it.
+//!
 //! ## Contract (`forge-fleet-liveness/0.1.0`)
 //!
 //! ```json
@@ -35,6 +45,7 @@
 //!   "entries": [{
 //!     "id": "alethefy",
 //!     "classification": "compose_ready",
+//!     "host_model": "own_process",
 //!     "container": "forge-alethefy-0123456789ab (Up 5m)",
 //!     "route": "http://alethefy.tooosall.uk",
 //!     "http_status": 200,
@@ -52,6 +63,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
+use crate::publish::inventory::{is_publishable, InventoryClassification};
+use crate::runtime::HostModel;
 
 /// Versioned contract for the fleet-liveness surface.
 pub const LIVENESS_CONTRACT_VERSION: &str = "forge-fleet-liveness/0.1.0";
@@ -107,10 +120,17 @@ const GATEWAY_ERROR_STATUSES: &[u16] = &[502, 503, 504];
 pub struct LivenessEntry {
     pub id: String,
     /// The fleet classification this entry had when selected.
-    /// Only `compose_ready` entries are ever probed; non-`ready`
-    /// entries appear in the report with their own classification so
-    /// the operator can see what was skipped.
+    /// Only publishable entries are ever probed; the others appear
+    /// in the report with their own classification so the operator
+    /// can see what was skipped.
     pub classification: String,
+    /// How this entry's runtime kind is hosted. An own-process kind
+    /// runs as a workload of its own; a shared-host kind is a module
+    /// hosted by the project that adopts it, so the fleet never
+    /// started it and it is never probed. `None` when the entry's
+    /// runtime kind could not be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_model: Option<HostModel>,
     /// First matched `docker ps` row, or `None` when the target has
     /// no container for this project. Container strings are redacted
     /// and bounded so a leaky Docker label never reaches the report.
@@ -159,9 +179,10 @@ pub enum Verdict {
     /// know whether to fix the probe or the app.
     #[serde(rename = "UNAVAILABLE")]
     Unavailable,
-    /// The entry was not eligible for probing (anything that is
-    /// not `compose_ready`). Reported with its own classification;
-    /// never probed, never counted as a probe outcome.
+    /// The entry was not eligible for probing (an entry the fleet
+    /// never published: not compose-ready, or a shared-host module).
+    /// Reported with its own classification and host model; never
+    /// probed, never counted as a probe outcome.
     #[serde(rename = "SKIPPED")]
     Skipped,
 }
@@ -194,8 +215,8 @@ pub struct LivenessSummary {
     pub no_route: usize,
     pub not_deployed: usize,
     pub unavailable: usize,
-    /// Entries that were reported but never probed (anything that
-    /// isn't `compose_ready`). Carried as a count so a fleet summary
+    /// Entries that were reported but never probed (an entry the
+    /// fleet never published). Carried as a count so a fleet summary
     /// can answer "did every roster entry get a verdict?" without
     /// walking the entries.
     pub skipped: usize,
@@ -238,6 +259,22 @@ pub struct ProbeFacts {
     pub http_status: Option<u16>,
     pub body: Option<String>,
     pub probe_error: Option<String>,
+}
+
+/// One roster entry the liveness report is built from: the
+/// inventory's identity for it, the classification the inventory gave
+/// it, the host model its runtime kind declares, and the live facts
+/// the probes gathered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LivenessCandidate {
+    /// The inventory's id for the entry.
+    pub id: String,
+    /// The classification the inventory gave the entry.
+    pub classification: InventoryClassification,
+    /// How the entry's runtime kind is hosted.
+    pub host_model: Option<HostModel>,
+    /// The live facts the probes gathered.
+    pub facts: ProbeFacts,
 }
 
 /// Compute one entry's verdict from the joined probe facts. The
@@ -580,12 +617,18 @@ pub fn caddyfile_path_from_env() -> String {
 
 /// Build a `LivenessReport` from one inventory classification
 /// result and one set of probe facts. Carries every roster
-/// entry (compose-ready and skipped) so the operator can see
-/// what was reported versus what was probed. The `target`,
-/// `domain`, and `inventory_source` labels travel with the
-/// report so a JSON consumer can tell two runs apart.
+/// entry (probed and skipped) so the operator can see what was
+/// reported versus what was probed. The `target`, `domain`, and
+/// `inventory_source` labels travel with the report so a JSON
+/// consumer can tell two runs apart.
+///
+/// The rule is the fleet's publishing rule: an entry is probed when
+/// the fleet would have published it. A shared-host entry is a module
+/// the fleet never started, so it is skipped with the reason that
+/// names the host that owns it — probing it would report a false
+/// alarm.
 pub fn build_report(
-    entries: Vec<(String, String, ProbeFacts)>,
+    entries: Vec<LivenessCandidate>,
     inventory_source: String,
     target: String,
     domain: String,
@@ -593,17 +636,31 @@ pub fn build_report(
 ) -> LivenessReport {
     let mut report_entries = Vec::with_capacity(entries.len());
     let mut summary = LivenessSummary::default();
-    for (id, classification, facts) in entries {
-        let (verdict, http_status, detail) = if classification == "compose_ready" {
+    for candidate in entries {
+        let LivenessCandidate {
+            id,
+            classification,
+            host_model,
+            facts,
+        } = candidate;
+        let (verdict, http_status, detail) = if is_publishable(classification, host_model) {
             classify(facts.clone())
         } else {
-            // Non-ready entries are reported with their own
-            // classification and never probed — never run them
-            // through the verdict classifier, which would otherwise
-            // downgrade every non-`ready` entry to `NO-ROUTE` or
-            // `UNAVAILABLE` even when the inventory said the real
-            // reason was `compose_missing` / `source_unavailable`.
-            (Verdict::Skipped, None, None)
+            // Entries the fleet never published are reported with
+            // their own classification and host model and never
+            // probed — never run them through the verdict classifier,
+            // which would otherwise downgrade every one of them to
+            // `NO-ROUTE` or `UNAVAILABLE` even when the inventory
+            // said the real reason was `compose_missing` /
+            // `source_unavailable`, or when the entry is a module
+            // the fleet never started.
+            (
+                Verdict::Skipped,
+                None,
+                host_model
+                    .and_then(|model| model.hold_back_reason())
+                    .map(str::to_string),
+            )
         };
         match verdict {
             Verdict::Online => summary.online += 1,
@@ -615,7 +672,8 @@ pub fn build_report(
         }
         let entry = LivenessEntry {
             id,
-            classification,
+            classification: classification.as_str().to_string(),
+            host_model,
             container: facts.container,
             route: facts.route,
             http_status,
@@ -632,344 +690,5 @@ pub fn build_report(
         domain,
         entries: report_entries,
         summary,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Unit tests — verdict matrix, Caddyfile parser, redaction, probe helpers
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn facts(
-        container: Option<&str>,
-        route: Option<&str>,
-        status: Option<u16>,
-        body: Option<&str>,
-    ) -> ProbeFacts {
-        ProbeFacts {
-            container: container.map(str::to_owned),
-            route: route.map(str::to_owned),
-            http_status: status,
-            body: body.map(str::to_owned),
-            probe_error: None,
-        }
-    }
-
-    #[test]
-    fn classify_marks_no_route_when_route_absent() {
-        let (verdict, status, detail) =
-            classify(facts(Some("forge-alethefy-abc (Up)"), None, None, None));
-        assert_eq!(verdict, Verdict::NoRoute);
-        assert_eq!(status, None);
-        assert!(detail.is_none());
-    }
-
-    #[test]
-    fn classify_marks_not_deployed_when_container_absent() {
-        let (verdict, _status, detail) =
-            classify(facts(None, Some("alethefy.tooosall.uk"), None, None));
-        assert_eq!(verdict, Verdict::NotDeployed);
-        assert_eq!(
-            detail.as_deref(),
-            Some("no compose container running on target")
-        );
-    }
-
-    #[test]
-    fn classify_marks_down_on_gateway_error() {
-        for status in [502u16, 503, 504] {
-            let (verdict, got, detail) = classify(facts(
-                Some("forge-alethefy-abc (Up)"),
-                Some("alethefy.tooosall.uk"),
-                Some(status),
-                Some(""),
-            ));
-            assert_eq!(verdict, Verdict::Down, "status {status}");
-            assert_eq!(got, Some(status));
-            assert!(detail.unwrap_or_default().contains("gateway error"));
-        }
-    }
-
-    #[test]
-    fn classify_marks_down_on_connection_failure() {
-        let (verdict, got, detail) = classify(facts(
-            Some("forge-alethefy-abc (Up)"),
-            Some("alethefy.tooosall.uk"),
-            Some(0),
-            Some(""),
-        ));
-        assert_eq!(verdict, Verdict::Down);
-        assert_eq!(got, Some(0));
-        assert!(detail.unwrap_or_default().contains("connection failed"));
-    }
-
-    #[test]
-    fn classify_marks_down_on_router_fallback_body() {
-        let body = "Unknown application hostname: alethefy.tooosall.uk".to_string();
-        let (verdict, status, detail) = classify(facts(
-            Some("forge-alethefy-abc (Up)"),
-            Some("alethefy.tooosall.uk"),
-            Some(404),
-            Some(&body),
-        ));
-        assert_eq!(verdict, Verdict::Down);
-        assert_eq!(status, Some(404));
-        assert!(detail.unwrap_or_default().contains("router fallback"));
-    }
-
-    #[test]
-    fn classify_marks_online_for_application_404() {
-        let body = "<html><body>Not Found</body></html>".to_string();
-        let (verdict, status, detail) = classify(facts(
-            Some("forge-alethefy-abc (Up)"),
-            Some("alethefy.tooosall.uk"),
-            Some(404),
-            Some(&body),
-        ));
-        assert_eq!(verdict, Verdict::Online);
-        assert_eq!(status, Some(404));
-        assert!(detail.is_none());
-    }
-
-    #[test]
-    fn classify_marks_unavailable_when_probe_error_present() {
-        let (verdict, _status, detail) = classify(ProbeFacts {
-            container: Some("forge-alethefy-abc".to_string()),
-            route: Some("alethefy.tooosall.uk".to_string()),
-            http_status: None,
-            body: None,
-            probe_error: Some("curl: (6) Could not resolve host".to_string()),
-        });
-        assert_eq!(verdict, Verdict::Unavailable);
-        assert!(detail.unwrap_or_default().contains("Could not resolve"));
-    }
-
-    #[test]
-    fn classify_redacts_secrets_in_probe_error_detail() {
-        let (verdict, _status, detail) = classify(ProbeFacts {
-            container: None,
-            route: Some("alethefy.tooosall.uk".to_string()),
-            http_status: None,
-            body: None,
-            probe_error: Some("Authorization: Bearer token=abc123secretXYZ".to_string()),
-        });
-        assert_eq!(verdict, Verdict::Unavailable);
-        let detail = detail.unwrap_or_default();
-        assert!(!detail.contains("abc123secretXYZ"));
-        assert!(detail.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn parse_caddyfile_returns_hosts_and_skips_nav() {
-        let content = "{\n\tauto_https off\n}\n\nhttp://apps.tooosall.uk {\n\troot * /srv\n\tfile_server\n}\n\nhttp://alethefy.tooosall.uk {\n\treverse_proxy host.docker.internal:17700\n}\n\nhttp://crossalheart.tooosall.uk {\n\treverse_proxy host.docker.internal:17710\n}\n\n:80 {\n\trespond \"Unknown application hostname: {http.request.host}\" 404\n}\n";
-        let hosts = parse_caddyfile_hosts(content, "tooosall.uk", "apps").unwrap();
-        assert_eq!(
-            hosts,
-            vec![
-                "alethefy.tooosall.uk".to_string(),
-                "crossalheart.tooosall.uk".to_string()
-            ]
-        );
-    }
-
-    #[test]
-    fn parse_caddyfile_handles_empty_file() {
-        let hosts = parse_caddyfile_hosts("", "tooosall.uk", "apps").unwrap();
-        assert!(hosts.is_empty());
-    }
-
-    #[test]
-    fn parse_caddyfile_excludes_only_fallback_when_present() {
-        let content = ":80 {\n\trespond \"Unknown application hostname\" 404\n}\n";
-        let hosts = parse_caddyfile_hosts(content, "tooosall.uk", "apps").unwrap();
-        assert!(hosts.is_empty());
-    }
-
-    #[test]
-    fn route_for_project_matches_exact_host() {
-        let hosts = vec![
-            "alethefy.tooosall.uk".to_string(),
-            "forge.tooosall.uk".to_string(),
-        ];
-        assert_eq!(
-            route_for_project(&hosts, "alethefy", "tooosall.uk").as_deref(),
-            Some("alethefy.tooosall.uk")
-        );
-        assert_eq!(
-            route_for_project(&hosts, "forge", "tooosall.uk").as_deref(),
-            Some("forge.tooosall.uk")
-        );
-        assert!(route_for_project(&hosts, "alethefy-staging", "tooosall.uk").is_none());
-    }
-
-    #[test]
-    fn match_container_finds_project_prefix() {
-        let output =
-            "forge-alethefy-0123456789ab\tUp 5m\nforge-crossalheart-abcdef012345\tUp 10m\n";
-        assert_eq!(
-            match_container(output, "alethefy").as_deref(),
-            Some("forge-alethefy-0123456789ab (Up 5m)")
-        );
-        assert!(match_container(output, "absent").is_none());
-    }
-
-    #[test]
-    fn match_container_bounds_long_strings() {
-        let long_status = "x".repeat(500);
-        let output = format!("forge-alethefy-0123456789ab\t{long_status}\n");
-        let found = match_container(&output, "alethefy").expect("container should match");
-        assert!(
-            found.len() <= 200,
-            "container string should be bounded: {}",
-            found.len()
-        );
-        assert!(found.ends_with('…'));
-    }
-
-    #[test]
-    fn match_container_redacts_secrets() {
-        let output = "forge-alethefy-0123456789ab\tUp password=abc123secretXYZ\n";
-        let found = match_container(output, "alethefy").expect("container should match");
-        assert!(!found.contains("abc123secretXYZ"));
-        assert!(found.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn cat_caddyfile_command_matches_publish_shape() {
-        let argv = cat_caddyfile_command("mac", "/srv/platform/Caddyfile");
-        assert_eq!(argv[0], "ssh");
-        assert_eq!(argv[1], "mac");
-        assert_eq!(argv[2], "cat");
-        assert_eq!(argv[3], "/srv/platform/Caddyfile");
-    }
-
-    #[test]
-    fn cat_caddyfile_command_invokes_stub_directly_for_path_target() {
-        // A test stub named in `FORGE_PUBLISH_SSH_TARGET` is a local
-        // executable path; the probe must exec it directly instead
-        // of wrapping it in a real `ssh <path> ...` argv.
-        let argv = cat_caddyfile_command("/tmp/fake/ssh", "/srv/platform/Caddyfile");
-        assert_eq!(argv[0], "/tmp/fake/ssh");
-        assert_eq!(argv[1], "cat");
-        assert_eq!(argv[2], "/srv/platform/Caddyfile");
-    }
-
-    #[test]
-    fn docker_ps_command_matches_publish_shape() {
-        let argv = docker_ps_command("mac");
-        assert_eq!(argv[0], "ssh");
-        assert_eq!(argv[1], "mac");
-        // Mirror the publish adapter's PATH + BUILDKIT shape so the
-        // same Docker Desktop helper directory reaches `docker ps`.
-        assert!(argv
-            .iter()
-            .any(|arg| arg.to_string_lossy().starts_with("PATH=")));
-        assert!(argv.contains(&std::ffi::OsString::from(
-            crate::publish::remote_compose::DOCKER_BIN
-        )));
-        assert!(argv.contains(&std::ffi::OsString::from("--format")));
-    }
-
-    #[test]
-    fn docker_ps_command_invokes_stub_directly_for_path_target() {
-        let argv = docker_ps_command("/tmp/fake/ssh");
-        assert_eq!(argv[0], "/tmp/fake/ssh");
-        assert!(argv
-            .iter()
-            .any(|arg| arg.to_string_lossy().starts_with("PATH=")));
-        assert!(argv.contains(&std::ffi::OsString::from(
-            crate::publish::remote_compose::DOCKER_BIN
-        )));
-    }
-
-    #[test]
-    fn summary_all_probed_online_requires_online_count() {
-        let mut summary = LivenessSummary {
-            online: 3,
-            ..Default::default()
-        };
-        assert!(summary.all_probed_online());
-        summary.no_route = 1;
-        assert!(!summary.all_probed_online());
-        summary.no_route = 0;
-        summary.skipped = 5;
-        // Skipped entries do not change the exit code.
-        assert!(summary.all_probed_online());
-    }
-
-    #[test]
-    fn summary_zero_online_is_not_all_probed_online() {
-        // An empty roster is a typed refusal, not an "all online" run.
-        let summary = LivenessSummary::default();
-        assert!(!summary.all_probed_online());
-    }
-
-    #[test]
-    fn build_report_counts_every_state() {
-        let entries = vec![
-            (
-                "alpha".to_string(),
-                "compose_ready".to_string(),
-                facts(
-                    Some("forge-alpha-1 (Up)"),
-                    Some("alpha.tooosall.uk"),
-                    Some(200),
-                    Some("ok"),
-                ),
-            ),
-            (
-                "beta".to_string(),
-                "compose_ready".to_string(),
-                facts(
-                    Some("forge-beta-1 (Up)"),
-                    Some("beta.tooosall.uk"),
-                    Some(502),
-                    Some(""),
-                ),
-            ),
-            (
-                "gamma".to_string(),
-                "compose_ready".to_string(),
-                facts(None, Some("gamma.tooosall.uk"), None, None),
-            ),
-            (
-                "delta".to_string(),
-                "compose_ready".to_string(),
-                facts(Some("forge-delta-1 (Up)"), None, None, None),
-            ),
-            (
-                "epsilon".to_string(),
-                "compose_missing".to_string(),
-                facts(None, None, None, None),
-            ),
-            (
-                "zeta".to_string(),
-                "compose_ready".to_string(),
-                ProbeFacts {
-                    container: Some("forge-zeta-1".to_string()),
-                    route: Some("zeta.tooosall.uk".to_string()),
-                    http_status: None,
-                    body: None,
-                    probe_error: Some("curl: (6) Could not resolve host".to_string()),
-                },
-            ),
-        ];
-        let report = build_report(
-            entries,
-            "inventory:/tmp/inv.json".to_string(),
-            "mac".to_string(),
-            "tooosall.uk".to_string(),
-            "2026-09-28T00:00:00Z".to_string(),
-        );
-        assert_eq!(report.summary.online, 1);
-        assert_eq!(report.summary.down, 1);
-        assert_eq!(report.summary.not_deployed, 1);
-        assert_eq!(report.summary.no_route, 1);
-        assert_eq!(report.summary.unavailable, 1);
-        assert_eq!(report.summary.skipped, 1);
-        assert_eq!(report.entries.len(), 6);
     }
 }

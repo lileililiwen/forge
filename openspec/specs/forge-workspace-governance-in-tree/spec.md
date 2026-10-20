@@ -1,7 +1,12 @@
 # forge-workspace-governance-in-tree Specification
 
 ## Purpose
-TBD - created by archiving change forge-workspace-governance-in-tree. Update Purpose after archive.
+The Workspace Governance project was a separate repository, so Forge's own
+governance checks depended on a sibling checkout. The complete project lives as
+ordinary source under `modules/workspace-governance/`, not as a Git submodule,
+and stays independently checkable from its module root. Forge maintains that
+copy once the origin is archived, and the project registry keeps the
+consolidated tooling IDs while resolving their paths into `forge/crates/`.
 ## Requirements
 ### Requirement: Complete Workspace Governance in-tree project
 

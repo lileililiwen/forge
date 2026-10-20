@@ -1,7 +1,13 @@
 # web-project-delivery-timeline Specification
 
 ## Purpose
-TBD - created by archiving change web-project-delivery-timeline. Update Purpose after archive.
+A project's delivery story was scattered across hosted CI observations, local
+Gate evidence, releases, deploys and journal rows, and no single view showed it.
+A read-only project timeline joins those sources while keeping each source's own
+identity, status vocabulary, timestamp and owner, and never merges them into one
+green result. An unreadable source is marked unavailable, coverage stays
+partial, and the Delivery page lets an operator pick a project and refresh the
+timeline accessibly.
 ## Requirements
 ### Requirement: Read-only project delivery timeline
 

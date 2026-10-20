@@ -1,7 +1,13 @@
 # forge-governance-consumer-migration Specification
 
 ## Purpose
-TBD - created by archiving change forge-governance-consumer-migration. Update Purpose after archive.
+Generic concern checks lived in a separate Workspace Governance checkout, so a
+product Gate could not run them without a sibling repository and its
+configuration carried another project's implementation paths. The migration into
+Forge gives products a `forge concern check` command that resolves the checker
+from Forge's source or installed resources and forwards its result unchanged,
+keeps governance checkout paths out of product Gate configuration, and installs
+the checker resources a release needs.
 ## Requirements
 ### Requirement: Forge concern-check facade
 

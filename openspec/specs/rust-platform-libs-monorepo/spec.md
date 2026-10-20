@@ -1,7 +1,13 @@
 # rust-platform-libs-monorepo Specification
 
 ## Purpose
-TBD - created by archiving change forge-rust-platform-libraries-monorepo. Update Purpose after archive.
+The Rust platform workspace was a separate sibling checkout, so Forge could not
+build it, audit it, or point its contract parity tests at one source of truth.
+The imported workspace lives as ordinary tracked source under
+`modules/rust-platform-libs/`, with its Cargo root, crate identity, toolchain
+pin and history verified against the recorded revision. Module-scoped quality
+runs from the module root and cannot publish, crates.io release stays gated on
+explicit approval, and the parity tests read Forge's own `contracts/` root.
 ## Requirements
 ### Requirement: Forge contains the provenance-verified Rust platform workspace
 

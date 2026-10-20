@@ -1,7 +1,13 @@
 # hosted-ci-evidence-envelope Specification
 
 ## Purpose
-TBD - created by archiving change forge-hosted-ci-evidence-envelope. Update Purpose after archive.
+Hosted CI runs produced results that Forge could not accept or even describe,
+because nothing said what a hosted observation must carry. The versioned
+`forge-hosted-ci-evidence/1.0` envelope binds a project, repository, workflow,
+run, attempt, job, revision, timestamp and one existing Gate evidence record,
+and validation refuses unknown fields, unsupported contracts, rehearsal or
+non-full evidence, mismatched identities and unsafe URLs. A document that passes
+validation still carries producer claims, not authentication.
 ## Requirements
 ### Requirement: Forge-owned hosted CI evidence envelope
 

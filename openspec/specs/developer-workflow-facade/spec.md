@@ -1,7 +1,13 @@
 # developer-workflow-facade Specification
 
 ## Purpose
-TBD - created by archiving change forge-developer-workflow-facade. Update Purpose after archive.
+Forge-owned modules sit in the same checkout as the CLI, but no command found
+them by declaration or ran one module's checks. A `forge module list` and `forge
+module verify` pair builds its catalog from local `.project.json` and Gate
+declarations and delegates verification once to the existing `forge gate`
+handler, keeping that handler's evidence and exit semantics. The facade stays a
+local source-checkout concern and never triggers hosted CI, publication or
+deployment.
 ## Requirements
 ### Requirement: Discover Forge-owned modules from local declarations
 

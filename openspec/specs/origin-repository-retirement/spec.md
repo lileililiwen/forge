@@ -1,7 +1,13 @@
 # origin-repository-retirement Specification
 
 ## Purpose
-TBD - created by archiving change forge-origin-repository-retirement. Update Purpose after archive.
+Projects migrated into Forge left their old repositories live, so the maintained
+source and the old origin both looked authoritative. The retirement workflow for
+those origins keeps an explicit allowlist mapping each origin to its Forge-owned
+path, checks import provenance, source history and maintained consumers before
+any remote write, and archives only a repository confirmed active, with every
+write verified by reading `archived=true` back. Local checkouts stay untouched
+and each origin reports its own outcome.
 ## Requirements
 ### Requirement: Reconcile migrated source origins against Forge ownership
 

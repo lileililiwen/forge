@@ -1,7 +1,14 @@
 # gate-declaration-migration Specification
 
 ## Purpose
-TBD - created by archiving change forge-gate-declaration-migration. Update Purpose after archive.
+The Gate contract moved to a declared form, and every part of the move had to
+keep its own rule. The migration holds in eight named requirements: the
+runtime's structured row statuses and its raw result and exit are projected
+rather than reconstructed, `forge.yaml` gains an optional `verification` block
+with validated rows, every row gets exactly one implementation source, the
+expected rule pack is resolved and compared for freshness, and every reader
+shares one projection. Older evidence stays readable, and Forge's root manifest
+declares its nine-check floor.
 ## Requirements
 ### Requirement: GDM-001 Preserve the Gate runtime's structured result and exit
 

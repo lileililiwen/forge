@@ -1,7 +1,13 @@
 # local-runtime-entrypoints Specification
 
 ## Purpose
-TBD - created by archiving change forge-multiservice-local-runtime. Update Purpose after archive.
+Running a project locally needed Docker Compose or GitRunByKaru, and Forge had
+no command that started either one. Two local runtime entry points delegate the
+work: `forge run compose` hands the multi-service graph and its lifecycle to
+Docker Compose, and `forge run local` hands one application directory to an
+installed GitRunByKaru session. Forge resolves the inputs and spawns the child
+without a shell, inheriting its streams and exit code, and never claims to
+supervise services or persist a session.
 ## Requirements
 ### Requirement: Compose stack entry point
 

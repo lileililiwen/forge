@@ -1,7 +1,12 @@
 # ci-cd-system-model-documentation Specification
 
 ## Purpose
-TBD - created by archiving change ci-cd-data-command-flow. Update Purpose after archive.
+Forge's CI and delivery paths are spread across generated-project hooks, hosted
+CI, release workflows, staged delivery and local entry points, and no single
+guide says who owns each step. One maintainer guide traces each flow — command
+order, execution owner, inputs, outputs, evidence, revision binding and failure
+transitions — from the current implementation, and it keeps evidence-backed gaps
+separate from behavior that already exists.
 ## Requirements
 ### Requirement: Current CI/CD flows are traceable
 

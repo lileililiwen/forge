@@ -1,7 +1,12 @@
 # source-file-size-gate Specification
 
 ## Purpose
-TBD - created by archiving change forge-workspace-governance-gate-conformance. Update Purpose after archive.
+The source-size baseline measured only Forge's conventional roots, so the Python
+scripts under the Workspace Governance module were never counted. The module's
+native `gate.toml` now includes `scripts/**/*.py`, the maintained scripts stay
+at or below 1,000 lines with no source-path exclusions and no raised threshold,
+and splitting them keeps their entry points, arguments, output shape and exit
+behavior intact. Other projects keep their existing candidate sets.
 ## Requirements
 ### Requirement: Workspace Governance scripts are explicitly scanned
 

@@ -1,7 +1,13 @@
 # forge-native-gate Specification
 
 ## Purpose
-TBD - created by archiving change forge-native-gate-checks. Update Purpose after archive.
+The Gate depended on a separate gate executable and could report nothing to gate
+for a project with no manifest. The Gate contract Forge owns runs a mandatory
+`forge-baseline/1.0.0` pack once for every target that cannot be removed,
+exempted or weakened, while declared project checks extend it under the `full`
+profile and the `fast` profile omits the extensions only. The bundled Forge
+engine is the sole runtime, and a dry-run resolves the same plan without
+executing it.
 ## Requirements
 ### Requirement: Mandatory Forge baseline checks
 

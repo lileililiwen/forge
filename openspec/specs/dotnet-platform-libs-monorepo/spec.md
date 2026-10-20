@@ -1,7 +1,13 @@
 # dotnet-platform-libs-monorepo Specification
 
 ## Purpose
-TBD - created by archiving change forge-dotnet-platform-libraries-monorepo. Update Purpose after archive.
+The .NET platform project was a separate sibling checkout, so Forge could not
+build, test or audit it on its own. The imported project lives as ordinary
+content under `modules/dotnet-platform-libs/`, with its package and UI identity,
+tracked content and history verified against the recorded source revision, its
+native quality workflow running on module changes, and package release left as
+an explicit, version-validated manual step. Forge-owned checks resolve the
+module from the monorepo layout, with no absolute sibling path.
 ## Requirements
 ### Requirement: The .NET platform project is an independently runnable Forge module
 

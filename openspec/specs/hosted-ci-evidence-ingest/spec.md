@@ -1,7 +1,13 @@
 # hosted-ci-evidence-ingest Specification
 
 ## Purpose
-TBD - created by archiving change forge-hosted-ci-evidence-ingest. Update Purpose after archive.
+A hosted CI run could not report itself to Forge, because nothing authenticated
+the runner or bound its result to a project. The hosted evidence path accepts
+only an OIDC-signed branch-push run from the generated workflow, requires the
+signed repository to match an operator-bound immutable repository ID, and stores
+observations append-only and idempotently. A Quality checks card shows hosted
+history beside, but distinct from, local Gate evidence, and the standard
+workflow uploads terminal evidence.
 ## Requirements
 ### Requirement: Authenticated GitHub Actions ingest
 

@@ -2,6 +2,84 @@
 
 ## Latest delivery
 
+### `extension-point-contract` implemented and archived (2026-10-20)
+
+Every extension boundary in Forge had invented its own contract. A repository-wide
+sweep found nine such surfaces — plugins, publish providers, governance
+providers, identity providers, analytics providers, evidence providers, standard
+packs, identity packs, and components and UI patterns — sharing no descriptor,
+no discovery rule, no version rule, no state rule and no shared test. Fourteen
+distinct state vocabularies. Every version check in the repository was exact
+string equality, so a newer extension was refused exactly like an unrelated one.
+The one place that already had a major number — `CONTRACT_MAJOR` in the
+identity-provider module — was never compared.
+
+A new `src/extension/` now owns the shared contract:
+
+- `ContractVersion` reads a declared version as `family/major.minor.patch` and
+  judges it with one rule: the families must be equal and the majors must be
+  equal. The minor and the patch are reported, not gating. A value that carries
+  no family cannot be read as a contract, so the bare `0.1.0` is still refused
+  and can never masquerade as conformant.
+- `ExtensionState` is the one vocabulary: `ready`, `disabled`, `unavailable`,
+  `invalid`, and every refusal carries a reason. It is the plugin surface's
+  `PluginState`, promoted from one surface's private type to the repository's.
+- `ExtensionDescriptor` is the shape every extension's declaration takes, and
+  `verify_extension` is the one verification every kind runs.
+- The deploy target kinds have one owner. The list was spread over four places
+  with two different contents, and `ssh` was advertised by one validator,
+  accepted by another and refused by a third, in three different sentences. It
+  is now one registry with one refusal wording, and the manifest validator, the
+  configuration validator and the plan all read it.
+
+The deploy executor boundary is the first reader, and the first migration. An
+adapter that declares `forge-deploy-executor/0.2.0` is accepted where
+`0.1.0` was required; a different major or a different family is refused with
+both sides and the reason spelled out; an unreadable value is refused by value.
+The adapter's optional self-identification is read as a family and a version
+and recorded with the stage evidence. A self-identification that is present but
+unreadable is refused — a claim Forge cannot check is worse than no claim — and
+an absent one still attributes to the configured binary with an `unknown`
+revision.
+
+The provider probe ran the same adapter and read the same envelope with its own
+string comparison, so it is judged by the same rule. Leaving it alone would have
+given the boundary two rules: the deploy lane accepting an adapter the probe
+refuses.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3947 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 3947 passed, 0 failed across 203 test binaries. `cargo build` finished with no finding and no warning. Focused runs: `cargo test -p forge --lib extension::` 9 passed; `cargo test -p forge --lib deploy::` 42 passed; `cargo test -p forge --test deploy_contract` 20 passed; `cargo test -p forge --test deploy_adapter_contract` 10 passed; `cargo test -p forge --test deploy_cross_surface` 5 passed; `cargo test -p forge --lib provider::` 28 passed; all 0 failed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T11:35:04Z"` on revision `c3755c2`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check reported "evaluated 450 of 450 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passed. |
+| Real deploy, newer minor | PASS | A `local`-target project with a committed `forge.yaml` and a fixture adapter on `FORGE_DEPLOYER_BIN` declaring `forge-deploy-executor/0.2.0` and `source: forge-deployer-jenkins/0.1.0`: `forge deploy apply --target-name local --confirm --dry-run` exited 0 with `summary: deploy applied to target `local` and observed as `running`` and the stage evidence `executor=forge-deployer-jenkins/0.1.0@cafe1234`, so the family and the version are recorded. |
+| Real refusals | PASS | The adapter declaring `forge-deploy-executor/1.0.0` was refused with `error[deploy-target-unavailable]`: "forge-deployer-jenkins declares the contract `forge-deploy-executor/1.0.0`, which is incompatible with the required `forge-deploy-executor/0.1.0`: the major versions differ (1 and 0)". The adapter declaring `forge-deployer/0.1.0` was refused with "the families differ (`forge-deployer` and `forge-deploy-executor`)". The bare `0.1.0` was refused with "deploy adapter contract `0.1.0` cannot be read: the version `0.1.0` does not name a contract family; expected `family/major.minor.patch`". The adapter whose `source` was the bare `0.1.0` was refused with "deploy adapter self-identification `0.1.0` cannot be read: the version `0.1.0` does not name a contract family; expected `family/major.minor.patch`". Every refusal exited 1. |
+| Real kind refusals | PASS | A project whose target kind is `ssh` was refused by `forge deploy plan` and by `forge deploy apply` with the same words and the same code: `error[deploy-invalid]: deploy invalid: deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime``. A project whose kind is `carrier-pigeon` was refused with `error[deploy-invalid]`: "deployment target kind `carrier-pigeon` is not supported; expected one of `local`, `docker-compose`, `jenkins`, and `mac-runtime`". |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 130 passed, 0 failed (130 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-extension-point-contract/`; five requirements promoted into `openspec/specs/extension-point-contract/spec.md`. The archive writes a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings. Every changed Rust file is rustfmt-clean under `rustfmt --edition 2021 --check`. The twelve files that already differed under rustfmt before this change were left alone; `cargo fmt --all` was not run. |
+
+Two behaviour changes a reviewer must know about. The `ssh` refusal now reports
+`deploy-invalid` instead of `deploy-target-unavailable`, in the plan and in the
+observe path, and the configuration validator refuses it too, where it used to
+accept it — one code and one sentence for one situation. And a deploy adapter
+whose self-identification is present but unreadable is now refused, where it
+used to be recorded verbatim.
+
+Not delivered, and stated plainly: no other extension surface has moved. The
+publish, governance, identity, analytics and evidence providers, the standard
+and identity packs, the kits, the components and the UI patterns still carry
+their own descriptors, their own version rules and their own state
+vocabularies; each converges on the shared contract in a later change, one
+surface at a time. The plugin registry is unchanged, and four of its six kinds
+— `gate`, `quality`, `agent`, `contract` — still have a selector and no runner.
+The `ssh` deploy target is still known and still not wired; that is
+`deploy-target-ssh`, the first extension to plug into the port this change
+opens. No new deploy target kind exists.
+
+Implementation/archive commit: `a8f1492` (`feat: give the repository one
+extension contract`). This HANDOFF-only update is the second commit. Nothing
+was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.
+
 ### `target-addressed-build` implemented and archived (2026-10-20)
 
 The spine of Forge had no build step. `forge test` ran the profile's test

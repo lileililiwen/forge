@@ -2,6 +2,65 @@
 
 ## Latest delivery
 
+### `spec-purpose-completion` implemented and archived (2026-10-20)
+
+The OpenSpec archive writes a placeholder into every capability it creates:
+
+```
+## Purpose
+TBD - created by archiving change <name>. Update Purpose after archive.
+```
+
+It cannot know what the capability is for — it only knows the requirements the
+change declared — so somebody has to write the real purpose. Nobody did, and
+fourteen canonical capabilities still carried it.
+
+`openspec/specs/` is the repository's only durable design source. A
+capability whose purpose says "TBD" tells a reader — a person or an agent
+opening the spec to learn what a surface guarantees — nothing at all, above
+requirements that are otherwise precise.
+
+Each of the fourteen now says what it is for, in one paragraph, written from
+that capability's own requirements and nothing else. The diff is 96
+insertions and 14 deletions across 14 files: one purpose paragraph each. No
+requirement header, no scenario and no wording moved.
+
+The placeholder also recurs, because every archive writes one. Two changes in
+this programme had theirs replaced by hand; the next would have gone
+unnoticed. `tests/spec_purpose_contract.rs` is the guard: it reads every
+canonical capability and refuses one whose purpose is the archive placeholder,
+whose purpose section is missing, or whose purpose is shorter than a
+paragraph, naming the capability it refuses.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The guard refuses a placeholder | PASS | With `openspec/specs/ci-cd-system-model-documentation/spec.md` temporarily holding the archive placeholder again, `cargo test --test spec_purpose_contract` reported `test result: FAILED. 1 passed; 1 failed` and named it: `1 of 133 canonical capabilities state no real purpose: - ci-cd-system-model-documentation: the purpose is still the archive placeholder — replace it with what the capability is for`. The file was restored and the same command reported `2 passed; 0 failed`. |
+| The guard passes on the written purposes | PASS | `cargo test --test spec_purpose_contract` → `test result: ok. 2 passed; 0 failed`. All 133 canonical capabilities hold a real purpose; a scan for the archive placeholder across `openspec/specs/` returns 0 matches. |
+| Only the purpose changed | PASS | `git diff --stat openspec/specs/` shows 14 files, 96 insertions and 14 deletions — one purpose paragraph per file. |
+| Repository test suite | PASS, 4004 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 4004 passed, 0 failed, 1 ignored, with `grep -c "^failures:"` reporting 0. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T20:52:25Z"` on revision `3feff6d`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. |
+| OpenSpec and whitespace | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 134 passed, 0 failed (134 items)`; `git diff --check` reported no findings. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-spec-purpose-completion/`, and the archive's `TBD` Purpose was replaced with the real one before the commit. |
+
+One behaviour change a reviewer must know about. The guard bites at the next
+Gate run, not at the archive: the archive writes the placeholder after the
+Gate has already run, so a change that forgets to replace it is caught by the
+following change's Gate — before that change ships, and while the fix is one
+paragraph. The Gate's `tests` check runs the same suite CI's `test` job runs,
+so the guard is in both.
+
+Not delivered, and stated plainly: the OpenSpec tool is not patched. It is a
+published package outside this repository, and it writes the placeholder for
+every new capability it creates — the guard catches what it writes rather
+than changing it. The other 119 capabilities keep the purposes they already
+had; this change did not rewrite them. And the purposes are written by hand,
+not generated: a generated paragraph would restate the requirements in the
+generic shape OpenSpec's own templates use, which is exactly what a purpose
+must not be.
+
+Implementation/archive commit: `ef96b65` (`docs: every capability states its
+purpose`). This HANDOFF-only update is the second commit. Nothing was pushed.
+No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
 ### `lifecycle-observation-closure` implemented and archived (2026-10-20)
 
 `forge doctor` is the operator's read-only question: *is this project in good

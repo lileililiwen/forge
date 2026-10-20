@@ -2,6 +2,100 @@
 
 ## Latest delivery
 
+### `runtime-kind-shared-host` implemented and archived (2026-10-20)
+
+The publish inventory's contract already carried a runtime vocabulary —
+`"runtime": "web|worker|job|library"` — and it said what a project *is* without
+ever saying how it is *hosted*. The repository's own instance of that missing
+shape is `modules/dotnet-platform-libs`: 80 independently adoptable .NET
+packages that all run inside **one** CLR host inside the consuming
+application, declared `role: platform` and `deployable: false`.
+
+The fleet judged a module by its Compose file. An entry was published when it
+was `compose_ready` — when a Compose file existed at the declared source
+path — so a `library` entry that happened to carry one was started as its own
+Mac Docker workload, and the host that owns the module never learned about
+it. A module read as a service that failed to start. The vocabulary also had
+no owner: `RuntimeClass` was a private type in the publish lane, so no other
+surface could read it.
+
+Forge Core now owns one runtime-kind vocabulary in `src/runtime/`:
+
+- `RuntimeKind` — `web`, `worker`, `job`, `library` — with the contract's own
+  spellings, so the document's bytes do not change.
+- `HostModel` — every kind declares how its artifact is hosted. An
+  own-process kind runs as a process of its own, with its own container and
+  its own deploy target. A shared-host kind is a module loaded into a host
+  another project owns, where several modules can share one host. The
+  `library` row is the shared-host row.
+- The shared parser, refused by name with the accepted values, and the
+  shared-host reason — one wording, owned by the vocabulary, so both lanes
+  say the same thing.
+
+The publish lane's private `RuntimeClass` and its `runtime_display.rs` are
+gone. `InventoryEntry.runtime` and `InventoryFleetEntry.runtime` read the
+shared type.
+
+The fleet's rule is now about the host model: an entry is published when it
+is compose-ready **and** its runtime kind is an own-process kind. A
+shared-host entry is reported and never published, whatever Compose file it
+declares. The counts follow: the summary says how many entries were
+publishable and how many were held back, and names the rule that held them
+back.
+
+The observe lane read the old rule, and that was a false alarm waiting to
+happen. `forge fleet online` probed every `compose_ready` entry, so a
+compose-ready module the fleet never started would have read `NO-ROUTE` or
+`NOT-DEPLOYED` — a complaint about a workload that does not exist. The rule
+now lives in one function, `forge::publish::inventory::is_publishable`, and
+both lanes call it. A module is reported as `SKIPPED` with the reason that
+names the host that adopts it, and it is never probed.
+
+A refused row no longer carries a placeholder runtime kind. The pipeline
+used to fill one in, and with a host model attached that placeholder read as
+a lifecycle claim the entry never made — a refused entry looked like a
+module hosted by someone else, for a reason that had nothing to do with the
+refusal. A row whose runtime kind could not be read now names no runtime
+kind and no host model, and carries the refusal and nothing else.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3990 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 3990 passed, 0 failed, 1 ignored. The run was repeated after the liveness suite was split out of `src/fleet/online.rs`, with the same 3990 / 0 / 1. `cargo build` finished with no finding and no warning. Focused runs: `cargo test -p forge --lib fleet::online_tests` → 23 passed; `cargo test --test fleet_online_contract` → 16 passed, including `fleet_online_never_probes_a_shared_host_module`; all 0 failed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T18:11:57Z"` on revision `191e96d`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check reported "evaluated 453 of 453 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passed. |
+| Real fleet, published and held back | PASS | A fixture inventory at `/tmp/forge-change10/inventory.json` with three entries: an own-process `web` entry with a real Compose file, a compose-ready `library` entry, and an entry whose runtime is `svc`. `forge inventory show` reported `declared=3, compose_ready=2, compose_missing=0, source_unavailable=0, invalid=1, publishable=1` and the rows `web-app / web / own_process / compose_ready`, `platform-modules / library / shared_host / compose_ready`, `broken-svc / - / - / invalid`. `forge publish fleet --inventory … --dry-run` published only `web-app` — 4 stages planned, `dry-run: no subprocess spawned` — and reported `fleet publish: 1/1 publishable succeeded, 1 held back, 1 skipped (3 in inventory:/tmp/forge-change10/inventory.json); a shared-host module is never started by the fleet`. The JSON summary carried `publishable: 1`, `held_back: 1` with the held-back row naming `runtime: "library"`, `host_model: "shared_host"` and the shared-host reason, and `skipped: 1` with the refused row naming no runtime kind and no host model. |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 132 passed, 0 failed (132 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-runtime-kind-shared-host/`; two requirements were promoted into `openspec/specs/runtime-kind-shared-host/spec.md`, and the `forge-independent-project-inventory-fleet`, `fleet-liveness-status` and `decoupled-remote-publish` capabilities were replaced. The archive writes a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings, and the staged diff check reported none either. Every changed Rust file is rustfmt-clean under `rustfmt --edition 2021 --check`. The twelve files that already differed under rustfmt before this change were left alone; `cargo fmt --all` was not run. Every touched file is under 1000 physical lines; the largest is `src/publish/inventory/pipeline.rs` at 980. |
+
+Three behaviour changes a reviewer must know about. A compose-ready
+shared-host entry is no longer published — that is the point of the change.
+`forge fleet online` no longer probes it, so the liveness verdict for such
+an entry is `SKIPPED` with the shared-host reason instead of `NO-ROUTE` or
+`NOT-DEPLOYED`. And a refused row names no runtime kind and no host model,
+where it used to name a placeholder kind.
+
+One thing was found by the Gate and fixed here. The first full Gate run
+failed on `source-file-size`: `src/fleet/online.rs` had grown to 1069 lines.
+The liveness unit suite moved to `src/fleet/online_tests.rs`, following the
+repository's `*_tests.rs` pattern, and the surface is back at 694 lines.
+
+Not delivered, and stated plainly: the .NET workspace was not edited and no
+.NET code ships — the shared-host kind is a vocabulary row and a fleet rule,
+and the module that instantiates it has its own governance and its own
+verification. The manifest's `runtime:` block, the registry's runtime string
+and the profile catalog are untouched; each converges in its own change, one
+surface at a time. The manifest still cannot declare a runtime kind, so the
+inventory's `runtime` field is still the only place a kind is declared. The
+inventory document's contract version did not move, so a consumer of
+`forge-project-inventory/0.1.0` sees the same bytes. The fleet report's
+`fleet.compose_ready` key is now `fleet.publishable`, and the report gains a
+`host_model` field per row: both are changes to Forge's own output, not to
+the document.
+
+Implementation/archive commit: `e03757f` (`feat: give every runtime kind a
+host model`). This HANDOFF-only update is the second commit. Nothing was
+pushed. No active OpenSpec change remains, so this file has no `current_spec`
+pointer.
+
 ### `deploy-target-ssh` implemented and archived (2026-10-20)
 
 `requirement.md` §30 names "SSH server" as an initial deployment target and

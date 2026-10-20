@@ -2,13 +2,17 @@
 
 Status: frozen 2026-09-24 (`jenkins-deploy-adapter-consumption`).
 The Forge deploy plane (`src/deploy`) invokes one external
-executable through `FORGE_DEPLOYER_BIN` (default
-`forge-deployer`). This document is the authoritative boundary
-for third-party executors. The bundled reference adapter is
-[`adapters/jenkins/forge-deployer-jenkins`](../../adapters/jenkins/forge-deployer-jenkins);
-its jenkins-local mapping facts (verbs, exit codes, status shapes,
-job URL env) live in
-[`adapters/jenkins/jenkins-adapter.md`](../../adapters/jenkins/jenkins-adapter.md).
+executable per deploy target kind. This document is the
+authoritative boundary for third-party executors. The bundled
+reference adapters are
+[`adapters/jenkins/forge-deployer-jenkins`](../../adapters/jenkins/forge-deployer-jenkins)
+and
+[`adapters/ssh/forge-deployer-ssh`](../../adapters/ssh/forge-deployer-ssh);
+their mapping facts (verbs, exit codes, status shapes, job URL env)
+live in
+[`adapters/jenkins/jenkins-adapter.md`](../../adapters/jenkins/jenkins-adapter.md)
+and
+[`adapters/ssh/ssh-adapter.md`](../../adapters/ssh/ssh-adapter.md).
 
 Distinct version strings, deliberately:
 
@@ -35,9 +39,14 @@ can never masquerade as conformant.
 
 ## Invocation model
 
-- One executable resolved from `FORGE_DEPLOYER_BIN` (or the
-  `forge-deployer` PATH default), invoked with **argument
-  arrays** — never an interpolated shell string.
+- One executable resolved **per deploy target kind**, in one order:
+  the kind's own binary, then the shared binary, then the kind's
+  default. The shared binary is `FORGE_DEPLOYER_BIN` (default
+  `forge-deployer`); a kind may name its own binary in its own
+  variable (`FORGE_DEPLOYER_SSH_BIN`, default
+  `forge-deployer-ssh`) and that binary wins. The binary is
+  invoked with **argument arrays** — never an interpolated shell
+  string.
 - Stdin receives one supplementary JSON payload (see below) and
   is closed so scripts that `cat`/`read` see EOF.
 - Stdout carries exactly one JSON envelope. Trailing
@@ -50,13 +59,33 @@ can never masquerade as conformant.
   trust model as the docs, policy, analytics and release
   adapters.
 
+## Deploy target kinds
+
+| Kind | Adapter binary | The target must state |
+| --- | --- | --- |
+| `local` | the shared binary | — |
+| `docker-compose` | the shared binary | — |
+| `jenkins` | the shared binary | — |
+| `mac-runtime` | the shared binary | — |
+| `ssh` | `forge-deployer-ssh`, or `FORGE_DEPLOYER_SSH_BIN` when it is set | `host` and `path` |
+
+A target that does not state the fields its kind requires is
+refused by the configuration validator, before any adapter runs,
+and the refusal names the kind and the missing fields.
+
+The `ssh` kind needs no new operation: it uses the same `apply`
+and `observe` argv as every other kind. The host, the user and the
+remote path are not argv words — they travel in the stdin payload
+below — because the remote side of a transfer is not a local
+argument.
+
 ## Operations
 
 `apply` — run (or rehearse, with `--dry-run`) the named
 deployment:
 
 ```text
-apply --target <name> --kind <local|docker-compose|mac-runtime> \
+apply --target <name> --kind <local|docker-compose|jenkins|mac-runtime|ssh> \
       --project <id> --revision <sha> \
       [--artifact <project-relative-path>] \
       [--health-kind <docker|http|process> \
@@ -74,10 +103,15 @@ observe --target <name> --project <id> --deploy-id <id> \
 
 `--deploy-id` is Forge's derived identity
 (`<project>-<target>-<12hex>` over project, target and source
-revision). `ssh` targets are refused Forge-side before any
-invocation; `mac-runtime` is the Linux-controlled runtime
+revision). `mac-runtime` is the Linux-controlled runtime
 adapter and receives a relative release manifest from the
 Forge project root.
+
+An `ssh` target states a `host` and a `path`, and reaches an
+adapter that is resolved for its kind: `forge-deployer-ssh`, or
+the binary `FORGE_DEPLOYER_SSH_BIN` names. The host, the user and
+the remote path travel in the payload below, because the remote
+side of a transfer is not an argv word.
 
 ## Stdin payload
 
@@ -169,9 +203,11 @@ unknown, not offline proof.
 ## Health vocabulary
 
 Forge maps `observation_status` verbatim within
-`running` / `failed` / `unknown`. The reference adapter applies
-the explicit table in
-[jenkins-adapter.md](../../adapters/jenkins/jenkins-adapter.md);
+`running` / `failed` / `unknown`. The reference adapters apply
+the explicit tables in
+[jenkins-adapter.md](../../adapters/jenkins/jenkins-adapter.md)
+and
+[ssh-adapter.md](../../adapters/ssh/ssh-adapter.md);
 no executor may default an unrecognized state to healthy.
 
 ## Security and confinement

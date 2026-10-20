@@ -818,17 +818,22 @@ fn deploy_write(config: &ApiConfig, db_path: &Path, request: &ApiRequest, id: &s
             // runs, journaled as `admin.deploy`. The adapter binary path is only
             // ever produced by `deploy::engine` with its own fixed argv — this
             // route passes typed fields, never a shell, argv or browser path.
+            let adapters = DeployAdapterConfig::from_env();
+            // The adapter binary is resolved per kind, so the view
+            // scrubs the binary that will actually run as well as the
+            // shared one. An empty shared value is skipped by the
+            // scrubber.
+            let mut secrets = vec![project_dir.display().to_string()];
+            secrets.push(adapters.deployer_bin.clone());
+            if let Ok(spec) = deploy_config.target(&target) {
+                secrets.push(adapters.bin_for_kind(&spec.kind));
+            }
             let deploy_request = DeployRequest {
                 project_id: id.to_string(),
                 target,
                 confirm: true,
                 dry_run: false,
             };
-            let adapters = DeployAdapterConfig::from_env();
-            let secrets = [
-                project_dir.display().to_string(),
-                adapters.deployer_bin.clone(),
-            ];
             match super::super::run_with_operation(
                 db_path,
                 "admin.deploy",

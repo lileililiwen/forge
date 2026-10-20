@@ -8,10 +8,10 @@
 //!   observation; the per-stage JSON envelope carries the
 //!   per-target outcome and the registry receives a `deploy`
 //!   journal row.
-//! - R1 failure: a target reference to a `ssh` kind is
-//!   refused with `error[deploy-invalid]` before any side
-//!   effect runs, in the same words the configuration
-//!   validator uses; a missing target name is
+//! - R1 failure: a target that does not state the fields its
+//!   kind requires is refused with `error[deploy-invalid]`
+//!   before any side effect runs, in the same words the
+//!   configuration validator uses; a missing target name is
 //!   refused with `error[deploy-invalid]`. A deploy apply
 //!   without `--confirm` is refused with
 //!   `error[deploy-invalid]`.
@@ -264,13 +264,37 @@ fn plan_refuses_unknown_target() {
 }
 
 #[test]
-fn plan_refuses_ssh_target_with_invalid_boundary() {
+fn plan_serves_an_ssh_target_that_states_its_fields() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
     write_deploy_project(
         &proj,
         "dep-plan-ssh",
+        "  artifact: docker-compose.yml\n  default: vps\n  targets:\n    - name: vps\n      kind: ssh\n      host: home-server-01\n      path: /srv/app/docker-compose.yml\n",
+    );
+    let out = run(&db, &["deploy", "plan", proj.to_str().unwrap()]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "an ssh target with a host and a path is served: {}",
+        lossy(&out.stderr)
+    );
+    let value = run_json(&db, &["deploy", "plan", proj.to_str().unwrap()]);
+    let plan = &value["plan"];
+    assert_eq!(plan["target"]["kind"], "ssh");
+    assert_eq!(plan["target"]["host"], "home-server-01");
+    assert_eq!(plan["target"]["path"], "/srv/app/docker-compose.yml");
+}
+
+#[test]
+fn plan_refuses_an_ssh_target_without_its_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-plan-ssh-bare",
         "  artifact: docker-compose.yml\n  default: vps\n  targets:\n    - name: vps\n      kind: ssh\n",
     );
     let out = run(&db, &["deploy", "plan", proj.to_str().unwrap()]);
@@ -281,9 +305,7 @@ fn plan_refuses_ssh_target_with_invalid_boundary() {
         "stderr must report deploy-invalid: {stderr}"
     );
     assert!(
-        stderr.contains(
-            "deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
-        ),
+        stderr.contains("deployment target `vps` of kind `ssh` must declare `host` and `path`"),
         "stderr must carry the shared wording: {stderr}"
     );
 }

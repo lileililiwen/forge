@@ -18,7 +18,7 @@ pub(super) mod tests {
         deploy_config_from_manifest, load_deploy_state, DeployAdapterConfig, DeployConfig,
         DeployRequest, DeployTargetSpec, STATUS_RUNNING, STATUS_UNKNOWN,
     };
-    use crate::extension::kinds::DEPLOY_TARGET_KINDS;
+    use crate::extension::kinds::{required_target_fields, DEPLOY_TARGET_KINDS};
 
     fn write_minimal_project(dir: &Path) {
         fs::create_dir_all(dir).unwrap();
@@ -184,6 +184,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: "true".to_string(),
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -225,6 +226,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: "true".to_string(),
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -255,6 +257,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: script.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -280,6 +283,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: script.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -312,6 +316,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: "true".to_string(),
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -320,17 +325,24 @@ pub(super) mod tests {
 
     /// A deploy configuration built directly, with one target of
     /// the named kind. `DeployConfig` is public, so the plan has
-    /// to be safe on its own.
+    /// to be safe on its own. The target states the fields its
+    /// kind requires, so a wired kind is planned the way a
+    /// manifest would state it.
     fn config_with_kind(kind: &str) -> DeployConfig {
+        let required = required_target_fields(kind);
         DeployConfig {
             adapter: kind.to_string(),
             default_target: "vps".to_string(),
             targets: vec![DeployTargetSpec {
                 name: "vps".to_string(),
                 kind: kind.to_string(),
-                host: None,
+                host: required
+                    .contains(&"host")
+                    .then(|| "home-server-01".to_string()),
                 user: None,
-                path: None,
+                path: required
+                    .contains(&"path")
+                    .then(|| "/srv/app/docker-compose.yml".to_string()),
                 service: None,
                 note: None,
             }],
@@ -339,12 +351,22 @@ pub(super) mod tests {
         }
     }
 
-    /// A manifest naming one deploy target kind.
+    /// A manifest naming one deploy target kind and stating the
+    /// fields that kind requires.
     fn manifest_with_kind(kind: &str) -> Manifest {
+        let mut fields = String::new();
+        for field in required_target_fields(kind) {
+            let value = match *field {
+                "host" => "home-server-01",
+                "path" => "/srv/app/docker-compose.yml",
+                _ => "declared",
+            };
+            fields.push_str(&format!("      {field}: {value}\n"));
+        }
         Manifest::parse(
             Path::new("forge.yaml"),
             format!(
-                "schema: 1\nproject:\n  id: app\n  name: App\n  profile: rust-web\ndeployment:\n  artifact: docker-compose.yml\n  default: vps\n  targets:\n    - name: vps\n      kind: {kind}\n"
+                "schema: 1\nproject:\n  id: app\n  name: App\n  profile: rust-web\ndeployment:\n  artifact: docker-compose.yml\n  default: vps\n  targets:\n    - name: vps\n      kind: {kind}\n{fields}"
             )
             .as_bytes(),
         )
@@ -352,32 +374,48 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn ssh_target_is_refused_by_the_registry_in_one_wording() {
-        // The plan must refuse an unwired kind on its own, because
-        // `DeployConfig` is public and `prepare_deploy` is a
-        // public function.
+    fn an_ssh_target_that_states_its_fields_is_served() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
         let manifest = manifest_with_kind("ssh");
-        let config = config_with_kind("ssh");
+        let config = deploy_config_from_manifest(&manifest)
+            .expect("an ssh target that states a host and a path is accepted");
         let req = DeployRequest {
             project_id: manifest.project.id.clone(),
             target: config.default_target.clone(),
             confirm: false,
             dry_run: true,
         };
-        let err = prepare_deploy(Path::new("."), &manifest, &config, &req).unwrap_err();
-        assert_eq!(err.code(), "deploy-invalid");
-        assert!(
-            err.to_string().contains(
-                "deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
-            ),
-            "the refusal names the shared wording: {err}"
+        let plan = prepare_deploy(tmp.path(), &manifest, &config, &req).expect("a plan");
+        assert_eq!(plan.target.kind, "ssh");
+        assert_eq!(plan.target.host.as_deref(), Some("home-server-01"));
+        assert_eq!(
+            plan.target.path.as_deref(),
+            Some("/srv/app/docker-compose.yml")
         );
     }
 
     #[test]
-    fn observe_refuses_an_unwired_kind_in_the_same_words_as_the_plan() {
-        let manifest = manifest_with_kind("ssh");
-        let config = config_with_kind("ssh");
+    fn an_ssh_target_without_its_fields_is_refused_by_name() {
+        let manifest = Manifest::parse(
+            Path::new("forge.yaml"),
+            b"schema: 1\nproject:\n  id: app\n  name: App\n  profile: rust-web\ndeployment:\n  artifact: docker-compose.yml\n  default: vps\n  targets:\n    - name: vps\n      kind: ssh\n      host: home-server-01\n",
+        )
+        .expect("manifest");
+        let err = deploy_config_from_manifest(&manifest)
+            .expect_err("a target that does not state its kind's fields is refused");
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string()
+                .contains("deployment target `vps` of kind `ssh` must declare `path`"),
+            "the refusal names the kind and the missing field: {err}"
+        );
+    }
+
+    #[test]
+    fn observe_refuses_an_unknown_kind_in_the_same_words_as_the_plan() {
+        let manifest = manifest_with_kind("carrier-pigeon");
+        let config = config_with_kind("carrier-pigeon");
         let req = DeployRequest {
             project_id: manifest.project.id.clone(),
             target: config.default_target.clone(),
@@ -391,13 +429,14 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: "true".to_string(),
+                ..Default::default()
             },
         )
         .unwrap_err();
         assert_eq!(err.code(), "deploy-invalid");
         assert!(
             err.to_string().contains(
-                "deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+                "deployment target kind `carrier-pigeon` is not supported; expected one of `local`, `docker-compose`, `jenkins`, `mac-runtime`, and `ssh`"
             ),
             "the refusal names the shared wording: {err}"
         );
@@ -457,7 +496,7 @@ pub(super) mod tests {
         assert_eq!(err.code(), "deploy-invalid");
         assert!(
             err.to_string().contains(
-                "deployment target kind `carrier-pigeon` is not supported; expected one of `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+                "deployment target kind `carrier-pigeon` is not supported; expected one of `local`, `docker-compose`, `jenkins`, `mac-runtime`, and `ssh`"
             ),
             "the refusal names the supported kinds: {err}"
         );
@@ -646,6 +685,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: good.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -674,6 +714,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: bad.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -714,6 +755,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: contradictory.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -755,6 +797,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: noisy.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -781,6 +824,7 @@ pub(super) mod tests {
         );
         let adapters = DeployAdapterConfig {
             deployer_bin: script.display().to_string(),
+            ..Default::default()
         };
         let report = apply_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
         assert!(!fs::read(&argv_log).unwrap().is_empty());
@@ -826,6 +870,7 @@ pub(super) mod tests {
             &req,
             &DeployAdapterConfig {
                 deployer_bin: script.display().to_string(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -842,6 +887,7 @@ pub(super) mod tests {
         let good = envelope_script(tmp.path(), "good.sh", ENVELOPE_OK, 0);
         let adapters = DeployAdapterConfig {
             deployer_bin: good.display().to_string(),
+            ..Default::default()
         };
         let report = apply_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
         let state = load_deploy_state(Path::new(&report.state_path)).unwrap();
@@ -862,6 +908,7 @@ pub(super) mod tests {
         let flaky = envelope_script(tmp.path(), "flaky.sh", &unreachable, 0);
         let adapters = DeployAdapterConfig {
             deployer_bin: flaky.display().to_string(),
+            ..Default::default()
         };
         let report = observe_deploy(tmp.path(), &manifest, &config, &req, &adapters).unwrap();
         assert!(!report.healthy);

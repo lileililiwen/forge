@@ -5,17 +5,20 @@
 //! - [`DeployConfig`] parses the manifest's `deployment` block,
 //!   refuses empty or duplicate targets, accepts only the
 //!   supported adapter kinds (`local`, `docker-compose`, `jenkins`,
-//!   `mac-runtime`; `ssh` is planned) and confines artifact paths to the
-//!   project directory.
+//!   `mac-runtime` and `ssh`), refuses a target that does not
+//!   state the fields its kind requires, and confines artifact
+//!   paths to the project directory.
 //! - [`prepare_deploy`] captures the named target, the
 //!   artifact identity (path, content hash), the working-tree
 //!   revision and the configured health check into a
 //!   reviewable [`DeployPlan`]. No side effect runs from
 //!   `prepare`.
 //! - [`apply_deploy`] refuses without `--confirm`; walks the
-//!   per-target adapter invocation through the configured
-//!   `FORGE_DEPLOYER_BIN` binary, captures the timestamped
-//!   health observation and persists a [`DeployState`]
+//!   per-target adapter invocation through the binary resolved
+//!   for the target's kind (the kind's own binary, then the
+//!   shared `FORGE_DEPLOYER_BIN` binary, then the kind's
+//!   default), captures the timestamped health observation and
+//!   persists a [`DeployState`]
 //!   under `.forge/deploy/<project-id>/<deploy-id>/state.json`.
 //! - [`observe_deploy`] re-runs the health check after a
 //!   successful apply (or on demand) and updates the same
@@ -64,7 +67,9 @@
 //! `FORGE_DEPLOYER_BIN` environment-variable pattern the
 //! docs and policy contracts use, so a fixture binary
 //! stands in for a real `docker compose` or `scp` round
-//! trip.
+//! trip. The `ssh` kind names its own adapter binary
+//! (`FORGE_DEPLOYER_SSH_BIN`, default `forge-deployer-ssh`),
+//! and its reference adapter lives in `adapters/ssh/`.
 
 pub mod contract;
 pub mod engine;

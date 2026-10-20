@@ -108,16 +108,22 @@ pub fn apply_deploy(
     }
     let state_path = state_path_for(project_dir, &plan.project_id, &plan.identity)?;
     let prior_state = load_deploy_state(&state_path)?;
+    // The adapter binary is resolved once, from the target's kind:
+    // the kind's own binary, then the shared binary, then the
+    // kind's default. The resolved binary is what is spawned, what
+    // a spawn failure names and what the evidence attributes to
+    // when the adapter does not name itself.
+    let binary = adapters.bin_for_kind(&plan.target.kind);
     let response = invoke_adapter(
         project_dir,
-        adapters,
+        &binary,
         &plan,
         AdapterOp::Apply,
         request.dry_run,
     )?;
     let now = Utc::now().to_rfc3339();
     let observation = build_observation(&response, &plan, &now);
-    let attribution = redact_deploy_evidence(&response.attribution(&adapters.deployer_bin));
+    let attribution = redact_deploy_evidence(&response.attribution(&binary));
     let mut apply_evidence: Vec<String> = response
         .apply_evidence
         .iter()
@@ -253,7 +259,7 @@ fn build_observation(
 ///   stands and the refusal names what was observed.
 fn invoke_adapter(
     project_dir: &Path,
-    adapters: &DeployAdapterConfig,
+    binary: &str,
     plan: &DeployPlan,
     op: AdapterOp,
     dry_run: bool,
@@ -268,7 +274,7 @@ fn invoke_adapter(
         revision: plan.identity.source_revision.clone(),
         dry_run,
     };
-    let mut cmd = Command::new(&adapters.deployer_bin);
+    let mut cmd = Command::new(binary);
     match op {
         AdapterOp::Apply => {
             cmd.arg("apply")
@@ -338,10 +344,7 @@ fn invoke_adapter(
             STATUS_UNKNOWN.to_string()
         };
         ForgeError::DeployTargetUnavailable {
-            reason: format!(
-                "deploy adapter `{}` could not be spawned: {err} ({kind})",
-                adapters.deployer_bin
-            ),
+            reason: format!("deploy adapter `{binary}` could not be spawned: {err} ({kind})",),
         }
     })?;
     if let Some(stdin) = child.stdin.as_mut() {
@@ -363,7 +366,7 @@ fn invoke_adapter(
     drop(child.stdin.take());
     let output = wait_with_timeout(child, DEPLOY_ADAPTER_TIMEOUT).map_err(|err| {
         ForgeError::DeployTargetUnavailable {
-            reason: format!("deploy adapter `{}` failed: {err}", adapters.deployer_bin),
+            reason: format!("deploy adapter `{binary}` failed: {err}"),
         }
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -492,16 +495,19 @@ pub fn observe_deploy(
             plan.artifact = Some(load_artifact(project_dir, relative)?);
         }
     }
+    // The adapter binary is resolved once, from the target's kind,
+    // exactly as the apply path resolves it.
+    let binary = adapters.bin_for_kind(&target.kind);
     let response = invoke_adapter(
         project_dir,
-        adapters,
+        &binary,
         &plan,
         AdapterOp::Observe,
         request.dry_run,
     )?;
     let now = Utc::now().to_rfc3339();
     let observation = build_observation(&response, &plan, &now);
-    let attribution = redact_deploy_evidence(&response.attribution(&adapters.deployer_bin));
+    let attribution = redact_deploy_evidence(&response.attribution(&binary));
     let mut observe_evidence: Vec<String> = observation
         .evidence
         .iter()

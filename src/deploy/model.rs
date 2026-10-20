@@ -6,13 +6,16 @@ use crate::core::manifest::{DeploymentHealthMeta, DeploymentMeta};
 use crate::core::ForgeError;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 use super::contract::{
     DEFAULT_DEPLOYER_BIN, DEPLOYER_BIN_ENV, HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS,
     STATUS_FAILED, STATUS_PENDING, STATUS_RUNNING, STATUS_UNKNOWN,
 };
 use super::prepare::{lexically_inside, validate_target_kind, validate_target_name};
-use crate::extension::kinds::supported_target_kinds;
+use crate::extension::kinds::{
+    default_adapter_for_kind, required_target_fields, supported_target_kinds, DEPLOY_TARGET_KINDS,
+};
 
 /// Per-stage outcome of an apply run. Statuses are stable
 /// across CLI, MCP and journal rows; the contract owns the
@@ -71,6 +74,16 @@ impl DeployConfig {
                     ),
                 })?;
             validate_target_kind(&kind)?;
+            refuse_missing_target_fields(
+                &name,
+                &kind,
+                stated_target_fields(
+                    entry.host.as_deref(),
+                    entry.user.as_deref(),
+                    entry.path.as_deref(),
+                    entry.service.as_deref(),
+                ),
+            )?;
             validate_target_name(&name)?;
             if typed_targets
                 .iter()
@@ -95,6 +108,16 @@ impl DeployConfig {
                 validate_target_kind(deploy_type)?;
                 let name = meta.target.clone().unwrap_or_else(|| "default".to_string());
                 validate_target_name(&name)?;
+                // The legacy form cannot state a host or a remote
+                // path, so it cannot express a kind that needs
+                // them. It is refused here, in the same words the
+                // typed form uses, instead of failing later inside
+                // an adapter.
+                refuse_missing_target_fields(
+                    &name,
+                    deploy_type,
+                    stated_target_fields(None, None, None, None),
+                )?;
                 typed_targets.push(DeployTargetSpec {
                     name: name.clone(),
                     kind: deploy_type.clone(),
@@ -194,6 +217,76 @@ impl DeployConfig {
                         .join(", ")
                 ),
             })
+    }
+}
+
+/// The target fields a target states, by field name. The kind
+/// registry names the fields a kind requires; this is the list the
+/// requirement is checked against.
+fn stated_target_fields<'a>(
+    host: Option<&'a str>,
+    user: Option<&'a str>,
+    path: Option<&'a str>,
+    service: Option<&'a str>,
+) -> Vec<(&'static str, Option<&'a str>)> {
+    vec![
+        ("host", host),
+        ("user", user),
+        ("path", path),
+        ("service", service),
+    ]
+}
+
+/// Refuse a target that does not state the fields its kind
+/// requires, naming the kind and the missing fields. The check
+/// sits next to the kind check, so a target is validated against
+/// its kind in one place, and the requirement itself lives in the
+/// registry rather than here.
+fn refuse_missing_target_fields<'a>(
+    name: &str,
+    kind: &str,
+    stated: Vec<(&'static str, Option<&'a str>)>,
+) -> Result<(), ForgeError> {
+    let missing: Vec<&'static str> = required_target_fields(kind)
+        .iter()
+        .copied()
+        .filter(|field| {
+            let value = stated
+                .iter()
+                .find(|(stated_name, _)| stated_name == field)
+                .and_then(|(_, value)| *value);
+            match value {
+                Some(value) => value.trim().is_empty(),
+                None => true,
+            }
+        })
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(ForgeError::DeployInvalid {
+        reason: format!(
+            "deployment target `{name}` of kind `{kind}` must declare {}",
+            render_field_list(&missing)
+        ),
+    })
+}
+
+/// Render a list of field names once, so the refusal's wording
+/// cannot drift between one, two and three missing fields.
+fn render_field_list(fields: &[&str]) -> String {
+    match fields.len() {
+        0 => String::new(),
+        1 => format!("`{}`", fields[0]),
+        2 => format!("`{}` and `{}`", fields[0], fields[1]),
+        _ => {
+            let head = fields[..fields.len() - 1]
+                .iter()
+                .map(|field| format!("`{field}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{head} and `{}`", fields[fields.len() - 1])
+        }
     }
 }
 /// Deploy identity. The id is derived from the project id,
@@ -462,17 +555,52 @@ pub struct DeployListEntry {
 /// environment variables; Core owns the default values so
 /// contract fixtures can stand in for real provider
 /// integration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DeployAdapterConfig {
+    /// The shared adapter binary. Empty when the shared variable is
+    /// unset, so the resolution can tell "unset" from "set to the
+    /// default".
     pub deployer_bin: String,
+    /// The adapter binary each kind named for itself.
+    pub kind_bins: BTreeMap<String, String>,
 }
 impl DeployAdapterConfig {
     pub fn from_env() -> Self {
         let deployer_bin = std::env::var(DEPLOYER_BIN_ENV)
             .ok()
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_DEPLOYER_BIN.to_string());
-        DeployAdapterConfig { deployer_bin }
+            .unwrap_or_default();
+        let mut kind_bins: BTreeMap<String, String> = BTreeMap::new();
+        for entry in DEPLOY_TARGET_KINDS {
+            let Some(variable) = entry.adapter_env else {
+                continue;
+            };
+            if let Ok(value) = std::env::var(variable) {
+                if !value.trim().is_empty() {
+                    kind_bins.insert(entry.kind.to_string(), value);
+                }
+            }
+        }
+        DeployAdapterConfig {
+            deployer_bin,
+            kind_bins,
+        }
+    }
+    /// The adapter binary that serves one kind, in one order: the
+    /// kind's own binary, then the shared binary, then the kind's
+    /// default. A kind that names no adapter of its own resolves to
+    /// the shared binary, exactly as it did before the resolution
+    /// became per kind.
+    pub fn bin_for_kind(&self, kind: &str) -> String {
+        if let Some(bin) = self.kind_bins.get(kind) {
+            return bin.clone();
+        }
+        if !self.deployer_bin.trim().is_empty() {
+            return self.deployer_bin.clone();
+        }
+        default_adapter_for_kind(kind)
+            .map(|bin| bin.to_string())
+            .unwrap_or_else(|| DEFAULT_DEPLOYER_BIN.to_string())
     }
 }
 /// One typed target from the manifest's `deployment.targets`
@@ -487,4 +615,171 @@ pub struct DeployTargetSpec {
     pub path: Option<String>,
     pub service: Option<String>,
     pub note: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::manifest::Manifest;
+    use crate::deploy::deploy_config_from_manifest;
+
+    /// A manifest naming one deploy target kind and the fields it
+    /// states.
+    fn manifest_with(body: &str) -> Manifest {
+        Manifest::parse(
+            std::path::Path::new("forge.yaml"),
+            format!(
+                "schema: 1\nproject:\n  id: app\n  name: App\n  profile: rust-web\ndeployment:\n  artifact: docker-compose.yml\n  default: vps\n{body}"
+            )
+            .as_bytes(),
+        )
+        .expect("manifest")
+    }
+
+    #[test]
+    fn the_adapter_is_resolved_from_the_kind_then_the_shared_binary_then_the_default() {
+        let own = DeployAdapterConfig {
+            deployer_bin: "/usr/local/bin/forge-deployer".to_string(),
+            kind_bins: BTreeMap::from([(
+                "ssh".to_string(),
+                "/usr/local/bin/forge-deployer-ssh".to_string(),
+            )]),
+        };
+        assert_eq!(
+            own.bin_for_kind("ssh"),
+            "/usr/local/bin/forge-deployer-ssh",
+            "the kind's own binary wins"
+        );
+        assert_eq!(
+            own.bin_for_kind("local"),
+            "/usr/local/bin/forge-deployer",
+            "a kind that names no binary uses the shared binary"
+        );
+
+        let shared = DeployAdapterConfig {
+            deployer_bin: "/usr/local/bin/forge-deployer".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            shared.bin_for_kind("ssh"),
+            "/usr/local/bin/forge-deployer",
+            "the shared binary serves a kind that names no binary of its own"
+        );
+
+        let neither = DeployAdapterConfig::default();
+        assert_eq!(
+            neither.bin_for_kind("ssh"),
+            "forge-deployer-ssh",
+            "the kind's default is the last rung"
+        );
+        assert_eq!(
+            neither.bin_for_kind("local"),
+            "forge-deployer",
+            "a kind without its own binary keeps the shared default"
+        );
+        assert_eq!(
+            neither.bin_for_kind("carrier-pigeon"),
+            DEFAULT_DEPLOYER_BIN,
+            "an unknown kind falls back to the shared default"
+        );
+    }
+
+    #[test]
+    fn the_kinds_without_their_own_adapter_resolve_exactly_as_before() {
+        let configured = DeployAdapterConfig {
+            deployer_bin: "/usr/local/bin/forge-deployer".to_string(),
+            ..Default::default()
+        };
+        for kind in ["local", "docker-compose", "jenkins", "mac-runtime"] {
+            assert_eq!(
+                configured.bin_for_kind(kind),
+                configured.deployer_bin,
+                "the kind `{kind}` must resolve to the shared binary"
+            );
+        }
+        // The registry's default for the shared kinds is the shared
+        // default constant, so the two cannot drift.
+        for kind in ["local", "docker-compose", "jenkins", "mac-runtime"] {
+            assert_eq!(
+                DeployAdapterConfig::default().bin_for_kind(kind),
+                DEFAULT_DEPLOYER_BIN,
+                "the registry's default for `{kind}` must be the shared default"
+            );
+        }
+    }
+
+    #[test]
+    fn a_target_that_states_its_kind_s_fields_is_accepted() {
+        let manifest = manifest_with(
+            "  targets:\n    - name: vps\n      kind: ssh\n      host: home-server-01\n      path: /srv/app/docker-compose.yml\n",
+        );
+        let config = deploy_config_from_manifest(&manifest).expect("an ssh target with its fields");
+        assert_eq!(config.targets.len(), 1);
+        assert_eq!(config.targets[0].host.as_deref(), Some("home-server-01"));
+        assert_eq!(
+            config.targets[0].path.as_deref(),
+            Some("/srv/app/docker-compose.yml")
+        );
+    }
+
+    #[test]
+    fn a_target_that_does_not_state_its_kind_s_fields_is_refused_by_name() {
+        let manifest = manifest_with(
+            "  targets:\n    - name: vps\n      kind: ssh\n      host: home-server-01\n",
+        );
+        let err =
+            deploy_config_from_manifest(&manifest).expect_err("a target without a path is refused");
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string()
+                .contains("deployment target `vps` of kind `ssh` must declare `path`"),
+            "the refusal names the kind and the missing field: {err}"
+        );
+
+        let manifest = manifest_with(
+            "  targets:\n    - name: vps\n      kind: ssh\n      path: /srv/app/docker-compose.yml\n",
+        );
+        let err =
+            deploy_config_from_manifest(&manifest).expect_err("a target without a host is refused");
+        assert!(
+            err.to_string()
+                .contains("deployment target `vps` of kind `ssh` must declare `host`"),
+            "the refusal names the kind and the missing field: {err}"
+        );
+
+        let manifest = manifest_with("  targets:\n    - name: vps\n      kind: ssh\n");
+        let err = deploy_config_from_manifest(&manifest)
+            .expect_err("a target without a host and a path is refused");
+        assert!(
+            err.to_string()
+                .contains("deployment target `vps` of kind `ssh` must declare `host` and `path`"),
+            "the refusal names the kind and both missing fields: {err}"
+        );
+    }
+
+    #[test]
+    fn the_legacy_type_form_cannot_state_an_ssh_target() {
+        let manifest = manifest_with("  type: ssh\n  target: vps\n");
+        let err = deploy_config_from_manifest(&manifest)
+            .expect_err("the legacy form cannot state a host and a path");
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string()
+                .contains("deployment target `vps` of kind `ssh` must declare `host` and `path`"),
+            "the legacy form is refused in the same words: {err}"
+        );
+    }
+
+    #[test]
+    fn a_blank_field_counts_as_missing() {
+        let manifest = manifest_with(
+            "  targets:\n    - name: vps\n      kind: ssh\n      host: \"  \"\n      path: /srv/app/docker-compose.yml\n",
+        );
+        let err = deploy_config_from_manifest(&manifest).expect_err("a blank host is refused");
+        assert!(
+            err.to_string()
+                .contains("deployment target `vps` of kind `ssh` must declare `host`"),
+            "a blank field is a missing field: {err}"
+        );
+    }
 }

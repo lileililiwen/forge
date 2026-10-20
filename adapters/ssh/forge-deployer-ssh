@@ -1,0 +1,497 @@
+#!/usr/bin/env python3
+"""forge-deployer-ssh — reference SSH deploy executor adapter.
+
+Translates the frozen Forge executor contract
+(``forge-deploy-executor/0.1.0``, see
+``docs/adapter-contracts/deploy-executor.md``) onto an SSH transfer:
+the artifact is copied to the named host under a staged name and
+renamed into place, and the health check runs on the host, because
+the health check describes the target's runtime.
+
+The adapter owns no deployment logic beyond that transfer and that
+check. The transport facts are the publish lane's, so the
+repository has one set of SSH facts: ``/bin/mkdir``, ``/bin/mv``
+and the ``.forge-new`` staged suffix.
+
+Trust model: the adapter is an operator-installed binary (same
+trust model as ``FORGE_DEPLOYER_BIN``). It is invoked with
+argument arrays and never interpolates arguments into a shell. The
+remote path never appears in the evidence (it is reported as
+``<host-path>``), the local artifact is reported by its
+project-relative name, credential-shaped strings are scrubbed from
+every emitted line, and Forge redacts again on the way in.
+
+Exit-code classification (contract-pinned):
+
+- exit 0     + envelope   -> the stage outcome as named
+- exit != 0  + envelope   -> the named stage FAILED with evidence
+- exit != 0, no envelope  -> executor UNAVAILABLE (prior state stands)
+"""
+
+import argparse
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+CONTRACT = "forge-deploy-executor/0.1.0"
+SOURCE = "forge-deployer-ssh/0.1.0"
+MAX_EVIDENCE_LINES = 8
+MAX_EVIDENCE_CHARS = 300
+
+# The publish lane's SSH facts (src/publish/remote_compose/constants.rs).
+# The adapter is a separate process and cannot import them, so the
+# values are restated here and the two must stay equal.
+REMOTE_MKDIR = "/bin/mkdir"
+REMOTE_MV = "/bin/mv"
+STAGED_SUFFIX = ".forge-new"
+
+# Bounded waits: every ssh/scp invocation has a deadline, and an
+# overrun is a failure, never a hang.
+SSH_TIMEOUT = 30
+SCP_TIMEOUT = 60
+
+# The marker the remote path is reported as. The path itself never
+# reaches the evidence.
+HOST_PATH = "<host-path>"
+
+# ssh's own exit status when it cannot reach the host. Disconnected
+# means unknown, not offline proof.
+SSH_UNREACHABLE = 255
+
+# The revision this adapter reports. `unknown` unless the operator
+# names one; a claim Forge cannot check is worse than no claim.
+SOURCE_REVISION = "unknown"
+
+SECRET_RES = [
+    re.compile(
+        r"(?i)(token|secret|password|passwd|api[_-]?key|authorization)([=:]\s*|[\s\"']+)\S+"
+    ),
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"xox[aprsb]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+]
+HOST_PATH_RE = re.compile(r"/(?:Users|home|var|opt|private|root)/[^\s\"']+")
+# A remote path, a host and a user travel as plain argv words to
+# `ssh` and `scp`. Only characters that are inert in a remote
+# shell word and unambiguous in an `scp` remote spec are accepted,
+# so a declared path can never become a remote command.
+SAFE_WORD_RE = re.compile(r"^[A-Za-z0-9._+/=,@-]+$")
+
+
+class AdapterError(Exception):
+    """A refusal the adapter can explain."""
+
+
+class CommandTimeout(Exception):
+    """One bounded invocation exceeded its deadline."""
+
+
+def scrub(line):
+    """Remove credential shapes and absolute host paths from one line."""
+    for pattern in SECRET_RES:
+        line = pattern.sub("[REDACTED]", line)
+    line = HOST_PATH_RE.sub(HOST_PATH, line)
+    if len(line) > MAX_EVIDENCE_CHARS:
+        line = line[: MAX_EVIDENCE_CHARS - 1] + "…"
+    return line
+
+
+def evidence_of(text):
+    lines = [scrub(item.strip()) for item in text.splitlines() if item.strip()]
+    return lines[-MAX_EVIDENCE_LINES:]
+
+
+def ssh_bin():
+    """The ssh program. Overridable so the adapter is testable
+    without a host."""
+    return os.environ.get("FORGE_SSH_BIN", "").strip() or "ssh"
+
+
+def scp_bin():
+    """The scp program. Overridable so the adapter is testable
+    without a host."""
+    return os.environ.get("FORGE_SCP_BIN", "").strip() or "scp"
+
+
+def revision():
+    """The revision this adapter reports."""
+    return os.environ.get("FORGE_DEPLOYER_SSH_REVISION", "").strip() or SOURCE_REVISION
+
+
+def run(argv, timeout):
+    """Invoke one program with an argv array (no shell) and a
+    bounded wait."""
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return 127, "", f"{argv[0]} is not installed"
+    except subprocess.TimeoutExpired:
+        raise CommandTimeout(f"{argv[0]} exceeded its {timeout}s bound")
+    except OSError as err:
+        return 126, "", str(err)
+    return completed.returncode, completed.stdout, completed.stderr
+
+
+def emit(status, note, evidence, observation, detail, obs_evidence, recovery, exit_code):
+    """Print the single contract envelope and exit."""
+    document = {
+        "contract": CONTRACT,
+        "apply_status": scrub(status),
+        "apply_note": scrub(note),
+        "apply_evidence": evidence,
+        "observation_status": scrub(observation),
+        "observation_detail": scrub(detail),
+        "observation_evidence": obs_evidence,
+        "recovery": [scrub(item) for item in recovery],
+        "source": SOURCE,
+        "source_revision": scrub(revision()) or "unknown",
+        "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    json.dump(document, sys.stdout)
+    sys.stdout.write("\n")
+    sys.exit(exit_code)
+
+
+def fail_apply(reason, evidence, recovery):
+    """A failed apply: the stage is named, the evidence is kept and
+    the exit status is non-zero, so Forge records a failed stage
+    with this envelope's evidence."""
+    emit(
+        "failed",
+        reason,
+        evidence,
+        "unknown",
+        "no observation possible after a failed apply",
+        [],
+        recovery,
+        1,
+    )
+
+
+def read_payload():
+    """The executor payload from stdin. The contract delivers it,
+    and the target's host and path travel in it."""
+    try:
+        raw = sys.stdin.read()
+    except Exception:  # noqa: BLE001 - the payload is supplementary context
+        return {}
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def safe_word(label, value):
+    """One declared word that travels as an argv element."""
+    if not value:
+        return ""
+    if not SAFE_WORD_RE.match(value):
+        raise AdapterError(
+            f"the target's {label} `{value}` contains characters this adapter "
+            "does not put on a command line"
+        )
+    return value
+
+
+def resolve_target(payload):
+    """The target's host, user and remote path, from the payload."""
+    target = payload.get("target")
+    target = target if isinstance(target, dict) else {}
+    host = str(target.get("host") or "").strip()
+    user = str(target.get("user") or "").strip()
+    path = str(target.get("path") or "").strip()
+    if not host:
+        raise AdapterError("the executor payload did not name a target host")
+    if not path:
+        raise AdapterError("the executor payload did not name a target path")
+    return (
+        safe_word("host", host),
+        safe_word("user", user),
+        safe_word("path", path),
+    )
+
+
+def target_string(host, user):
+    """The remote target: `user@host` when a user is declared."""
+    return f"{user}@{host}" if user else host
+
+
+def transfer_evidence(target, artifact):
+    """The three steps of the transfer, with the remote path
+    reported as `<host-path>` and the local artifact by its
+    project-relative name."""
+    return [
+        scrub(f"ssh {target} {REMOTE_MKDIR} -p {HOST_PATH}"),
+        scrub(f"scp {artifact} {target}:{HOST_PATH}{STAGED_SUFFIX}"),
+        scrub(
+            f"ssh {target} {REMOTE_MV} -f {HOST_PATH}{STAGED_SUFFIX} {HOST_PATH}"
+        ),
+    ]
+
+
+def do_apply(args, payload):
+    """The apply path: three commands, in this order."""
+    if args.kind != "ssh":
+        fail_apply(
+            f"kind `{args.kind}` is not wired through the SSH executor",
+            [],
+            ["declare the target as `ssh`"],
+        )
+        return
+    try:
+        host, user, path = resolve_target(payload)
+    except AdapterError as err:
+        fail_apply(
+            str(err),
+            [],
+            ["declare `host` and `path` on the deployment target"],
+        )
+        return
+    target = target_string(host, user)
+    artifact = payload.get("artifact")
+    artifact = artifact if isinstance(artifact, dict) else {}
+    local = str(artifact.get("path") or "").strip()
+    if not local:
+        fail_apply(
+            "the executor payload did not name an artifact to transfer",
+            [],
+            ["declare `deployment.artifact` for the project"],
+        )
+        return
+    evidence = transfer_evidence(target, local)
+    if args.dry_run:
+        emit(
+            "delivered",
+            "dry-run rehearsal: the artifact was not transferred and no host "
+            "was contacted",
+            evidence,
+            "unknown",
+            "dry-run rehearsal: no live health observation was attempted",
+            [],
+            [],
+            0,
+        )
+    remote_dir = os.path.dirname(path) or "."
+    steps = [
+        (
+            ssh_bin(),
+            [target, REMOTE_MKDIR, "-p", remote_dir],
+            "remote directory creation",
+            SSH_TIMEOUT,
+        ),
+        (
+            scp_bin(),
+            [local, f"{target}:{path}{STAGED_SUFFIX}"],
+            "artifact copy",
+            SCP_TIMEOUT,
+        ),
+        (
+            ssh_bin(),
+            [target, REMOTE_MV, "-f", f"{path}{STAGED_SUFFIX}", path],
+            "staged rename",
+            SSH_TIMEOUT,
+        ),
+    ]
+    for program, argv, what, timeout in steps:
+        try:
+            code, out, err = run([program] + argv, timeout)
+        except CommandTimeout as err:
+            fail_apply(
+                f"the {what} step did not finish: {err}",
+                evidence,
+                ["rerun the apply once the host answers within the adapter's bound"],
+            )
+            return
+        if code != 0:
+            fail_apply(
+                f"the {what} step failed with exit status {code}",
+                evidence + evidence_of(out) + evidence_of(err),
+                [
+                    "check that the host is reachable and that the remote path "
+                    "is writable",
+                    "rerun `forge deploy apply --confirm` after the host answers",
+                ],
+            )
+            return
+    emit(
+        "delivered",
+        "the artifact was copied to the host under a staged name and renamed "
+        "into place",
+        evidence,
+        "unknown",
+        "the artifact was delivered; health is observed by `forge deploy observe`",
+        [],
+        [],
+        0,
+    )
+
+
+def merge_health(args, payload):
+    """The health check: the argv is authoritative, the payload is
+    the fallback."""
+    health = payload.get("health")
+    health = health if isinstance(health, dict) else {}
+    return {
+        "kind": str(args.health_kind or health.get("kind") or "").strip(),
+        "service": str(args.health_service or health.get("service") or "").strip(),
+        "url": str(args.health_url or health.get("url") or "").strip(),
+        "process": str(args.health_process or health.get("process") or "").strip(),
+    }
+
+
+def run_health(target, health):
+    """Run the declared health check on the host and map it onto the
+    contract's vocabulary."""
+    kind = health["kind"]
+    if not kind:
+        return (
+            "unknown",
+            "no health check declared for this target",
+            [],
+        )
+    if kind == "http":
+        if not health["url"]:
+            return "unknown", "no health url declared for the http check", []
+        command = ["curl", "-fsS", "-o", "/dev/null", shlex.quote(health["url"])]
+        summary = f"curl -fsS -o /dev/null {health['url']}"
+    elif kind == "docker":
+        if not health["service"]:
+            return "unknown", "no health service declared for the docker check", []
+        command = [
+            "docker",
+            "ps",
+            "--filter",
+            shlex.quote(f"name={health['service']}"),
+            "--format",
+            shlex.quote("{{.Status}}"),
+        ]
+        summary = f"docker ps --filter name={health['service']}"
+    elif kind == "process":
+        if not health["process"]:
+            return "unknown", "no health process declared for the process check", []
+        command = ["pgrep", "-f", shlex.quote(health["process"])]
+        summary = f"pgrep -f {health['process']}"
+    else:
+        return (
+            "unknown",
+            f"the health check kind `{kind}` is outside the health mapping table",
+            [],
+        )
+    try:
+        code, out, err = run([ssh_bin(), target] + command, SSH_TIMEOUT)
+    except CommandTimeout as error:
+        return (
+            "unknown",
+            f"the health check did not finish: {error}; unknown is not offline proof",
+            [],
+        )
+    output = (out + err).strip()
+    detail = output.splitlines()[0] if output else f"exit {code}"
+    evidence = [scrub(f"{summary}: {detail}")]
+    if code == SSH_UNREACHABLE:
+        return (
+            "unknown",
+            "the host could not be reached; unknown is not offline proof",
+            evidence,
+        )
+    if kind == "docker":
+        if code != 0:
+            return (
+                "unknown",
+                f"the host answered but the docker check exited with status {code}",
+                evidence,
+            )
+        if not output:
+            return "unknown", "the service is not visible on the host", evidence
+        if "Up" in output:
+            return "running", "the host reports the service is up", evidence
+        return "failed", "the host reports the service is not up", evidence
+    if code == 0:
+        return "running", "the host reports the target is up", evidence
+    return "failed", f"the health check exited with status {code}", evidence
+
+
+def do_observe(args, payload):
+    """The observe path: read-only, and it never re-applies."""
+    try:
+        host, user, _path = resolve_target(payload)
+    except AdapterError as err:
+        emit(
+            "unknown",
+            "observe is read-only and produced no apply outcome",
+            [],
+            "unknown",
+            str(err),
+            [],
+            [],
+            0,
+        )
+        return
+    target = target_string(host, user)
+    status, detail, evidence = run_health(target, merge_health(args, payload))
+    emit(
+        "unknown",
+        "observe is read-only and produced no apply outcome",
+        [],
+        status,
+        detail,
+        evidence,
+        [],
+        0,
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="forge-deployer-ssh")
+    parser.add_argument("--version", action="store_true")
+    sub = parser.add_subparsers(dest="operation")
+    apply_p = sub.add_parser("apply")
+    apply_p.add_argument("--target", required=True)
+    apply_p.add_argument("--kind", required=True)
+    apply_p.add_argument("--project", required=True)
+    apply_p.add_argument("--revision", required=True)
+    apply_p.add_argument("--artifact")
+    apply_p.add_argument("--health-kind")
+    apply_p.add_argument("--health-service")
+    apply_p.add_argument("--health-url")
+    apply_p.add_argument("--health-process")
+    apply_p.add_argument("--dry-run", action="store_true")
+    observe_p = sub.add_parser("observe")
+    observe_p.add_argument("--target", required=True)
+    observe_p.add_argument("--project", required=True)
+    observe_p.add_argument("--deploy-id", required=True)
+    observe_p.add_argument("--health-kind")
+    observe_p.add_argument("--health-service")
+    observe_p.add_argument("--health-url")
+    observe_p.add_argument("--health-process")
+    args = parser.parse_args()
+    if args.version:
+        print(f"{SOURCE} (contract {CONTRACT})")
+        return 0
+    payload = read_payload()
+    if args.operation == "apply":
+        do_apply(args, payload)
+    elif args.operation == "observe":
+        do_observe(args, payload)
+    else:
+        sys.stderr.write("usage: forge-deployer-ssh apply|observe ... (see --help)\n")
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

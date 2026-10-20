@@ -150,19 +150,25 @@ pub struct DeploymentTargetEntry {
     #[serde(default)]
     pub name: Option<String>,
     /// Adapter kind. Supported in v0.1.0: `local`, `docker-compose`,
-    /// `jenkins`, and `mac-runtime`. `ssh` is planned.
+    /// `jenkins`, `mac-runtime` and `ssh`. An `ssh` target states
+    /// a `host` and a `path`; a target that does not state the
+    /// fields its kind requires is refused by the deploy
+    /// configuration validator.
     #[serde(default)]
     pub kind: Option<String>,
-    /// Adapter-specific free-form fields, recorded verbatim
-    /// so the deploy adapter can read them. The Core
-    /// contract does not interpret the contents; only the
-    /// typed `name`/`kind` matter.
+    /// The host an `ssh` target reaches. Required by the `ssh`
+    /// kind.
     #[serde(default)]
     pub host: Option<String>,
+    /// The remote user an `ssh` target connects as. Optional.
     #[serde(default)]
     pub user: Option<String>,
+    /// The remote path an `ssh` target writes to. Required by the
+    /// `ssh` kind.
     #[serde(default)]
     pub path: Option<String>,
+    /// The service a health check looks for. Optional; the
+    /// `docker` health check needs it.
     #[serde(default)]
     pub service: Option<String>,
     /// Optional human note surfaced in `forge deploy list`.

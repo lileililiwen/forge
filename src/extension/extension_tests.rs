@@ -8,8 +8,8 @@
 mod tests {
     use crate::extension::contract::verify_extension;
     use crate::extension::kinds::{
-        deploy_target_kind_state, supported_target_kinds, DEPLOY_TARGET_KINDS, TARGET_JENKINS,
-        TARGET_SSH,
+        default_adapter_for_kind, deploy_target_kind_state, required_target_fields,
+        supported_target_kinds, DEPLOY_TARGET_KINDS, TARGET_JENKINS, TARGET_SSH,
     };
     use crate::extension::state::{ExtensionDescriptor, ExtensionState};
     use crate::extension::version::ContractVersion;
@@ -72,7 +72,7 @@ mod tests {
         let supported = supported_target_kinds();
         assert_eq!(
             supported,
-            "`local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+            "`local`, `docker-compose`, `jenkins`, `mac-runtime`, and `ssh`"
         );
         for entry in DEPLOY_TARGET_KINDS.iter().filter(|e| e.wired) {
             assert_eq!(
@@ -83,13 +83,66 @@ mod tests {
             );
         }
         assert!(
-            !supported.contains(TARGET_SSH),
-            "an unwired kind is never advertised: {supported}"
+            supported.contains(TARGET_SSH),
+            "a wired kind is advertised: {supported}"
         );
         assert!(
             supported.contains(TARGET_JENKINS),
             "a wired kind is advertised: {supported}"
         );
+    }
+
+    #[test]
+    fn the_ssh_kind_declares_its_fields_and_its_own_adapter() {
+        let entry = DEPLOY_TARGET_KINDS
+            .iter()
+            .find(|entry| entry.kind == TARGET_SSH)
+            .expect("the ssh kind is registered");
+        assert!(entry.wired, "the ssh kind is served by this build");
+        assert_eq!(
+            required_target_fields(TARGET_SSH),
+            &["host", "path"],
+            "an ssh target states the host and the remote path"
+        );
+        assert_eq!(
+            entry.adapter_env,
+            Some("FORGE_DEPLOYER_SSH_BIN"),
+            "the ssh kind names its own adapter binary"
+        );
+        assert_eq!(
+            default_adapter_for_kind(TARGET_SSH),
+            Some("forge-deployer-ssh"),
+            "the ssh kind has its own default adapter"
+        );
+    }
+
+    #[test]
+    fn every_wired_kind_declares_its_fields_and_its_adapter() {
+        for entry in DEPLOY_TARGET_KINDS.iter().filter(|entry| entry.wired) {
+            assert_eq!(
+                required_target_fields(entry.kind),
+                entry.required_fields,
+                "the registry and the accessor must agree about `{}`",
+                entry.kind
+            );
+            assert_eq!(
+                default_adapter_for_kind(entry.kind),
+                Some(entry.default_adapter),
+                "the registry and the accessor must agree about `{}`",
+                entry.kind
+            );
+            assert!(
+                !entry.default_adapter.is_empty(),
+                "the wired kind `{}` names a default adapter",
+                entry.kind
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_kind_requires_nothing_and_names_no_adapter() {
+        assert!(required_target_fields("carrier-pigeon").is_empty());
+        assert_eq!(default_adapter_for_kind("carrier-pigeon"), None);
     }
 
     #[test]

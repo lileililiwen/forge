@@ -1,11 +1,11 @@
 # adapter-deployment Specification
 
 ## Purpose
-Simple deployment targets and observed runtime state. v0.1.0 of the contract supports Docker Compose and local-host adapters, refuses SSH and other planned kinds, and records timestamped health observations (running, failed, unknown) for every apply. Remote hosts are independent failure domains; disconnected means unknown, not offline proof. Recovery may require operator action.
+Simple deployment targets and observed runtime state. v0.1.0 of the contract supports Docker Compose, local-host, Jenkins, runtime and SSH adapters, and records timestamped health observations (running, failed, unknown) for every apply. Remote hosts are independent failure domains; disconnected means unknown, not offline proof. Recovery may require operator action.
 ## Requirements
 ### Requirement: Explicit adapter deployment
 
-Forge SHALL implement deploy with project and target selection through versioned Docker Compose and local/SSH adapters using validated artifact and configuration inputs.
+Forge SHALL implement deploy with project and target selection through versioned Docker Compose, local, Jenkins, runtime and SSH adapters using validated artifact and configuration inputs. A deploy target kind SHALL declare the target fields a target of that kind must state, and the configuration validator SHALL refuse a target that does not state them, naming the kind and the fields. A deploy target kind MAY name its own adapter binary, and the adapter for a target SHALL be resolved from the kind's own binary, then the shared binary, then the kind's default.
 
 #### Scenario: Explicit adapter deployment success
 
@@ -21,6 +21,13 @@ Forge SHALL implement deploy with project and target selection through versioned
 
 - **WHEN** multiple targets exist and no default or explicit target is set
 - **THEN** Forge requires selection rather than choosing an arbitrary server
+
+#### Scenario: A target does not state what its kind needs
+
+- **WHEN** a selected target omits a field that its deploy target kind
+  declares as required
+- **THEN** preflight fails before remote mutation, and the refusal names the
+  kind and the missing fields
 
 ### Requirement: Observed health and recovery
 

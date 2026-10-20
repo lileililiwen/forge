@@ -4,10 +4,10 @@
 
 use super::super::{
     redact_release_evidence, state_path_for, ReleaseAdapterConfig, ReleaseConfig, ReleaseIdentity,
-    ReleaseReport, ReleaseRequest, ReleaseState, StageOutcome, CHECK_PASS,
-    RELEASE_CONTRACT_VERSION, STAGE_COMMIT, STAGE_CONTAINER, STAGE_DOCS, STAGE_MIRROR, STAGE_NOTES,
-    STAGE_PACKAGE, STAGE_PUSH, STAGE_TAG, STATUS_CONFLICT, STATUS_DELIVERED, STATUS_DISABLED,
-    STATUS_FAILED, STATUS_SKIPPED,
+    ReleaseReport, ReleaseRequest, ReleaseState, StageOutcome, RELEASE_CONTRACT_VERSION,
+    STAGE_COMMIT, STAGE_CONTAINER, STAGE_DOCS, STAGE_MIRROR, STAGE_NOTES, STAGE_PACKAGE,
+    STAGE_PUSH, STAGE_TAG, STATUS_CONFLICT, STATUS_DELIVERED, STATUS_DISABLED, STATUS_FAILED,
+    STATUS_SKIPPED,
 };
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
@@ -17,8 +17,8 @@ use std::path::Path;
 use std::process::Command;
 
 use super::prepare::{
-    collect_captured_checks, effective_docs_locales, effective_stages, load_release_changelog,
-    short_revision,
+    check_readiness, collect_captured_checks, effective_docs_locales, effective_stages,
+    load_release_changelog, short_revision,
 };
 use super::stages::{
     run_container_stage, run_docs_stage, run_mirror_stage, run_notes_stage, run_package_stage,
@@ -76,20 +76,20 @@ pub fn apply_release(
     // applied after the working tree has moved on.
     let policy = DriftWatchConfig::from_env();
     let checks = collect_captured_checks(project_dir, manifest, config, &revision, &policy)?;
-    let ready = checks
-        .iter()
-        .filter(|c| c.applicable)
-        .all(|c| c.status == CHECK_PASS);
-    if !ready {
-        let failing: Vec<String> = checks
-            .iter()
-            .filter(|c| c.applicable && c.status != CHECK_PASS)
-            .map(|c| format!("{}:{}", c.kind, c.status))
-            .collect();
+    // The same judgement the prepare step uses: a release
+    // needs at least one applicable check and every applicable
+    // check passing. The refusal happens before any stage
+    // runs, so no tag is created.
+    let readiness = check_readiness(&checks);
+    if !readiness.ready {
         return Err(ForgeError::ReleaseCheckFailed {
+            // The error's own rendering adds the closing clause
+            // ("release execution blocks before tag or publication"),
+            // so the reason carries the evidence and the revision
+            // only.
             reason: format!(
-                "release check(s) {} at revision `{}` are not passing; release execution blocks before tag or publication",
-                failing.join(", "),
+                "{} at revision `{}`",
+                readiness.reason,
                 short_revision(&revision)
             ),
         });

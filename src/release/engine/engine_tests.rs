@@ -3,12 +3,13 @@
 #[cfg(test)]
 pub(super) mod tests {
     use super::super::super::{
-        release_config_from_manifest, ReleaseAdapterConfig, ReleaseConfig, ReleaseRequest, Semver,
+        release_config_from_manifest, CapturedCheck, ReleaseAdapterConfig, ReleaseConfig,
+        ReleaseRequest, Semver,
     };
     use super::super::{
         apply::apply_release,
         operations::{list_releases, run_with_timeout},
-        prepare::prepare_release,
+        prepare::{check_readiness, prepare_release},
     };
     use crate::core::manifest::{Manifest, Maturity};
     use crate::policy::DriftWatchConfig;
@@ -32,10 +33,17 @@ pub(super) mod tests {
         );
     }
 
-    fn write_release_manifest(dir: &Path, id: &str, body: &str) {
+    /// The `release.checks` list the shared fixture declares.
+    const FIXTURE_CHECKS: &str = "  checks:\n    - kind: doctor\n    - kind: test\n";
+
+    /// Write a release fixture whose manifest declares a
+    /// `release:` block with the given `checks:` block. An empty
+    /// block declares no release check at all, so the release has
+    /// no applicable evidence.
+    fn write_release_fixture(dir: &Path, id: &str, checks_yaml: &str, body: &str) {
         fs::create_dir_all(dir).unwrap();
         let text = format!(
-            "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n  checks:\n    - kind: doctor\n    - kind: test\n  changelog: CHANGELOG.md\n{body}"
+            "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n{checks_yaml}  changelog: CHANGELOG.md\n{body}"
         );
         fs::write(dir.join("forge.yaml"), text).unwrap();
         fs::write(dir.join("README.md"), "v1\n").unwrap();
@@ -69,6 +77,28 @@ pub(super) mod tests {
             ],
         );
         git(dir, &["commit", "-q", "-m", "initial"]);
+    }
+
+    fn write_release_manifest(dir: &Path, id: &str, body: &str) {
+        write_release_fixture(dir, id, FIXTURE_CHECKS, body);
+    }
+
+    /// Write a fixture whose manifest declares a `release:` block
+    /// with no `checks:` list, so no release check is applicable.
+    fn write_release_manifest_without_checks(dir: &Path, id: &str, body: &str) {
+        write_release_fixture(dir, id, "", body);
+    }
+
+    /// Build one captured check for the readiness judgement.
+    fn captured_check(kind: &str, status: &str, applicable: bool) -> CapturedCheck {
+        CapturedCheck {
+            kind: kind.to_string(),
+            status: status.to_string(),
+            applicable,
+            evidence: Vec::new(),
+            detail: format!("{kind} is {status}"),
+            source_revision: "abc123456789".to_string(),
+        }
     }
 
     fn read_manifest(dir: &Path) -> Manifest {
@@ -108,6 +138,106 @@ pub(super) mod tests {
         assert!(kinds.contains(&"doctor"));
         assert!(kinds.contains(&"test"));
         assert!(kinds.contains(&"driftwatch"));
+    }
+
+    #[test]
+    fn prepare_with_a_passing_check_is_ready() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest(dir, "rel-ready", "");
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let semver = Semver::parse("1.0.0").unwrap();
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: semver,
+            confirm: false,
+            dry_run: true,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let policy = DriftWatchConfig::from_env();
+        let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
+        assert!(plan.ready, "plan must be ready: {}", plan.note);
+        assert!(
+            plan.note.contains("check(s) passed"),
+            "note must report the passing check count: {}",
+            plan.note
+        );
+    }
+
+    #[test]
+    fn prepare_refuses_a_project_without_a_declared_check() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest_without_checks(dir, "rel-nocheck", "");
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let semver = Semver::parse("1.0.0").unwrap();
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: semver,
+            confirm: false,
+            dry_run: true,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let policy = DriftWatchConfig::from_env();
+        let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
+        // No applicable check is the absence of evidence, not
+        // a pass.
+        assert!(!plan.ready, "plan must not be ready: {}", plan.note);
+        assert!(
+            plan.note.contains("no applicable release check"),
+            "note must name the missing check: {}",
+            plan.note
+        );
+        assert!(
+            !plan.note.contains("check(s) passed"),
+            "note must not claim a passing check count: {}",
+            plan.note
+        );
+    }
+
+    #[test]
+    fn check_readiness_requires_an_applicable_passing_check() {
+        // No check at all is the absence of evidence.
+        let empty = check_readiness(&[]);
+        assert!(!empty.ready);
+        assert_eq!(
+            empty.reason,
+            "no applicable release check; declare at least one of doctor, test, driftwatch, gate in release.checks"
+        );
+
+        // A slice whose checks are all disabled has no
+        // applicable check either.
+        let disabled = check_readiness(&[
+            captured_check("doctor", "disabled", false),
+            captured_check("test", "disabled", false),
+        ]);
+        assert!(!disabled.ready);
+        assert!(
+            disabled.reason.contains("no applicable release check"),
+            "reason: {}",
+            disabled.reason
+        );
+
+        // One applicable passing check is enough.
+        let passing = check_readiness(&[
+            captured_check("doctor", "disabled", false),
+            captured_check("test", "pass", true),
+        ]);
+        assert!(passing.ready, "reason: {}", passing.reason);
+        assert!(passing.reason.is_empty());
+
+        // An applicable check that is not passing is named with
+        // its status, in the order the checks appear.
+        let failing = check_readiness(&[
+            captured_check("doctor", "fail", true),
+            captured_check("test", "stale", true),
+        ]);
+        assert!(!failing.ready);
+        assert_eq!(failing.reason, "failing check(s) doctor:fail, test:stale");
     }
 
     #[test]
@@ -203,6 +333,41 @@ pub(super) mod tests {
         let adapters = ReleaseAdapterConfig::from_env();
         let err = apply_release(dir, &manifest, &config, &request, &adapters).unwrap_err();
         assert_eq!(err.code(), "release-invalid");
+    }
+
+    #[test]
+    fn apply_refuses_a_project_without_a_declared_check() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest_without_checks(dir, "rel-nocheck-apply", "");
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let semver = Semver::parse("1.0.0").unwrap();
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: semver,
+            confirm: true,
+            dry_run: false,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let adapters = ReleaseAdapterConfig::from_env();
+        let err = apply_release(dir, &manifest, &config, &request, &adapters).unwrap_err();
+        assert_eq!(err.code(), "release-check-failed");
+        // The refusal happens before any stage runs, so the
+        // project has no tag.
+        let tags = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .arg("tag")
+            .arg("--list")
+            .output()
+            .expect("git tag --list");
+        assert!(
+            String::from_utf8_lossy(&tags.stdout).trim().is_empty(),
+            "no tag may be created: {}",
+            String::from_utf8_lossy(&tags.stdout)
+        );
     }
 
     #[test]

@@ -16,6 +16,55 @@ use std::path::Path;
 use super::apply::capture_source_revision;
 use super::model::PlanReport;
 
+/// The release check kinds a project can declare in
+/// `release.checks`. The capture and the readiness judgement
+/// share this list so the two cannot drift apart.
+pub(super) const KNOWN_CHECK_KINDS: [&str; 4] = ["doctor", "test", "driftwatch", "gate"];
+
+/// The verdict of the release readiness judgement. `ready` is
+/// true only when at least one check is applicable and every
+/// applicable check passes. `reason` is empty when the release
+/// is ready and otherwise names the missing evidence.
+pub(super) struct CheckReadiness {
+    pub ready: bool,
+    pub reason: String,
+}
+
+/// Judge whether a release has the evidence it needs. A release
+/// is ready only when at least one check is applicable and every
+/// applicable check passes: an empty applicable set is the
+/// absence of evidence, not a pass. The reason names the check
+/// kinds a project can declare when no check is applicable, and
+/// names the failing check and its status otherwise.
+pub(super) fn check_readiness(checks: &[CapturedCheck]) -> CheckReadiness {
+    let applicable: Vec<&CapturedCheck> = checks.iter().filter(|c| c.applicable).collect();
+    if applicable.is_empty() {
+        return CheckReadiness {
+            ready: false,
+            reason: format!(
+                "no applicable release check; declare at least one of {} in release.checks",
+                KNOWN_CHECK_KINDS.join(", ")
+            ),
+        };
+    }
+    let failing: Vec<String> = applicable
+        .iter()
+        .filter(|c| c.status != CHECK_PASS)
+        .map(|c| format!("{}:{}", c.kind, c.status))
+        .collect();
+    if failing.is_empty() {
+        CheckReadiness {
+            ready: true,
+            reason: String::new(),
+        }
+    } else {
+        CheckReadiness {
+            ready: false,
+            reason: format!("failing check(s) {}", failing.join(", ")),
+        }
+    }
+}
+
 /// Render a [`PlanReport`] for human output.
 pub fn render_plan_human(plan: &PlanReport) -> String {
     let mut lines: Vec<String> = Vec::new();
@@ -79,11 +128,8 @@ pub fn prepare_release(
     };
     let docs_locales = effective_docs_locales(manifest, config);
     let checks = collect_captured_checks(project_dir, manifest, config, &revision, policy)?;
-    let ready = checks
-        .iter()
-        .filter(|c| c.applicable)
-        .all(|c| c.status == CHECK_PASS);
-    let note = if ready {
+    let readiness = check_readiness(&checks);
+    let note = if readiness.ready {
         format!(
             "release plan ready for `{}`: {} check(s) passed at revision `{}`",
             request.project_id,
@@ -91,14 +137,9 @@ pub fn prepare_release(
             short_revision(&revision)
         )
     } else {
-        let failing: Vec<String> = checks
-            .iter()
-            .filter(|c| c.applicable && c.status != CHECK_PASS)
-            .map(|c| format!("{}:{}", c.kind, c.status))
-            .collect();
         format!(
-            "release plan not ready: failing check(s) {}; release execution blocks before tag or publication",
-            failing.join(", ")
+            "release plan not ready: {}; release execution blocks before tag or publication",
+            readiness.reason
         )
     };
     Ok(PlanReport {
@@ -110,7 +151,7 @@ pub fn prepare_release(
         checks,
         stages: effective_stages(config, request),
         note,
-        ready,
+        ready: readiness.ready,
     })
 }
 
@@ -176,8 +217,7 @@ pub(super) fn collect_captured_checks(
     let mut out: Vec<CapturedCheck> = Vec::new();
     let _ = manifest.project.profile.as_str();
     let configured: Vec<String> = config.checks.iter().map(|c| c.kind.clone()).collect();
-    let known = ["doctor", "test", "driftwatch", "gate"];
-    for kind in known {
+    for kind in KNOWN_CHECK_KINDS {
         let applicable = configured.iter().any(|c| c == kind);
         let check = if !applicable {
             CapturedCheck {

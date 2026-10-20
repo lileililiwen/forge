@@ -498,7 +498,7 @@ pub fn all_procedures() -> Vec<ProcedureSpec> {
         id: "prepare-release".to_string(),
         version: PROCEDURE_CONTRACT_VERSION.to_string(),
         title: "Prepare a release".to_string(),
-        description: "Capture semver, changelog, source revision and the doctor/test/DriftWatch evidence into a reviewable plan. The plan refuses to apply when any applicable check is failing or stale; the workflow ends with a gap report so partial success is observable.".to_string(),
+        description: "Capture semver, changelog, source revision and the doctor/test/DriftWatch evidence into a reviewable plan. The plan refuses to apply when any applicable check is failing or stale, or when no check is applicable; the workflow ends with a gap report so partial success is observable.".to_string(),
         prerequisites: vec![
             "A registered project with a CHANGELOG.md and a semver in the manifest's release block.".to_string(),
             "A working tree with a clean HEAD (or a clear recovery plan for dirty state).".to_string(),

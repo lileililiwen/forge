@@ -112,15 +112,15 @@ fn body_json(response: &forge::api::ApiResponse) -> serde_json::Value {
 }
 
 /// A project the release engine will accept: a schema-1 manifest whose
-/// `release` section declares `versioning: semver` and (by default) no checks,
-/// so every captured check is `disabled` and the plan is `ready`; a present
-/// `CHANGELOG.md`; and a git working tree with a committed HEAD plus a local
-/// bare `origin` remote so the commit/tag/push stages succeed without any
-/// network.
+/// `release` section declares `versioning: semver` and the `doctor` and
+/// `test` checks, so the release has applicable evidence; a minimal Cargo
+/// workspace so both checks pass; a present `CHANGELOG.md`; and a git
+/// working tree with a committed HEAD plus a local bare `origin` remote so
+/// the commit/tag/push stages succeed without any network.
 fn write_release_project(dir: &Path, id: &str, notes: bool) {
     fs::create_dir_all(dir).unwrap();
     let mut yaml = format!(
-        "schema: 1\nproject:\n  id: {id}\n  name: Test {id}\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n"
+        "schema: 1\nproject:\n  id: {id}\n  name: Test {id}\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n  checks:\n    - kind: doctor\n    - kind: test\n"
     );
     if notes {
         yaml.push_str("  notes:\n    template: RELEASE_NOTES.md\n    output: RELEASE_NOTES.md\n");
@@ -128,6 +128,17 @@ fn write_release_project(dir: &Path, id: &str, notes: bool) {
     fs::write(dir.join("forge.yaml"), yaml).unwrap();
     fs::write(dir.join("README.md"), "v1\n").unwrap();
     fs::write(dir.join("CHANGELOG.md"), "## 1.0.0\n- initial release\n").unwrap();
+    // A minimal Cargo workspace so the `doctor` build-config check and the
+    // `test` check both pass. A release is only ready with at least one
+    // applicable check, and both of these must be green.
+    fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"{id}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\npath = \"lib.rs\"\n"
+        ),
+    )
+    .unwrap();
+    fs::write(dir.join("lib.rs"), format!("//! {id}.\n")).unwrap();
     run_git(dir, &["init", "-q"]);
     run_git(dir, &["config", "user.email", "forge@example.com"]);
     run_git(dir, &["config", "user.name", "Forge Test"]);
@@ -135,7 +146,15 @@ fn write_release_project(dir: &Path, id: &str, notes: bool) {
     run_git(dir, &["checkout", "-q", "-b", "main"]);
     run_git(
         dir,
-        &["add", "--", "forge.yaml", "README.md", "CHANGELOG.md"],
+        &[
+            "add",
+            "--",
+            "forge.yaml",
+            "README.md",
+            "CHANGELOG.md",
+            "Cargo.toml",
+            "lib.rs",
+        ],
     );
     run_git(dir, &["commit", "-q", "-m", "initial"]);
 

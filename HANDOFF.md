@@ -2,6 +2,91 @@
 
 ## Latest delivery
 
+### `lifecycle-observation-closure` implemented and archived (2026-10-20)
+
+`forge doctor` is the operator's read-only question: *is this project in good
+shape?* It answered with evidence about the project directory — the manifest,
+the profile, the dependency drift, the build and deployment configuration, the
+repository, the CI, the documentation, the maturity controls.
+
+It never looked at what the delivery lanes recorded. The
+project-to-production workflow writes every delivery verb into the
+`operations` journal (`delivery.preflight`, `delivery.stage`,
+`delivery.promote`, `delivery.hermora`) and projects them into a typed phase;
+that projection is the single door every transport enters when answering
+`forge delivery status <project>` or `GET /v1/projects/{id}/delivery`. The
+doctor did not enter it. So a project whose last delivery **failed** was
+reported healthy, and a project that was never delivered at all was reported
+healthy. The spine the trunk repair programme walks — adopt → build → verify
+→ release → deliver → observe — had a hole in it exactly where the delivery
+lands.
+
+The fix is not a new probe and not a second vocabulary. The delivery state
+already existed, it already had one owner, and it already had one door.
+
+`RegistryObservation` now carries what the caller could observe about the
+delivery, and the doctor turns it into a `delivery-state` finding:
+
+| Delivery state | Finding | The project |
+|---|---|---|
+| healthy, or healthy plus enrolment | `PASS` | healthy |
+| failed (`stage-failed`, `degraded`) | `FAIL` | not healthy |
+| in progress | `WARN` | healthy |
+| a failed optional Hermora enrolment | `WARN` | healthy |
+| no recorded delivery | not applicable | healthy |
+| the state could not be read | `UNAVAILABLE` | not healthy |
+
+The phase is the delivery lane's own `DeliveryPhase`, read through
+`build_delivery_report`. The doctor never invents a phase and never re-parses
+a label. Every surface that reports a doctor report — the CLI, the external
+checker, the API doctor handler, the project status document, the workbench
+and the MCP transport — reads the delivery through the same function, so the
+finding is the same everywhere. The doctor still writes nothing: no journal
+row, no registry write, no target write, no provider invocation, and no
+delivery verb starts.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 4002 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 4002 passed, 0 failed, 1 ignored, with `grep -c "^failures:"` reporting 0. `cargo test -p forge --lib doctor` → 46 passed, 0 failed. `cargo test --test doctor_delivery_observation_contract` → 5 passed, 0 failed. `cargo build` finished with no finding and no warning. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T20:19:46Z"` on revision `561d156`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check reported "evaluated 456 of 456 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing advisories for `paste`, `unsafe-libyaml` and `lru` and still passed. |
+| A real doctor run | PASS | A fixture project at `/tmp/forge-change11/project`, registered in a real registry, with a real `delivery.stage` journal row that failed. `forge --registry … doctor …` reported `[FAIL] delivery-state (manual)` with the evidence `delivery phase=stage-failed`, `environment=stage`, `delivered revision=0123456789abcdef0123456789abcdef01234567`, `delivery state last changed 2026-10-20T19:31:00Z`, and the verdict `not healthy`. A second fixture with no delivery row reported `[PASS] delivery-state (automatic)` with `applicability: not applicable`. The registry's md5 was identical before and after the doctor run and the journal row count did not change: the doctor read the delivery and wrote nothing. |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 133 passed, 0 failed (133 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-lifecycle-observation-closure/`; two requirements were promoted into `openspec/specs/lifecycle-observation-closure/spec.md`, and the `doctor-maturity-assessment` capability was replaced. The archive writes a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings, and the staged diff check reported none either. Every changed Rust file is rustfmt-clean under `rustfmt --edition 2021 --check`. The twelve files that already differed under rustfmt before this change were left alone; `cargo fmt --all` was not run. Every touched file is under 1000 physical lines; the largest is `src/doctor/probes.rs` at 859. |
+
+Two behaviour changes a reviewer must know about. A failed delivery now
+makes the doctor report the project as not healthy, where it reported healthy
+before. And a project with no recorded delivery now carries a
+`delivery-state` finding that is explicitly not applicable, where the
+inventory carried no delivery finding at all.
+
+One thing is not this change's work and is in its commit anyway. The Gate's
+first run failed on two advisories published on 2026-10-19 and 2026-10-20 —
+`rustls-webpki` 0.103.15 (RUSTSEC-2026-0382) and `webpki-roots` 1.0.9
+(RUSTSEC-2026-0381). Both crates are transitive and neither is touched by
+this change. `Cargo.lock` moves them to 0.103.16 and 1.0.10 — the two patch
+upgrades the advisories name — so the repository's own Gate passes. That
+same run also failed the `build` check on its 60-second timeout while the
+dependency graph was recompiling; the second run, with a warm build, passed.
+`cargo audit` exits 0 afterwards, with only the pre-existing `paste`,
+`unsafe-libyaml` and `lru` warnings left.
+
+Not delivered, and stated plainly: the delivery projection itself is
+unchanged. The doctor reads the phase the lane publishes; if that projection
+is wrong, that is a delivery-lane change, and the projection still mixes
+revisions when it takes the latest row per verb — a project whose promotion
+for a newer revision failed after an older enrolment row can still read
+`hermora-failed`. The doctor does not decide whether a project is meant to
+be delivered: a project with no recorded delivery is reported as not
+applicable, and what a project must deliver stays the manifest's business.
+The release lane's own doctor check still passes no observation at all, so it
+carries no delivery finding — it judges the project's files, not its
+delivery.
+
+Implementation/archive commit: `749d910` (`feat: the doctor reads the
+delivery state`). This HANDOFF-only update is the second commit. Nothing was
+pushed. No active OpenSpec change remains, so this file has no `current_spec`
+pointer.
+
 ### `runtime-kind-shared-host` implemented and archived (2026-10-20)
 
 The publish inventory's contract already carried a runtime vocabulary —

@@ -240,6 +240,9 @@ pub struct DeployPlan {
     pub health: Option<DeployHealthSpec>,
     pub note: String,
     pub ready: bool,
+    /// The verdict of the shared delivery rule for this revision.
+    /// The plan is only `ready` when the rule is satisfied.
+    pub ship_gate: crate::gate::ship_gate::ShipGateStatus,
 }
 impl DeployPlan {
     pub fn healthy(&self) -> bool {

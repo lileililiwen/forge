@@ -4,6 +4,7 @@ pub mod agent_identity;
 pub mod assurance;
 pub mod creation;
 pub mod deploy;
+pub mod deploy_views;
 pub mod gate;
 pub mod gateway;
 pub mod history;

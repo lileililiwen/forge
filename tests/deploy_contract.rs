@@ -125,6 +125,46 @@ fn write_deploy_project(dir: &Path, id: &str, deployment_yaml: &str) {
     run_git(dir, &["commit", "-q", "-m", "initial"]);
 }
 
+/// The project's committed HEAD. The shared delivery rule binds the
+/// Gate evidence to the revision that is about to be delivered.
+fn head_revision(dir: &Path) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .expect("git rev-parse");
+    assert!(out.status.success(), "git rev-parse HEAD");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Write Gate evidence that satisfies the shared delivery rule for the
+/// project's committed HEAD.
+fn write_gate_evidence(dir: &Path, id: &str, revision: &str) {
+    let evidence = serde_json::json!({
+        "contract": forge::gate::GATE_CONTRACT_VERSION,
+        "project_id": id,
+        "runtime": "forge",
+        "profile": "full",
+        "revision": revision,
+        "aggregate": "passed",
+        "checks": [],
+        "observed_at": "2026-10-18T00:00:00Z",
+        "dry_run": false
+    });
+    let path = dir.join(".forge/gate").join(id).join("evidence.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
+}
+
+/// The deploy project with Gate evidence that satisfies the shared
+/// delivery rule.
+fn write_gated_deploy_project(dir: &Path, id: &str, deployment_yaml: &str) {
+    write_deploy_project(dir, id, deployment_yaml);
+    write_gate_evidence(dir, id, &head_revision(dir));
+}
+
 fn write_adapter_script(dir: &Path, name: &str, body: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, body).unwrap();
@@ -177,7 +217,7 @@ fn plan_captures_target_artifact_and_revision() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-plan-ok",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -284,7 +324,7 @@ fn apply_records_running_observation_via_fixture_adapter() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-apply-ok",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -331,7 +371,7 @@ fn apply_records_health_failure_with_recovery() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-apply-fail",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -376,7 +416,7 @@ fn apply_records_unknown_observation_preserving_recovery_boundary() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-apply-unknown",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -423,7 +463,7 @@ fn apply_refuses_when_adapter_binary_missing() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-apply-missing",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
@@ -458,7 +498,7 @@ fn apply_refuses_pre_namespacing_contract_and_names_the_mismatch() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-contract-mismatch",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
@@ -508,7 +548,7 @@ fn non_zero_exit_with_envelope_records_failed_stage_not_unavailable() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-nonzero-envelope",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
@@ -609,7 +649,7 @@ fn list_reports_persisted_deploys() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-list",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -638,7 +678,7 @@ fn inspect_returns_deploy_state() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-inspect",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -681,7 +721,7 @@ fn observe_updates_state_on_subsequent_run() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-observe",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -748,5 +788,104 @@ fn observe_refuses_without_prior_state() {
     assert!(
         stderr.contains("deploy-target-stale"),
         "stderr must report deploy-target-stale: {stderr}"
+    );
+}
+
+#[test]
+fn plan_is_not_ready_without_gate_evidence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-plan-nogate",
+        "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
+    );
+    let value = run_json(&db, &["deploy", "plan", proj.to_str().unwrap()]);
+    let plan = &value["plan"];
+    assert_eq!(plan["ready"], false);
+    assert_eq!(plan["ship_gate"]["satisfied"], false);
+    let note = plan["note"].as_str().unwrap_or_default();
+    assert!(
+        note.contains("Forge Gate evidence is absent for `dep-plan-nogate`"),
+        "the plan note must name the missing evidence: {note}"
+    );
+}
+
+#[test]
+fn apply_refuses_without_gate_evidence_and_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-apply-nogate",
+        "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
+    );
+    let adapter = write_adapter_script(tmp.path(), "fake-deployer.sh", ADAPTER_OK_BODY);
+    let mut cmd = clean_cmd();
+    cmd.arg("--registry")
+        .arg(&db)
+        .arg("deploy")
+        .arg("apply")
+        .arg(proj.to_str().unwrap())
+        .arg("--confirm")
+        .env("FORGE_DEPLOYER_BIN", &adapter);
+    let out = cmd.output().expect("apply");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = lossy(&out.stderr);
+    assert!(
+        stderr.contains("deploy-invalid"),
+        "stderr must report deploy-invalid: {stderr}"
+    );
+    assert!(
+        stderr.contains("Forge Gate evidence is absent for `dep-apply-nogate`"),
+        "the refusal must name the missing evidence: {stderr}"
+    );
+    assert!(
+        !proj.join(".forge/deploy").exists(),
+        "a refused apply writes no delivery state"
+    );
+    let registry = forge::registry::Registry::open(&db).unwrap();
+    let operations = registry
+        .operations_for_project("dep-apply-nogate", 16)
+        .unwrap();
+    assert!(
+        operations.iter().all(|op| op.kind != "deploy"),
+        "a refused apply writes no deploy journal row: {operations:?}"
+    );
+}
+
+#[test]
+fn the_delivery_and_deploy_lanes_refuse_for_the_same_reason() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("registry.db");
+    let proj = tmp.path().join("proj");
+    write_deploy_project(
+        &proj,
+        "dep-parity",
+        "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n",
+    );
+    let reg = run(&db, &["register", proj.to_str().unwrap()]);
+    assert!(reg.status.success(), "register: {}", lossy(&reg.stderr));
+    // The project has no Gate evidence, so both lanes must refuse
+    // with the very same reason.
+    let delivery = run(&db, &["delivery", "preflight", "dep-parity"]);
+    assert_eq!(delivery.status.code(), Some(1));
+    let deploy = run(
+        &db,
+        &["deploy", "apply", proj.to_str().unwrap(), "--confirm"],
+    );
+    assert_eq!(deploy.status.code(), Some(1));
+    let reason = "Forge Gate evidence is absent for `dep-parity`";
+    let delivery_stderr = lossy(&delivery.stderr);
+    let deploy_stderr = lossy(&deploy.stderr);
+    assert!(
+        delivery_stderr.contains("delivery-conflict") && delivery_stderr.contains(reason),
+        "the delivery lane must refuse with the shared reason: {delivery_stderr}"
+    );
+    assert!(
+        deploy_stderr.contains("deploy-invalid") && deploy_stderr.contains(reason),
+        "the deploy lane must refuse with the shared reason: {deploy_stderr}"
     );
 }

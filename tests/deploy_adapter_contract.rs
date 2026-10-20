@@ -95,6 +95,34 @@ fn write_deploy_project(dir: &Path, id: &str) {
     run_git(dir, &["commit", "-q", "-m", "initial"]);
 }
 
+/// Write Gate evidence that satisfies the shared delivery rule for the
+/// project's committed HEAD.
+fn write_gate_evidence(dir: &Path, id: &str) {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .expect("git rev-parse");
+    assert!(out.status.success(), "git rev-parse HEAD");
+    let revision = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let evidence = serde_json::json!({
+        "contract": forge::gate::GATE_CONTRACT_VERSION,
+        "project_id": id,
+        "runtime": "forge",
+        "profile": "full",
+        "revision": revision,
+        "aggregate": "passed",
+        "checks": [],
+        "observed_at": "2026-10-18T00:00:00Z",
+        "dry_run": false
+    });
+    let path = dir.join(".forge/gate").join(id).join("evidence.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
+}
+
 fn make_exec(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
     let mut perms = fs::metadata(path).unwrap().permissions();
@@ -204,6 +232,7 @@ fn setup(name: &str) -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf, PathBuf) 
     let trace = tmp.path().join("trace");
     fs::create_dir_all(&trace).unwrap();
     write_deploy_project(&proj, name);
+    write_gate_evidence(&proj, name);
     stub_jenkins_local(&jenkins);
     (tmp, db, proj, jenkins, trace)
 }
@@ -409,6 +438,7 @@ fn blocked_project_surfaces_failed_stage_with_recovery() {
     // `blocked-demo`; the adapter forwards Forge's project id, so
     // register the manifest under that id.
     write_deploy_project(&proj, "blocked-demo");
+    write_gate_evidence(&proj, "blocked-demo");
     stub_jenkins_local(&jenkins);
     let out = deploy_cli(
         &db,

@@ -28,9 +28,12 @@ pub mod evidence;
 mod evidence_export;
 pub mod model;
 pub mod rehearsal;
+pub mod ship_gate;
+pub mod ship_gate_tests;
 
 // Re-export all types
 pub use contract::*;
 pub use engine::*;
 pub use model::*;
 pub use rehearsal::*;
+pub use ship_gate::*;

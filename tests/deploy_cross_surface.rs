@@ -111,6 +111,41 @@ fn write_deploy_project(dir: &Path, id: &str, deployment_yaml: &str) {
     run_git(dir, &["commit", "-q", "-m", "initial"]);
 }
 
+/// Write Gate evidence that satisfies the shared delivery rule for the
+/// project's committed HEAD.
+fn write_gate_evidence(dir: &Path, id: &str) {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .expect("git rev-parse");
+    assert!(out.status.success(), "git rev-parse HEAD");
+    let revision = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let evidence = serde_json::json!({
+        "contract": forge::gate::GATE_CONTRACT_VERSION,
+        "project_id": id,
+        "runtime": "forge",
+        "profile": "full",
+        "revision": revision,
+        "aggregate": "passed",
+        "checks": [],
+        "observed_at": "2026-10-18T00:00:00Z",
+        "dry_run": false
+    });
+    let path = dir.join(".forge/gate").join(id).join("evidence.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
+}
+
+/// The deploy project with Gate evidence that satisfies the shared
+/// delivery rule.
+fn write_gated_deploy_project(dir: &Path, id: &str, deployment_yaml: &str) {
+    write_deploy_project(dir, id, deployment_yaml);
+    write_gate_evidence(dir, id);
+}
+
 fn write_adapter_script(dir: &Path, name: &str, body: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, body).unwrap();
@@ -135,7 +170,7 @@ fn registry_journal_records_deploy_run() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-journal",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -169,7 +204,7 @@ fn doctor_verdict_is_unchanged_after_deploy() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-doctor",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -209,7 +244,7 @@ fn redeploy_on_same_revision_is_idempotent() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-redeploy",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -266,7 +301,7 @@ fn redeploy_after_new_revision_derives_new_id() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-newrev",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",
@@ -294,6 +329,9 @@ fn redeploy_after_new_revision_derives_new_id() {
     fs::write(proj.join("README.md"), "v2\n").unwrap();
     run_git(&proj, &["add", "--", "README.md"]);
     run_git(&proj, &["commit", "-q", "-m", "second"]);
+    // The shared delivery rule binds the evidence to the revision it
+    // verifies, so the new revision needs its own passing evidence.
+    write_gate_evidence(&proj, "dep-newrev");
     // Re-apply: the deploy id is different.
     let mut cmd = clean_cmd();
     cmd.arg("--registry")
@@ -324,7 +362,7 @@ fn credential_in_evidence_is_redacted() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
-    write_deploy_project(
+    write_gated_deploy_project(
         &proj,
         "dep-redact",
         "  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: local\n  health:\n    kind: docker\n    service: app\n",

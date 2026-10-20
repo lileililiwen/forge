@@ -17,7 +17,6 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 
 use crate::core::ForgeError;
-use crate::gate::{evidence_freshness, load_latest_evidence, GateAggregate, GateFreshness};
 use crate::publish::providers::{
     load_config as load_provider_config, select_provider, ProviderEntry,
 };
@@ -145,39 +144,6 @@ fn verify_registered_head(
     Ok(())
 }
 
-fn require_fresh_passing_gate(
-    project_dir: &Path,
-    project_id: &str,
-    revision: &str,
-) -> Result<(), ForgeError> {
-    let evidence = load_latest_evidence(project_dir)?.ok_or_else(|| ForgeError::DeliveryConflict {
-        reason: format!(
-            "delivery: Forge Gate evidence is absent for `{project_id}`; run `forge gate` from the project directory and retry preflight"
-        ),
-    })?;
-    let freshness = evidence_freshness(&evidence, Some(revision));
-    if evidence.project_id != project_id
-        || !crate::gate::is_supported_gate_contract(&evidence.contract)
-        || evidence.profile != crate::gate::GateProfile::Full
-        || freshness != GateFreshness::Fresh
-        || evidence.aggregate != GateAggregate::Passed
-        || evidence.dry_run
-    {
-        return Err(ForgeError::DeliveryConflict {
-            reason: format!(
-                "delivery: Forge Gate evidence for `{project_id}` must use a supported contract, full profile, and be fresh and passed for revision {}; observed contract={}, profile={}, project={}, aggregate={}, freshness={}; run `forge gate --profile full` from the project directory and retry preflight",
-                &revision[..12],
-                evidence.contract,
-                evidence.profile.label(),
-                evidence.project_id,
-                evidence.aggregate.label(),
-                freshness.label()
-            ),
-        });
-    }
-    Ok(())
-}
-
 /// Build the projection after a single mutation by re-reading the
 /// journal. The `Registry` methods we call are all `&self` so
 /// multiple immutable borrows are safe.
@@ -197,7 +163,12 @@ pub fn run_preflight(
 ) -> Result<DeliveryOutcome, ForgeError> {
     let (project_dir, revision) = resolve_project(registry, project_id)?;
     verify_registered_head(&project_dir, project_id, &revision)?;
-    require_fresh_passing_gate(&project_dir, project_id, &revision)?;
+    let status = crate::gate::ship_gate::evaluate_ship_gate(&project_dir, project_id, &revision);
+    if !status.satisfied {
+        return Err(ForgeError::DeliveryConflict {
+            reason: status.reason,
+        });
+    }
     let provider = resolve_provider(&project_dir)?;
     let key = idempotency_key(DeliveryVerb::Preflight, project_id, &revision)?;
     let hash = request_hash(&revision, None, "preflight");

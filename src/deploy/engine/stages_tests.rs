@@ -93,10 +93,50 @@ pub(super) mod tests {
             .unwrap();
     }
 
+    /// The project's committed HEAD. The shared delivery rule binds
+    /// the evidence to the revision that is about to be delivered.
+    fn head_revision(dir: &Path) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .arg("rev-parse")
+            .arg("HEAD")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git rev-parse HEAD");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Write Gate evidence that satisfies the shared delivery rule for
+    /// the project's committed HEAD.
+    fn write_gate_evidence(dir: &Path, id: &str, revision: &str) {
+        let evidence = serde_json::json!({
+            "contract": crate::gate::GATE_CONTRACT_VERSION,
+            "project_id": id,
+            "runtime": "forge",
+            "profile": "full",
+            "revision": revision,
+            "aggregate": "passed",
+            "checks": [],
+            "observed_at": "2026-10-18T00:00:00Z",
+            "dry_run": false
+        });
+        let path = dir.join(".forge/gate").join(id).join("evidence.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
+    }
+
+    /// The project the deploy engine accepts, with Gate evidence that
+    /// satisfies the shared delivery rule.
+    fn write_gated_project(dir: &Path) {
+        write_minimal_project(dir);
+        write_gate_evidence(dir, "dep-test", &head_revision(dir));
+    }
+
     #[test]
     fn prepare_returns_ready_plan_for_default_target() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = DeployRequest {
             project_id: manifest.project.id.clone(),
@@ -147,6 +187,102 @@ pub(super) mod tests {
         )
         .unwrap_err();
         assert_eq!(err.code(), "deploy-invalid");
+    }
+
+    #[test]
+    fn prepare_reports_an_unsatisfied_ship_gate() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = DeployRequest {
+            project_id: manifest.project.id.clone(),
+            target: config.default_target.clone(),
+            confirm: false,
+            dry_run: true,
+        };
+        let plan = prepare_deploy(tmp.path(), &manifest, &config, &req).unwrap();
+        assert!(!plan.ready, "an unsatisfied rule leaves the plan not ready");
+        assert!(!plan.ship_gate.satisfied);
+        assert!(
+            plan.note
+                .contains("Forge Gate evidence is absent for `dep-test`"),
+            "the note names the missing evidence: {}",
+            plan.note
+        );
+    }
+
+    #[test]
+    fn apply_refuses_without_gate_evidence() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        let err = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: "true".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string()
+                .contains("Forge Gate evidence is absent for `dep-test`"),
+            "the refusal names the missing evidence: {}",
+            err
+        );
+        assert!(
+            !tmp.path().join(".forge/deploy").exists(),
+            "a refused apply writes no delivery state"
+        );
+    }
+
+    #[test]
+    fn apply_proceeds_with_satisfied_gate_evidence() {
+        let tmp = TempDir::new().unwrap();
+        write_gated_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = apply_request(&manifest, &config);
+        let script = envelope_script(tmp.path(), "ok.sh", ENVELOPE_OK, 0);
+        let report = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: script.display().to_string(),
+            },
+        )
+        .unwrap();
+        assert!(report.healthy);
+    }
+
+    #[test]
+    fn a_dry_run_apply_is_not_refused_without_gate_evidence() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        let (manifest, config) = load_config(tmp.path()).unwrap();
+        let req = DeployRequest {
+            project_id: manifest.project.id.clone(),
+            target: config.default_target.clone(),
+            confirm: true,
+            dry_run: true,
+        };
+        let script = envelope_script(tmp.path(), "ok.sh", ENVELOPE_OK, 0);
+        let report = apply_deploy(
+            tmp.path(),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: script.display().to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(report.stages.len(), 2);
     }
 
     #[test]
@@ -279,7 +415,7 @@ pub(super) mod tests {
     #[test]
     fn non_zero_exit_with_envelope_records_failed_stage_preserving_prior_state() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = apply_request(&manifest, &config);
         // First apply succeeds: the delivered state is persisted.
@@ -344,7 +480,7 @@ pub(super) mod tests {
     #[test]
     fn non_zero_delivered_claim_is_downgraded_to_failed() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = apply_request(&manifest, &config);
         // A contradictory envelope — claiming `delivered`
@@ -385,7 +521,7 @@ pub(super) mod tests {
     #[test]
     fn non_zero_without_envelope_stays_unavailable() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = apply_request(&manifest, &config);
         let noisy = write_script(
@@ -410,7 +546,7 @@ pub(super) mod tests {
     #[test]
     fn observe_invokes_the_read_only_observe_verb() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = apply_request(&manifest, &config);
         let argv_log = tmp.path().join("argv.log");
@@ -451,7 +587,7 @@ pub(super) mod tests {
     #[test]
     fn deploy_executor_runs_from_project_root() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = apply_request(&manifest, &config);
         let marker = tmp.path().join("executor-cwd");
@@ -481,7 +617,7 @@ pub(super) mod tests {
     #[test]
     fn unknown_observation_preserves_last_good_running() {
         let tmp = TempDir::new().unwrap();
-        write_minimal_project(tmp.path());
+        write_gated_project(tmp.path());
         let (manifest, config) = load_config(tmp.path()).unwrap();
         let req = apply_request(&manifest, &config);
         let good = envelope_script(tmp.path(), "good.sh", ENVELOPE_OK, 0);

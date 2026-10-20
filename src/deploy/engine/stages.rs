@@ -46,12 +46,16 @@ pub fn prepare_deploy(
         });
     }
     let revision = capture_source_revision(project_dir)?;
+    let ship_gate =
+        crate::gate::ship_gate::evaluate_ship_gate(project_dir, &request.project_id, &revision);
     let artifact = match &config.artifact {
         Some(relative) => Some(load_artifact(project_dir, relative)?),
         None => None,
     };
-    let ready = artifact.is_some() || config.adapter == TARGET_LOCAL;
-    let note = if ready {
+    let ready = (artifact.is_some() || config.adapter == TARGET_LOCAL) && ship_gate.satisfied;
+    let note = if !ship_gate.satisfied {
+        format!("deploy plan not ready: {}", ship_gate.reason)
+    } else if ready {
         format!(
             "deploy plan ready for target `{}` (kind `{}`) at revision `{}`",
             target.name,
@@ -73,6 +77,7 @@ pub fn prepare_deploy(
         health: config.health.clone(),
         note,
         ready,
+        ship_gate,
     })
 }
 
@@ -98,6 +103,15 @@ pub fn apply_deploy(
         });
     }
     let plan = prepare_deploy(project_dir, manifest, config, request)?;
+    // The shared delivery rule owns the refusal: no adapter process
+    // is spawned and no delivery state is written when the project's
+    // Gate evidence does not satisfy it. A dry run contacts no target,
+    // so it is never refused here.
+    if !request.dry_run && !plan.ship_gate.satisfied {
+        return Err(ForgeError::DeployInvalid {
+            reason: plan.ship_gate.reason.clone(),
+        });
+    }
     let state_path = state_path_for(project_dir, &plan.project_id, &plan.identity)?;
     let prior_state = load_deploy_state(&state_path)?;
     let response = invoke_adapter(
@@ -478,6 +492,11 @@ pub fn observe_deploy(
         note: "observe-only: re-running the health check against the persisted artifact identity"
             .to_string(),
         ready: true,
+        ship_gate: crate::gate::ship_gate::evaluate_ship_gate(
+            project_dir,
+            &request.project_id,
+            &revision,
+        ),
     };
     if plan.artifact.is_none() {
         if let Some(relative) = &config.artifact {

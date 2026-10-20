@@ -125,6 +125,35 @@ fn write_deploy_project(dir: &Path, id: &str) {
         &["add", "--", "forge.yaml", "README.md", "docker-compose.yml"],
     );
     run_git(dir, &["commit", "-q", "-m", "initial"]);
+    write_gate_evidence(dir, id);
+}
+
+/// Write Gate evidence that satisfies the shared delivery rule for the
+/// project's committed HEAD.
+fn write_gate_evidence(dir: &Path, id: &str) {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .expect("git rev-parse");
+    assert!(out.status.success(), "git rev-parse HEAD");
+    let revision = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let evidence = serde_json::json!({
+        "contract": forge::gate::GATE_CONTRACT_VERSION,
+        "project_id": id,
+        "runtime": "forge",
+        "profile": "full",
+        "revision": revision,
+        "aggregate": "passed",
+        "checks": [],
+        "observed_at": "2026-10-18T00:00:00Z",
+        "dry_run": false
+    });
+    let path = dir.join(".forge/gate").join(id).join("evidence.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
 }
 
 fn run_git(dir: &Path, args: &[&str]) {
@@ -207,10 +236,7 @@ fn anonymous_and_non_json_are_refused_before_any_core_call() {
     write_deploy_project(&project, "p1");
     register_project(&db, &project);
     let before_forge = project.join(".forge");
-    let before_state_bytes: Option<Vec<u8>> = before_forge
-        .exists()
-        .then(|| fs::read(&before_forge).ok())
-        .flatten();
+    let before_deploy_state = before_forge.join("deploy");
 
     // Anonymous GET plan -> 401.
     let anon_plan = handle(
@@ -257,14 +283,12 @@ fn anonymous_and_non_json_are_refused_before_any_core_call() {
     );
     assert_eq!(bad_ct.status, 415, "non-json apply refused");
 
-    // No on-disk state appeared (the deploy state dir is created only by
+    // No on-disk deploy state appeared (the deploy state dir is created only by
     // a confirmed apply; the previews here must not have created it).
-    if before_state_bytes.is_none() {
-        assert!(
-            !before_forge.exists(),
-            "no on-disk state should be written by refused requests"
-        );
-    }
+    assert!(
+        !before_deploy_state.exists(),
+        "no on-disk deploy state should be written by refused requests"
+    );
 }
 
 #[test]

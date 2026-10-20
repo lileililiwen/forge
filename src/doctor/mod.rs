@@ -23,15 +23,19 @@
 //! controls.
 
 pub mod assessment;
+pub mod delivery;
+pub mod delivery_tests;
 pub mod doctor_tests;
 pub mod freshness;
 pub mod gaps;
 pub mod model;
+pub mod observation;
 pub mod probes;
 pub mod runner;
 
 // Re-export all types
 pub use assessment::*;
 pub use model::*;
+pub use observation::*;
 pub use probes::*;
 pub use runner::*;

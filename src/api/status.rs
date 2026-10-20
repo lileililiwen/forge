@@ -32,7 +32,9 @@ use super::workbench::{redact_local_paths, resolve, Resolved};
 use super::ApiResponse;
 use crate::checker::{self, AlertSeverity};
 use crate::core::manifest::Manifest;
-use crate::doctor::{run_doctor, DoctorReport, FindingStatus, RegistryObservation};
+use crate::doctor::{
+    delivery_observation, run_doctor, DoctorReport, FindingStatus, RegistryObservation,
+};
 use crate::governance;
 use crate::profile::{inspect_profile, ProfileSupportStatus};
 use crate::registry::{ProjectRecord, Registry};
@@ -98,7 +100,7 @@ pub fn project_status(db_path: &Path, id: &str) -> ApiResponse {
         Resolved::Managed(record) => record,
         Resolved::Refused { status, reason } => return refuse(status, reason),
     };
-    let status = evaluate(&record);
+    let status = evaluate(&registry, &record);
     ApiResponse::json(
         200,
         json!({
@@ -130,7 +132,7 @@ pub fn fleet_status(db_path: &Path) -> ApiResponse {
     let mut counts = Counts::default();
     let mut projects: Vec<Value> = Vec::new();
     for record in &records {
-        let overall = evaluate(record).overall;
+        let overall = evaluate(&registry, record).overall;
         counts.add(overall);
         if projects.len() < MAX_FLEET_STATUS_PROJECTS {
             projects.push(json!({ "project_id": record.id, "state": overall }));
@@ -180,7 +182,9 @@ impl Counts {
 
 /// Project one record's three sub-checks and reduce them. An unreadable root
 /// short-circuits to three `unavailable` checks without calling Core at all.
-fn evaluate(record: &ProjectRecord) -> ProjectStatus {
+/// The delivery state is read through the delivery lane's own projection, so
+/// this surface reports the same delivery finding as the CLI.
+fn evaluate(registry: &Registry, record: &ProjectRecord) -> ProjectStatus {
     let dir = Path::new(&record.path);
     if !record.available || !dir.is_dir() {
         let reason = "the registered project directory is not currently readable on this host; nothing was changed.";
@@ -212,6 +216,11 @@ fn evaluate(record: &ProjectRecord) -> ProjectStatus {
     let observation = RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at.clone()),
+        delivery: Some(delivery_observation(
+            registry,
+            &record.id,
+            chrono::Utc::now(),
+        )),
     };
     // `policy_outcome = None`: the DriftWatch adapter is never invoked by this
     // read-only surface, so no external process is started.

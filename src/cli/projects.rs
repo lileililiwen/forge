@@ -10,7 +10,9 @@
 
 use forge::checker::{self, PROTOCOL_MAX_ALERTS};
 use forge::core::ForgeError;
-use forge::doctor::{parse_target_level, render_report_human, run_doctor, RegistryObservation};
+use forge::doctor::{
+    delivery_observation, parse_target_level, render_report_human, run_doctor, RegistryObservation,
+};
 use forge::fleet::render_list_block_human;
 use forge::generate::{generate, normalize_explicit, parse_interactive, verify_native};
 use forge::governance::inspect as inspect_governance_project;
@@ -227,7 +229,7 @@ pub(crate) fn cmd_doctor(
     // that is unknown there is still assessed from local evidence.
     let observation = open_registry(db_path)
         .ok()
-        .and_then(|registry| observation_for(registry, path));
+        .and_then(|registry| observation_for(&registry, path));
     // DriftWatch execution is delegated to the policy adapter. The CLI
     // runs the adapter itself (rather than going through the registry)
     // so the project-scoped invocation cannot leak across the open
@@ -242,17 +244,21 @@ pub(crate) fn cmd_doctor(
 }
 
 /// Best-effort read-only registry observation for `path`: matches the
-/// registered record whose canonical path equals `path`, if any.
-fn observation_for(registry: Registry, path: &Path) -> Option<RegistryObservation> {
+/// registered record whose canonical path equals `path`, if any. The
+/// delivery state is read through the delivery lane's own projection, so
+/// the doctor reports the state the lane recorded.
+fn observation_for(registry: &Registry, path: &Path) -> Option<RegistryObservation> {
     let canonical = path.canonicalize().ok()?.display().to_string();
     let record = registry
         .list()
         .ok()?
         .into_iter()
         .find(|p| p.path == canonical)?;
+    let delivery = delivery_observation(registry, &record.id, chrono::Utc::now());
     Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at),
+        delivery: Some(delivery),
     })
 }
 
@@ -290,6 +296,11 @@ pub(crate) fn cmd_check(
     let observation = Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at),
+        delivery: Some(delivery_observation(
+            &registry,
+            &record.id,
+            chrono::Utc::now(),
+        )),
     });
     // The DriftWatch policy plane stays off by default: a checker run
     // must not drive DriftWatch, which may drive Forge back through its

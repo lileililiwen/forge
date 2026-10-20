@@ -8,6 +8,7 @@ use crate::policy::PolicyOutcome;
 use std::path::Path;
 
 use super::assessment::{assess_maturity, policy_findings};
+use super::delivery::delivery_finding;
 use super::freshness::{docs_freshness_findings, manifest_mtime, observation_is_stale};
 use super::model::DOCTOR_POLICY_VERSION;
 use super::model::{
@@ -411,6 +412,22 @@ pub fn run_doctor(
                 "project is not registered",
             ));
         }
+    }
+
+    // Delivery state: what the delivery lane recorded for this project.
+    // The caller supplies the observation; the doctor never opens the
+    // registry itself. A caller that did not look produces no finding, and
+    // a project that is not registered gets none either — the doctor
+    // already reports the registration state.
+    let delivery = observation.and_then(|obs| {
+        if obs.registered {
+            obs.delivery.as_ref()
+        } else {
+            None
+        }
+    });
+    if let Some(finding) = delivery_finding(delivery) {
+        findings.push(finding);
     }
 
     let controls = assess_maturity(

@@ -283,6 +283,7 @@ pub(super) mod tests {
         let obs = RegistryObservation {
             registered: true,
             observed_at: Some("2000-01-01T00:00:00Z".to_string()),
+            delivery: None,
         };
         let report = run_doctor(tmp.path(), None, Some(&obs), None).unwrap();
         assert!(report.stale);

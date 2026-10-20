@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 
 use super::{ApiRequest, ApiResponse};
 use crate::core::{validate_project_id, ForgeError};
-use crate::doctor::{run_doctor, DoctorReport, RegistryObservation};
+use crate::doctor::{delivery_observation, run_doctor, DoctorReport, RegistryObservation};
 use crate::policy::{run_driftwatch, DriftWatchConfig};
 use crate::registry::Registry;
 use crate::upgrade::{apply_upgrade, plan_upgrade};
@@ -240,7 +240,7 @@ pub fn detail(db_path: &Path, id: &str) -> ApiResponse {
     }
 
     let project_dir = Path::new(&record.path);
-    let health = build_health(&record, project_dir);
+    let health = build_health(&registry, &record, project_dir);
     let operations = journal_evidence(&registry, id);
 
     ApiResponse::json(
@@ -274,13 +274,18 @@ fn management_label(id: &str) -> &'static str {
 /// — and appends an explicit `unavailable` [`POLICY_DEFERRED_FINDING`]
 /// finding, so a locally-clean project reports `deferred`, never
 /// `healthy`. The full live pass runs only behind [`refresh_health`].
-fn build_health(record: &crate::registry::ProjectRecord, dir: &Path) -> Value {
+fn build_health(registry: &Registry, record: &crate::registry::ProjectRecord, dir: &Path) -> Value {
     if !record.available || !dir.is_dir() {
         return unavailable_health();
     }
     let observation = Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at.clone()),
+        delivery: Some(delivery_observation(
+            registry,
+            &record.id,
+            chrono::Utc::now(),
+        )),
     });
     match run_doctor(dir, None, observation.as_ref(), None) {
         Ok(report) => finish_health(report, false),
@@ -318,6 +323,11 @@ pub fn refresh_health(db_path: &Path, id: &str) -> ApiResponse {
     let observation = Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at.clone()),
+        delivery: Some(delivery_observation(
+            &registry,
+            &record.id,
+            chrono::Utc::now(),
+        )),
     });
     let policy_outcome = run_driftwatch(project_dir, &DriftWatchConfig::from_env());
     match run_doctor(

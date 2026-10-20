@@ -4,7 +4,7 @@
 
 use super::model::{rpc_code, McpRpcError, McpToolDescriptor};
 use crate::core::ForgeError;
-use crate::doctor::RegistryObservation;
+use crate::doctor::{delivery_observation, RegistryObservation};
 use crate::policy::{redact_report_in_place, PolicyOutcome};
 use crate::registry::Registry;
 use serde_json::{Map, Value};
@@ -196,9 +196,14 @@ pub(super) fn observation_for(registry: &Registry, path: &Path) -> Option<Regist
         .ok()?
         .into_iter()
         .find(|p| p.path == canonical)?;
+    // The delivery state is read through the delivery lane's own
+    // projection, so this surface reports the same delivery finding as
+    // the CLI and the API.
+    let delivery = delivery_observation(registry, &record.id, chrono::Utc::now());
     Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at),
+        delivery: Some(delivery),
     })
 }
 

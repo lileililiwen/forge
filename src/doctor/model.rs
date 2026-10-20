@@ -4,6 +4,9 @@
 
 use serde::Serialize;
 
+use crate::delivery::state::DeliveryPhase;
+use crate::delivery::DeliveryEnvironment;
+
 /// One maturity control from the versioned policy descriptors.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MaturityControl {
@@ -96,10 +99,32 @@ pub(super) struct Rollup {
 /// Read-only registry observation supplied by the caller. `registered`
 /// tells whether the project is known; `observed_at` (RFC 3339) is compared
 /// against the manifest mtime so stale observations are shown as stale.
+/// `delivery` carries what the caller could observe about the project's
+/// delivery state; `None` means the caller did not look.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryObservation {
     pub registered: bool,
     pub observed_at: Option<String>,
+    pub delivery: Option<DeliveryObservation>,
+}
+
+/// What the caller could observe about the project's delivery state.
+///
+/// The delivery lane owns the phase vocabulary; the doctor reads it
+/// and never computes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeliveryObservation {
+    /// The delivery lane recorded a phase for the project.
+    Recorded {
+        phase: DeliveryPhase,
+        environment: Option<DeliveryEnvironment>,
+        revision: Option<String>,
+        updated_at: String,
+    },
+    /// The project has no recorded delivery.
+    Absent,
+    /// The delivery state could not be read.
+    Unreadable { reason: String },
 }
 /// Who (or what) can apply the fix for a finding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

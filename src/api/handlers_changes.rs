@@ -13,7 +13,8 @@ use crate::agent::{
 };
 use crate::core::ForgeError;
 use crate::doctor::{
-    parse_target_level, run_doctor, FindingStatus, RegistryObservation, Remediation,
+    delivery_observation, parse_target_level, run_doctor, FindingStatus, RegistryObservation,
+    Remediation,
 };
 use crate::feature::{add_feature, remove_feature, upgrade_feature};
 use crate::generate::{generate, normalize_explicit, GeneratedProject};
@@ -37,7 +38,7 @@ pub(super) fn handle_doctor(
     db_path: &Path,
     id: &str,
     request: &ApiRequest,
-    _now: DateTime<Utc>,
+    now: DateTime<Utc>,
 ) -> ApiResponse {
     let registry = match Registry::open(db_path) {
         Ok(reg) => reg,
@@ -58,6 +59,7 @@ pub(super) fn handle_doctor(
     let observation = Some(RegistryObservation {
         registered: true,
         observed_at: Some(record.observed_at.clone()),
+        delivery: Some(delivery_observation(&registry, &record.id, now)),
     });
     let policy_outcome = run_driftwatch(&project_dir, &DriftWatchConfig::from_env());
     match run_doctor(

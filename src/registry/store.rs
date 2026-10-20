@@ -443,6 +443,44 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn a_typed_deployment_target_is_observed() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir(&proj).unwrap();
+        let text = "schema: 1\nproject:\n  id: typed-app\n  name: Typed App\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\ndeployment:\n  artifact: docker-compose.yml\n  default: home\n  targets:\n    - name: home\n      kind: docker-compose\n";
+        write_manifest(&proj, "forge.yaml", text);
+
+        let mut reg = open_registry(&tmp);
+        let record = reg.register(&proj, None).unwrap();
+        assert_eq!(record.deployment_target.as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn the_first_typed_target_is_observed_without_a_declared_default() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir(&proj).unwrap();
+        let text = "schema: 1\nproject:\n  id: typed-app\n  name: Typed App\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\ndeployment:\n  targets:\n    - name: edge\n      kind: local\n    - name: home\n      kind: local\n";
+        write_manifest(&proj, "forge.yaml", text);
+
+        let mut reg = open_registry(&tmp);
+        let record = reg.register(&proj, None).unwrap();
+        assert_eq!(record.deployment_target.as_deref(), Some("edge"));
+    }
+
+    #[test]
+    fn a_manifest_without_a_deployment_block_records_no_target() {
+        let tmp = TempDir::new().unwrap();
+        let proj = tmp.path().join("proj");
+        fs::create_dir(&proj).unwrap();
+        write_manifest(&proj, "forge.yaml", &full_manifest_text("plain-app"));
+
+        let mut reg = open_registry(&tmp);
+        let record = reg.register(&proj, None).unwrap();
+        assert_eq!(record.deployment_target, None);
+    }
+
+    #[test]
     fn reconcile_marks_interrupted_operations_failed() {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("registry.db");

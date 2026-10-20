@@ -1,6 +1,7 @@
 //! Shared Core types: stable error codes and project identity rules.
 
 pub mod manifest;
+pub mod manifest_blocks;
 
 use thiserror::Error;
 

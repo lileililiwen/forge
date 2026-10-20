@@ -668,7 +668,7 @@ impl Registry {
                 manifest.schema,
                 PLATFORM_VERSION,
                 serde_json::to_string(&manifest.features).unwrap_or_else(|_| "{}".to_string()),
-                manifest.deployment.as_ref().and_then(|d| d.target.clone()),
+                deployment_target(&manifest),
                 runtime,
                 last_commit,
                 manifest.kit.as_ref().map(|k| k.id.clone()),
@@ -743,6 +743,29 @@ impl Registry {
             .optional()
             .map_err(ForgeError::from)
     }
+}
+
+/// The deployment target a manifest declares.
+///
+/// The typed `targets[]` form is authoritative: the declared `default`
+/// wins, then the name of the first typed target. The legacy `target`
+/// field is the last resort, so a manifest that only declares the
+/// legacy form still records a target. A manifest with no `deployment`
+/// block records none.
+fn deployment_target(manifest: &Manifest) -> Option<String> {
+    let deployment = manifest.deployment.as_ref()?;
+    if let Some(default) = deployment.default.as_ref() {
+        return Some(default.clone());
+    }
+    if let Some((index, entry)) = deployment.targets.iter().enumerate().next() {
+        return Some(
+            entry
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("target-{index}")),
+        );
+    }
+    deployment.target.clone()
 }
 /// One journal entry; surfaced for reconciliation evidence.
 #[derive(Debug, Clone, Serialize)]

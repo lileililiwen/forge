@@ -70,7 +70,7 @@ maturity: L1
 target_maturity: L1
 stack: rust
 runtime: rust
-deployment_target: unknown
+deployment_target: local
 git_remote: unknown
 last_commit: unknown
 quality: unknown

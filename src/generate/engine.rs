@@ -37,7 +37,6 @@ fn template_files(
     let test = descriptor.test_command.clone();
     let id = request.id.as_str();
     let snake_id = snake(id);
-    let manifest = manifest_text(request, &descriptor.language, kit);
     let mut files: Vec<(String, String)> = Vec::new();
     match request.profile.as_str() {
         "rust-web" => {
@@ -386,6 +385,12 @@ fn template_files(
             });
         }
     }
+    // The manifest is rendered after the file list, so the deployment
+    // defaults come from the files the tree really contains. The profile
+    // layout describes the profile in general; the rendered tree is what the
+    // project has.
+    let present: Vec<&str> = files.iter().map(|(path, _)| path.as_str()).collect();
+    let manifest = manifest_text(request, &descriptor.language, &present, kit);
     files.push(("forge.yaml".to_string(), manifest));
     // Versioned standard snapshot, only when a pack was explicitly selected
     // (defaulted for compatible profiles or explicitly selected with

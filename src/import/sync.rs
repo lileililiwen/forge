@@ -460,13 +460,78 @@ pub(super) mod tests {
 
     #[test]
     fn generated_manifest_is_minimal_and_valid() {
-        let text = build_manifest_text("demo-app", "rust-web", Some("rust"));
+        let text = build_manifest_text("demo-app", "rust-web", Some("rust"), &[]);
         let manifest =
             crate::core::manifest::Manifest::parse(Path::new("forge.yaml"), text.as_bytes())
                 .expect("generated manifest must validate");
         assert_eq!(manifest.project.id, "demo-app");
         assert!(manifest.features.is_empty());
         crate::profile::resolve_profile(&manifest.project.profile, &[]).unwrap();
+        let release = crate::release::prepare::release_config_from_manifest(&manifest)
+            .expect("the release configuration must resolve");
+        assert_eq!(release.versioning, "semver");
+        let deploy = crate::deploy::prepare::deploy_config_from_manifest(&manifest)
+            .expect("the deployment configuration must resolve");
+        assert_eq!(deploy.default_target, "local");
+        assert_eq!(deploy.artifact, None);
+    }
+
+    /// Adopt a repository and return the manifest Forge wrote for it.
+    fn adopt_manifest(dir: &Path, registry: &mut Registry) -> crate::core::manifest::Manifest {
+        adopt_import(registry, dir, None, None).unwrap();
+        let text = fs::read_to_string(dir.join("forge.yaml")).unwrap();
+        crate::core::manifest::Manifest::parse(Path::new("forge.yaml"), text.as_bytes())
+            .expect("the adopted manifest must parse")
+    }
+
+    #[test]
+    fn an_adopted_repository_declares_the_container_file_it_ships() {
+        let tmp = TempDir::new().unwrap();
+        let mut registry = Registry::open(&tmp.path().join("registry.db")).unwrap();
+
+        // A Compose file is the more specific artifact: it names the
+        // services to run.
+        let compose_dir = tmp.path().join("compose-app");
+        fs::create_dir_all(&compose_dir).unwrap();
+        write(&compose_dir, "Cargo.toml", "[package]\nname = \"demo\"\n");
+        write(&compose_dir, "src/main.rs", "fn main() {}\n");
+        write(
+            &compose_dir,
+            "docker-compose.yml",
+            "services:\n  app:\n    image: rust\n",
+        );
+        let manifest = adopt_manifest(&compose_dir, &mut registry);
+        let deploy = crate::deploy::prepare::deploy_config_from_manifest(&manifest)
+            .expect("the deployment configuration must resolve");
+        assert_eq!(deploy.adapter, "docker-compose");
+        assert_eq!(deploy.artifact.as_deref(), Some("docker-compose.yml"));
+        let release = crate::release::prepare::release_config_from_manifest(&manifest)
+            .expect("the release configuration must resolve");
+        assert_eq!(release.versioning, "semver");
+
+        // A Dockerfile alone gives a local target with that file.
+        let docker_dir = tmp.path().join("docker-app");
+        fs::create_dir_all(&docker_dir).unwrap();
+        write(&docker_dir, "Cargo.toml", "[package]\nname = \"demo\"\n");
+        write(&docker_dir, "src/main.rs", "fn main() {}\n");
+        write(&docker_dir, "Dockerfile", "FROM rust\n");
+        let manifest = adopt_manifest(&docker_dir, &mut registry);
+        let deploy = crate::deploy::prepare::deploy_config_from_manifest(&manifest)
+            .expect("the deployment configuration must resolve");
+        assert_eq!(deploy.adapter, "local");
+        assert_eq!(deploy.artifact.as_deref(), Some("Dockerfile"));
+
+        // A repository with no container file declares its target and no
+        // artifact: a declared artifact that is missing is refused.
+        let bare_dir = tmp.path().join("bare-app");
+        fs::create_dir_all(&bare_dir).unwrap();
+        write(&bare_dir, "Cargo.toml", "[package]\nname = \"demo\"\n");
+        write(&bare_dir, "src/main.rs", "fn main() {}\n");
+        let manifest = adopt_manifest(&bare_dir, &mut registry);
+        let deploy = crate::deploy::prepare::deploy_config_from_manifest(&manifest)
+            .expect("the deployment configuration must resolve");
+        assert_eq!(deploy.adapter, "local");
+        assert_eq!(deploy.artifact, None);
     }
 
     #[test]

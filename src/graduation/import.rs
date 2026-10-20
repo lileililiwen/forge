@@ -131,8 +131,9 @@ pub fn adopt_graduation(
     // The manifest text is the existing minimal builder; it is parsed
     // here as a pre-write self-check so a bug cannot land a manifest
     // that the registry would reject. This runs before any filesystem
-    // mutation.
-    let text = crate::import::build_manifest_text(&proposal.id, &proposal.profile, None);
+    // mutation. The graduation import adopts an artifact Forge did not
+    // generate, so it declares no deployment artifact.
+    let text = crate::import::build_manifest_text(&proposal.id, &proposal.profile, None, &[]);
     crate::core::manifest::Manifest::parse(&destination.join("forge.yaml"), text.as_bytes())?;
 
     let actor = clean_actor(actor);

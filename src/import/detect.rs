@@ -684,14 +684,42 @@ pub fn derive_project_id(dir: &Path, id_override: Option<&str>) -> Result<String
 /// Minimal validated manifest for an accepted proposal. The manifest carries
 /// no `features` section: detected features are reported in the proposal but
 /// only compatible, explicitly resolved capabilities belong in the registry.
-pub fn build_manifest_text(id: &str, profile: &str, language: Option<&str>) -> String {
+///
+/// `container_files` names the container files the repository actually has.
+/// The deployment defaults are derived from them, so the declared artifact is
+/// a file the adopted repository ships. A repository without one declares a
+/// target and no artifact.
+pub fn build_manifest_text(
+    id: &str,
+    profile: &str,
+    language: Option<&str>,
+    container_files: &[&str],
+) -> String {
     let mut text = format!(
         "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: {profile}\n  maturity: L1\n  target_maturity: L1\n"
     );
     if let Some(lang) = language.filter(|l| !l.trim().is_empty()) {
         text.push_str(&format!("runtime:\n  language: {lang}\n"));
     }
+    text.push_str(&crate::core::manifest_blocks::release_block(
+        &crate::core::manifest_blocks::DEFAULT_RELEASE_CHECKS,
+    ));
+    let deployment = crate::core::manifest_blocks::deployment_defaults(container_files);
+    text.push_str(&crate::core::manifest_blocks::deployment_block(
+        deployment.kind,
+        deployment.artifact.as_deref(),
+    ));
     text
+}
+
+/// The container files a repository ships, in the order the deployment
+/// defaults read them.
+fn container_files(dir: &Path) -> Vec<&'static str> {
+    let names = crate::core::manifest_blocks::COMPOSE_FILES
+        .iter()
+        .copied()
+        .chain(std::iter::once(crate::core::manifest_blocks::DOCKERFILE));
+    names.filter(|name| dir.join(name).is_file()).collect()
 }
 
 fn canonicalize_dir(dir: &Path) -> Result<String, ForgeError> {
@@ -754,7 +782,7 @@ pub fn adopt_import(
     registry.check_identity_available(&id, &canonical)?;
 
     let language = proposal.language.value.as_deref();
-    let text = build_manifest_text(&id, &profile, language);
+    let text = build_manifest_text(&id, &profile, language, &container_files(dir));
     // The generated text is minimal and must always validate; a failure here
     // is a bug, reported without claiming unrelated files changed.
     crate::core::manifest::Manifest::parse(&forge_path, text.as_bytes())?;

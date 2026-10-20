@@ -220,6 +220,67 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn generated_manifests_carry_a_complete_release_and_deployment_block() {
+        let tmp = TempDir::new().unwrap();
+        for profile in [
+            "aspnet-web",
+            "rust-web",
+            "nextjs-web",
+            "react-web",
+            "flutter-app",
+            "python-service",
+        ] {
+            let req = request_for(profile, &dest(&tmp, &format!("blocks-{profile}")));
+            let files = render_files(&req).unwrap();
+            let manifest_text = files
+                .iter()
+                .find(|(p, _)| p == "forge.yaml")
+                .map(|(_, c)| c.clone())
+                .unwrap();
+            let manifest = crate::core::manifest::Manifest::parse(
+                Path::new("forge.yaml"),
+                manifest_text.as_bytes(),
+            )
+            .expect("generated manifest must validate");
+
+            let release = crate::release::prepare::release_config_from_manifest(&manifest)
+                .expect("the release configuration must resolve");
+            assert_eq!(release.versioning, "semver", "{profile}");
+            assert_eq!(
+                release
+                    .checks
+                    .iter()
+                    .map(|check| check.kind.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["doctor", "test"],
+                "{profile}"
+            );
+
+            let deploy = crate::deploy::prepare::deploy_config_from_manifest(&manifest)
+                .expect("the deployment configuration must resolve");
+            assert_eq!(deploy.default_target, "local", "{profile}");
+            // The artifact is derived from the files the tree contains, so it
+            // is declared exactly when the tree ships a container file, and
+            // it is always a file the generated tree contains.
+            let tree_has_a_container_file = files.iter().any(|(path, _)| {
+                path == crate::core::manifest_blocks::DOCKERFILE
+                    || crate::core::manifest_blocks::COMPOSE_FILES.contains(&path.as_str())
+            });
+            assert_eq!(
+                deploy.artifact.is_some(),
+                tree_has_a_container_file,
+                "{profile}"
+            );
+            if let Some(artifact) = deploy.artifact.as_deref() {
+                assert!(
+                    files.iter().any(|(path, _)| path == artifact),
+                    "{profile}: the declared artifact `{artifact}` is not in the tree"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn request_for_helper_builds_valid_ids() {
         let tmp = TempDir::new().unwrap();
         for profile in ["rust-web", "flutter-app", "python-service"] {

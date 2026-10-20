@@ -265,9 +265,17 @@ pub(super) fn dotnet_namespace(id: &str) -> String {
     out
 }
 
+/// Render the `forge.yaml` of a generated project.
+///
+/// `present` names the files the generated tree will contain, so the
+/// deployment defaults are derived from them instead of from the filesystem,
+/// which does not exist yet at render time. A container file the tree
+/// contains is declared as the deployment artifact; a tree without one
+/// declares its target and no artifact.
 pub(super) fn manifest_text(
     request: &CreationRequest,
     language: &str,
+    present: &[&str],
     kit: Option<&KitContext>,
 ) -> String {
     let mut text = format!(
@@ -286,6 +294,14 @@ pub(super) fn manifest_text(
     if let Some(kit) = kit {
         text.push_str(&kit_manifest_block(kit));
     }
+    text.push_str(&crate::core::manifest_blocks::release_block(
+        &crate::core::manifest_blocks::DEFAULT_RELEASE_CHECKS,
+    ));
+    let deployment = crate::core::manifest_blocks::deployment_defaults(present);
+    text.push_str(&crate::core::manifest_blocks::deployment_block(
+        deployment.kind,
+        deployment.artifact.as_deref(),
+    ));
     text
 }
 

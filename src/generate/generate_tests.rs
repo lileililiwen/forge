@@ -31,6 +31,20 @@ pub(super) mod tests {
         Registry::open(&dir.path().join("registry.db")).unwrap()
     }
 
+    /// Whether the text names a date in the shape `YYYY-MM-DD`.
+    ///
+    /// The generated changelog carries no clock: the scaffold's assembly is
+    /// deterministic, so the same request renders the same bytes.
+    fn names_a_date(text: &str) -> bool {
+        let groups: Vec<&str> = text
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|group| !group.is_empty())
+            .collect();
+        groups
+            .windows(3)
+            .any(|w| w[0].len() == 4 && w[1].len() == 2 && w[2].len() == 2)
+    }
+
     #[test]
     fn workspace_metadata_staged_by_default_and_omitted_on_opt_out() {
         let tmp = TempDir::new().unwrap();
@@ -152,6 +166,20 @@ pub(super) mod tests {
         )
         .unwrap();
         assert_eq!(render_files(&a).unwrap(), render_files(&b).unwrap());
+        // The changelog is part of that byte-equality, and it is the file the
+        // release lane reads by default.
+        let changelog_of = |files: Vec<(String, String)>| {
+            files
+                .iter()
+                .find(|(path, _)| path == "CHANGELOG.md")
+                .map(|(_, content)| content.clone())
+                .expect("the scaffold writes a changelog")
+        };
+        assert_eq!(
+            changelog_of(render_files(&a).unwrap()),
+            changelog_of(render_files(&b).unwrap()),
+            "the same request must render byte-identical changelogs"
+        );
     }
 
     #[test]
@@ -184,6 +212,7 @@ pub(super) mod tests {
             let files = render_files(&req).unwrap();
             assert!(files.iter().any(|(p, _)| p == "forge.yaml"), "{profile}");
             assert!(files.iter().any(|(p, _)| p == "README.md"), "{profile}");
+            assert!(files.iter().any(|(p, _)| p == "CHANGELOG.md"), "{profile}");
             let manifest_text = files
                 .iter()
                 .find(|(p, _)| p == "forge.yaml")
@@ -278,6 +307,105 @@ pub(super) mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn every_profile_carries_a_changelog_that_claims_no_release() {
+        let tmp = TempDir::new().unwrap();
+        for profile in [
+            "aspnet-web",
+            "rust-web",
+            "nextjs-web",
+            "react-web",
+            "flutter-app",
+            "python-service",
+        ] {
+            let id = format!("changelog-{profile}");
+            let req = normalize_explicit(
+                Some(profile),
+                Some(&id),
+                Some(&id),
+                &[],
+                &dest(&tmp, &id),
+                None,
+            )
+            .unwrap();
+            let files = render_files(&req).unwrap();
+            let changelog = files
+                .iter()
+                .find(|(p, _)| p == "CHANGELOG.md")
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| panic!("{profile}: the scaffold must write a changelog"));
+            // One `## [Unreleased]` section and no other version heading:
+            // nothing has been released.
+            let headings: Vec<&str> = changelog
+                .lines()
+                .filter(|line| line.starts_with("## ["))
+                .collect();
+            assert_eq!(headings, vec!["## [Unreleased]"], "{profile}: {changelog}");
+            assert!(
+                !headings.iter().any(|line| line
+                    .trim_start_matches("## [")
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_digit())),
+                "{profile}: {changelog}"
+            );
+            // No date: the assembly is deterministic and the clock is not
+            // part of the file.
+            assert!(!names_a_date(&changelog), "{profile}: {changelog}");
+            // The file names the project, the scaffold and the profile.
+            assert!(changelog.contains(&id), "{profile}: {changelog}");
+            assert!(
+                changelog.contains(&format!("All notable changes to {id} are documented here.")),
+                "{profile}: {changelog}"
+            );
+            assert!(
+                changelog.contains(&format!(
+                    "Initial Forge scaffold for the `{profile}` profile."
+                )),
+                "{profile}: {changelog}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_scaffolded_changelog_satisfies_the_release_lane_default_path() {
+        let tmp = TempDir::new().unwrap();
+        let req = request_for("rust-web", &dest(&tmp, "release-path"));
+        let files = render_files(&req).unwrap();
+        // The release lane reads this path when the manifest names none.
+        assert_eq!(
+            crate::release::contract::DEFAULT_CHANGELOG,
+            "CHANGELOG.md",
+            "the release lane's default changelog path"
+        );
+        assert!(
+            files
+                .iter()
+                .any(|(path, _)| path == crate::release::contract::DEFAULT_CHANGELOG),
+            "the scaffold must write the changelog the release lane reads"
+        );
+        // And the release lane really loads that file.
+        let written = TempDir::new().unwrap();
+        for (rel, contents) in &files {
+            let path = written.path().join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, contents).unwrap();
+        }
+        let captured = crate::release::prepare::load_changelog(
+            written.path(),
+            crate::release::contract::DEFAULT_CHANGELOG,
+        )
+        .expect("the release lane finds the scaffolded changelog");
+        assert_eq!(captured.path, "CHANGELOG.md");
+        assert!(
+            captured.excerpt.contains("## [Unreleased]"),
+            "{}",
+            captured.excerpt
+        );
     }
 
     #[test]

@@ -317,6 +317,24 @@ pub(super) fn readme_text(
     )
 }
 
+/// Render the initial `CHANGELOG.md` of a generated project.
+///
+/// The file claims no release. A scaffolded project has not been released,
+/// so it carries one `## [Unreleased]` section and no version heading, and it
+/// carries no date either: the scaffold's assembly is deterministic, so the
+/// same creation request must render the same bytes.
+///
+/// The file lands at the path the release lane reads by default
+/// (`crate::release::contract::DEFAULT_CHANGELOG`), so a scaffolded project
+/// can prepare a release without its owner writing a changelog first.
+pub(super) fn changelog_text(request: &CreationRequest) -> String {
+    format!(
+        "# Changelog\n\nAll notable changes to {name} are documented here. The format follows\n[Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and this project\nadheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\n## [Unreleased]\n\n### Added\n\n- Initial Forge scaffold for the `{profile}` profile.\n",
+        name = request.name,
+        profile = request.profile
+    )
+}
+
 /// The recorded exception, when a floor was actually bypassed.
 fn kit_exception(kit: Option<&KitContext>) -> Option<&crate::kit::floor::FloorException> {
     match kit.map(|k| &k.decision) {

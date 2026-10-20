@@ -13,8 +13,8 @@ use std::path::{Component, Path, PathBuf};
 use super::constants::GENERATOR_VERSION;
 use super::model::{CreationRequest, GeneratedProject, KitContext, NativeReport};
 use super::request::{
-    check_request, dotnet_namespace, is_manifest_path, kit_readme_section, manifest_text,
-    readme_text, snake,
+    changelog_text, check_request, dotnet_namespace, is_manifest_path, kit_readme_section,
+    manifest_text, readme_text, snake,
 };
 
 fn template_files(
@@ -385,6 +385,13 @@ fn template_files(
             });
         }
     }
+    // The changelog is profile-independent apart from the profile name it
+    // mentions, so it is pushed once here rather than once per profile branch.
+    // It lands at the path the release lane reads by default, so a scaffolded
+    // project can prepare a release without its owner writing a changelog
+    // first. It names no version and no date: nothing has been released, and
+    // the assembly is deterministic.
+    files.push(("CHANGELOG.md".to_string(), changelog_text(request)));
     // The manifest is rendered after the file list, so the deployment
     // defaults come from the files the tree really contains. The profile
     // layout describes the profile in general; the rendered tree is what the

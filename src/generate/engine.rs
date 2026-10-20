@@ -3,12 +3,12 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use crate::core::ForgeError;
+use crate::native::{run_native, split_command};
 use crate::profile::inspect_profile;
 use crate::registry::Registry;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 
 use super::constants::GENERATOR_VERSION;
 use super::model::{CreationRequest, GeneratedProject, KitContext, NativeReport};
@@ -731,17 +731,6 @@ fn cleanup_promoted(dest: &Path, promoted: &[PathBuf], dest_existed: bool) {
     }
 }
 
-pub(crate) fn split_command(command: &str) -> Result<(String, Vec<String>), ForgeError> {
-    let mut parts: Vec<String> = command.split_whitespace().map(str::to_string).collect();
-    if parts.is_empty() {
-        return Err(ForgeError::GenerationFailed {
-            reason: "empty native command; nothing was verified".to_string(),
-        });
-    }
-    let program = parts.remove(0);
-    Ok((program, parts))
-}
-
 pub(crate) fn toolchain_present(name: &str, available: Option<&HashSet<String>>) -> bool {
     if let Some(set) = available {
         return set.contains(name);
@@ -778,31 +767,19 @@ pub fn verify_native(
         });
     }
     for command in [&descriptor.build_command, &descriptor.test_command] {
-        let (program, args) = split_command(command)?;
-        let output = Command::new(&program)
-            .args(&args)
-            .current_dir(project_dir)
-            .output()
-            .map_err(|err| ForgeError::GenerationFailed {
-                reason: format!("native command '{command}' could not start: {err}"),
-            })?;
-        if !output.status.success() {
-            let mut detail = String::from_utf8_lossy(&output.stderr).to_string();
-            if detail.trim().is_empty() {
-                detail = String::from_utf8_lossy(&output.stdout).to_string();
-            }
-            let tail: String = detail
-                .chars()
-                .rev()
-                .take(2000)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect();
+        let (program, args) =
+            split_command(command).map_err(|reason| ForgeError::GenerationFailed { reason })?;
+        let outcome = run_native(project_dir, &program, &args, &[])?;
+        if let Some(start_error) = outcome.start_error {
+            return Err(ForgeError::GenerationFailed {
+                reason: format!("native command '{command}' could not start: {start_error}"),
+            });
+        }
+        if !outcome.success {
             return Err(ForgeError::GenerationFailed {
                 reason: format!(
                     "native command '{command}' failed for profile '{profile_id}': {}",
-                    tail.trim()
+                    outcome.tail(2000).trim()
                 ),
             });
         }

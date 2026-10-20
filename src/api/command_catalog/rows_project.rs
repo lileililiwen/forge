@@ -640,6 +640,16 @@ impl CatalogBuilder {
         );
         self.cli_only(
             None,
+            "build",
+            "Build the named project for the host or for a target platform.",
+            Quality,
+            Project,
+            LocalWrite,
+            REASON_NATIVE,
+            caps_native,
+        );
+        self.cli_only(
+            None,
             "commit",
             "Stage the named paths and create a single scoped commit.",
             Quality,

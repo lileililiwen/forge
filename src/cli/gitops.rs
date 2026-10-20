@@ -7,11 +7,13 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
+use forge::build::{run_build, BuildOutcome};
 use forge::core::ForgeError;
 use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
+use forge::target::request_from_flags;
 use std::path::Path;
 
 use super::commands_services::McpCommands;
@@ -36,6 +38,32 @@ pub(crate) fn cmd_test(path: &Path, format: Format) -> Result<Output, ForgeError
     test_output(&outcome, format)
 }
 
+pub(crate) fn cmd_build(
+    path: &Path,
+    os: Option<String>,
+    arch: Option<String>,
+    rid: Option<String>,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| ForgeError::PathUnavailable {
+            path: path.display().to_string(),
+        })?;
+    let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    let descriptor = forge::profile::inspect_profile(&manifest.project.profile)?;
+    let build_command = descriptor.build_command.clone();
+    let request = request_from_flags(os.as_deref(), arch.as_deref(), rid.as_deref())?;
+    let outcome = run_build(
+        &manifest.project.id,
+        &manifest.project.profile,
+        &build_command,
+        &canonical,
+        &request,
+    )?;
+    build_output(&outcome, format)
+}
+
 fn test_output(outcome: &TestOutcome, format: Format) -> Result<Output, ForgeError> {
     let json = serde_json::json!({
         "test": {
@@ -54,6 +82,41 @@ fn test_output(outcome: &TestOutcome, format: Format) -> Result<Output, ForgeErr
         outcome.project_id,
         outcome.profile,
         outcome.command,
+        outcome.status,
+        outcome
+            .exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "(none)".to_string()),
+        outcome.note,
+        if outcome.evidence.is_empty() {
+            "(none)".to_string()
+        } else {
+            outcome.evidence.join(" | ")
+        }
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn build_output(outcome: &BuildOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "build": {
+            "contract": outcome.contract,
+            "project_id": outcome.project_id,
+            "profile": outcome.profile,
+            "command": outcome.command,
+            "target": outcome.target,
+            "status": outcome.status,
+            "exit_code": outcome.exit_code,
+            "note": outcome.note,
+            "evidence": outcome.evidence,
+        }
+    });
+    let human = format!(
+        "project: {}\nprofile: {}\ncommand: {}\ntarget: {}\nstatus: {}\nexit_code: {}\nnote: {}\nevidence: {}",
+        outcome.project_id,
+        outcome.profile,
+        outcome.command,
+        outcome.target,
         outcome.status,
         outcome
             .exit_code

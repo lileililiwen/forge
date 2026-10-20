@@ -102,6 +102,12 @@ pub enum ForgeError {
     #[error("test command failed: {reason}")]
     TestFailed { reason: String },
 
+    #[error("build invalid: {reason}")]
+    BuildInvalid { reason: String },
+
+    #[error("build command failed: {reason}")]
+    BuildFailed { reason: String },
+
     #[error("git working tree has unrelated changes: {reason}; commit the reviewed paths explicitly and leave others untouched")]
     GitDirty { reason: String },
 
@@ -480,6 +486,8 @@ impl ForgeError {
             ForgeError::AgentUnavailable { .. } => "agent-unavailable",
             ForgeError::AgentUnsupported { .. } => "agent-unsupported",
             ForgeError::TestFailed { .. } => "test-failed",
+            ForgeError::BuildInvalid { .. } => "build-invalid",
+            ForgeError::BuildFailed { .. } => "build-failed",
             ForgeError::GitDirty { .. } => "git-dirty",
             ForgeError::PushConfirmRequired => "push-confirm-required",
             ForgeError::McpInvalid { .. } => "mcp-invalid",

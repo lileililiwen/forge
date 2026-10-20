@@ -224,7 +224,7 @@ fn capture_toolchain_version(toolchain: &str, path_var: &OsStr) -> Option<String
 }
 
 fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeCommandOutcome {
-    let (program, args) = match crate::generate::split_command(command) {
+    let (program, args) = match crate::native::split_command(command) {
         Ok(split) => split,
         Err(err) => {
             return NativeCommandOutcome {
@@ -235,13 +235,9 @@ fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeComm
             };
         }
     };
-    let output = match Command::new(&program)
-        .args(&args)
-        .current_dir(dir)
-        .env("PATH", path_var)
-        .output()
-    {
-        Ok(output) => output,
+    let env = vec![("PATH".to_string(), path_var.to_string_lossy().into_owned())];
+    let outcome = match crate::native::run_native(dir, &program, &args, &env) {
+        Ok(outcome) => outcome,
         Err(err) => {
             return NativeCommandOutcome {
                 command: command.to_string(),
@@ -251,15 +247,19 @@ fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeComm
             };
         }
     };
-    let mut detail = String::from_utf8_lossy(&output.stderr).to_string();
-    if detail.trim().is_empty() {
-        detail = String::from_utf8_lossy(&output.stdout).to_string();
+    if let Some(start_error) = outcome.start_error {
+        return NativeCommandOutcome {
+            command: command.to_string(),
+            exit_code: None,
+            success: false,
+            evidence: format!("native command '{command}' could not start: {start_error}"),
+        };
     }
     NativeCommandOutcome {
         command: command.to_string(),
-        exit_code: output.status.code(),
-        success: output.status.success(),
-        evidence: truncate_tail(&detail, 2000),
+        exit_code: outcome.exit_code,
+        success: outcome.success,
+        evidence: outcome.tail(2000),
     }
 }
 

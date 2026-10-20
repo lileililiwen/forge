@@ -537,6 +537,32 @@ mod tests {
     }
 
     #[test]
+    fn test_command_still_runs_through_the_shell() {
+        // The test lane keeps its shell semantics: `&&` only works
+        // through a shell, so the evidence carries the second command's
+        // output.
+        let tmp = TempDir::new().unwrap();
+        let outcome = run_test(
+            "shell-app",
+            "rust-web",
+            Some("echo first && echo second"),
+            tmp.path(),
+        )
+        .unwrap();
+        assert_eq!(outcome.status, "passed");
+        assert_eq!(outcome.exit_code, Some(0));
+        assert_eq!(
+            outcome.note,
+            "test command `echo first && echo second` passed for project `shell-app`"
+        );
+        assert!(
+            outcome.evidence.join(" ").contains("second"),
+            "evidence: {:?}",
+            outcome.evidence
+        );
+    }
+
+    #[test]
     fn commit_refuses_unrelated_changes() {
         let tmp = TempDir::new().unwrap();
         let (dir, project_id) = fixture_git_project(tmp.path(), "commit-app", "hello");

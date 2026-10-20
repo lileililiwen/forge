@@ -153,6 +153,16 @@ binary — see the real-run [quickstart transcript](docs/quickstart.md).
   `UNAVAILABLE` — never healthy by silence — so a fresh scaffold without
   git or CI reports `verdict: not healthy` while its applicable L1
   maturity controls still read `met`.
+- `forge build [PATH] [--os <OS> --arch <ARCH>] [--rid <RID>]` — run the
+  profile's build command in the project directory and report the command,
+  the target, the status, the exit code and the redacted evidence. Without
+  a target the build runs for the host. With one, Forge resolves it into
+  the form the project's toolchain reads — a Rust target triple for
+  `cargo`, a runtime identifier for `dotnet`, a platform and architecture
+  for `node` — and binds it through that toolchain's own environment
+  variable. A toolchain with no target mechanism refuses the request
+  instead of building for the host and reporting it as the requested
+  target. A failed build exits non-zero with `error[build-failed]`.
 
 MVP profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`
 and `python-service`; `react-web` arrived as the v0.2

@@ -16,8 +16,9 @@ pub(super) mod tests {
     };
     use crate::deploy::{
         deploy_config_from_manifest, load_deploy_state, DeployAdapterConfig, DeployConfig,
-        DeployRequest, STATUS_RUNNING, STATUS_UNKNOWN,
+        DeployRequest, DeployTargetSpec, STATUS_RUNNING, STATUS_UNKNOWN,
     };
+    use crate::extension::kinds::DEPLOY_TARGET_KINDS;
 
     fn write_minimal_project(dir: &Path) {
         fs::create_dir_all(dir).unwrap();
@@ -317,24 +318,163 @@ pub(super) mod tests {
         assert_eq!(err.code(), "deploy-target-stale");
     }
 
-    #[test]
-    fn ssh_target_is_unavailable_boundary() {
-        let manifest = Manifest::parse(
+    /// A deploy configuration built directly, with one target of
+    /// the named kind. `DeployConfig` is public, so the plan has
+    /// to be safe on its own.
+    fn config_with_kind(kind: &str) -> DeployConfig {
+        DeployConfig {
+            adapter: kind.to_string(),
+            default_target: "vps".to_string(),
+            targets: vec![DeployTargetSpec {
+                name: "vps".to_string(),
+                kind: kind.to_string(),
+                host: None,
+                user: None,
+                path: None,
+                service: None,
+                note: None,
+            }],
+            artifact: None,
+            health: None,
+        }
+    }
+
+    /// A manifest naming one deploy target kind.
+    fn manifest_with_kind(kind: &str) -> Manifest {
+        Manifest::parse(
             Path::new("forge.yaml"),
-            b"schema: 1\nproject:\n  id: app\n  name: App\n  profile: rust-web\ndeployment:\n  artifact: docker-compose.yml\n  targets:\n    - name: vps\n      kind: ssh\n",
+            format!(
+                "schema: 1\nproject:\n  id: app\n  name: App\n  profile: rust-web\ndeployment:\n  artifact: docker-compose.yml\n  default: vps\n  targets:\n    - name: vps\n      kind: {kind}\n"
+            )
+            .as_bytes(),
         )
-        .expect("manifest");
-        let config = deploy_config_from_manifest(&manifest).unwrap();
+        .expect("manifest")
+    }
+
+    #[test]
+    fn ssh_target_is_refused_by_the_registry_in_one_wording() {
+        // The plan must refuse an unwired kind on its own, because
+        // `DeployConfig` is public and `prepare_deploy` is a
+        // public function.
+        let manifest = manifest_with_kind("ssh");
+        let config = config_with_kind("ssh");
         let req = DeployRequest {
             project_id: manifest.project.id.clone(),
             target: config.default_target.clone(),
             confirm: false,
             dry_run: true,
         };
-        // Prepare surfaces the boundary so a manifest cannot
-        // silently fall through to a planned adapter.
         let err = prepare_deploy(Path::new("."), &manifest, &config, &req).unwrap_err();
-        assert_eq!(err.code(), "deploy-target-unavailable");
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string().contains(
+                "deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+            ),
+            "the refusal names the shared wording: {err}"
+        );
+    }
+
+    #[test]
+    fn observe_refuses_an_unwired_kind_in_the_same_words_as_the_plan() {
+        let manifest = manifest_with_kind("ssh");
+        let config = config_with_kind("ssh");
+        let req = DeployRequest {
+            project_id: manifest.project.id.clone(),
+            target: config.default_target.clone(),
+            confirm: true,
+            dry_run: true,
+        };
+        let err = observe_deploy(
+            Path::new("."),
+            &manifest,
+            &config,
+            &req,
+            &DeployAdapterConfig {
+                deployer_bin: "true".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string().contains(
+                "deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+            ),
+            "the refusal names the shared wording: {err}"
+        );
+    }
+
+    #[test]
+    fn every_registered_kind_is_refused_consistently_by_the_configuration_and_the_plan() {
+        let tmp = TempDir::new().unwrap();
+        write_minimal_project(tmp.path());
+        for entry in DEPLOY_TARGET_KINDS {
+            let manifest = manifest_with_kind(entry.kind);
+            let configured = deploy_config_from_manifest(&manifest);
+            let config = config_with_kind(entry.kind);
+            let req = DeployRequest {
+                project_id: manifest.project.id.clone(),
+                target: config.default_target.clone(),
+                confirm: false,
+                dry_run: true,
+            };
+            let planned = prepare_deploy(tmp.path(), &manifest, &config, &req);
+            if entry.wired {
+                assert!(
+                    configured.is_ok(),
+                    "the wired kind `{}` must be accepted by the configuration validator: {:?}",
+                    entry.kind,
+                    configured.err()
+                );
+                assert!(
+                    planned.is_ok(),
+                    "the wired kind `{}` must be accepted by the plan: {:?}",
+                    entry.kind,
+                    planned.err()
+                );
+                continue;
+            }
+            let err = configured.expect_err("an unwired kind must be refused by the configuration");
+            assert_eq!(err.code(), "deploy-invalid");
+            let plan_err = planned.expect_err("an unwired kind must be refused by the plan");
+            assert_eq!(plan_err.code(), "deploy-invalid");
+            assert_eq!(
+                err.to_string(),
+                plan_err.to_string(),
+                "the configuration and the plan must refuse the kind in the same words"
+            );
+            assert!(
+                err.to_string().contains(&format!(
+                    "deployment target kind `{}` is known but not yet wired",
+                    entry.kind
+                )),
+                "the refusal names the shared wording: {err}"
+            );
+        }
+        // An unknown kind is refused by name at both entry points.
+        let manifest = manifest_with_kind("carrier-pigeon");
+        let err = deploy_config_from_manifest(&manifest)
+            .expect_err("an unknown kind must be refused by the configuration");
+        assert_eq!(err.code(), "deploy-invalid");
+        assert!(
+            err.to_string().contains(
+                "deployment target kind `carrier-pigeon` is not supported; expected one of `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+            ),
+            "the refusal names the supported kinds: {err}"
+        );
+        let config = config_with_kind("carrier-pigeon");
+        let req = DeployRequest {
+            project_id: manifest.project.id.clone(),
+            target: config.default_target.clone(),
+            confirm: false,
+            dry_run: true,
+        };
+        let plan_err = prepare_deploy(tmp.path(), &manifest, &config, &req)
+            .expect_err("an unknown kind must be refused by the plan");
+        assert_eq!(
+            err.to_string(),
+            plan_err.to_string(),
+            "the configuration and the plan must refuse the kind in the same words"
+        );
     }
 
     /// Write an executable adapter script and return its path.
@@ -369,13 +509,21 @@ pub(super) mod tests {
 
     #[test]
     fn executor_envelope_requires_namespaced_contract() {
-        // The frozen discriminator is `forge-deploy-executor/0.1.0`.
+        // The executor family is `forge-deploy-executor` at the
+        // required major `0`.
         let good = AdapterResponse::parse(ENVELOPE_OK).expect("conformant envelope");
         assert_eq!(good.apply_status, "delivered");
-        assert_eq!(good.source.as_deref(), Some("fixture-executor/0.1.0"));
+        assert_eq!(
+            good.source.as_ref().map(|s| s.family.as_str()),
+            Some("fixture-executor")
+        );
+        assert_eq!(
+            good.source.as_ref().map(|s| s.version()),
+            Some("0.1.0".to_string())
+        );
         assert_eq!(good.source_revision.as_deref(), Some("cafe1234"));
-        // The bare pre-namespacing `0.1.0` value must be
-        // refused and the refusal names both sides.
+        // The bare pre-namespacing `0.1.0` value carries no
+        // family and cannot be read as a contract.
         let stale = ENVELOPE_OK.replace(
             "\"contract\":\"forge-deploy-executor/0.1.0\"",
             "\"contract\":\"0.1.0\"",
@@ -384,11 +532,82 @@ pub(super) mod tests {
         assert_eq!(err.code(), "deploy-target-unavailable");
         let msg = err.to_string();
         assert!(
-            msg.contains("forge-deploy-executor/0.1.0") && msg.contains("`0.1.0`"),
-            "refusal must name the observed and expected contract: {msg}"
+            msg.contains("`0.1.0`")
+                && msg.contains("does not name a contract family")
+                && msg.contains("family/major.minor.patch"),
+            "the refusal must name the offending value and the expected shape: {msg}"
         );
         let err = AdapterResponse::parse("not json at all").unwrap_err();
         assert_eq!(err.code(), "deploy-target-unavailable");
+    }
+
+    #[test]
+    fn executor_envelope_accepts_a_newer_minor_of_the_same_family() {
+        // The shared rule: the family and the major decide. A
+        // newer minor is an addition the old reader can ignore.
+        let newer = ENVELOPE_OK.replace(
+            "\"contract\":\"forge-deploy-executor/0.1.0\"",
+            "\"contract\":\"forge-deploy-executor/0.2.0\"",
+        );
+        let response = AdapterResponse::parse(&newer).expect("a newer minor is conformant");
+        assert_eq!(response.apply_status, "delivered");
+    }
+
+    #[test]
+    fn executor_envelope_refuses_a_different_major_or_family() {
+        let major = ENVELOPE_OK.replace(
+            "\"contract\":\"forge-deploy-executor/0.1.0\"",
+            "\"contract\":\"forge-deploy-executor/1.0.0\"",
+        );
+        let err = AdapterResponse::parse(&major).unwrap_err();
+        assert_eq!(err.code(), "deploy-target-unavailable");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("fixture-executor declares the contract `forge-deploy-executor/1.0.0`")
+                && msg.contains("the required `forge-deploy-executor/0.1.0`")
+                && msg.contains("the major versions differ (1 and 0)"),
+            "the refusal must name the extension, both contracts and the reason: {msg}"
+        );
+        let family = ENVELOPE_OK.replace(
+            "\"contract\":\"forge-deploy-executor/0.1.0\"",
+            "\"contract\":\"forge-deployer/0.1.0\"",
+        );
+        let err = AdapterResponse::parse(&family).unwrap_err();
+        assert_eq!(err.code(), "deploy-target-unavailable");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("the families differ (`forge-deployer` and `forge-deploy-executor`)"),
+            "the refusal must name both families: {msg}"
+        );
+    }
+
+    #[test]
+    fn a_malformed_self_identification_is_refused_and_an_absent_one_is_allowed() {
+        // A malformed claim is worse than no claim at all.
+        let malformed = ENVELOPE_OK.replace(
+            "\"source\":\"fixture-executor/0.1.0\"",
+            "\"source\":\"0.1.0\"",
+        );
+        let err = AdapterResponse::parse(&malformed).unwrap_err();
+        assert_eq!(err.code(), "deploy-target-unavailable");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("self-identification `0.1.0`")
+                && msg.contains("does not name a contract family"),
+            "the refusal must name the offending value: {msg}"
+        );
+        // An absent claim is not a claim: the adapter is accepted
+        // and the evidence names the configured binary.
+        let absent = ENVELOPE_OK.replace(
+            ",\"source\":\"fixture-executor/0.1.0\",\"source_revision\":\"cafe1234\"",
+            "",
+        );
+        let response = AdapterResponse::parse(&absent).expect("an absent claim is allowed");
+        assert!(response.source.is_none());
+        assert_eq!(
+            response.attribution("forge-deployer"),
+            "executor=forge-deployer@unknown"
+        );
     }
 
     #[test]

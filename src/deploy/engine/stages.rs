@@ -9,8 +9,7 @@ use super::super::{
     DeployStageOutcome, DeployState, HealthObservation, DEPLOY_ADAPTER_TIMEOUT,
     DEPLOY_CONTRACT_VERSION, DEPLOY_EXECUTOR_CONTRACT, HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS,
     STATUS_DELIVERED, STATUS_DISABLED, STATUS_FAILED, STATUS_RUNNING, STATUS_SKIPPED,
-    STATUS_UNKNOWN, TARGET_DOCKER_COMPOSE, TARGET_JENKINS, TARGET_LOCAL, TARGET_MAC_RUNTIME,
-    TARGET_SSH,
+    STATUS_UNKNOWN, TARGET_LOCAL,
 };
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
@@ -21,6 +20,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use super::super::prepare::validate_target_kind;
 use super::model::{AdapterOp, AdapterRequest, AdapterResponse};
 
 /// Read-only plan report. The transport renders this
@@ -33,18 +33,12 @@ pub fn prepare_deploy(
 ) -> Result<DeployPlan, ForgeError> {
     request.validate()?;
     let target = config.target(&request.target)?.clone();
-    if target.kind == TARGET_SSH {
-        // R1 boundary: ssh targets are not wired into this
-        // build. The contract refuses before any side effect
-        // runs so a manifest cannot silently fall through to
-        // an unsupported adapter.
-        return Err(ForgeError::DeployTargetUnavailable {
-            reason: format!(
-                "target `{}` uses kind `{TARGET_SSH}` which is planned for a later release; v0.1.0 supports `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_JENKINS}`, and `{TARGET_MAC_RUNTIME}`",
-                target.name
-            ),
-        });
-    }
+    // R1 boundary: a kind this build does not wire is refused
+    // before any side effect runs, so a manifest cannot silently
+    // fall through to an unsupported adapter. The configuration
+    // validator refuses it in the same words, under the same
+    // error code.
+    validate_target_kind(&target.kind)?;
     let revision = capture_source_revision(project_dir)?;
     let ship_gate =
         crate::gate::ship_gate::evaluate_ship_gate(project_dir, &request.project_id, &revision);
@@ -462,14 +456,9 @@ pub fn observe_deploy(
 ) -> Result<DeployReport, ForgeError> {
     request.validate()?;
     let target = config.target(&request.target)?.clone();
-    if target.kind == TARGET_SSH {
-        return Err(ForgeError::DeployTargetUnavailable {
-            reason: format!(
-                "target `{}` uses kind `{TARGET_SSH}` which is planned for a later release",
-                target.name
-            ),
-        });
-    }
+    // The observe path refuses an unwired kind in the same words
+    // and under the same code as the plan.
+    validate_target_kind(&target.kind)?;
     let revision = capture_source_revision(project_dir)?;
     let identity = DeployIdentity::derive(&request.project_id, &target.name, &revision);
     let state_path = state_path_for(project_dir, &request.project_id, &identity)?;

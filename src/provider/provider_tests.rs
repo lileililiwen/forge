@@ -347,11 +347,58 @@ pub(super) mod tests {
         )
         .unwrap();
         assert_eq!(row.status, "unavailable");
+        // The shared rule: an unreadable value is refused by
+        // value, and the refusal names the expected shape.
         assert!(
             row.evidence
                 .iter()
-                .any(|e| e.contains("forge-deploy-executor/0.1.0")),
-            "the mismatch refusal must name the expected contract: {:?}",
+                .any(|e| e.contains("`0.1.0`") && e.contains("family/major.minor.patch")),
+            "the unreadable refusal must name the offending value and the expected shape: {:?}",
+            row.evidence
+        );
+        // A newer minor of the same family is accepted: the probe
+        // and the deploy lane use the same rule.
+        let newer_minor = write_fixture(
+            &dir,
+            "newer-minor.sh",
+            "#!/bin/sh\ncat >/dev/null\necho '{\"contract\":\"forge-deploy-executor/0.2.0\",\"status\":\"delivered\",\"evidence\":[],\"note\":\"ok\"}'\n",
+        );
+        let row = run_controlled_temp(
+            "deploy",
+            &RunOptions {
+                fixture: Some(newer_minor),
+                ..Default::default()
+            },
+            "evidence-probe",
+            "owner/repo",
+        )
+        .unwrap();
+        assert_eq!(row.status, "supported");
+        // A different major is refused and the refusal names both
+        // contracts.
+        let newer_major = write_fixture(
+            &dir,
+            "newer-major.sh",
+            "#!/bin/sh\ncat >/dev/null\necho '{\"contract\":\"forge-deploy-executor/1.0.0\",\"status\":\"delivered\",\"evidence\":[],\"note\":\"ok\"}'\n",
+        );
+        let row = run_controlled_temp(
+            "deploy",
+            &RunOptions {
+                fixture: Some(newer_major),
+                ..Default::default()
+            },
+            "evidence-probe",
+            "owner/repo",
+        )
+        .unwrap();
+        assert_eq!(row.status, "unavailable");
+        assert!(
+            row.evidence
+                .iter()
+                .any(|e| e.contains("forge-deploy-executor/1.0.0")
+                    && e.contains("forge-deploy-executor/0.1.0")
+                    && e.contains("the major versions differ (1 and 0)")),
+            "the mismatch refusal must name both contracts and the reason: {:?}",
             row.evidence
         );
         let bad = write_fixture(&dir, "bad.sh", "#!/bin/sh\ncat >/dev/null\nexit 1\n");

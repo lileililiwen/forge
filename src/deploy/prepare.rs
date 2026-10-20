@@ -10,13 +10,11 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-use super::contract::{
-    DEPLOY_STATE_DIR, HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS, TARGET_DOCKER_COMPOSE,
-    TARGET_JENKINS, TARGET_LOCAL, TARGET_MAC_RUNTIME, TARGET_SSH,
-};
+use super::contract::{DEPLOY_STATE_DIR, HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS};
 use super::model::{
     CapturedArtifact, DeployConfig, DeployHealthSpec, DeployIdentity, DeployReport, DeployState,
 };
+use crate::extension::state::ExtensionState;
 
 /// Hex SHA-256 over bytes. Reused for artifact identity.
 pub fn hash_bytes(bytes: &[u8]) -> String {
@@ -25,18 +23,15 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Judge a deploy target kind through the shared registry, so the
+/// manifest, the configuration and the plan refuse a kind in the
+/// same words.
 pub(super) fn validate_target_kind(kind: &str) -> Result<(), ForgeError> {
-    match kind {
-        TARGET_LOCAL
-        | TARGET_DOCKER_COMPOSE
-        | TARGET_SSH
-        | TARGET_JENKINS
-        | TARGET_MAC_RUNTIME => Ok(()),
-        other => Err(ForgeError::DeployInvalid {
-                reason: format!(
-                "deployment target kind `{other}` is not supported; expected one of `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_JENKINS}`, `{TARGET_MAC_RUNTIME}`"
-            ),
-        }),
+    match crate::extension::kinds::deploy_target_kind_state(kind) {
+        ExtensionState::Ready => Ok(()),
+        ExtensionState::Disabled { reason }
+        | ExtensionState::Unavailable { reason }
+        | ExtensionState::Invalid { reason } => Err(ForgeError::DeployInvalid { reason }),
     }
 }
 

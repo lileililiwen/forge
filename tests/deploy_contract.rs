@@ -9,8 +9,9 @@
 //!   per-target outcome and the registry receives a `deploy`
 //!   journal row.
 //! - R1 failure: a target reference to a `ssh` kind is
-//!   refused with `error[deploy-target-unavailable]` before
-//!   any side effect runs; a missing target name is
+//!   refused with `error[deploy-invalid]` before any side
+//!   effect runs, in the same words the configuration
+//!   validator uses; a missing target name is
 //!   refused with `error[deploy-invalid]`. A deploy apply
 //!   without `--confirm` is refused with
 //!   `error[deploy-invalid]`.
@@ -263,7 +264,7 @@ fn plan_refuses_unknown_target() {
 }
 
 #[test]
-fn plan_refuses_ssh_target_with_unavailable_boundary() {
+fn plan_refuses_ssh_target_with_invalid_boundary() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = tmp.path().join("proj");
@@ -276,8 +277,14 @@ fn plan_refuses_ssh_target_with_unavailable_boundary() {
     assert_eq!(out.status.code(), Some(1));
     let stderr = lossy(&out.stderr);
     assert!(
-        stderr.contains("deploy-target-unavailable"),
-        "stderr must report deploy-target-unavailable: {stderr}"
+        stderr.contains("deploy-invalid"),
+        "stderr must report deploy-invalid: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "deployment target kind `ssh` is known but not yet wired; v0.1.0 supports `local`, `docker-compose`, `jenkins`, and `mac-runtime`"
+        ),
+        "stderr must carry the shared wording: {stderr}"
     );
 }
 
@@ -534,8 +541,10 @@ printf '%s' '{"contract":"0.1.0","apply_status":"delivered","apply_note":"stale 
     let stderr = lossy(&out.stderr);
     assert!(stderr.contains("deploy-target-unavailable"), "{stderr}");
     assert!(
-        stderr.contains("forge-deploy-executor/0.1.0") && stderr.contains("`0.1.0`"),
-        "the refusal must name both the expected and observed contract: {stderr}"
+        stderr.contains("`0.1.0`")
+            && stderr.contains("does not name a contract family")
+            && stderr.contains("family/major.minor.patch"),
+        "the refusal must name the offending value and the expected shape: {stderr}"
     );
     assert!(
         !proj.join(".forge/deploy").exists(),

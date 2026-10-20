@@ -21,9 +21,17 @@ Distinct version strings, deliberately:
   Forge's own surface data version and is never sent as the
   wire discriminator.
 
-A bare `0.1.0` in the envelope's `contract` field is a mismatch:
-the pre-namespacing value is refused so a stale executor can
-never masquerade as conformant.
+Forge judges the envelope's `contract` with one rule: the value
+must be readable as `family/major.minor.patch`, and it must name
+the `forge-deploy-executor` family at the required major `0`. A
+newer minor of the same family is accepted, because a minor bump
+is an addition the old reader can ignore. A different major, a
+different family or an unreadable value is refused, and the
+refusal names what was observed.
+
+A bare `0.1.0` in the envelope's `contract` field is unreadable:
+the pre-namespacing value carries no family, so a stale executor
+can never masquerade as conformant.
 
 ## Invocation model
 
@@ -113,7 +121,12 @@ supplementary context; argv is authoritative for the operation.
 
 Required behaviour of each field:
 
-- `contract` — must equal the wire discriminator exactly.
+- `contract` — must name the executor family `forge-deploy-executor`
+  at the required major `0`. A newer minor of the same family is
+  accepted: `forge-deploy-executor/0.2.0` satisfies
+  `forge-deploy-executor/0.1.0`. A different major or a different
+  family is refused, and the refusal names both sides. An
+  unreadable value is refused, and the refusal names the value.
 - `apply_status` — one of `delivered`, `skipped`, `disabled`,
   `failed`, `unknown` (Forge stage vocabulary). Default when
   absent: `failed`.
@@ -125,10 +138,13 @@ Required behaviour of each field:
 - `observation_status` — one of `running`, `failed`, `unknown`.
   Anything outside that set is recorded as `unknown`.
 - `source` / `source_revision` — optional self-identification.
-  Forge appends `executor=<source>@<revision>` to each stage's
-  evidence; an adapter that does not name itself attributes to
-  its binary name with `unknown` revision, never a claimed
-  version.
+  When present, `source` must be readable as
+  `family/major.minor.patch` (e.g. `forge-deployer-jenkins/0.1.0`);
+  a malformed self-identification is refused, because a claim Forge
+  cannot check is worse than no claim at all. Forge appends
+  `executor=<source>@<revision>` to each stage's evidence; an adapter
+  that does not name itself attributes to its binary name with
+  `unknown` revision, never a claimed version.
 
 ## Classification rules
 
@@ -137,7 +153,7 @@ Required behaviour of each field:
 | exit 0, conformant envelope | the stage outcome exactly as the envelope names it |
 | non-zero exit, conformant envelope | the named stage **failed** with the envelope's evidence; a contradictory `delivered` claim is downgraded to `failed` because the exit status is authoritative |
 | non-zero exit, no envelope | `deploy-target-unavailable` |
-| exit 0, non-JSON or unknown contract | `deploy-target-unavailable`, naming the observed contract |
+| exit 0, non-JSON, unreadable or mismatched contract | `deploy-target-unavailable`, naming the observed contract and the mismatch |
 | bounded-wait overrun | `deploy-target-unavailable` |
 | binary missing/unspawnable | `deploy-target-unavailable`, naming the binary |
 
@@ -177,5 +193,7 @@ no executor may default an unrecognized state to healthy.
 Breaking changes to argv, the envelope schema or the
 classification table bump the discriminator
 (`forge-deploy-executor/0.2.0`). Additive optional envelope
-fields are compatible within `0.1.0`. Forge refuses any
-discriminator it does not implement, naming both sides.
+fields are compatible within `0.1.0`, and so is a newer minor of
+the same family: Forge accepts `forge-deploy-executor/0.2.0`
+where it requires `forge-deploy-executor/0.1.0`. Forge refuses a
+different major or a different family, naming both sides.

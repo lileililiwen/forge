@@ -9,10 +9,10 @@ use sha2::{Digest, Sha256};
 
 use super::contract::{
     DEFAULT_DEPLOYER_BIN, DEPLOYER_BIN_ENV, HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS,
-    STATUS_FAILED, STATUS_PENDING, STATUS_RUNNING, STATUS_UNKNOWN, TARGET_DOCKER_COMPOSE,
-    TARGET_JENKINS, TARGET_LOCAL, TARGET_MAC_RUNTIME,
+    STATUS_FAILED, STATUS_PENDING, STATUS_RUNNING, STATUS_UNKNOWN,
 };
 use super::prepare::{lexically_inside, validate_target_kind, validate_target_name};
+use crate::extension::kinds::supported_target_kinds;
 
 /// Per-stage outcome of an apply run. Statuses are stable
 /// across CLI, MCP and journal rows; the contract owns the
@@ -66,7 +66,8 @@ impl DeployConfig {
                 .clone()
                 .ok_or_else(|| ForgeError::DeployInvalid {
                     reason: format!(
-                        "deployment.targets[{idx}] (`{name}`) is missing a `kind`; expected one of `{TARGET_LOCAL}`, `{TARGET_DOCKER_COMPOSE}`, `{TARGET_JENKINS}`, `{TARGET_MAC_RUNTIME}`"
+                        "deployment.targets[{idx}] (`{name}`) is missing a `kind`; expected one of {}",
+                        supported_target_kinds()
                     ),
                 })?;
             validate_target_kind(&kind)?;

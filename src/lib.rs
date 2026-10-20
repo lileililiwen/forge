@@ -20,6 +20,7 @@ pub mod deploy;
 pub mod distribution;
 pub mod docs;
 pub mod doctor;
+pub mod extension;
 pub mod feature;
 pub mod fleet;
 pub mod gate;

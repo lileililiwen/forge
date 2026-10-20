@@ -3,6 +3,9 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use crate::core::ForgeError;
+use crate::extension::contract::verify_extension;
+use crate::extension::state::ExtensionDescriptor;
+use crate::extension::version::ContractVersion;
 use chrono::Utc;
 use std::path::Path;
 
@@ -90,25 +93,52 @@ fn probe_deploy(options: &RunOptions, project_id: &str, revision: Option<String>
         }
     };
     // The `deploy` row is only reachable against an adapter
-    // that speaks the frozen executor contract: a missing or
-    // unknown discriminator is a contract violation, not a
-    // provider success, and the row stays unavailable naming
-    // what was observed.
+    // that speaks the executor contract: a missing or unknown
+    // discriminator is a contract violation, not a provider
+    // success, and the row stays unavailable naming what was
+    // observed. The rule is the shared one, so the deploy lane
+    // and this probe cannot disagree about one adapter.
     let envelope_contract = payload
         .get("contract")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if envelope_contract != crate::deploy::DEPLOY_EXECUTOR_CONTRACT {
+    let declared = match ContractVersion::parse(envelope_contract) {
+        Ok(declared) => declared,
+        Err(err) => {
+            return unavailable_row(
+                "deploy",
+                sandbox,
+                &source,
+                project_id,
+                revision,
+                &format!(
+                    "deploy adapter envelope contract `{envelope_contract}` cannot be read: {}",
+                    err.reason
+                ),
+                None,
+            );
+        }
+    };
+    let descriptor = ExtensionDescriptor {
+        id: "deploy adapter".to_string(),
+        contract: declared,
+        enabled: true,
+    };
+    let state = verify_extension(
+        &descriptor,
+        &crate::deploy::deploy_executor_contract(),
+        true,
+    );
+    if !state.is_ready() {
         return unavailable_row(
             "deploy",
             sandbox,
             &source,
             project_id,
             revision,
-            &format!(
-                "deploy adapter envelope contract `{envelope_contract}` does not match expected `{}`",
-                crate::deploy::DEPLOY_EXECUTOR_CONTRACT
-            ),
+            state
+                .reason()
+                .unwrap_or("the deploy adapter does not satisfy the executor contract"),
             None,
         );
     }

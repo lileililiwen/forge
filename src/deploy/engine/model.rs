@@ -3,10 +3,13 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use super::super::{
-    CapturedArtifact, DeployHealthSpec, DeployTargetSpec, DEPLOY_EXECUTOR_CONTRACT, STATUS_FAILED,
+    deploy_executor_contract, CapturedArtifact, DeployHealthSpec, DeployTargetSpec, STATUS_FAILED,
     STATUS_UNKNOWN,
 };
 use crate::core::ForgeError;
+use crate::extension::contract::verify_extension;
+use crate::extension::state::ExtensionDescriptor;
+use crate::extension::version::ContractVersion;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -43,9 +46,10 @@ pub(super) struct AdapterResponse {
     pub(super) observation_evidence: Vec<String>,
     pub(super) recovery: Vec<String>,
     /// Optional adapter self-identification (e.g.
-    /// `forge-deployer-jenkins/0.1.0`). Forge attributes the
-    /// stage evidence to it when present.
-    pub(super) source: Option<String>,
+    /// `forge-deployer-jenkins/0.1.0`), read into the family and
+    /// the version it names. Forge attributes the stage evidence
+    /// to it when present.
+    pub(super) source: Option<ContractVersion>,
     /// Optional revision of the adapter's backing runtime
     /// scripts (e.g. the jenkins-local checkout's HEAD).
     /// Absent never reads as a claimed production version.
@@ -57,23 +61,65 @@ impl AdapterResponse {
             serde_json::from_str(raw).map_err(|err| ForgeError::DeployTargetUnavailable {
                 reason: format!("deploy adapter returned non-JSON output: {err}"),
             })?;
-        let contract = value
-            .get("contract")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if contract != DEPLOY_EXECUTOR_CONTRACT {
-            return Err(ForgeError::DeployTargetUnavailable {
-                reason: format!(
-                    "deploy adapter contract `{contract}` does not match expected `{DEPLOY_EXECUTOR_CONTRACT}`"
-                ),
-            });
-        }
         let obj = value
             .as_object()
             .ok_or_else(|| ForgeError::DeployTargetUnavailable {
                 reason: "deploy adapter payload is not a JSON object".to_string(),
             })?;
+        let contract = obj
+            .get("contract")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        // The declared contract is read with the shared rule: the
+        // executor family at the required major. A newer minor of
+        // the same family satisfies it; a different family or a
+        // different major does not.
+        let declared = ContractVersion::parse(&contract).map_err(|err| {
+            ForgeError::DeployTargetUnavailable {
+                reason: format!(
+                    "deploy adapter contract `{contract}` cannot be read: {}",
+                    err.reason
+                ),
+            }
+        })?;
+        // The adapter's self-identification is a claim. A claim
+        // that cannot be read is worse than no claim at all, so it
+        // is refused; an absent claim stays absent and the
+        // configured binary is named instead.
+        let source = obj
+            .get("source")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .map(|raw_source| {
+                ContractVersion::parse(raw_source).map_err(|err| {
+                    ForgeError::DeployTargetUnavailable {
+                        reason: format!(
+                            "deploy adapter self-identification `{raw_source}` cannot be read: {}",
+                            err.reason
+                        ),
+                    }
+                })
+            })
+            .transpose()?;
+        let id = source
+            .as_ref()
+            .map(|claimed| claimed.family.clone())
+            .unwrap_or_else(|| "deploy adapter".to_string());
+        let descriptor = ExtensionDescriptor {
+            id,
+            contract: declared,
+            enabled: true,
+        };
+        let state = verify_extension(&descriptor, &deploy_executor_contract(), true);
+        if !state.is_ready() {
+            return Err(ForgeError::DeployTargetUnavailable {
+                reason: state
+                    .reason()
+                    .unwrap_or("the deploy adapter does not satisfy the executor contract")
+                    .to_string(),
+            });
+        }
         Ok(AdapterResponse {
             contract,
             apply_status: obj
@@ -123,11 +169,7 @@ impl AdapterResponse {
                         .collect()
                 })
                 .unwrap_or_default(),
-            source: obj
-                .get("source")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| s.to_string()),
+            source,
             source_revision: obj
                 .get("source_revision")
                 .and_then(|v| v.as_str())
@@ -141,12 +183,13 @@ impl AdapterResponse {
     /// surfaces as the configured binary plus `unknown`
     /// revision — never a claimed version.
     pub(super) fn attribution(&self, fallback_bin: &str) -> String {
-        let source = self.source.clone().unwrap_or_else(|| {
-            Path::new(fallback_bin)
+        let source = match &self.source {
+            Some(claimed) => format!("{}/{}", claimed.family, claimed.version()),
+            None => Path::new(fallback_bin)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| fallback_bin.to_string())
-        });
+                .unwrap_or_else(|| fallback_bin.to_string()),
+        };
         let revision = self
             .source_revision
             .clone()

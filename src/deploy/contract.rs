@@ -2,7 +2,18 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
+use std::sync::LazyLock;
 use std::time::Duration;
+
+use crate::extension::version::ContractVersion;
+
+/// The deploy target kinds live in the shared extension module, so
+/// the manifest validator, the configuration validator and the
+/// deployment plan read one list. They are re-exported here so
+/// `crate::deploy::TARGET_LOCAL` keeps resolving.
+pub use crate::extension::kinds::{
+    TARGET_DOCKER_COMPOSE, TARGET_JENKINS, TARGET_LOCAL, TARGET_MAC_RUNTIME, TARGET_SSH,
+};
 
 /// Contract data version for the deploy surface. The plan,
 /// report and persisted state carry this version.
@@ -18,6 +29,20 @@ pub const DEPLOY_CONTRACT_VERSION: &str = "0.1.0";
 /// contract mismatch so a stale executor can never masquerade
 /// as conformant.
 pub const DEPLOY_EXECUTOR_CONTRACT: &str = "forge-deploy-executor/0.1.0";
+
+/// The executor contract, read into the shared version type once.
+static DEPLOY_EXECUTOR_CONTRACT_VERSION: LazyLock<ContractVersion> = LazyLock::new(|| {
+    ContractVersion::parse(DEPLOY_EXECUTOR_CONTRACT)
+        .expect("the deploy executor contract constant is a well-formed contract version")
+});
+
+/// The deploy executor contract the adapter must satisfy: the
+/// `forge-deploy-executor` family at the required major. A newer
+/// minor of the same family satisfies it too; the shared rule
+/// decides.
+pub fn deploy_executor_contract() -> ContractVersion {
+    DEPLOY_EXECUTOR_CONTRACT_VERSION.clone()
+}
 
 /// Deploy state subdirectory inside the project. Each deploy
 /// owns `<project>/.forge/deploy/<project-id>/<deploy-id>/state.json`.
@@ -35,20 +60,6 @@ pub const DEPLOYER_BIN_ENV: &str = "FORGE_DEPLOYER_BIN";
 /// Per-run adapter timeout. Spawn plus bounded wait so an
 /// unresponsive target cannot hang the registry.
 pub const DEPLOY_ADAPTER_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// Stable target kinds. `mac-runtime` is executed by a Linux-side adapter;
-/// the target host receives runtime operations only. `ssh` remains planned.
-pub const TARGET_LOCAL: &str = "local";
-
-pub const TARGET_DOCKER_COMPOSE: &str = "docker-compose";
-
-pub const TARGET_SSH: &str = "ssh";
-
-pub const TARGET_JENKINS: &str = "jenkins";
-
-/// Linux-controlled runtime target. The adapter runs on the controller and
-/// sends only runtime operations to the target host.
-pub const TARGET_MAC_RUNTIME: &str = "mac-runtime";
 
 /// Stable health check kinds. `docker` checks a Compose
 /// service is running, `http` probes a URL, `process`

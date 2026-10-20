@@ -2,6 +2,59 @@
 
 ## Latest delivery
 
+### `release-evidence-non-vacuous` implemented and archived (2026-10-20)
+
+A release could pass with nothing behind it. The release engine judged
+readiness with "every applicable check passes" — in the prepare step
+(`src/release/engine/prepare.rs:82`) and again in the apply step
+(`src/release/engine/apply.rs:79`). A project whose manifest declares no
+`release.checks` has no applicable check, so the filter yielded an empty set
+and the judgement was true on it. The plan then reported `ready: yes` with
+"0 check(s) passed", and the apply step walked the commit, tag, push and
+publication stages on a release nothing had verified. `release.checks` defaults
+to empty, so every manifest written before the `project-manifest-completeness`
+change, and every hand-written manifest that omits the list, was in that state.
+
+One readiness judgement now owns the rule, and both call sites use it: a
+release is ready only when at least one check is applicable and every
+applicable check passes. The absence of an applicable check is its own reason,
+not an empty list of failing checks, and it names the four kinds
+`release.checks` accepts so the owner can act without reading the source. The
+apply step refuses with `release-check-failed` before the commit stage, so a
+vacuous plan cannot reach a tag. The four known check kinds are now one
+constant, shared by the capture and the judgement.
+
+The refusal text also repeated its closing clause, because the
+`release-check-failed` error renders that clause itself. It now appears once.
+
+One place depended on the old behaviour: the web release contract fixture
+(`tests/forge_web_project_release_contract.rs`) declared no check, and its
+comment said the plan was `ready` for exactly that reason. The fixture now
+declares the `doctor` and `test` checks and carries a minimal Cargo workspace
+so both pass. Its eight assertions are unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3888 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 3888 passed, 0 failed. `cargo build` finished with no finding. `cargo test -p forge --lib release::` reported 30 passed, 0 failed; `cargo test -p forge --test forge_web_project_release_contract` reported 8 passed, 0 failed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run started at 12:49 and finished at 12:57 with exit code 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T04:57:46Z"` on revision `9e60736`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check reported "evaluated 439 of 439 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passed. |
+| Real release, no declared check | PASS | A project whose manifest declares a `release:` block with no `checks:` list: `forge release prepare --version 1.0.0 --dry-run` reported `ready: no`, with all four checks `disabled applicable=false` and the summary "release plan not ready: no applicable release check; declare at least one of doctor, test, driftwatch, gate in release.checks; release execution blocks before tag or publication". `forge release apply --version 1.0.0 --confirm` refused with `error[release-check-failed]`, exited 1, and left no tag, no release state and no new commit. |
+| Real release, declared checks | PASS | A second project declaring the `doctor` and `test` checks: `forge release prepare --version 1.0.0 --dry-run` reported `ready: yes`, `doctor pass applicable=true`, `test pass applicable=true` and "2 check(s) passed at revision `cdd5a9538829`". |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 127 passed, 0 failed (127 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-release-evidence-non-vacuous/`; three requirements promoted into `openspec/specs/release-evidence-non-vacuous/spec.md`. The archive wrote a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings, and the staged diff check reported none either. All five changed Rust files are rustfmt-clean under `rustfmt --edition 2021 --check`. The twelve files that already differed under rustfmt before this change were left alone; `cargo fmt --all` was not run. |
+
+Not delivered, and stated plainly: `forge publish` has no release-check
+coupling at all today, so the publish lane can still ship without evidence.
+That lane, and making the Gate mandatory for delivery, is the
+`single-delivery-lane` change. The scaffold still writes no `CHANGELOG.md`, so
+a fresh project needs one before a release can be prepared; that is
+`project-changelog-bootstrap`. The doctor still does not read delivery state;
+that is `lifecycle-observation-closure`.
+
+Implementation/archive commit: `b644187` (`fix: refuse a release with no
+applicable check`). This HANDOFF-only update is the second commit. Nothing was
+pushed. No active OpenSpec change remains, so this file has no `current_spec`
+pointer.
+
 ### `project-manifest-completeness` implemented and archived (2026-10-20)
 
 A product could not reach "released" or "deployed" without a human hand-editing

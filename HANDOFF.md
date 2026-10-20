@@ -2,6 +2,70 @@
 
 ## Latest delivery
 
+### `target-addressed-build` implemented and archived (2026-10-20)
+
+The spine of Forge had no build step. `forge test` ran the profile's test
+command, the Gate had a `build` check bound to a manifest-declared command, and
+the profile descriptor already carried a `build_command` for every profile —
+but nothing in Forge built a project. A project that had to ship a binary for
+another platform had no Forge operation for it, the target it was built for was
+never recorded, and Forge Core had no operating-system, architecture or
+runtime-identifier vocabulary at all. The only os/arch lists in the repository
+belong to the vendored `driftwatchdog` crate and describe that sibling's own
+release artifacts.
+
+`forge build` is now the spine's build step. It runs the build command the
+profile declares in the project directory and reports the command, the target,
+the status, the exit code and the redacted evidence. It may address a target:
+`--os` with `--arch`, or `--rid`. The target is resolved into the form the
+project's own toolchain reads — a Rust target triple for `cargo`
+(`CARGO_BUILD_TARGET`), a runtime identifier for `dotnet`
+(`DOTNET_RUNTIME_ID`), a platform and an architecture for `node`
+(`npm_config_platform`, `npm_config_arch`) — and bound through that
+environment variable. A toolchain with no target mechanism refuses the request
+instead of building for the host and reporting it as the requested target. A
+build that fails is an error, as a failed test is.
+
+Three near-duplicate native-command runners already existed. A fourth copy
+inside a build command would have made the spine's build step behave
+differently from its test step for no reason, so a new `src/native/` owns one
+runner — an argument array, environment overrides, a working directory and
+redacted evidence — and the generator's verifier and the readiness runner move
+onto it. The `forge test` shell runner keeps its shell semantics, now pinned
+by a new test; its convergence is a recorded follow-up.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3933 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 3933 passed, 0 failed. `cargo build` finished with no finding and no warning. Focused runs: `build::` 8 passed, `target::` 13 passed, `native::` 7 passed, `generate::` 29 passed, `readiness::` 9 passed, `gitops::` 7 passed; all 0 failed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T09:00:59Z"` on revision `a5f74f6`, with every check in state `pass`. The `source-file-size` check reported "evaluated 444 of 444 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passed. |
+| Real build, host | PASS | A `rust-web` project with a minimal Cargo workspace: `forge build` reported `command: cargo build`, `target: host`, `status: passed`, `exit_code: 0`. |
+| Real build, target | PASS | `forge build --os linux --arch x86_64` reported `target: x86_64-unknown-linux-gnu`, and cargo wrote `target/x86_64-unknown-linux-gnu/`, so the target reached the toolchain. `forge build --os macos --arch arm64` resolved the aliases to `aarch64-apple-darwin`. |
+| Real refusals | PASS | `forge build --os plan9 --arch x86_64` refused with `error[build-invalid]` naming the accepted operating systems. `forge build --os linux` refused with `error[build-invalid]` naming the missing architecture. The macOS-alias build then failed honestly with `error[build-failed]`, because that target is not installed on this Linux host. |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 129 passed, 0 failed (129 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-target-addressed-build/`; four requirements promoted into `openspec/specs/target-addressed-build/spec.md`. The archive wrote a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings, and the staged diff check reported none either. Every changed Rust file is rustfmt-clean under `rustfmt --edition 2021 --check`. `src/main.rs` and `src/lib.rs` still pull in the pre-existing rustfmt-dirty `src/cli/use_cmd.rs`, which was already the case before this change; `cargo fmt --all` was not run. |
+
+Two things were found while verifying and are recorded rather than hidden.
+The new verb needs a command-catalog row, and the catalog pins its row count
+in three places, so the row and the two stale pinned counts were corrected. And
+the `flutter-app` profile declares `flutter analyze` as its build command; the
+build reports the command it ran, so nothing is hidden, but correcting that
+profile is a separate change.
+
+Not delivered, and stated plainly: the build has no timeout, exactly like
+`forge test`; a bounded runner with a process-group kill is a follow-up. The
+`forge test` shell runner has not converged onto the shared runner. Nothing in
+Forge produces a compiled artifact yet — the deploy lane's artifact is a
+container file — so the build step does not yet feed the deploy step; that is
+a further change. The release lane still binds evidence through its own check
+model; that is `release-gate-mandatory`. The doctor still does not read
+delivery state; that is `lifecycle-observation-closure`. The scaffold still
+writes no `CHANGELOG.md`; that is `project-changelog-bootstrap`.
+
+Implementation/archive commit: `fed6842` (`feat: give the spine a
+target-addressed build step`). This HANDOFF-only update is the second commit.
+Nothing was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.
+
 ### `single-delivery-lane` implemented and archived (2026-10-20)
 
 Two lanes put a built artifact on a target, and they decided opposite things

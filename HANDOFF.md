@@ -2,6 +2,63 @@
 
 ## Latest delivery
 
+### `project-manifest-completeness` implemented and archived (2026-10-20)
+
+A product could not reach "released" or "deployed" without a human hand-editing
+`forge.yaml`. `forge new` wrote only `schema`, `project`, `runtime`, `features`
+and `kit`; `forge import --accept` wrote only `schema`, `project` and `runtime`.
+Neither writer ever produced a `release:` block or a `deployment:` block, so
+`forge release` refused the project ("has no `release` section",
+`src/release/prepare.rs:50`) and `forge deploy` refused it ("has no
+`deployment` section", `src/deploy/prepare.rs:65`). The refusal was correct —
+the blocks were missing — but nothing in Forge ever wrote them, so the hole in
+the paved path sat between "develop" and "product".
+
+A new `src/core/manifest_blocks.rs` is the single owner of both blocks, and
+both manifest writers render through it, so the two writers cannot drift. The
+release block declares `versioning: semver` and the `doctor` and `test` checks
+— the two a project satisfies with its own source. It does not declare `gate`
+or `driftwatch`, because those need evidence the owner produces by running them.
+The deployment block declares one `local` target and names an artifact only
+when the project actually ships that file: a project-root Compose file wins
+over a Dockerfile, and a project with neither declares no artifact at all. The
+standard pack's `.standard/compose/docker-compose.yaml` is a Forge-owned asset
+and is never used as a project artifact. A manifest the owner wrote is never
+rewritten.
+
+The registry observation follows. `forge inspect` read only the legacy
+`deployment.target` field, so a project using the modern typed
+`deployment.targets[]` form showed `deployment_target: unknown`. It now reads
+the declared `default` first, the first typed target next, and the legacy field
+last.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3884 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` reported 3884 passed, 0 failed and exited 0. The three skipped tests are the native-toolchain scaffold tests. The affected modules were re-run on their own: `cargo test -p forge --lib generate::` reported 29 passed, `cargo test -p forge --lib import::` reported 17 passed, `cargo test -p forge --lib registry::` reported 60 passed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run started at 11:41 and finished at 11:55 with exit code 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T03:55:21Z"` on revision `65ddcd4`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check reported "evaluated 439 of 439 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passed. |
+| Real generation and release | PASS | A `rust-web` project was generated with the built binary. Its manifest carries the `release` block (`versioning: semver`, checks `doctor` and `test`) and the `deployment` block (`artifact: Dockerfile`, target `local`). `forge release prepare --version 0.1.0 --dry-run` returned `ready: yes` with 2 applicable checks passed and `driftwatch` and `gate` reported as not configured (`applicable=false`), where it previously refused with "has no `release` section". |
+| Real deployment | PASS | `forge deploy plan` on the same project returned `ready: yes` with the artifact and its hash, where it previously refused with "has no `deployment` section". |
+| Real adoption | PASS | `forge import --accept` on an existing repository gave it the same two blocks, and `forge inspect` then reported `deployment_target: local` where it reported `unknown`. |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 126 passed, 0 failed (126 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-project-manifest-completeness/`; five requirements promoted into `openspec/specs/project-manifest-completeness/spec.md`. The archive wrote a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings, and the staged diff check reported none either. The new module is rustfmt-clean. Twelve files that already differed under rustfmt before this change (`crates/cargo-audit-boost/*`, `crates/cargo-sonar/*`, `src/cli/use_cmd.rs`, `tests/delivery_cross_surface.rs`, `tests/forge_web_project_delivery_contract.rs`) were left alone; `cargo fmt --all` was not run. |
+
+Not delivered, and stated plainly: the scaffold still writes no `CHANGELOG.md`,
+so a fresh project needs one before `forge release prepare` can succeed. The
+refusal moved from the missing manifest block to the missing file, and the file
+requirement belongs to the `project-changelog-bootstrap` change. A release whose
+checks are all inapplicable still passes vacuously; that is
+`release-evidence-non-vacuous`. The four delivery lanes are untouched and
+`src/publish/` still carries no gate requirement; that is `single-delivery-lane`.
+The doctor still does not read delivery state; that is
+`lifecycle-observation-closure`. The file list shown in the
+`docs/quickstart.md` transcript was already stale before this change and was
+not corrected here.
+
+Implementation/archive commit: `42c41ce` (`feat: write a complete manifest for
+every project Forge creates`). This HANDOFF-only update is the second commit.
+Nothing was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.
+
 ### `forge-auth-provider-extensions` implemented and archived (2026-10-19)
 
 A generated application had no way to get its own end-user sign-in

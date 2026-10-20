@@ -2,6 +2,61 @@
 
 ## Latest delivery
 
+### `single-delivery-lane` implemented and archived (2026-10-20)
+
+Two lanes put a built artifact on a target, and they decided opposite things
+about verification. `forge delivery` refused to ship without fresh, passing,
+full-profile Gate evidence bound to the revision it was about to deliver
+(`src/delivery/handlers.rs:148-179`, called from the preflight at
+`src/delivery/handlers.rs:200`). `forge deploy` applied the same kind of
+artifact to the same kind of target with no evidence at all: `apply_deploy`
+(`src/deploy/engine/stages.rs:86`) validated the request, checked `--confirm`,
+prepared the plan and spawned the adapter (`src/deploy/engine/stages.rs:103`).
+The owner who verified a project got a refusal from one lane and a successful
+delivery from the other, and the lane that actually puts a build on a host was
+the one that checked nothing.
+
+A new `src/gate/ship_gate.rs` owns the decision "may this project deliver this
+revision": a supported contract, the full profile, not a rehearsal record, the
+same project, fresh for the delivered revision, and a passed aggregate. The
+delivery lane's private copy is deleted and it calls the shared rule, so the two
+lanes refuse for the same reason. The deploy lane adopts it: a deploy that is
+not a dry run refuses before the adapter is spawned, leaving the target, the
+delivery state and the journal untouched. A dry run contacts no target and is
+never refused.
+
+The deployment plan now carries the rule's verdict, and the flat browser view
+carries the verdict and the reason, so the owner sees the blocker at plan time
+rather than at apply time. The plan view grew by two fields, which pushed the
+admin deploy route file to 1003 lines and tripped the repository Gate's
+`source-file-size` check; the path-free plan and report views moved to a new
+`src/api/admin/deploy_views.rs` and the route file came back to 887 lines.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 3904 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 3904 passed, 0 failed, after the view split. `cargo build` finished with no finding and no warning. Focused runs: `cargo test -p forge --lib gate::` 56 passed; `cargo test -p forge --lib deploy::` 37 passed; `cargo test -p forge --lib delivery::` 21 passed; `cargo test -p forge --test deploy_contract` 20 passed; `cargo test -p forge --test delivery_contract` 21 passed; all 0 failed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The first full run was blocked by `source-file-size` on the 1003-line admin deploy route file; after the split the second full `forge gate --timeout-secs 1800` run exited 0. `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-20T06:57:53Z"` on revision `e0a15cf`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check reported "evaluated 442 of 442 candidate file(s); maximum 1000 physical line(s)". The `security` check reported the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passed. |
+| Real deployment, no Gate evidence | PASS | A project with a `local` target, a `Dockerfile` artifact and one commit: `forge deploy plan` reported `ready: no` with "deploy plan not ready: Forge Gate evidence is absent for `gated-app`; run `forge gate --profile full` from the project directory and retry". `forge deploy apply --target-name local --confirm` refused with `error[deploy-invalid]`, exited 1, and left no `.forge` directory at all, so no delivery state and no journal row. |
+| Real deployment, Gate evidence present | PASS | With a full-profile passed evidence record bound to the project's HEAD, the same plan reported `ready: yes` and the apply passed the rule and reached the adapter, which then failed for the unrelated reason that the `forge-deployer` binary is not installed in this environment. `forge deploy apply --dry-run` on the project without evidence was not refused by the rule and reached the same adapter. |
+| OpenSpec | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 128 passed, 0 failed (128 items)` before and after the archive. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-20-single-delivery-lane/`; four requirements promoted into `openspec/specs/single-delivery-lane/spec.md`. The archive wrote a `TBD` Purpose into the promoted spec and that line was replaced with the real one before the commit. |
+| Whitespace and formatting | PASS for changed files | `git diff --check` reported no findings, and the staged diff check reported none either. All thirteen changed Rust files, including the three new ones, are rustfmt-clean under `rustfmt --edition 2021 --check`. The twelve files that already differed under rustfmt before this change were left alone; `cargo fmt --all` was not run. |
+
+Not delivered, and stated plainly: the release lane still binds evidence
+through its own check model, and the manifest chooses which kinds apply, so a
+release can still ship without a Gate run. Making the Gate mandatory there
+changes the release contract and every release fixture; that is the
+`release-gate-mandatory` change. The publish lane is unchanged on purpose: it
+syncs a source tree and builds on the target, so there is no local artifact
+for a local Gate run to verify, and it is being superseded by the artifact-only
+deploy lane. The doctor still does not read delivery state; that is
+`lifecycle-observation-closure`. The scaffold still writes no `CHANGELOG.md`;
+that is `project-changelog-bootstrap`.
+
+Implementation/archive commit: `66903aa` (`fix: give the delivery lanes one
+rule with one owner`). This HANDOFF-only update is the second commit. Nothing
+was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.
+
 ### `release-evidence-non-vacuous` implemented and archived (2026-10-20)
 
 A release could pass with nothing behind it. The release engine judged

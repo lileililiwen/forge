@@ -25,6 +25,10 @@
 //! - `test` is missing the toolchain → `TestFailed` with the
 //!   missing-toolchain message; we do not invent a passing
 //!   result.
+//! - `test` overruns the shared runner's wall-clock bound →
+//!   `TestFailed` naming the command, the profile and the bound;
+//!   the command's whole process group is killed and reaped, so a
+//!   hung test command fails instead of hanging the lane.
 //! - `commit` finds unrelated edits in the working tree →
 //!   `GitDirty`; the requested paths are never staged and the
 //!   working tree is left untouched (R2 failure scenario).
@@ -35,6 +39,7 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -42,11 +47,6 @@ use crate::core::ForgeError;
 
 /// Contract data version for the test/commit/push API.
 pub const GITOPS_CONTRACT_VERSION: &str = "0.1.0";
-
-/// Wait timeout for a single test/subprocess invocation. Mirrors
-/// the policy adapter pattern: an unresponsive tool surfaces as
-/// `TestFailed` rather than hanging the registry.
-pub const SUBPROCESS_WAIT_TIMEOUT_SECS: u64 = 600;
 
 /// Outcome of a `forge test` invocation.
 #[derive(Debug, Clone, Serialize)]
@@ -113,65 +113,95 @@ fn default_test_command(profile_id: &str) -> String {
 /// Run the project's test command on `dir` and capture the
 /// result. The test command is read from the supplied
 /// `profile_test_command` when present; otherwise a per-profile
-/// default is used. A non-zero exit is surfaced as
-/// `error[test-failed]`; the captured stdout/stderr is trimmed
-/// and recorded in `evidence` so the caller can correlate
-/// failures without re-running the test.
+/// default is used. The command runs through the shared native
+/// command runner, under the runner's wall-clock bound, so a hung
+/// test command fails instead of hanging the operation. A non-zero
+/// exit is surfaced as `error[test-failed]`; the captured
+/// stdout/stderr is redacted, bounded and recorded in `evidence` so
+/// the caller can correlate failures without re-running the test.
 pub fn run_test(
     project_id: &str,
     profile_id: &str,
     profile_test_command: Option<&str>,
     dir: &Path,
 ) -> Result<TestOutcome, ForgeError> {
+    run_test_with_timeout(
+        project_id,
+        profile_id,
+        profile_test_command,
+        dir,
+        crate::native::NATIVE_COMMAND_TIMEOUT,
+    )
+}
+
+/// Run the project's test command on `dir` under an explicit bound.
+///
+/// Every product path binds [`crate::native::NATIVE_COMMAND_TIMEOUT`].
+/// This entry point takes the bound as a parameter so a test can
+/// exercise the bound without waiting the full window; a product path
+/// never passes another bound.
+pub fn run_test_with_timeout(
+    project_id: &str,
+    profile_id: &str,
+    profile_test_command: Option<&str>,
+    dir: &Path,
+    timeout: Duration,
+) -> Result<TestOutcome, ForgeError> {
     let command = test_command_for(profile_id, profile_test_command).ok_or_else(|| {
         ForgeError::TestFailed {
             reason: format!("no test command is configured for profile `{profile_id}`"),
         }
     })?;
-    let output = match run_shell_command(dir, &command) {
-        Ok(out) => out,
-        Err(err) => {
-            return Err(ForgeError::TestFailed {
-                reason: format!(
-                    "test command `{command}` for profile `{profile_id}` could not start: {err}"
-                ),
-            })
-        }
-    };
-    let status = if output.status.success() {
-        "passed"
-    } else {
-        "failed"
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let mut evidence = Vec::new();
-    if !stdout.trim().is_empty() {
-        evidence.push(format!("stdout: {}", truncate(&stdout, 800)));
-    }
-    if !stderr.trim().is_empty() {
-        evidence.push(format!("stderr: {}", truncate(&stderr, 800)));
-    }
-    if output.status.success() {
-        Ok(TestOutcome {
-            contract: GITOPS_CONTRACT_VERSION.to_string(),
-            project_id: project_id.to_string(),
-            profile: profile_id.to_string(),
-            command: command.clone(),
-            status: status.to_string(),
-            exit_code: output.status.code(),
-            note: format!("test command `{command}` passed for project `{project_id}`"),
-            evidence,
-        })
-    } else {
-        Err(ForgeError::TestFailed {
+    let outcome = crate::native::run_native_shell_with_timeout(dir, &command, &[], timeout)?;
+    if let Some(start_error) = outcome.start_error {
+        return Err(ForgeError::TestFailed {
             reason: format!(
-                "test command `{command}` for project `{project_id}` exited with status {}; \
+                "test command `{command}` for profile `{profile_id}` could not start: {start_error}"
+            ),
+        });
+    }
+    let evidence = outcome.evidence();
+    if outcome.timed_out {
+        return Err(ForgeError::TestFailed {
+            reason: format!(
+                "test command `{command}` for profile `{profile_id}` exceeded the {} timeout; \
+                 the command's process group was killed",
+                format_bound(timeout)
+            ),
+        });
+    }
+    if !outcome.success {
+        let status = match outcome.exit_code {
+            Some(code) => format!("status {code}"),
+            None => "no exit status".to_string(),
+        };
+        return Err(ForgeError::TestFailed {
+            reason: format!(
+                "test command `{command}` for project `{project_id}` exited with {status}; \
                  see evidence: {}",
-                output.status,
                 evidence.join(" | ")
             ),
-        })
+        });
+    }
+    Ok(TestOutcome {
+        contract: GITOPS_CONTRACT_VERSION.to_string(),
+        project_id: project_id.to_string(),
+        profile: profile_id.to_string(),
+        command: command.clone(),
+        status: "passed".to_string(),
+        exit_code: outcome.exit_code,
+        note: format!("test command `{command}` passed for project `{project_id}`"),
+        evidence,
+    })
+}
+
+/// Render a wall-clock bound for a refusal message: seconds for a
+/// bound of a second or more, milliseconds below that.
+fn format_bound(timeout: Duration) -> String {
+    if timeout.as_secs() >= 1 {
+        format!("{}s", timeout.as_secs())
+    } else {
+        format!("{}ms", timeout.as_millis())
     }
 }
 
@@ -444,19 +474,6 @@ fn run_git(dir: &Path, args: &[&str]) -> Result<std::process::Output, ForgeError
     }
     cmd.output().map_err(|err| ForgeError::GitDirty {
         reason: format!("git invocation failed: {err}"),
-    })
-}
-
-/// Run a shell-style command through `sh -c` with a bounded
-/// timeout. We avoid shell expansion in commit/push so the
-/// argument list is fully owned; tests run through a real shell
-/// so the user-supplied test command is honored as written.
-fn run_shell_command(dir: &Path, command: &str) -> Result<std::process::Output, ForgeError> {
-    let mut cmd = Command::new("sh");
-    cmd.arg("-c").arg(command);
-    cmd.current_dir(dir);
-    cmd.output().map_err(|err| ForgeError::TestFailed {
-        reason: format!("test command invocation failed: {err}"),
     })
 }
 

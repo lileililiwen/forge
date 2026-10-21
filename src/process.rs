@@ -5,12 +5,13 @@
 //!
 //! The helper spawns a child with `std::process::Command`, attaches a
 //! bounded wall-clock timeout, captures stdout/stderr to in-memory
-//! buffers, kills the child on timeout, and never leaves the caller
-//! hanging. Output is bounded so a verbose adapter cannot exhaust the
-//! host: stdout is read to end but never explicitly truncated (the
-//! adapter is expected to be compact), and stderr is capped at
-//! [`MAX_STDERR_BYTES`] (2 KiB) with a `[truncated]` marker so a
-//! forge log never carries an unbounded remote error.
+//! buffers, kills the child's whole process group on timeout, and
+//! never leaves the caller hanging. Output is bounded so a verbose
+//! adapter cannot exhaust the host: stdout is read to end but never
+//! explicitly truncated (the adapter is expected to be compact), and
+//! stderr is capped at [`MAX_STDERR_BYTES`] (2 KiB) with a
+//! `[truncated]` marker so a forge log never carries an unbounded
+//! remote error.
 //!
 //! The helper is shared so every forge surface enforces the same
 //! timeout/output policy and never has to re-implement the
@@ -47,6 +48,45 @@ pub struct ChildOutput {
     pub timed_out: bool,
 }
 
+/// Spawn `command` as the leader of its own process group.
+///
+/// The child is placed in a new process group whose id equals its
+/// pid, so a negative pid targets exactly the tree the runner
+/// created. That is what lets [`kill_process_tree`] take a command's
+/// descendants with it. On a platform without process groups the
+/// child is spawned plainly and the caller falls back to a
+/// child-only kill.
+pub fn spawn_in_own_group(command: &mut Command) -> std::io::Result<std::process::Child> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.spawn()
+}
+
+/// Kill the child's whole process group, then the child, and reap it.
+///
+/// The group is signalled first because the direct child is often a
+/// shell or a package manager whose real work runs as a grandchild;
+/// killing only the direct child would leak a descendant that keeps
+/// running after the timeout. The child is reaped afterwards, so a
+/// platform without process groups keeps the previous behaviour.
+pub fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // The child is its own process-group leader, so its pgid
+        // equals its pid and a negative pid targets exactly the tree
+        // it created. The pid is an internal value; no user input
+        // reaches this call.
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Spawn `command` and wait up to `timeout` for the child to exit.
 /// The helper always reads stdout/stderr to end (killing the child on
 /// timeout first), captures the exit code, and never blocks beyond
@@ -54,7 +94,7 @@ pub struct ChildOutput {
 /// the child process.
 pub fn spawn_with_timeout(command: &mut Command, timeout: Duration) -> Result<ChildOutput, String> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = match command.spawn() {
+    let mut child = match spawn_in_own_group(command) {
         Ok(child) => child,
         Err(err) => return Err(format!("cannot spawn child: {err}")),
     };
@@ -92,8 +132,7 @@ pub fn spawn_with_timeout(command: &mut Command, timeout: Duration) -> Result<Ch
             Ok(Some(status)) => break status.code(),
             Ok(None) => {
                 if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_process_tree(&mut child);
                     let _ = stdout_reader.join();
                     let _ = stderr_reader.join();
                     return Err(format!("child timed out after {timeout:?}"));
@@ -101,8 +140,7 @@ pub fn spawn_with_timeout(command: &mut Command, timeout: Duration) -> Result<Ch
                 thread::sleep(Duration::from_millis(50));
             }
             Err(err) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_process_tree(&mut child);
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
                 return Err(format!("cannot wait on child: {err}"));

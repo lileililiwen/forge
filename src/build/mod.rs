@@ -10,14 +10,17 @@
 //! A failed build is an error, as a failed test is: `build-failed` with
 //! the reason and the evidence. A request Forge cannot honour is
 //! refused: `build-invalid` with the reason. A refused or failed build
-//! reports no build.
+//! reports no build. A build that overruns the shared runner's
+//! wall-clock bound is a failure too: the reason names the timeout
+//! rather than an exit status, and the command's whole process group
+//! is killed.
 
 pub mod build_tests;
 
 use std::path::Path;
 
 use crate::core::ForgeError;
-use crate::native::{run_native, split_command};
+use crate::native::{run_native, split_command, NATIVE_COMMAND_TIMEOUT};
 use crate::profile::inspect_profile;
 use crate::target::{resolve_target, TargetRequest, HOST_TARGET};
 
@@ -82,6 +85,15 @@ pub fn run_build(
     }
     let evidence = outcome.evidence();
     if !outcome.success {
+        if outcome.timed_out {
+            return Err(ForgeError::BuildFailed {
+                reason: format!(
+                    "build command `{build_command}` for project `{project_id}` exceeded the \
+                     {} timeout; the command's process group was killed",
+                    NATIVE_COMMAND_TIMEOUT.as_secs()
+                ),
+            });
+        }
         let status = match outcome.exit_code {
             Some(code) => format!("status {code}"),
             None => "no exit status".to_string(),

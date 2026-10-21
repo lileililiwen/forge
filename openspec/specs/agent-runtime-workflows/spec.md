@@ -1,7 +1,7 @@
 # agent-runtime-workflows Specification
 
 ## Purpose
-Managed agent sessions over the existing PTY agent manager: start, pause, takeover, resume, restart and new-session operations plus spec execution, test, commit and confirm-gated push through shared Core contracts, without replacing the agent runtime.
+Managed agent sessions over the existing PTY agent manager: start, pause, takeover, resume, restart and new-session operations plus spec execution, test, commit and confirm-gated push through shared Core contracts, without replacing the agent runtime. The test operation runs the project's declared test command through the shared native command runner, so it keeps its shell semantics and gains the runner's wall-clock bound and process-group kill.
 ## Requirements
 ### Requirement: Managed agent sessions
 
@@ -24,7 +24,7 @@ Forge SHALL expose start, pause, takeover, resume, restart and new-session opera
 
 ### Requirement: Verified test and Git operations
 
-Forge SHALL expose test, commit and push as separate scoped operations, requiring explicit execution intent for remote writes and preserving unrelated work.
+Forge SHALL expose test, commit and push as separate scoped operations, requiring explicit execution intent for remote writes and preserving unrelated work. The test operation SHALL run the profile's declared test command through the shared native command runner, under a wall-clock bound that kills the command's whole process group when it elapses, and SHALL report a command that overran the bound as a timeout rather than as a non-zero exit.
 
 #### Scenario: Verified test and Git operations success
 
@@ -40,6 +40,11 @@ Forge SHALL expose test, commit and push as separate scoped operations, requirin
 
 - **WHEN** tests pass but push was not requested
 - **THEN** Forge records verification without updating any remote
+
+#### Scenario: A test command that never returns
+
+- **WHEN** a project's declared test command is still running when the bound elapses
+- **THEN** the command's process group is killed and reaped, and the operation reports a timeout that names the command and the bound
 
 ### Requirement: Supervised runtime delegation
 

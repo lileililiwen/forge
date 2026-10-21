@@ -1,12 +1,14 @@
 # profile-and-release-readiness Specification
 
 ## Purpose
-Reproducible release-readiness evidence: native build/test matrix rows per supported profile with missing toolchains classified unverified (never passing), artifact checksums with version smoke, and a gate that passes only when every selected row passes.
+Reproducible release-readiness evidence: native build/test matrix rows per supported profile with missing toolchains classified unverified (never passing), artifact checksums with version smoke, and a gate that passes only when every selected row passes. Every native command a row runs goes through the shared native command runner, under its wall-clock bound, so a row never hangs on an unresponsive command.
 ## Requirements
 ### Requirement: Supported profile native evidence
 
 Forge SHALL maintain a reproducible native evidence row for every supported
-profile, including the five v0.1 profiles and `react-web`.
+profile, including the five v0.1 profiles and `react-web`. Every native
+command a row runs SHALL run through the shared native command runner, under
+its wall-clock bound, so a row never hangs on an unresponsive command.
 
 #### Scenario: Native evidence passes
 
@@ -22,6 +24,13 @@ profile, including the five v0.1 profiles and `react-web`.
 
 - **WHEN** the host or CI runner lacks a required toolchain
 - **THEN** the row is unverified with the missing prerequisite and cannot satisfy a release gate
+
+#### Scenario: A native command overruns the bound
+
+- **WHEN** a declared native build or test command is still running when the
+  shared runner's bound elapses
+- **THEN** the command's process group is killed, the row is not reported as
+  verified, and the reason names the timeout
 
 ### Requirement: Reproducible release gate and artifact smoke evidence
 

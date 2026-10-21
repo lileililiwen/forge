@@ -3,7 +3,7 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use crate::core::ForgeError;
-use crate::native::{run_native, split_command};
+use crate::native::{run_native, split_command, NATIVE_COMMAND_TIMEOUT};
 use crate::profile::inspect_profile;
 use crate::registry::Registry;
 use std::collections::{BTreeMap, HashSet};
@@ -780,6 +780,15 @@ pub fn verify_native(
         if let Some(start_error) = outcome.start_error {
             return Err(ForgeError::GenerationFailed {
                 reason: format!("native command '{command}' could not start: {start_error}"),
+            });
+        }
+        if outcome.timed_out {
+            return Err(ForgeError::GenerationFailed {
+                reason: format!(
+                    "native command '{command}' exceeded the {} timeout for profile \
+                     '{profile_id}'; the command's process group was killed",
+                    NATIVE_COMMAND_TIMEOUT.as_secs()
+                ),
             });
         }
         if !outcome.success {

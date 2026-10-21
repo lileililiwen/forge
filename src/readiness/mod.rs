@@ -223,15 +223,18 @@ fn capture_toolchain_version(toolchain: &str, path_var: &OsStr) -> Option<String
     Some(truncate_tail(first, 200))
 }
 
-fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeCommandOutcome {
+fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeCommandResult {
     let (program, args) = match crate::native::split_command(command) {
         Ok(split) => split,
         Err(err) => {
-            return NativeCommandOutcome {
-                command: command.to_string(),
-                exit_code: None,
-                success: false,
-                evidence: format!("refused to run: {err}"),
+            return NativeCommandResult {
+                outcome: NativeCommandOutcome {
+                    command: command.to_string(),
+                    exit_code: None,
+                    success: false,
+                    evidence: format!("refused to run: {err}"),
+                },
+                timed_out: false,
             };
         }
     };
@@ -239,27 +242,74 @@ fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeComm
     let outcome = match crate::native::run_native(dir, &program, &args, &env) {
         Ok(outcome) => outcome,
         Err(err) => {
-            return NativeCommandOutcome {
-                command: command.to_string(),
-                exit_code: None,
-                success: false,
-                evidence: format!("native command '{command}' could not start: {err}"),
+            return NativeCommandResult {
+                outcome: NativeCommandOutcome {
+                    command: command.to_string(),
+                    exit_code: None,
+                    success: false,
+                    evidence: format!("native command '{command}' could not start: {err}"),
+                },
+                timed_out: false,
             };
         }
     };
     if let Some(start_error) = outcome.start_error {
-        return NativeCommandOutcome {
-            command: command.to_string(),
-            exit_code: None,
-            success: false,
-            evidence: format!("native command '{command}' could not start: {start_error}"),
+        return NativeCommandResult {
+            outcome: NativeCommandOutcome {
+                command: command.to_string(),
+                exit_code: None,
+                success: false,
+                evidence: format!("native command '{command}' could not start: {start_error}"),
+            },
+            timed_out: false,
         };
     }
-    NativeCommandOutcome {
-        command: command.to_string(),
-        exit_code: outcome.exit_code,
-        success: outcome.success,
-        evidence: outcome.tail(2000),
+    if outcome.timed_out {
+        return NativeCommandResult {
+            outcome: NativeCommandOutcome {
+                command: command.to_string(),
+                exit_code: None,
+                success: false,
+                evidence: format!(
+                    "native command '{command}' exceeded the {} timeout; the command's process \
+                     group was killed",
+                    crate::native::NATIVE_COMMAND_TIMEOUT.as_secs()
+                ),
+            },
+            timed_out: true,
+        };
+    }
+    NativeCommandResult {
+        outcome: NativeCommandOutcome {
+            command: command.to_string(),
+            exit_code: outcome.exit_code,
+            success: outcome.success,
+            evidence: outcome.tail(2000),
+        },
+        timed_out: false,
+    }
+}
+
+/// One native command's result inside a matrix row.
+///
+/// The timeout flag is kept beside the outcome so the row's reason can
+/// name a timeout; the row's serialized shape does not change.
+struct NativeCommandResult {
+    outcome: NativeCommandOutcome,
+    timed_out: bool,
+}
+
+/// The reason a matrix row carries for a native command that did not
+/// pass: a timeout is named as a timeout, an ordinary failure as a
+/// failure.
+fn native_failure_reason(command: &str, profile: &str, timed_out: bool) -> String {
+    if timed_out {
+        format!(
+            "native command '{command}' exceeded the {} timeout for profile '{profile}'",
+            crate::native::NATIVE_COMMAND_TIMEOUT.as_secs()
+        )
+    } else {
+        format!("native command '{command}' failed for profile '{profile}'")
     }
 }
 
@@ -377,7 +427,7 @@ pub fn run_profile_row(
 
     let toolchain_version = capture_toolchain_version(&descriptor.toolchain, &native_path);
     let build = run_native_command(&descriptor.build_command, &target, &native_path);
-    if !build.success {
+    if !build.outcome.success {
         return Ok(MatrixRow {
             contract: READINESS_CONTRACT_VERSION.to_string(),
             profile: descriptor.id.clone(),
@@ -391,16 +441,17 @@ pub fn run_profile_row(
             generated_at: now_rfc3339(),
             forge_absent_from_path: forge_absent,
             result: ReadinessStatus::Failed,
-            reason: format!(
-                "native command '{}' failed for profile '{}'",
-                descriptor.build_command, descriptor.id
+            reason: native_failure_reason(
+                &descriptor.build_command,
+                &descriptor.id,
+                build.timed_out,
             ),
-            build: Some(build),
+            build: Some(build.outcome),
             test: None,
         });
     }
     let test = run_native_command(&descriptor.test_command, &target, &native_path);
-    if !test.success {
+    if !test.outcome.success {
         return Ok(MatrixRow {
             contract: READINESS_CONTRACT_VERSION.to_string(),
             profile: descriptor.id.clone(),
@@ -414,12 +465,9 @@ pub fn run_profile_row(
             generated_at: now_rfc3339(),
             forge_absent_from_path: forge_absent,
             result: ReadinessStatus::Failed,
-            reason: format!(
-                "native command '{}' failed for profile '{}'",
-                descriptor.test_command, descriptor.id
-            ),
-            build: Some(build),
-            test: Some(test),
+            reason: native_failure_reason(&descriptor.test_command, &descriptor.id, test.timed_out),
+            build: Some(build.outcome),
+            test: Some(test.outcome),
         });
     }
     Ok(MatrixRow {
@@ -439,8 +487,8 @@ pub fn run_profile_row(
             "native commands '{}' and '{}' passed for profile '{}' without Forge on PATH",
             descriptor.build_command, descriptor.test_command, descriptor.id
         ),
-        build: Some(build),
-        test: Some(test),
+        build: Some(build.outcome),
+        test: Some(test.outcome),
     })
 }
 

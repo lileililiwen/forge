@@ -7669,3 +7669,81 @@ Implementation/archive commit: `b5c9db7` (`feat: a profile's build command
 builds, and an analysis command is refused`). This HANDOFF-only update is
 the second commit. Nothing was pushed. No active OpenSpec change remains,
 so this file has no `current_spec` pointer.
+
+### `doctor-build-definition-truth` implemented and archived (2026-10-21)
+
+`forge doctor` judges a project against the build definition its profile
+expects, and the doctor's table of those expectations was missing a
+supported profile. `react-web` has a catalogue row, a tested native
+scaffold and the `package.json` the generator writes — and no row in the
+doctor. So a healthy React project was reported as broken:
+
+```text
+[WARN] dependency-drift (automatic)  evidence: unknown profile: no expected build definition
+[FAIL] build-config (automatic)     evidence: unknown profile: no expected build definition
+```
+
+The project was not broken. The doctor could not name the file, so it
+blamed the project for a gap in its own table. The report also contradicted
+itself: `profile-known` passed the same profile in the same report, because
+that finding reads the catalogue. The same false failure was reachable for
+a planned profile id such as `flutter-client` — `inspect_profile` finds
+planned descriptors, so `profile-known` passed, and the doctor's table had
+no row for it either.
+
+So the table is now one typed list with one row per supported profile:
+`aspnet-web` expects a `*.csproj`, `flutter-app` a `pubspec.yaml`,
+`nextjs-web` and `react-web` a `package.json`, `python-service` one of
+`pyproject.toml`, `requirements.txt`, `setup.py` or `setup.cfg`, and
+`rust-web` a `Cargo.toml`. Those are exactly the files the generator
+writes, so the doctor's expectation and the scaffold agree.
+
+And the probe answers three states instead of two: present, missing, and
+*the doctor holds no expectation for this profile at all*. The third state
+was folded into "missing" before, and "missing" became a failure of the
+project. It is now `UNAVAILABLE` — a required inspector that cannot run —
+and the evidence names the profile. The doctor's own gap is never reported
+as a defect of the project it inspects. A React project that really has no
+`package.json` still fails, with the expected file named.
+
+Two hand-written lists drift apart again on their own, so the table is
+pinned against the supported catalogue by a repository contract check, in
+the house's `MATRIX` shape: every supported profile has a definition,
+every definition belongs to a supported profile, and every row matches the
+pinned expectation. A profile cannot be added to the catalogue without the
+doctor learning it, and an expectation cannot change without that check
+failing and naming the profile.
+
+| Check | Result | Evidence |
+|---|---|---|
+| A healthy React project passes | PASS | `forge new /tmp/dbdt/app --profile react-web --id dbdt-app` exited 0 (`created dbdt-app (/tmp/dbdt/app) from react-web@0.1.0`); `forge doctor /tmp/dbdt/app` reports `[PASS] build-config (automatic)` with `evidence: package.json` and `detail: build definition is present`, and `[PASS] dependency-drift (automatic)` with `evidence: manifest runtime agrees with on-disk dependency evidence`. The remaining non-pass findings are `[UNAVAILABLE] repository`, `[WARN] driftwatch-config` and `[UNAVAILABLE] driftwatch-policy` — none of them is the build definition. |
+| A React project without `package.json` still fails | PASS | With `package.json` moved out of the project root, `forge doctor /tmp/dbdt/app` reports `[FAIL] build-config (automatic)` with `evidence: missing build definition 'package.json'` and `detail: build definition required by L1 is missing`, plus `[WARN] dependency-drift (automatic)` with the same evidence. |
+| A profile the doctor does not judge is not failed | PASS | A manifest naming the planned profile `flutter-client` reports `[UNAVAILABLE] build-config (automatic)` with `evidence: the doctor has no expected build definition for profile 'flutter-client'` and `detail: required inspector (build definition) cannot run`, and `[UNAVAILABLE] dependency-drift`. The finding is not `FAIL` and never says "unknown profile". |
+| The new contract test | PASS | `cargo test --test doctor_build_definition_contract` reported `test result: ok. 5 passed; 0 failed; 0 ignored`. It pins the six-row table against the catalogue in both directions and drives the doctor through the built binary for the three states. |
+| The affected suites | PASS | `cargo test -p forge --lib doctor::` → `46 passed; 0 failed`; `cargo test --test spec_purpose_contract` → `2 passed; 0 failed` (the new capability's `TBD` Purpose was replaced by hand before the run). |
+| Repository test suite | PASS, 4052 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 over 211 test binaries: 4052 passed, 0 failed, 1 ignored, with no `FAILED` line in the log. The 4046-test baseline plus the 6 new tests (5 in the new contract test, 1 in the doctor module). |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-21T22:14:13Z"` on revision `622e8d92fbb282d8aa4f34413db5774e3590cd53`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) so the `build` check did not lose the shared build lock, as recorded in the previous change. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 139 passed, 0 failed (139 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-21-doctor-build-definition-truth/`: the new capability `doctor-build-definition-truth` was promoted with three requirements, one requirement of `doctor-maturity-assessment` was modified with every canonical scenario kept, the archive's `TBD` Purpose was replaced with the real one, and the modified capability's purpose now states the build-definition rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and none in `src/doctor/` or in the new contract test. `rustfmt --edition 2021 --check` is clean on all five touched files, and no pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/doctor/probes.rs` 931, `src/doctor/runner.rs` 532, `src/doctor/assessment.rs` 595, `src/doctor/doctor_tests.rs` 878, `tests/doctor_build_definition_contract.rs` 223). |
+
+The evidence was produced with the same machine layout as the previous
+change: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`), because a target directory outside the
+checkout makes the module catalog unavailable for four test binaries. No
+`/mnt` path was used for a build.
+
+Deliberately not done, and stated plainly: the catalogue's `layout` is not
+the source of the expectation — `aspnet-web`'s layout carries no `.csproj`
+at all, and `python-service` accepts four manifests where its layout names
+one — so the table is an explicit declaration, pinned by the contract
+check. The planned profiles are not promoted and are not judged; the
+doctor only reports that it cannot judge them. The doctor's other probes,
+the manifest, the descriptor, the generator and the build lane are
+untouched, and the doctor stays read-only: nothing in this change writes
+to the inspected project.
+
+Implementation/archive commit: `81ccfe8` (`feat: the doctor knows every
+supported profile's build definition`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

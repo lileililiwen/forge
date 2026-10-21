@@ -7474,3 +7474,100 @@ Implementation/archive commit: `f8c4f77` (`feat: require Gate evidence on a
 release`). This HANDOFF-only update is the second commit. Nothing was pushed.
 No active OpenSpec change remains, so this file has no `current_spec`
 pointer.
+
+### `one-native-command-runner` implemented and archived (2026-10-21)
+
+`forge test` ran the project's test command through a private `sh -c`
+spawner with no timeout. A hung test hung the lane with it: the release
+lane's test check, the registry row the operation was writing, and the
+operator waiting for a result that never comes.
+
+The code even said so, and then did not do it. `src/gitops/mod.rs` exported
+`SUBPROCESS_WAIT_TIMEOUT_SECS`, documented as "Wait timeout for a single
+test/subprocess invocation ... an unresponsive tool surfaces as `TestFailed`
+rather than hanging the registry". Nothing read it. The shared native runner
+was in the same state — `src/native/mod.rs` said "The runner has no timeout"
+— so the build step, the generator's post-generation verification and the
+readiness fixtures were unbounded too.
+
+Three changes.
+
+The shared runner in `src/native/mod.rs` is now the one native command
+runner. It gains a shell entry point beside the argument-array one, so
+`forge test` converges onto it and its private `run_shell_command` is
+deleted. The shell form exists for one reason: a profile's test command may
+rely on shell semantics, and `forge test` has always honoured them. The
+dead constant goes with it.
+
+Every native command now runs under a bound of 1800 seconds — the house's
+value for a long external operation, the same number
+`PUBLISH_DEPLOY_TIMEOUT` and `PUBLISH_PROVIDER_TIMEOUT` use. It is not a
+manifest field, so a project cannot raise it.
+
+The kill takes the tree. The child is spawned as the leader of its own
+process group and the whole group is signalled before the child is reaped,
+using the pattern `src/studio/preview.rs` already established. The
+lifecycle helpers live in `src/process.rs`, so every adapter that already
+uses that helper — the GitHub CLI, the GitHub adapter, the shared analytics
+helper, the Studio preview — gains the tree kill at no contract change. The
+capture is bounded too: a command that exits but leaves a descendant
+holding the capture pipes open used to hang the runner forever, so the
+captures get a grace period and the group is killed when they do not drain.
+
+A timed-out command is not a command that exited non-zero, and the two are
+now reported differently. The outcome carries a `timed_out` flag, the build
+step's reason names the bound instead of an exit status, and `forge test`
+refuses with the timeout. One thing changes for the better: `forge test`'s
+output is now redacted, like every other native command's.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The bound is real, waited out | PASS | The owner's run: a `rust-web` project whose test command sleeps for an hour was run through `forge test`. After 1800 seconds the operation refused with `error[test-failed]: test command failed: test command `cargo test` for profile `rust-web` exceeded the 1800s timeout; the command's process group was killed`, exit 1. |
+| The kill takes the tree | PASS | `ps` after the refusal found no surviving `cargo test`, `rustc` or fixture process. The implementer's scoped run with a 300 ms bound also pins it: the descendant's marker file was never written and its pid was no longer running. |
+| An ordinary failure still reads the same | PASS | `forge test` on a project whose test fails: `error[test-failed]: test command failed: test command `cargo test` for project `native-fail` exited with status 101; see evidence: stdout: ...`. A project whose tests pass exits 0. |
+| The new contract test | PASS | `cargo test --test native_command_runner_contract` reported `test result: ok. 15 passed; 0 failed`. It pins the shell syntax, the redaction, the bound value, the timeout refusal, the descendant gone, the capture grace, the ordinary failure, the missing program, the start failure, the CLI path and the caller's working directory. |
+| The affected suites | PASS | `cargo test -p forge --lib native::` → `9 passed; 0 failed`; `cargo test -p forge --lib gitops` → `7 passed; 0 failed`; `cargo test -p forge --lib build::` → `8 passed; 0 failed`; `cargo test --test gitops_contract` → `8 passed; 0 failed`; `cargo test --test release_contract` → `10 passed; 0 failed`; `cargo test --test release_gate_mandatory_contract` → `5 passed; 0 failed`; `cargo test --test readiness_contract` → `10 passed; 0 failed`; `cargo test --test generate_contract` → `12 passed; 0 failed`. |
+| Repository test suite | PASS, 4036 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 over 209 test binaries: 4036 passed, 0 failed. The 4019-test baseline plus the 17 new tests. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-21T07:14:47Z"` on revision `df37dc8`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. `source-file-size` evaluated 456 of 456 candidates with a maximum of 1000 physical lines. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 137 passed, 0 failed (137 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-21-one-native-command-runner/`; the new capability was promoted, one requirement was modified in `agent-runtime-workflows` and one in `profile-and-release-readiness`, the archive's `TBD` Purpose was replaced with the real one, and the two modified capabilities' purposes were updated to state the new contract. `cargo test --test spec_purpose_contract` → `2 passed; 0 failed`. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, none in `src/native/mod.rs`, `src/native/native_tests.rs`, `src/process.rs`, `src/gitops/mod.rs`, `src/build/mod.rs`, `src/generate/engine.rs`, `src/readiness/mod.rs` or `tests/native_command_runner_contract.rs`. `rustfmt --edition 2021 --check` is clean on all eight touched files; no pre-existing rustfmt-dirty file was touched. |
+
+Three environment notes, because they change how the evidence above was
+produced.
+
+First, the root filesystem reached 100 % (156 MB free) while the suite was
+linking the test binaries, and the linker died with `Bus error` on two of
+them. `cargo clean -p forge` reclaimed 49.2 GB of build cache and the suite
+then passed. The disk is the machine's, not the change's.
+
+Second, an unrelated `cargo check` from another workspace on this machine
+took the shared cargo package-cache lock and hung while holding it, so every
+nested `cargo` invocation blocked behind it. The suite and the first Gate
+runs were therefore run with `CARGO_HOME=/tmp/cargo-home-forge`, a local
+directory whose `registry` is a symlink to the real registry cache, so the
+package-cache lock is a different file. The foreign process was left alone.
+Cargo's own cache collector later removed that shadow home's `bin` and
+`config.toml` links, which broke the Gate's `security` check — `cargo audit`
+could no longer be found. The final Gate ran with the real cargo home, as
+the Gate normally does.
+
+Third, two Gate runs were blocked by the machine rather than by this change:
+the `security` check exceeded its 60 s deadline while `cargo audit` fetched
+the advisory database over the network, and the `tests` and `source-file-size`
+checks exceeded their deadlines while another workspace on the same machine
+was compiling (load average above 20). Those commands are the repository's
+own suite and its own audit, and both pass standalone. The Gate's per-check
+deadlines come from the generated `.ai-gate/gate.yaml` and were not edited.
+
+Deliberately not done, and stated plainly: the release notes adapter, the
+driftwatch adapter, the analytics adapter, the provider probes and the
+Gate's own adapter runner each keep their own private bounded spawner. They
+run Forge's own adapters rather than the project's native commands, and this
+change does not alter their contracts. Their remediation path is recorded in
+the design: each can adopt `crate::process::spawn_in_own_group` and
+`crate::process::kill_process_tree` when its own contract is next touched.
+
+Implementation/archive commit: `bd12904` (`feat: one bounded native command
+runner`). This HANDOFF-only update is the second commit. Nothing was pushed.
+No active OpenSpec change remains, so this file has no `current_spec`
+pointer.

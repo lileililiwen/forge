@@ -453,7 +453,7 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             &["flutter_bloc", "go_router", "dio"],
             &["lib/", "test/", "pubspec.yaml", "android/", "ios/"],
             &["bloc-state", "go-router-navigation", "offline-first-cache"],
-            "flutter analyze",
+            "flutter build bundle",
             "flutter test",
             Some("app-store"),
             Some("store-internal"),

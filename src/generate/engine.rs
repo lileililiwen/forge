@@ -372,7 +372,7 @@ fn template_files(
                     &build,
                     &test,
                     &format!(
-                        "Verified with `flutter analyze` + `flutter test` (no platform host or Android SDK needed). The app bundle is a release-stage command that requires `android/` and the Android SDK.{}",
+                        "Built with `flutter build bundle` and verified with `flutter test` (no platform host or Android SDK needed). The app store package (`flutter build appbundle`) is a release-stage command that requires `android/` and the Android SDK.{}",
                         kit.as_ref().map(|k| kit_readme_section(k, &request.profile))
                             .unwrap_or_default()
                     ),

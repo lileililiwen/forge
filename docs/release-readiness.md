@@ -84,8 +84,8 @@ native build and test commands pass against the tree that profile
 generates, so the full-matrix gate is available on a runner that supplies
 the six toolchains. Runner prerequisite:
 
-- `flutter-app` (`flutter analyze` / `flutter test`) requires the Flutter
-  SDK; without it the row is `unverified`. The app bundle
+- `flutter-app` (`flutter build bundle` / `flutter test`) requires the Flutter
+  SDK; without it the row is `unverified`. The app store package
   (`flutter build appbundle`) remains a release-stage command requiring
   `android/` and the Android SDK.
 - `python-service` `python3 -m build` requires the `build` module;

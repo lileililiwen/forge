@@ -26,12 +26,49 @@ pub fn list_profiles() -> Vec<ProfileDescriptor> {
 /// whether the id is selectable through resolution or generation.
 pub fn inspect_profile(id: &str) -> Result<ProfileDescriptor, ForgeError> {
     if let Some(p) = mvp_profiles().into_iter().find(|p| p.id == id) {
+        check_build_command(&p)?;
         return Ok(p);
     }
     if let Some(p) = planned_profiles().into_iter().find(|p| p.id == id) {
+        check_build_command(&p)?;
         return Ok(p);
     }
     Err(ForgeError::UnknownProfile { id: id.to_string() })
+}
+
+/// The build-command verbs that only analyse, never build.
+///
+/// A named list, not an oracle. Forge refuses the verbs it knows and
+/// accepts every other command: a rule that classified every command
+/// would block legitimate builds, and Forge does not know every
+/// toolchain's vocabulary.
+pub const ANALYSIS_BUILD_VERBS: [&str; 6] = ["analyze", "lint", "clippy", "fmt", "format", "vet"];
+
+/// The verb of a build command: its last token that is not a flag.
+///
+/// `cargo clippy --all-targets` has the verb `clippy`;
+/// `npm run build -- --mode=production` has the verb `build`.
+pub fn build_command_verb(command: &str) -> Option<&str> {
+    command.split_whitespace().rfind(|t| !t.starts_with('-'))
+}
+
+/// Refuse a descriptor whose declared build command only analyses the
+/// project. Names the profile, the command and the verb.
+fn check_build_command(profile: &ProfileDescriptor) -> Result<(), ForgeError> {
+    let Some(verb) = build_command_verb(&profile.build_command) else {
+        return Ok(());
+    };
+    if !ANALYSIS_BUILD_VERBS.contains(&verb) {
+        return Ok(());
+    }
+    Err(ForgeError::InvalidProfile {
+        reason: format!(
+            "profile descriptor '{}' declares the analysis command `{}` as its build command; \
+             `{}` analyses, it does not build; declare a command that produces build output; \
+             no files were changed",
+            profile.id, profile.build_command, verb
+        ),
+    })
 }
 
 /// True iff the id is in the supported catalog and therefore selectable
@@ -82,6 +119,7 @@ pub fn validate_descriptor(profile: &ProfileDescriptor) -> Result<(), ForgeError
             reason: format!("profile descriptor '{name}' missing required field '{field}'"),
         });
     }
+    check_build_command(profile)?;
     Ok(())
 }
 
@@ -573,5 +611,68 @@ pub(super) mod tests {
                 || desc.contains("'python-service'"),
             "flutter-client description must name the supported backend alternatives: {desc}"
         );
+    }
+
+    #[test]
+    fn build_command_verb_reads_the_last_non_flag_token() {
+        assert_eq!(
+            build_command_verb("cargo clippy --all-targets"),
+            Some("clippy")
+        );
+        assert_eq!(
+            build_command_verb("npm run build -- --mode=production"),
+            Some("build")
+        );
+        assert_eq!(build_command_verb("python3 -m build"), Some("build"));
+        assert_eq!(
+            build_command_verb("flutter analyze --fatal-infos"),
+            Some("analyze")
+        );
+        assert_eq!(build_command_verb("flutter build bundle"), Some("bundle"));
+        // A command made only of flags has no verb to read.
+        assert_eq!(build_command_verb("--help"), None);
+        assert_eq!(build_command_verb(""), None);
+    }
+
+    #[test]
+    fn external_descriptor_with_an_analysis_build_command_is_refused() {
+        let yaml = b"id: custom-web\nversion: 0.1.0\nadapter: adapter-custom\nlanguage: rust\ntoolchain: cargo\nbuild_command: cargo clippy\ntest_command: cargo test\n";
+        let err = descriptor_from_yaml(yaml).expect_err("an analysis build command must fail");
+        assert_eq!(err.code(), "invalid-profile");
+        let text = err.to_string();
+        assert!(text.contains("custom-web"), "{text}");
+        assert!(text.contains("cargo clippy"), "{text}");
+        assert!(text.contains("`clippy`"), "{text}");
+        assert!(text.contains("no files were changed"), "{text}");
+    }
+
+    #[test]
+    fn a_catalogue_row_with_an_analysis_build_command_is_refused() {
+        // The catalogue door: the same checker `inspect_profile` calls.
+        // The compiled-in catalogue cannot be mutated, so the row is
+        // cloned and its build command replaced.
+        let mut row = inspect_profile("flutter-app").unwrap();
+        row.build_command = "flutter analyze".to_string();
+        let err = check_build_command(&row).expect_err("an analysis build command must fail");
+        assert_eq!(err.code(), "invalid-profile");
+        let text = err.to_string();
+        assert!(text.contains("flutter-app"), "{text}");
+        assert!(text.contains("flutter analyze"), "{text}");
+        assert!(text.contains("`analyze`"), "{text}");
+    }
+
+    #[test]
+    fn every_builtin_descriptor_declares_a_build_command_that_builds() {
+        for p in list_profiles().into_iter().chain(planned_profiles()) {
+            validate_descriptor(&p).expect("built-in descriptors must be valid");
+            let verb = build_command_verb(&p.build_command)
+                .unwrap_or_else(|| panic!("{} declares no build command", p.id));
+            assert!(
+                !ANALYSIS_BUILD_VERBS.contains(&verb),
+                "{} declares the analysis verb `{}` as its build command",
+                p.id,
+                verb
+            );
+        }
     }
 }

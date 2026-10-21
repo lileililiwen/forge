@@ -7383,3 +7383,94 @@ Implementation/archive commit: `ca9c878` (`feat: give every scaffolded
 project a changelog`). This HANDOFF-only update is the second commit.
 Nothing was pushed. No active OpenSpec change remains, so this file has no
 `current_spec` pointer.
+
+### `release-gate-mandatory` implemented and archived (2026-10-21)
+
+`forge delivery` and `forge deploy` refuse to move an artifact without fresh,
+full-profile, passed Forge Gate evidence bound to the revision they are about
+to ship. `forge release` did not.
+
+The release lane bound evidence through its own check model, and the manifest
+chose which kinds apply. A project that never configured a `gate` check was
+released with no Gate run at all — the plan reported
+
+```
+  - gate disabled applicable=false revision=f9852ba2457: check `gate` is not
+    configured; release does not require it
+```
+
+and the release shipped. The owner who had just run `forge gate` and seen it
+pass, and the owner who had never run it, got the same release.
+
+The `gate` check that did exist was a private copy of the rule, and a weaker
+one. It read the evidence file itself and checked existence, freshness and
+aggregate. It never checked the contract version, the full profile, the
+project identity, or that the record was not a rehearsal. One owner already
+decides this question for the other two lanes (`src/gate/ship_gate.rs`); the
+release lane simply never asked.
+
+Two changes, taken together.
+
+The Gate check always applies to a release. It is not a knob. `release.checks`
+chooses the extra checks a project wants — `doctor`, `test`, `driftwatch` —
+and the Gate evidence is always required on top. The manifest vocabulary
+follows: `kind: gate` is refused with "release.checks kind `gate` is not
+configurable; the Gate check always applies to a release". A line that can no
+longer change anything is a lie in a contract.
+
+The release lane calls the shared rule and reports its verdict unchanged. The
+private copy is deleted. The rule's reason reaches the release plan, the
+release refusal and the delivery refusal word for word: absent evidence,
+evidence bound to another revision, a rehearsal record, a non-full profile,
+another project's record. The release lane keeps its own status vocabulary
+and its own error codes.
+
+The evidence is compared with the manifest's project id, because that is the
+id the Gate itself bound the evidence to. The apply step needed no change to
+become correct: it already re-runs the captured checks at the applied
+revision, so a stale release is refused before the commit stage.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The Gate check always applies | PASS | A project whose manifest declares no check at all: `forge release prepare` reported `ready: no` with the row `gate fail applicable=true revision=87abe0232b0: Forge Gate evidence is absent for `rel-gate-demo`; run `forge gate --profile full` from the project directory and retry`. With a Gate evidence record bound to the project's HEAD (`contract 0.2.0`, `profile full`, `aggregate passed`, `dry_run false`): `ready: yes`, `gate pass applicable=true`, `release plan ready for `rel-gate-demo`: 3 check(s) passed at revision `87abe0232b02``. |
+| The manifest cannot turn it off | PASS | A manifest declaring `- kind: gate` was refused with `error[release-invalid]: release invalid: release.checks kind `gate` is not configurable; the Gate check always applies to a release`, exit 1. |
+| The apply step re-checks the evidence | PASS | After a new commit moved HEAD to `aca7a0109574`, `forge release apply --version 1.0.0 --confirm` refused with `error[release-check-failed]: release check failed: failing check(s) gate:fail at revision `aca7a0109574`; release execution blocks before tag or publication`. No tag was created, HEAD stayed at `aca7a0109574`, and no `.forge/release` directory was written. |
+| The two lanes refuse for the same reason | PASS | On the same tree at revision `aca7a0109574`, `forge delivery preflight rel-gate-demo` refused with `error[delivery-conflict]: delivery conflict: Forge Gate evidence for `rel-gate-demo` must use a supported contract, the full profile, and be fresh and passed for revision aca7a0109574; observed contract=0.2.0, profile=full, project=rel-gate-demo, aggregate=passed, freshness=stale; run `forge gate --profile full` from the project directory and retry`, and `forge release prepare` reported the identical sentence in its Gate check row. |
+| The new contract test | PASS | `cargo test --test release_gate_mandatory_contract` reported `test result: ok. 5 passed; 0 failed`. It pins the always-applicable check, the refused manifest, the rule's reason verbatim, the release and delivery lanes refusing for the same reason on absent, stale, fast-profile, rehearsal and another-project evidence, and the apply step refusing a stale release before any stage. |
+| The affected suites | PASS | `cargo test -p forge --lib release::` → `34 passed; 0 failed`; `cargo test --test release_contract` → `10 passed; 0 failed`; `cargo test --test release_cross_surface` → `4 passed; 0 failed`; `cargo test --test forge_web_project_release_contract` → `8 passed; 0 failed`; `cargo test --test gate_cross_surface` → `13 passed; 0 failed`; `cargo test --test project_changelog_bootstrap_contract` → `4 passed; 0 failed`. |
+| Repository test suite | PASS, 4019 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 over 208 test binaries: 4019 passed, 0 failed. The 4010-test baseline plus the 9 new tests. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-21T02:28:52Z"` on revision `dafc069`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. `source-file-size` evaluated 456 of 456 candidates with a maximum of 1000 physical lines. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 136 passed, 0 failed (136 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-21-release-gate-mandatory/`; the new capability was promoted, three requirements were modified in `release-evidence-non-vacuous` and two in `release-publishing`, the archive's `TBD` Purpose was replaced with the real one, and the two modified capabilities' purposes were updated to state the new contract. `cargo test --test spec_purpose_contract` → `2 passed; 0 failed`. |
+| Lint and formatting | PASS | `rustfmt --edition 2021 --check` is clean on every touched file. `cargo clippy --workspace --all-targets --all-features` reports no warning in any touched file. `cargo fmt --all` was not run; no pre-existing rustfmt-dirty file was touched. |
+
+Two environment notes, because they change how the evidence above was
+produced. First, an unrelated `cargo check` from another workspace on this
+machine took the shared cargo package-cache lock and hung while holding it,
+so every nested `cargo` invocation blocked behind it. The suite and the Gate
+were run with `CARGO_HOME=/tmp/cargo-home-forge`, a local directory whose
+`config.toml` is a copy of the real one and whose `registry` is a symlink to
+the real registry cache, so the package-cache lock is a different file.
+Nothing about the code, the tests or the Gate plan changed; only the lock
+file did. The foreign process was left alone.
+
+Second, the first two Gate runs were blocked by the machine, not by this
+change: the `declared-verification` check and then the `tests` check each
+exceeded their 600000 ms deadline while an unrelated workspace on the same
+machine was compiling (load average 24.6 on 12 cores). Both commands are the
+repository's own Rust suite, which passes standalone — 4019 tests, 0
+failures. The third Gate run, with the load back to 4.8, passed every check.
+The Gate's per-check deadlines come from the generated `.ai-gate/gate.yaml`
+and were not edited.
+
+Deliberately not done, and stated plainly: `forge publish` is unchanged. It
+has no check model at all and is superseded by the artifact-only deploy lane.
+The `--confirm` guard in the apply step keeps its place after the readiness
+judgement, so a missing `--confirm` on a ready release is still reported the
+same way. The Gate is not run by the release lane: `forge gate` owns
+execution and persistence, and the release lane only reads the evidence the
+project already persisted.
+
+Implementation/archive commit: `f8c4f77` (`feat: require Gate evidence on a
+release`). This HANDOFF-only update is the second commit. Nothing was pushed.
+No active OpenSpec change remains, so this file has no `current_spec`
+pointer.

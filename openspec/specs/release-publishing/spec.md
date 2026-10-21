@@ -1,11 +1,11 @@
 # release-publishing Specification
 
 ## Purpose
-Verified release preparation and staged publishing: semver/changelog/revision-bound plans with doctor/test/DriftWatch gates, confirm-gated per-stage apply (commit, tag, push, mirror, package, container, docs, notes) with tag-conflict refusal and retry-safe skipped stages.
+Verified release preparation and staged publishing: semver/changelog/revision-bound plans with the Gate evidence for the captured revision and doctor/test/DriftWatch gates, confirm-gated per-stage apply (commit, tag, push, mirror, package, container, docs, notes) with tag-conflict refusal and retry-safe skipped stages.
 ## Requirements
 ### Requirement: Verified release preparation
 
-Forge SHALL implement forge release preparation that binds semver, changelog, source revision, configured documentation and doctor/test/DriftWatch evidence before release side effects.
+Forge SHALL implement forge release preparation that binds semver, changelog, source revision, configured documentation, the Gate evidence for the captured revision and doctor/test/DriftWatch evidence before release side effects.
 
 #### Scenario: Verified release preparation success
 
@@ -24,7 +24,7 @@ Forge SHALL implement forge release preparation that binds semver, changelog, so
 
 ### Requirement: Resumable multi-destination publication
 
-Forge SHALL execute authorized commit, tag, primary push, mirror, package, container and release-note stages with per-stage records and safe retry; forge publish SHALL use the same verified release identity and publication stages without bypassing release checks.
+Forge SHALL execute authorized commit, tag, primary push, mirror, package, container and release-note stages with per-stage records and safe retry; forge publish SHALL use the same verified release identity and publication stages without bypassing release checks or the Gate evidence.
 
 #### Scenario: Resumable multi-destination publication success
 

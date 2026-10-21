@@ -18,8 +18,10 @@ use super::model::PlanReport;
 
 /// The release check kinds a project can declare in
 /// `release.checks`. The capture and the readiness judgement
-/// share this list so the two cannot drift apart.
-pub(super) const KNOWN_CHECK_KINDS: [&str; 4] = ["doctor", "test", "driftwatch", "gate"];
+/// share this list so the two cannot drift apart. The Gate check
+/// is not in this list: it always applies to a release and is
+/// never declared.
+pub(super) const CONFIGURABLE_CHECK_KINDS: [&str; 3] = ["doctor", "test", "driftwatch"];
 
 /// The verdict of the release readiness judgement. `ready` is
 /// true only when at least one check is applicable and every
@@ -43,7 +45,7 @@ pub(super) fn check_readiness(checks: &[CapturedCheck]) -> CheckReadiness {
             ready: false,
             reason: format!(
                 "no applicable release check; declare at least one of {} in release.checks",
-                KNOWN_CHECK_KINDS.join(", ")
+                CONFIGURABLE_CHECK_KINDS.join(", ")
             ),
         };
     }
@@ -206,7 +208,9 @@ pub(super) fn short_revision(rev: &str) -> &str {
 /// The doctor check reuses the existing `run_doctor`
 /// inventory; the test check reuses `run_test` from
 /// `gitops`; the DriftWatch check reuses the policy adapter.
-/// Unconfigured checks are reported as `disabled`.
+/// Unconfigured checks are reported as `disabled`. The Gate check
+/// is not configurable: it is always captured, always applies and
+/// is never disabled.
 pub(super) fn collect_captured_checks(
     project_dir: &Path,
     manifest: &Manifest,
@@ -217,7 +221,7 @@ pub(super) fn collect_captured_checks(
     let mut out: Vec<CapturedCheck> = Vec::new();
     let _ = manifest.project.profile.as_str();
     let configured: Vec<String> = config.checks.iter().map(|c| c.kind.clone()).collect();
-    for kind in KNOWN_CHECK_KINDS {
+    for kind in CONFIGURABLE_CHECK_KINDS {
         let applicable = configured.iter().any(|c| c == kind);
         let check = if !applicable {
             CapturedCheck {
@@ -235,6 +239,8 @@ pub(super) fn collect_captured_checks(
         };
         out.push(check);
     }
+    // The Gate check is not declared; it always applies.
+    out.push(run_gate_check(project_dir, manifest, revision));
     Ok(out)
 }
 
@@ -254,7 +260,6 @@ fn run_one_check(
             revision,
             policy,
         )),
-        "gate" => Ok(run_gate_check(project_dir, revision)),
         other => Err(ForgeError::ReleaseInvalid {
             reason: format!("release check kind `{other}` is not supported"),
         }),
@@ -434,82 +439,43 @@ fn run_driftwatch_check(
     }
 }
 
-/// Release `gate` check. This never executes the runtime — `forge gate`
-/// owns execution — it only cites the persisted, revision-bound evidence
-/// record: pass on a fresh passing aggregate, `stale` when the evidence
-/// is bound to another (or no) revision, fail on a blocked, failing or
-/// unclassifiable aggregate, and `unavailable` when the gate has never
-/// run or the record cannot be read. Absent evidence never passes.
-fn run_gate_check(project_dir: &Path, revision: &str) -> CapturedCheck {
+/// The release `gate` check. It always applies and can never be
+/// disabled. It asks the shared delivery rule
+/// ([`crate::gate::ship_gate::evaluate_ship_gate`]) whether the
+/// evidence the project persisted may back this revision, and
+/// reports the verdict unchanged: `pass` when the rule allows the
+/// revision, `fail` with the rule's own reason otherwise. The
+/// release lane keeps its own status vocabulary; the reason is the
+/// delivery lane's reason, word for word.
+fn run_gate_check(project_dir: &Path, manifest: &Manifest, revision: &str) -> CapturedCheck {
+    // The manifest's project id is the id the Gate itself bound the
+    // evidence to, so it is the id the evidence must match.
+    let status =
+        crate::gate::ship_gate::evaluate_ship_gate(project_dir, &manifest.project.id, revision);
     let evidence = match crate::gate::load_latest_evidence(project_dir) {
-        Ok(Some(evidence)) => evidence,
-        Ok(None) => {
-            return CapturedCheck {
-                kind: "gate".to_string(),
-                status: CHECK_UNAVAILABLE.to_string(),
-                applicable: true,
-                evidence: vec![format!("{}/", crate::gate::GATE_EVIDENCE_DIR)],
-                detail: "the gate has never run for this project; unverified evidence cannot back a release".to_string(),
-                source_revision: revision.to_string(),
-            };
-        }
-        Err(err) => {
-            return CapturedCheck {
-                kind: "gate".to_string(),
-                status: CHECK_UNAVAILABLE.to_string(),
-                applicable: true,
-                evidence: vec![err.to_string()],
-                detail: "persisted gate evidence cannot be read; release execution blocks"
-                    .to_string(),
-                source_revision: revision.to_string(),
-            };
-        }
+        Ok(Some(record)) => vec![crate::gate::evidence_summary(&record)],
+        // No record: name the directory the evidence belongs in,
+        // never a summary of evidence that does not exist.
+        Ok(None) => vec![format!("{}/", crate::gate::GATE_EVIDENCE_DIR)],
+        Err(err) => vec![err.to_string()],
     };
-    let summary = crate::gate::evidence_summary(&evidence);
-    let freshness = crate::gate::evidence_freshness(&evidence, Some(revision));
-    if freshness == crate::gate::GateFreshness::Stale {
-        return CapturedCheck {
-            kind: "gate".to_string(),
-            status: CHECK_STALE.to_string(),
-            applicable: true,
-            evidence: vec![summary],
-            detail: "gate evidence is bound to another (or no) revision; stale evidence cannot back a release claim".to_string(),
-            source_revision: revision.to_string(),
-        };
-    }
-    match evidence.aggregate {
-        crate::gate::GateAggregate::Passed => CapturedCheck {
+    if status.satisfied {
+        CapturedCheck {
             kind: "gate".to_string(),
             status: CHECK_PASS.to_string(),
             applicable: true,
-            evidence: vec![summary],
-            detail: "the shared gate runtime passed at this revision".to_string(),
+            evidence,
+            detail: "the shared delivery rule allows this revision".to_string(),
             source_revision: revision.to_string(),
-        },
-        crate::gate::GateAggregate::Blocked => CapturedCheck {
+        }
+    } else {
+        CapturedCheck {
             kind: "gate".to_string(),
             status: CHECK_FAIL.to_string(),
             applicable: true,
-            evidence: vec![summary],
-            detail: "the gate runtime blocked this revision".to_string(),
+            evidence,
+            detail: status.reason,
             source_revision: revision.to_string(),
-        },
-        crate::gate::GateAggregate::Failed => CapturedCheck {
-            kind: "gate".to_string(),
-            status: CHECK_FAIL.to_string(),
-            applicable: true,
-            evidence: vec![summary],
-            detail: "the gate runtime reported a failure on this revision".to_string(),
-            source_revision: revision.to_string(),
-        },
-        crate::gate::GateAggregate::Unknown => CapturedCheck {
-            kind: "gate".to_string(),
-            status: CHECK_FAIL.to_string(),
-            applicable: true,
-            evidence: vec![summary],
-            detail: "the gate aggregate is unclassifiable and cannot back a release claim"
-                .to_string(),
-            source_revision: revision.to_string(),
-        },
+        }
     }
 }

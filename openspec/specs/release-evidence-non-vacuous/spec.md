@@ -1,26 +1,27 @@
 # release-evidence-non-vacuous Specification
 
 ## Purpose
-A release with no applicable check used to pass. The release engine judged readiness with "every applicable check passes", and a project that declared no `release.checks` had no applicable check at all, so the judgement was true on an empty set: the plan reported `ready: yes` with zero passing checks and the apply step walked the commit, tag, push and publication stages on a release nothing had verified. A release now needs at least one applicable check, and a release without one is refused before any stage runs, with a reason that names the evidence the owner still has to produce.
+A release with no applicable check used to pass. The release engine judged readiness with "every applicable check passes", and a project that declared no `release.checks` had no applicable check at all, so the judgement was true on an empty set: the plan reported `ready: yes` with zero passing checks and the apply step walked the commit, tag, push and publication stages on a release nothing had verified. A release now needs at least one applicable check, and a release without one is refused before any stage runs, with a reason that names the evidence the owner still has to produce. The Gate check always applies, so the set of applicable checks is never empty: a project that declares no check of its own is refused for the missing Gate evidence, not for an empty check list.
 ## Requirements
 ### Requirement: A release plan is ready only with applicable evidence
 
-Forge SHALL treat a release plan as ready only when at least one release check
-is applicable and every applicable check passes. Forge SHALL NOT treat the
-absence of an applicable check as a pass, and the plan SHALL name the missing
-evidence when it is not ready.
+Forge SHALL treat a release plan as ready only when the Gate evidence
+satisfies the shared delivery rule for the captured revision and every
+applicable release check passes. Forge SHALL NOT treat the absence of an
+applicable check as a pass, and the plan SHALL name the missing evidence when
+it is not ready.
 
 #### Scenario: A release with no declared check is refused
 
 - **WHEN** an owner prepares a release for a project whose manifest declares no
   release check
-- **THEN** the plan is not ready, the plan names the missing check, and the plan
-  reports no passing check count
+- **THEN** the plan is not ready, the plan names the missing Gate evidence,
+  and the plan reports no passing check count
 
 #### Scenario: A release with a passing check is ready
 
-- **WHEN** at least one release check is applicable and every applicable check
-  passes
+- **WHEN** the Gate evidence satisfies the shared delivery rule for the
+  captured revision and every applicable release check passes
 - **THEN** the plan is ready and reports the count of passing checks
 
 #### Scenario: A release with a failing check is refused
@@ -32,12 +33,13 @@ evidence when it is not ready.
 ### Requirement: The apply step cannot apply a release without evidence
 
 Forge SHALL re-evaluate the captured checks in the apply step and SHALL refuse
-the release before any stage runs when no check is applicable.
+the release before any stage runs when the Gate evidence does not satisfy the
+shared delivery rule for the applied revision.
 
 #### Scenario: The apply step refuses a release with no applicable check
 
-- **WHEN** an owner applies a release for a project whose manifest declares no
-  release check
+- **WHEN** an owner applies a release for a project whose Gate evidence does
+  not satisfy the shared delivery rule for the applied revision
 - **THEN** the apply step refuses with a release-check failure, and no stage is
   delivered
 
@@ -48,11 +50,19 @@ the release before any stage runs when no check is applicable.
 
 ### Requirement: The refusal tells the owner what to declare
 
-Forge SHALL name the release check kinds a project can declare in the refusal,
-so the owner can produce the evidence without reading the source.
+Forge SHALL name the release check kinds a project can declare and the Gate
+evidence a release requires in the refusal, so the owner can produce the
+evidence without reading the source.
 
 #### Scenario: The reason names the available check kinds
 
 - **WHEN** a release is refused for having no applicable check
-- **THEN** the reason names `doctor`, `test`, `driftwatch` and `gate` as the
-  kinds `release.checks` accepts
+- **THEN** the reason names `doctor`, `test` and `driftwatch` as the kinds
+  `release.checks` accepts
+
+#### Scenario: The reason names the Gate evidence the release requires
+
+- **WHEN** a release is refused because the Gate evidence does not satisfy the
+  shared delivery rule
+- **THEN** the reason names the missing or wrong evidence and how to produce
+  it

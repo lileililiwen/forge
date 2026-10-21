@@ -157,6 +157,9 @@ fn write_release_project(dir: &Path, id: &str, notes: bool) {
         ],
     );
     run_git(dir, &["commit", "-q", "-m", "initial"]);
+    // The Gate check always applies to a release, so the fixture
+    // carries the evidence the shared delivery rule accepts.
+    write_gate_evidence(dir, id);
 
     // A local bare remote named `origin` so the push stage is hermetic.
     let origin = dir.with_file_name(format!("{id}-origin.git"));
@@ -185,6 +188,49 @@ fn run_git(dir: &Path, args: &[&str]) {
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// The trimmed stdout of one git invocation.
+fn git_output(dir: &Path, args: &[&str]) -> String {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(dir);
+    for a in args {
+        cmd.arg(a);
+    }
+    let out = cmd.output().expect("git");
+    assert!(
+        out.status.success(),
+        "git {:?} failed: status={} stderr={}",
+        args,
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Write the Gate evidence record the shared delivery rule accepts,
+/// bound to the project's own HEAD revision. The record is written
+/// after the fixture's commit, so the revision it names is the one a
+/// release captures.
+fn write_gate_evidence(dir: &Path, project_id: &str) {
+    let revision = git_output(dir, &["rev-parse", "HEAD"]);
+    let record = serde_json::json!({
+        "contract": forge::gate::contract::GATE_CONTRACT_VERSION,
+        "project_id": project_id,
+        "runtime": "forge",
+        "profile": "full",
+        "revision": revision,
+        "aggregate": "passed",
+        "checks": [],
+        "observed_at": "2026-10-21T00:00:00Z",
+        "dry_run": false
+    });
+    let path = dir
+        .join(".forge/gate")
+        .join(project_id)
+        .join("evidence.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
 }
 
 fn register_project(db: &Path, dir: &Path) {

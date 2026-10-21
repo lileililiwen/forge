@@ -6,7 +6,8 @@
 //! - R1 success: a prepared plan captures the changelog,
 //!   the source revision and the doctor/test/DriftWatch
 //!   evidence; the rendered report includes a `ready: true`
-//!   verdict and a `release` operation journal row.
+//!   verdict and a `release` operation journal row. The Gate
+//!   check always applies on top of them.
 //! - R1 failure: a project whose doctor reports a failing
 //!   finding is refused with `error[release-check-failed]`
 //!   before any tag is written.
@@ -103,6 +104,49 @@ fn run_git(dir: &Path, args: &[&str]) {
     );
 }
 
+/// The trimmed stdout of one git invocation.
+fn git_output(dir: &Path, args: &[&str]) -> String {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(dir);
+    for a in args {
+        cmd.arg(a);
+    }
+    let out = cmd.output().expect("git");
+    assert!(
+        out.status.success(),
+        "git {:?} failed: status={} stderr={}",
+        args,
+        out.status,
+        lossy(&out.stderr)
+    );
+    lossy(&out.stdout).trim().to_string()
+}
+
+/// Write the Gate evidence record the shared delivery rule accepts,
+/// bound to the project's own HEAD revision. The record is written
+/// after the fixture's commit, so the revision it names is the one a
+/// release captures.
+fn write_gate_evidence(dir: &Path, project_id: &str) {
+    let revision = git_output(dir, &["rev-parse", "HEAD"]);
+    let record = serde_json::json!({
+        "contract": forge::gate::contract::GATE_CONTRACT_VERSION,
+        "project_id": project_id,
+        "runtime": "forge",
+        "profile": "full",
+        "revision": revision,
+        "aggregate": "passed",
+        "checks": [],
+        "observed_at": "2026-10-21T00:00:00Z",
+        "dry_run": false
+    });
+    let path = dir
+        .join(".forge/gate")
+        .join(project_id)
+        .join("evidence.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
+}
+
 fn write_release_project(dir: &Path, id: &str) {
     fs::create_dir_all(dir).unwrap();
     let text = format!(
@@ -134,6 +178,9 @@ fn write_release_project(dir: &Path, id: &str) {
         ],
     );
     run_git(dir, &["commit", "-q", "-m", "initial"]);
+    // The Gate check always applies to a release, so the fixture
+    // carries the evidence the shared delivery rule accepts.
+    write_gate_evidence(dir, id);
 }
 
 fn write_adapter_script(dir: &Path, name: &str, body: &str) -> PathBuf {
@@ -190,7 +237,8 @@ fn prepare_captures_plan_with_ready_verdict() {
     assert_eq!(plan["identity"]["version"], "1.0.0");
     assert!(plan["changelog"].is_object());
     assert_eq!(plan["changelog"]["path"], "CHANGELOG.md");
-    // Doctor, test and driftwatch are all captured.
+    // Doctor, test, driftwatch and the always-applicable Gate
+    // check are all captured.
     let kinds: Vec<&str> = plan["checks"]
         .as_array()
         .unwrap()
@@ -200,6 +248,15 @@ fn prepare_captures_plan_with_ready_verdict() {
     assert!(kinds.contains(&"doctor"));
     assert!(kinds.contains(&"test"));
     assert!(kinds.contains(&"driftwatch"));
+    assert!(kinds.contains(&"gate"));
+    let gate = plan["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["kind"] == "gate")
+        .expect("gate check");
+    assert_eq!(gate["status"], "pass");
+    assert_eq!(gate["applicable"], true);
 }
 
 #[test]
@@ -461,6 +518,9 @@ fn apply_reports_tag_conflict_when_revision_differs() {
     fs::write(proj.join("README.md"), "v2\n").unwrap();
     run_git(&proj, &["add", "--", "README.md"]);
     run_git(&proj, &["commit", "-q", "-m", "second"]);
+    // The Gate evidence is re-bound to the new revision, the way an
+    // owner re-runs the Gate before releasing again.
+    write_gate_evidence(&proj, "rel-conflict");
     // Second apply: the tag now conflicts with the new
     // commit.
     let mut cmd = clean_cmd();

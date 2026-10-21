@@ -380,6 +380,26 @@ pub(super) mod tests {
         let meta = meta_with("  versioning: semver\n  checks:\n    - kind: lint\n");
         let err = ReleaseConfig::from_manifest_meta(&meta).unwrap_err();
         assert_eq!(err.code(), "release-invalid");
+        assert!(
+            err.to_string()
+                .contains("expected one of doctor, test, driftwatch"),
+            "the refusal must name the declarable kinds: {err}"
+        );
+    }
+
+    #[test]
+    fn release_config_rejects_a_gate_check_kind() {
+        // The Gate check always applies to a release, so it is not
+        // configurable and the manifest is refused with that reason.
+        let meta = meta_with("  versioning: semver\n  checks:\n    - kind: gate\n");
+        let err = ReleaseConfig::from_manifest_meta(&meta).unwrap_err();
+        assert_eq!(err.code(), "release-invalid");
+        assert!(
+            err.to_string().contains(
+                "release.checks kind `gate` is not configurable; the Gate check always applies to a release"
+            ),
+            "the refusal must name the truth: {err}"
+        );
     }
 
     #[test]

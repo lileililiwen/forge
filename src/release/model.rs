@@ -51,10 +51,21 @@ impl ReleaseConfig {
                     reason: "release.checks entries must carry a non-empty kind".to_string(),
                 });
             }
-            if !matches!(kind.as_str(), "doctor" | "test" | "driftwatch" | "gate") {
+            // The Gate check always applies to a release, so it is
+            // not configurable. It gets its own reason because it
+            // used to be accepted here: the owner deserves to know
+            // that the line can no longer change anything.
+            if kind == "gate" {
+                return Err(ForgeError::ReleaseInvalid {
+                    reason:
+                        "release.checks kind `gate` is not configurable; the Gate check always applies to a release"
+                            .to_string(),
+                });
+            }
+            if !matches!(kind.as_str(), "doctor" | "test" | "driftwatch") {
                 return Err(ForgeError::ReleaseInvalid {
                     reason: format!(
-                        "release.checks kind `{kind}` is not supported; expected one of doctor, test, driftwatch, gate"
+                        "release.checks kind `{kind}` is not supported; expected one of doctor, test, driftwatch"
                     ),
                 });
             }

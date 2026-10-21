@@ -33,6 +33,48 @@ pub(super) mod tests {
         );
     }
 
+    /// The trimmed stdout of one git invocation.
+    fn git_output(cwd: &Path, args: &[&str]) -> String {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(cwd);
+        for a in args {
+            cmd.arg(a);
+        }
+        let out = cmd.output().expect("git invocation");
+        assert!(
+            out.status.success(),
+            "git {:?} failed: stderr={}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// Write the Gate evidence record the shared delivery rule
+    /// accepts, bound to the project's own HEAD revision. The record
+    /// is written after the fixture's commit, so the revision it
+    /// names is the one a release captures.
+    fn write_gate_evidence(dir: &Path, project_id: &str) {
+        let revision = git_output(dir, &["rev-parse", "HEAD"]);
+        let record = serde_json::json!({
+            "contract": crate::gate::contract::GATE_CONTRACT_VERSION,
+            "project_id": project_id,
+            "runtime": "forge",
+            "profile": "full",
+            "revision": revision,
+            "aggregate": "passed",
+            "checks": [],
+            "observed_at": "2026-10-21T00:00:00Z",
+            "dry_run": false
+        });
+        let path = dir
+            .join(".forge/gate")
+            .join(project_id)
+            .join("evidence.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
+    }
+
     /// The `release.checks` list the shared fixture declares.
     const FIXTURE_CHECKS: &str = "  checks:\n    - kind: doctor\n    - kind: test\n";
 
@@ -79,12 +121,17 @@ pub(super) mod tests {
         git(dir, &["commit", "-q", "-m", "initial"]);
     }
 
+    /// Write a fixture whose manifest declares the `doctor` and
+    /// `test` checks and whose project has Gate evidence bound to
+    /// its own revision, so the Gate check passes.
     fn write_release_manifest(dir: &Path, id: &str, body: &str) {
         write_release_fixture(dir, id, FIXTURE_CHECKS, body);
+        write_gate_evidence(dir, id);
     }
 
     /// Write a fixture whose manifest declares a `release:` block
-    /// with no `checks:` list, so no release check is applicable.
+    /// with no `checks:` list and no Gate evidence: the release has
+    /// no applicable evidence at all.
     fn write_release_manifest_without_checks(dir: &Path, id: &str, body: &str) {
         write_release_fixture(dir, id, "", body);
     }
@@ -130,14 +177,21 @@ pub(super) mod tests {
         let policy = DriftWatchConfig::from_env();
         let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
         assert!(plan.changelog.is_some());
-        // doctor/test checks are not configured in the
-        // fixture's `release.checks` (it only lists the
-        // kinds the contract claims to support); the
-        // boundary scenario is exercised below.
+        // doctor/test run because the fixture declares them;
+        // driftwatch is not declared, so it is reported as
+        // disabled; the Gate check always applies.
         let kinds: Vec<&str> = plan.checks.iter().map(|c| c.kind.as_str()).collect();
         assert!(kinds.contains(&"doctor"));
         assert!(kinds.contains(&"test"));
         assert!(kinds.contains(&"driftwatch"));
+        assert!(kinds.contains(&"gate"));
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert!(gate.applicable, "the Gate check always applies");
+        assert_eq!(gate.status, "pass");
     }
 
     #[test]
@@ -184,13 +238,22 @@ pub(super) mod tests {
         };
         let policy = DriftWatchConfig::from_env();
         let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
-        // No applicable check is the absence of evidence, not
-        // a pass.
+        // The manifest declares no check, so the Gate check is the
+        // only applicable one. With no Gate evidence the release
+        // has no evidence at all: that is the absence of evidence,
+        // not a pass.
         assert!(!plan.ready, "plan must not be ready: {}", plan.note);
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert!(gate.applicable, "the Gate check always applies");
+        assert_eq!(gate.status, "fail");
         assert!(
-            plan.note.contains("no applicable release check"),
-            "note must name the missing check: {}",
-            plan.note
+            gate.detail.contains("Forge Gate evidence is absent"),
+            "the plan must name the missing Gate evidence: {}",
+            gate.detail
         );
         assert!(
             !plan.note.contains("check(s) passed"),
@@ -206,7 +269,7 @@ pub(super) mod tests {
         assert!(!empty.ready);
         assert_eq!(
             empty.reason,
-            "no applicable release check; declare at least one of doctor, test, driftwatch, gate in release.checks"
+            "no applicable release check; declare at least one of doctor, test, driftwatch in release.checks"
         );
 
         // A slice whose checks are all disabled has no
@@ -256,6 +319,9 @@ pub(super) mod tests {
         fs::write(dir.join("README.md"), "v1\n").unwrap();
         git(dir, &["add", "--", "README.md"]);
         git(dir, &["commit", "-q", "-m", "initial"]);
+        // The Gate evidence is bound to this commit, so the doctor
+        // is the only failing check in the plan.
+        write_gate_evidence(dir, "rel-nochk");
         let manifest = Manifest::parse(
             Path::new("forge.yaml"),
             b"schema: 1\nproject:\n  id: rel-nochk\n  name: rel-nochk\n  profile: rust-web\nrelease:\n  versioning: semver\n  checks:\n    - kind: doctor\n    - kind: test\n",
@@ -291,6 +357,14 @@ pub(super) mod tests {
             .find(|c| c.kind == "doctor")
             .expect("doctor check");
         assert!(doctor.status != "pass" || !plan.ready);
+        // The Gate evidence is fresh for this revision, so the
+        // doctor is the only failing check.
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert_eq!(gate.status, "pass");
     }
 
     #[test]
@@ -354,6 +428,10 @@ pub(super) mod tests {
         let adapters = ReleaseAdapterConfig::from_env();
         let err = apply_release(dir, &manifest, &config, &request, &adapters).unwrap_err();
         assert_eq!(err.code(), "release-check-failed");
+        assert!(
+            err.to_string().contains("gate:fail"),
+            "the refusal must name the failing Gate check: {err}"
+        );
         // The refusal happens before any stage runs, so the
         // project has no tag.
         let tags = Command::new("git")
@@ -367,6 +445,146 @@ pub(super) mod tests {
             String::from_utf8_lossy(&tags.stdout).trim().is_empty(),
             "no tag may be created: {}",
             String::from_utf8_lossy(&tags.stdout)
+        );
+    }
+
+    #[test]
+    fn the_gate_check_always_applies_to_a_release() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        // The manifest declares no check at all and the project has
+        // no Gate evidence: the Gate check is still captured, and
+        // it is applicable.
+        write_release_manifest_without_checks(dir, "rel-gate-always", "");
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let semver = Semver::parse("1.0.0").unwrap();
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: semver,
+            confirm: false,
+            dry_run: true,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let policy = DriftWatchConfig::from_env();
+        let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert!(gate.applicable, "the Gate check always applies");
+        assert_eq!(gate.status, "fail");
+        assert!(!plan.ready, "plan must not be ready: {}", plan.note);
+        // With Gate evidence bound to this revision the same
+        // manifest is ready: the Gate check is the only applicable
+        // one and it passes.
+        write_gate_evidence(dir, "rel-gate-always");
+        let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert!(gate.applicable, "the Gate check always applies");
+        assert_eq!(gate.status, "pass");
+        assert!(plan.ready, "plan must be ready: {}", plan.note);
+    }
+
+    #[test]
+    fn the_gate_check_reports_the_shared_rule_reason() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest(dir, "rel-gate-absent", "");
+        // The project has no Gate evidence at all.
+        fs::remove_dir_all(dir.join(".forge/gate")).unwrap();
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let semver = Semver::parse("1.0.0").unwrap();
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: semver,
+            confirm: false,
+            dry_run: true,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let policy = DriftWatchConfig::from_env();
+        let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert_eq!(gate.status, "fail");
+        assert_eq!(
+            gate.detail,
+            "Forge Gate evidence is absent for `rel-gate-absent`; run `forge gate --profile full` from the project directory and retry"
+        );
+    }
+
+    #[test]
+    fn apply_refuses_a_stale_gate_evidence_before_any_stage() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest(dir, "rel-gate-stale", "");
+        // Move HEAD past the revision the Gate evidence is bound
+        // to: the evidence is now stale for the applied revision.
+        fs::write(dir.join("README.md"), "v2\n").unwrap();
+        git(dir, &["add", "--", "README.md"]);
+        git(dir, &["commit", "-q", "-m", "second"]);
+        let head = git_output(dir, &["rev-parse", "HEAD"]);
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let semver = Semver::parse("1.0.0").unwrap();
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: semver,
+            confirm: true,
+            dry_run: false,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let policy = DriftWatchConfig::from_env();
+        // The plan names the stale evidence.
+        let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
+        let gate = plan
+            .checks
+            .iter()
+            .find(|c| c.kind == "gate")
+            .expect("gate check");
+        assert_eq!(gate.status, "fail");
+        assert!(
+            gate.detail.contains("freshness=stale"),
+            "the plan must name the stale evidence: {}",
+            gate.detail
+        );
+        // The apply step re-judges the evidence at the applied
+        // revision and refuses before any stage runs.
+        let adapters = ReleaseAdapterConfig::from_env();
+        let err = apply_release(dir, &manifest, &config, &request, &adapters).unwrap_err();
+        assert_eq!(err.code(), "release-check-failed");
+        assert!(
+            err.to_string().contains("gate:fail"),
+            "the refusal must name the failing Gate check: {err}"
+        );
+        let tags = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .arg("tag")
+            .arg("--list")
+            .output()
+            .expect("git tag --list");
+        assert!(
+            String::from_utf8_lossy(&tags.stdout).trim().is_empty(),
+            "no tag may be created: {}",
+            String::from_utf8_lossy(&tags.stdout)
+        );
+        assert_eq!(
+            git_output(dir, &["rev-parse", "HEAD"]),
+            head,
+            "no stage may commit"
         );
     }
 
@@ -403,6 +621,9 @@ pub(super) mod tests {
         fs::write(dir.join("README.md"), "v3\n").unwrap();
         git(dir, &["add", "--", "README.md"]);
         git(dir, &["commit", "-q", "-m", "third"]);
+        // The Gate evidence is re-bound to the new revision, the
+        // way an owner re-runs the Gate before releasing again.
+        write_gate_evidence(dir, "rel-conflict");
         let semver = Semver::parse("1.0.0").unwrap();
         let request = ReleaseRequest {
             project_id: manifest.project.id.clone(),

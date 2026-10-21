@@ -571,15 +571,17 @@ fn release_gate_check_cites_fresh_passing_evidence_only() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let proj = project(tmp.path(), "gate-xrelease");
-    // A release configuration whose only check kind is `gate`.
+    // A release configuration that declares no check: the Gate
+    // check always applies to a release and is never declared.
     write_file(
         &proj,
         "forge.yaml",
-        "schema: 1\nproject:\n  id: gate-xrelease\n  name: gate-xrelease\n  profile: rust-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n  checks:\n    - kind: gate\n  changelog: CHANGELOG.md\n",
+        "schema: 1\nproject:\n  id: gate-xrelease\n  name: gate-xrelease\n  profile: rust-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n  changelog: CHANGELOG.md\n",
     );
     write_file(&proj, "CHANGELOG.md", "## 1.0.0\n- initial release\n");
 
-    // Never-run: the gate check captures unavailable, not ready.
+    // Never-run: the gate check fails with the shared rule's
+    // absence reason, not ready.
     let out = run(
         &db,
         &[
@@ -599,7 +601,8 @@ fn release_gate_check_cites_fresh_passing_evidence_only() {
         .iter()
         .find(|c| c["kind"] == "gate")
         .expect("gate check");
-    assert_eq!(gate["status"], "unavailable", "{gate}");
+    assert_eq!(gate["status"], "fail", "{gate}");
+    assert_eq!(gate["applicable"], true, "{gate}");
     assert_eq!(value["plan"]["ready"], false, "{value}");
 
     // Fresh passing record: the check passes at the captured revision.
@@ -656,7 +659,14 @@ fn release_gate_check_cites_fresh_passing_evidence_only() {
         .iter()
         .find(|c| c["kind"] == "gate")
         .expect("gate check");
-    assert_eq!(gate["status"], "stale", "{gate}");
+    assert_eq!(gate["status"], "fail", "{gate}");
+    assert!(
+        gate["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("freshness=stale"),
+        "{gate}"
+    );
     assert_eq!(value["plan"]["ready"], false, "{value}");
 }
 

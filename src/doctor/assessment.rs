@@ -15,6 +15,7 @@ use super::probes::{
     detect_ci, detect_deployment, detect_driftwatch, file_exists, has_admin_markers,
     has_audit_markers, has_auth_markers, has_build_definition, has_database_markers,
     has_observability_markers, maturity_rank, probe_git_remote, requests_db,
+    BuildDefinitionOutcome,
 };
 use super::runner::control;
 /// Evidence-based maturity assessment against the target level. Controls
@@ -37,9 +38,23 @@ pub(super) fn assess_maturity(
         .unwrap_or_default();
     let supports = |cap: &str| capabilities.contains(&cap);
 
-    let (build_present, build_evidence) = descriptor
-        .map(|_| has_build_definition(dir, profile_id))
-        .unwrap_or((false, vec!["unknown profile".to_string()]));
+    // The build presence reads the doctor's three-state outcome: present
+    // meets the L1 build control, missing leaves it unmet with the missing
+    // evidence, and a profile the doctor cannot judge leaves it unmet with
+    // the profile named. A profile the catalogue does not know keeps the
+    // `unknown profile` evidence.
+    let (build_present, build_evidence) =
+        match descriptor.map(|_| has_build_definition(dir, profile_id)) {
+            None => (false, vec!["unknown profile".to_string()]),
+            Some(BuildDefinitionOutcome::Present(found)) => (true, found),
+            Some(BuildDefinitionOutcome::Missing(missing)) => (false, missing),
+            Some(BuildDefinitionOutcome::UnknownProfile) => (
+                false,
+                vec![format!(
+                    "the doctor has no expected build definition for profile '{profile_id}'"
+                )],
+            ),
+        };
     let structure_met = build_present && file_exists(dir, "forge.yaml");
     let structure_evidence = if structure_met {
         vec!["forge.yaml and profile build definition are present".to_string()]

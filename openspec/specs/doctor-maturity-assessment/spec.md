@@ -1,11 +1,11 @@
 # doctor-maturity-assessment Specification
 
 ## Purpose
-Read-only maturity assessment through forge doctor: a stable finding inventory (PASS/WARN/FAIL/UNAVAILABLE) with evidence and remediation classes, target-gated L0–L4 applicability, and registry-observation staleness, never masking missing evidence as healthy.
+Read-only maturity assessment through forge doctor: a stable finding inventory (PASS/WARN/FAIL/UNAVAILABLE) with evidence and remediation classes, target-gated L0–L4 applicability, registry-observation staleness, and a build configuration judged against the build definition the project's profile expects, never masking missing evidence as healthy and never reporting a check the doctor cannot run as a failure of the project.
 ## Requirements
 ### Requirement: Doctor finding inventory
 
-Forge SHALL implement forge doctor checking manifest, missing/outdated features, dependency drift, build/deployment configuration, repository, CI, documentation, delivery state and maturity requirements, returning evidence and remediation classification.
+Forge SHALL implement forge doctor checking manifest, missing/outdated features, dependency drift, build/deployment configuration, repository, CI, documentation, delivery state and maturity requirements, returning evidence and remediation classification. Forge SHALL judge a project's build configuration against the build definition its profile expects, and SHALL report a check it cannot evaluate as unavailable rather than as a failure of the project.
 
 #### Scenario: Doctor finding inventory success
 
@@ -26,6 +26,11 @@ Forge SHALL implement forge doctor checking manifest, missing/outdated features,
 
 - **WHEN** doctor runs for a registered project whose delivery state the delivery lane recorded
 - **THEN** the report carries a `delivery-state` finding that names the delivery phase, and the finding is `FAIL` when the delivery failed, `WARN` while the delivery is in progress and `PASS` when it is healthy
+
+#### Scenario: The build configuration is judged per profile
+
+- **WHEN** doctor runs on a project whose profile expects a build definition
+- **THEN** the `build-config` finding is `PASS` with the evidence naming the file when that definition is present, and `FAIL` with the evidence naming the expected file when it is missing
 
 ### Requirement: Evidence-based maturity levels
 

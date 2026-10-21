@@ -26,6 +26,12 @@ pub(super) mod tests {
         )
     }
 
+    fn react_manifest(id: &str) -> String {
+        format!(
+            "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: react-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: typescript\n"
+        )
+    }
+
     fn no_registry() -> Option<RegistryObservation> {
         None
     }
@@ -356,6 +362,91 @@ pub(super) mod tests {
     fn invalid_target_is_rejected() {
         let err = parse_target_level("L9").expect_err("L9 must fail");
         assert_eq!(err.code(), "manifest-invalid");
+    }
+
+    #[test]
+    fn build_definition_reads_present_missing_and_unknown_profile() {
+        // Present: a react-web project with the `package.json` the profile
+        // expects. The build definition passes and the drift agrees.
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &react_manifest("react-present"));
+        write(tmp.path(), "package.json", "{\"name\": \"demo\"}\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let build = report
+            .findings
+            .iter()
+            .find(|f| f.id == "build-config")
+            .unwrap();
+        assert_eq!(build.status, FindingStatus::Pass);
+        assert!(
+            build.evidence.iter().any(|e| e.contains("package.json")),
+            "{:?}",
+            build.evidence
+        );
+        let drift = report
+            .findings
+            .iter()
+            .find(|f| f.id == "dependency-drift")
+            .unwrap();
+        assert_eq!(drift.status, FindingStatus::Pass);
+        let build_control = report.controls.iter().find(|c| c.id == "L1-build").unwrap();
+        assert!(build_control.met);
+
+        // Missing: the same project without `package.json` is still a
+        // failure of the project, and the evidence names the file.
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &react_manifest("react-missing"));
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let build = report
+            .findings
+            .iter()
+            .find(|f| f.id == "build-config")
+            .unwrap();
+        assert_eq!(build.status, FindingStatus::Fail);
+        assert!(
+            build.evidence.iter().any(|e| e.contains("package.json")),
+            "{:?}",
+            build.evidence
+        );
+        let build_control = report.controls.iter().find(|c| c.id == "L1-build").unwrap();
+        assert!(!build_control.met);
+
+        // Unknown profile: a planned profile the doctor does not judge is
+        // unavailable, never a failure of the inspected project.
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "forge.yaml",
+            "schema: 1\nproject:\n  id: planned-proj\n  name: planned-proj\n  profile: flutter-client\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: dart\n",
+        );
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let build = report
+            .findings
+            .iter()
+            .find(|f| f.id == "build-config")
+            .unwrap();
+        assert_eq!(build.status, FindingStatus::Unavailable);
+        assert!(
+            build.evidence.iter().any(|e| e.contains("flutter-client")),
+            "{:?}",
+            build.evidence
+        );
+        let drift = report
+            .findings
+            .iter()
+            .find(|f| f.id == "dependency-drift")
+            .unwrap();
+        assert_eq!(drift.status, FindingStatus::Unavailable);
+        let build_control = report.controls.iter().find(|c| c.id == "L1-build").unwrap();
+        assert!(!build_control.met);
+        assert!(
+            build_control
+                .evidence
+                .iter()
+                .any(|e| e.contains("flutter-client")),
+            "{:?}",
+            build_control.evidence
+        );
     }
 
     fn report_with(report: &PolicyReport) -> PolicyOutcome {

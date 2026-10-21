@@ -18,7 +18,7 @@ use super::model::{
 use super::probes::{
     declaration_vocabulary_finding, dependency_text, detect_ci, detect_deployment, detect_docs,
     detect_driftwatch, file_exists, gate_evidence_finding, has_build_definition, maturity_name,
-    probe_git_remote, release_evidence_finding,
+    probe_git_remote, release_evidence_finding, BuildDefinitionOutcome,
 };
 
 /// Run the read-only doctor inspection over a project directory.
@@ -56,6 +56,10 @@ pub fn run_doctor(
     let current = manifest.project.maturity;
     let manifest_target = manifest.project.target_maturity;
     let target = target_override.or(manifest_target).unwrap_or(Maturity::L1);
+
+    // The build definition is one run's evidence: read it once and let the
+    // drift and build-config findings read the same outcome.
+    let build_definition = has_build_definition(dir, &manifest.project.profile);
 
     let mut findings: Vec<Finding> = Vec::new();
 
@@ -140,8 +144,22 @@ pub fn run_doctor(
             Remediation::Manual,
             "required inspector (profile descriptor) cannot run",
         ));
+    } else if let BuildDefinitionOutcome::UnknownProfile = &build_definition {
+        // The build definition is one of the drift check's two inputs, so a
+        // profile the doctor cannot judge leaves the drift unevaluated. The
+        // gap is the doctor's own and is never a warning about the project.
+        findings.push(Finding::new(
+            "dependency-drift",
+            FindingStatus::Unavailable,
+            vec![format!(
+                "the doctor has no expected build definition for profile '{}'",
+                manifest.project.profile
+            )],
+            true,
+            Remediation::Manual,
+            "required inspector (build definition) cannot run",
+        ));
     } else {
-        let profile = manifest.project.profile.as_str();
         let expected_lang = descriptor
             .as_ref()
             .map(|d| d.language.as_str())
@@ -157,9 +175,8 @@ pub fn run_doctor(
                 "manifest runtime language '{manifest_lang}' disagrees with profile language '{expected_lang}'"
             ));
         }
-        let (build_present, build_evidence) = has_build_definition(dir, profile);
-        if !build_present {
-            drift.push(build_evidence.join("; "));
+        if let BuildDefinitionOutcome::Missing(evidence) = &build_definition {
+            drift.push(evidence.join("; "));
         }
         if drift.is_empty() {
             findings.push(Finding::new(
@@ -183,25 +200,7 @@ pub fn run_doctor(
     }
 
     // Build / deployment configuration.
-    if profile_known {
-        let (present, evidence) = has_build_definition(dir, &manifest.project.profile);
-        findings.push(Finding::new(
-            "build-config",
-            if present {
-                FindingStatus::Pass
-            } else {
-                FindingStatus::Fail
-            },
-            evidence,
-            true,
-            Remediation::Automatic,
-            if present {
-                "build definition is present"
-            } else {
-                "build definition required by L1 is missing"
-            },
-        ));
-    } else {
+    if !profile_known {
         findings.push(Finding::new(
             "build-config",
             FindingStatus::Unavailable,
@@ -211,6 +210,35 @@ pub fn run_doctor(
             true,
             Remediation::Automatic,
             "required inspector (profile descriptor) cannot run",
+        ));
+    } else {
+        let (status, evidence, detail) = match &build_definition {
+            BuildDefinitionOutcome::Present(found) => (
+                FindingStatus::Pass,
+                found.clone(),
+                "build definition is present",
+            ),
+            BuildDefinitionOutcome::Missing(missing) => (
+                FindingStatus::Fail,
+                missing.clone(),
+                "build definition required by L1 is missing",
+            ),
+            BuildDefinitionOutcome::UnknownProfile => (
+                FindingStatus::Unavailable,
+                vec![format!(
+                    "the doctor has no expected build definition for profile '{}'",
+                    manifest.project.profile
+                )],
+                "required inspector (build definition) cannot run",
+            ),
+        };
+        findings.push(Finding::new(
+            "build-config",
+            status,
+            evidence,
+            true,
+            Remediation::Automatic,
+            detail,
         ));
     }
 

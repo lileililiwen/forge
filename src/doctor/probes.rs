@@ -99,63 +99,135 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|n| haystack.contains(n))
 }
 
-/// Expected dependency-manifest file per MVP profile.
-fn expected_build_file(profile: &str) -> Option<&'static str> {
-    match profile {
-        "rust-web" => Some("Cargo.toml"),
-        "nextjs-web" => Some("package.json"),
-        "flutter-app" => Some("pubspec.yaml"),
-        "aspnet-web" => None,     // any *.csproj
-        "python-service" => None, // pyproject.toml or requirements.txt
-        _ => None,
+/// What a project must contain for the doctor to judge its build
+/// configuration present.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildDefinition {
+    /// A file with this exact name in the project root.
+    File(&'static str),
+    /// Any file in the project root with this extension.
+    Extension(&'static str),
+    /// Any one of these files in the project root.
+    OneOf(&'static [&'static str]),
+}
+
+impl BuildDefinition {
+    /// The accepted names in a stable order: a named file renders as its
+    /// name, an extension as `*.{ext}`, and a set renders every accepted
+    /// file in the declared order.
+    pub fn expected_names(&self) -> Vec<String> {
+        match self {
+            BuildDefinition::File(name) => vec![(*name).to_string()],
+            BuildDefinition::Extension(ext) => vec![format!("*.{ext}")],
+            BuildDefinition::OneOf(names) => names.iter().map(|n| (*n).to_string()).collect(),
+        }
     }
 }
 
-pub(super) fn has_build_definition(dir: &Path, profile: &str) -> (bool, Vec<String>) {
-    match profile {
-        "aspnet-web" => {
+/// The expected build definition of every profile the doctor judges.
+///
+/// The table is the doctor's expectation of a profile. It is not the
+/// generator and it is not a descriptor field: the generator writes the
+/// file each row names and the doctor reads it back. A profile with no
+/// row cannot be judged, and is reported as unavailable rather than as a
+/// defect of the inspected project.
+const BUILD_DEFINITIONS: &[(&str, BuildDefinition)] = &[
+    ("aspnet-web", BuildDefinition::Extension("csproj")),
+    ("flutter-app", BuildDefinition::File("pubspec.yaml")),
+    ("nextjs-web", BuildDefinition::File("package.json")),
+    (
+        "python-service",
+        BuildDefinition::OneOf(&[
+            "pyproject.toml",
+            "requirements.txt",
+            "setup.py",
+            "setup.cfg",
+        ]),
+    ),
+    ("react-web", BuildDefinition::File("package.json")),
+    ("rust-web", BuildDefinition::File("Cargo.toml")),
+];
+
+/// The expected build definition of a profile the doctor judges.
+pub fn expected_build_definition(profile: &str) -> Option<BuildDefinition> {
+    BUILD_DEFINITIONS
+        .iter()
+        .find(|(id, _)| *id == profile)
+        .map(|(_, definition)| definition.clone())
+}
+
+/// The profiles the doctor holds a build definition for, in table order.
+pub fn build_definition_profiles() -> Vec<&'static str> {
+    BUILD_DEFINITIONS.iter().map(|(id, _)| *id).collect()
+}
+
+/// What the doctor found for a project's build definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildDefinitionOutcome {
+    /// The definition is present; the evidence names what was found.
+    Present(Vec<String>),
+    /// The definition is missing; the evidence names what was expected.
+    Missing(Vec<String>),
+    /// The doctor holds no expected build definition for this profile.
+    UnknownProfile,
+}
+
+/// Render accepted names as prose: `a, b or c`.
+fn prose_names(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => (*only).to_string(),
+        [rest @ .., last] => format!("{} or {}", rest.join(", "), last),
+    }
+}
+
+/// Judge a project's build definition against the profile's expectation.
+///
+/// Three outcomes, never two: the definition is present, the definition is
+/// missing, or the doctor holds no expectation for the profile at all. The
+/// third is the doctor's own gap and is never reported as a defect of the
+/// inspected project.
+pub(super) fn has_build_definition(dir: &Path, profile: &str) -> BuildDefinitionOutcome {
+    let Some(definition) = expected_build_definition(profile) else {
+        return BuildDefinitionOutcome::UnknownProfile;
+    };
+    match definition {
+        BuildDefinition::File(name) => {
+            if file_exists(dir, name) {
+                BuildDefinitionOutcome::Present(vec![name.to_string()])
+            } else {
+                BuildDefinitionOutcome::Missing(vec![format!("missing build definition '{name}'")])
+            }
+        }
+        BuildDefinition::Extension(ext) => {
             let found = fs::read_dir(dir).map(|entries| {
                 entries.flatten().any(|e| {
                     e.path()
                         .extension()
                         .and_then(|x| x.to_str())
-                        .is_some_and(|x| x.eq_ignore_ascii_case("csproj"))
+                        .is_some_and(|x| x.eq_ignore_ascii_case(ext))
                 })
             });
             match found {
-                Ok(true) => (true, vec!["*.csproj".to_string()]),
-                _ => (false, vec!["no .csproj file in project root".to_string()]),
-            }
-        }
-        "python-service" => {
-            let mut evidence = Vec::new();
-            for file in [
-                "pyproject.toml",
-                "requirements.txt",
-                "setup.py",
-                "setup.cfg",
-            ] {
-                if file_exists(dir, file) {
-                    evidence.push(file.to_string());
+                Ok(true) => BuildDefinitionOutcome::Present(vec![format!("*.{ext}")]),
+                _ => {
+                    BuildDefinitionOutcome::Missing(vec![format!("no .{ext} file in project root")])
                 }
             }
-            if evidence.is_empty() {
-                (
-                    false,
-                    vec!["no pyproject.toml, requirements.txt, setup.py or setup.cfg".to_string()],
-                )
+        }
+        BuildDefinition::OneOf(names) => {
+            let mut found = Vec::new();
+            for name in names {
+                if file_exists(dir, name) {
+                    found.push((*name).to_string());
+                }
+            }
+            if found.is_empty() {
+                BuildDefinitionOutcome::Missing(vec![format!("no {}", prose_names(names))])
             } else {
-                (true, evidence)
+                BuildDefinitionOutcome::Present(found)
             }
         }
-        _ => match expected_build_file(profile) {
-            Some(file) if file_exists(dir, file) => (true, vec![file.to_string()]),
-            Some(file) => (false, vec![format!("missing build definition '{file}'")]),
-            None => (
-                false,
-                vec!["unknown profile: no expected build definition".to_string()],
-            ),
-        },
     }
 }
 

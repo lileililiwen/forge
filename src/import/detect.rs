@@ -12,26 +12,41 @@ use std::process::Command;
 use super::contract::{MAX_SCAN_BYTES, MAX_SUBDIRS};
 use super::model::{Candidate, Detection, FieldStatus, ImportProposal, WorkspaceSyncEntry};
 
-fn profile_language(profile: &str) -> &str {
-    match profile {
-        "aspnet-web" => "csharp",
-        "rust-web" => "rust",
-        "nextjs-web" => "typescript",
-        "flutter-app" => "dart",
-        "python-service" => "python",
-        _ => "unknown",
-    }
+/// `(profile, language, package manager)` for every profile the import
+/// lane knows. One table: the lane cannot know a profile's language in
+/// one place and not know it in another.
+const IMPORT_PROFILES: [(&str, &str, &str); 6] = [
+    ("aspnet-web", "csharp", "dotnet"),
+    ("flutter-app", "dart", "pub"),
+    ("nextjs-web", "typescript", "npm"),
+    ("python-service", "python", "pip"),
+    ("react-web", "typescript", "npm"),
+    ("rust-web", "rust", "cargo"),
+];
+
+/// The language a profile declares. A profile the lane does not know is
+/// `unknown`, exactly as before.
+pub fn profile_language(profile: &str) -> &str {
+    IMPORT_PROFILES
+        .iter()
+        .find(|(id, _, _)| *id == profile)
+        .map(|(_, language, _)| *language)
+        .unwrap_or("unknown")
 }
 
-fn profile_package_manager(profile: &str) -> &str {
-    match profile {
-        "aspnet-web" => "dotnet",
-        "rust-web" => "cargo",
-        "nextjs-web" => "npm",
-        "flutter-app" => "pub",
-        "python-service" => "pip",
-        _ => "unknown",
-    }
+/// The package manager a profile declares. A profile the lane does not
+/// know is `unknown`, exactly as before.
+pub fn profile_package_manager(profile: &str) -> &str {
+    IMPORT_PROFILES
+        .iter()
+        .find(|(id, _, _)| *id == profile)
+        .map(|(_, _, package_manager)| *package_manager)
+        .unwrap_or("unknown")
+}
+
+/// The profile ids the import lane knows, in table order.
+pub fn import_profiles() -> Vec<&'static str> {
+    IMPORT_PROFILES.iter().map(|(id, _, _)| *id).collect()
 }
 
 fn exists(dir: &Path, name: &str) -> bool {
@@ -63,6 +78,30 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|n| haystack.contains(n))
 }
 
+/// A root `next.config.*` file: the Next.js stack's own marker.
+fn has_nextjs_config(dir: &Path) -> bool {
+    [
+        "next.config.js",
+        "next.config.mjs",
+        "next.config.cjs",
+        "next.config.ts",
+    ]
+    .iter()
+    .any(|name| exists(dir, name))
+}
+
+/// A root `vite.config.*` file: the React stack's own marker.
+fn has_vite_config(dir: &Path) -> bool {
+    [
+        "vite.config.js",
+        "vite.config.mjs",
+        "vite.config.ts",
+        "vite.config.cjs",
+    ]
+    .iter()
+    .any(|name| exists(dir, name))
+}
+
 fn top_level_candidates(dir: &Path) -> Vec<Candidate> {
     let mut out = Vec::new();
 
@@ -82,8 +121,17 @@ fn top_level_candidates(dir: &Path) -> Vec<Candidate> {
 
     if exists(dir, "package.json") {
         let text = scan_text(&dir.join("package.json"));
-        // Require the dependency shape, not prose mentioning "next".
-        if text.contains("\"next\"") || text.contains("nextjs") {
+        // Next.js: the `next` dependency, or the stack's own config file.
+        let nextjs = text.contains("\"next\"") || text.contains("nextjs") || has_nextjs_config(dir);
+        // React: the `react` dependency, a Vite config, or a root index.html.
+        let react = text.contains("\"react\"")
+            || text.contains("\"react-dom\"")
+            || has_vite_config(dir)
+            || exists(dir, "index.html");
+        if nextjs {
+            // A Next.js application depends on React: both marker sets are
+            // one stack, not a tie, so Next.js wins and no ambiguity is
+            // raised.
             let mut score = 3;
             if dir.join("app").is_dir() || dir.join("pages").is_dir() {
                 score += 1;
@@ -98,7 +146,24 @@ fn top_level_candidates(dir: &Path) -> Vec<Candidate> {
                 profile: "nextjs-web",
                 score,
             });
+        } else if react {
+            let mut score = 3;
+            if dir.join("src").is_dir() {
+                score += 1;
+            }
+            if exists(dir, "package-lock.json")
+                || exists(dir, "pnpm-lock.yaml")
+                || exists(dir, "yarn.lock")
+            {
+                score += 1;
+            }
+            out.push(Candidate {
+                profile: "react-web",
+                score,
+            });
         }
+        // A `package.json` with neither marker set is a plain npm project:
+        // the lane does not guess a profile for it.
     }
 
     if exists(dir, "pubspec.yaml") {
@@ -223,6 +288,14 @@ fn detect_framework(dir: &Path, profile: &str) -> Detection {
         }
         "nextjs-web" => {
             Detection::detected("next.js".to_string(), vec!["package.json".to_string()])
+        }
+        "react-web" => {
+            let text = scan_text(&dir.join("package.json"));
+            if text.contains("\"react\"") || text.contains("\"react-dom\"") {
+                Detection::detected("react".to_string(), vec!["package.json".to_string()])
+            } else {
+                unknown()
+            }
         }
         "aspnet-web" => Detection::detected(
             "asp.net core".to_string(),

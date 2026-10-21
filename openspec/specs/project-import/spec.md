@@ -1,11 +1,11 @@
 # project-import Specification
 
 ## Purpose
-Evidence-backed import of existing projects: read-only detection of language, framework, database, Docker, CI, auth, features, DriftWatch, Git and deployment with unknown-vs-missing evidence, suggested profile/maturity, and a manifest written only on explicit accept.
+Evidence-backed import of existing projects: read-only detection of language, framework, database, Docker, CI, auth, features, DriftWatch, Git and deployment with unknown-vs-missing evidence, suggested profile/maturity covering every supported profile, and a manifest written only on explicit accept.
 ## Requirements
 ### Requirement: Evidence-backed detection
 
-Forge SHALL implement forge import with evidence-backed detection of the complete import inventory and a suggested profile and maturity that distinguishes unknown from missing.
+Forge SHALL implement forge import with evidence-backed detection of the complete import inventory and a suggested profile and maturity that distinguishes unknown from missing. The detection SHALL cover every profile the catalogue lists as supported, and an accepted manifest SHALL carry the detected language.
 
 #### Scenario: Evidence-backed detection success
 
@@ -21,6 +21,11 @@ Forge SHALL implement forge import with evidence-backed detection of the complet
 
 - **WHEN** the project has no Git remote or DriftWatch configuration
 - **THEN** the proposal marks those facts as missing without preventing read-only inspection
+
+#### Scenario: Every supported profile is detected
+
+- **WHEN** a repository carrying the markers of a supported profile is inspected
+- **THEN** the proposal names that profile with its language and its package manager, and the manifest written on acceptance carries that language
 
 ### Requirement: Minimal and repeatable adoption
 

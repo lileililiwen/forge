@@ -7571,3 +7571,101 @@ Implementation/archive commit: `bd12904` (`feat: one bounded native command
 runner`). This HANDOFF-only update is the second commit. Nothing was pushed.
 No active OpenSpec change remains, so this file has no `current_spec`
 pointer.
+
+### `profile-build-command-truth` implemented and archived (2026-10-21)
+
+`forge build` builds a project with the build command its profile declares,
+and the `flutter-app` profile declared `flutter analyze`. That command is a
+static analyser: it reads the Dart sources, prints a report and exits zero.
+It produces no build output — no asset bundle, no kernel, no package. So
+`forge build` on a Flutter project reported a passed build that built
+nothing.
+
+The reason it was there is honest and it is recorded in the repository: the
+Flutter app-store package needs the Android SDK and an `android/` directory
+that the scaffold does not have, and the analysis command was the only
+Flutter command that ran anywhere. The mistake was not picking
+`flutter analyze`; it was that a build was available and was not declared.
+`flutter build bundle` compiles the Dart sources and writes the Flutter
+asset bundle with no Android SDK, no platform host and no `android/`
+directory — the profile already declares the `flutter` toolchain, so it
+needs no new prerequisite and no new file.
+
+So the catalogue now declares `flutter build bundle`, the generated
+scaffold's README names that build and keeps the app-store package as the
+release-stage command it is, and the readiness document names the build
+command the profile declares.
+
+And a build command that only analyses is refused. A declared build
+command whose verb is a named analysis verb — `analyze`, `lint`, `clippy`,
+`fmt`, `format`, `vet` — is refused with `invalid-profile`, naming the
+profile, the command and the verb. The verb of a command is its last token
+that is not a flag, so `cargo clippy --all-targets` is refused and
+`npm run build -- --mode=production` is not. The rule is a named list and
+not an oracle: a verb Forge does not know is accepted, because a rule that
+classified every command would block legitimate builds. The refusal sits at
+both declaration doors — an external descriptor document through
+`validate_descriptor`, the built-in catalogue through `inspect_profile` —
+and the catalogue's build commands are pinned by a repository contract
+check, so a build command cannot change in the catalogue without that check
+failing and naming the profile.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The Flutter build really builds | PASS | `forge build /tmp/fpbct2/app` exited 0 and reported `project: fb-app`, `profile: flutter-app`, `command: flutter build bundle`, `status: passed`, `exit_code: 0`, `note: build command \`flutter build bundle\` passed for project \`fb-app\``. The scaffold really built: `build/flutter_assets/` holds `AssetManifest.bin`, `FontManifest.json`, `NOTICES.Z`, `fonts/` and `isolate_snapshot_data`. The Flutter SDK on this host is 3.47.1, and `flutter build bundle` needs neither the Android SDK nor an `android/` directory. |
+| The profile and the scaffold say so | PASS | `forge new /tmp/fpbct2/app --profile flutter-app --id fb-app` exited 0; `forge profile inspect flutter-app` reports `build: flutter build bundle` and `test: flutter test`; the generated `README.md` line 9 reads `flutter build bundle`, line 10 `flutter test`, and line 13 reads ``Built with \`flutter build bundle\` and verified with \`flutter test\` (no platform host or Android SDK needed). The app store package (\`flutter build appbundle\`) is a release-stage command that requires \`android/\` and the Android SDK.`` |
+| An analysis build command is refused | PASS | An external descriptor whose `build_command` is `cargo clippy` is refused: `error[invalid-profile]: invalid profile descriptor: profile descriptor 'custom-web' declares the analysis command \`cargo clippy\` as its build command; \`clippy\` analyses, it does not build; declare a command that produces build output; no files were changed`. The code is `invalid-profile` and the reason names the profile, the command and the verb. |
+| The new contract test | PASS | `cargo test --test profile_build_command_truth_contract` reported `test result: ok. 6 passed; 0 failed`. It pins the catalogue's build commands, asserts that no supported row carries an analysis verb, pins the verb reading past the flags, and checks the refusal and the acceptance through the library. |
+| The affected suites | PASS | `cargo test -p forge --lib profile::` → `24 passed; 0 failed`; `cargo test --test generate_contract` → `12 passed; 0 failed`; `cargo test --test workspace_metadata_contract` → `12 passed; 0 failed`; `cargo test --test spec_purpose_contract` → `2 passed; 0 failed`. |
+| Repository test suite | PASS, 4046 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 over 210 test binaries: 4046 passed, 0 failed, 1 ignored, and `grep -c "^failures:"` reports 0. The 4036-test baseline plus the 10 new tests. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-21T15:57:03Z"` on revision `b42a049c6ebceb1b0d3f0ae23d495601f25a27b2`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. `source-file-size` evaluated 456 of 456 candidates with a maximum of 1000 physical lines. The `security` check reports the pre-existing unmaintained-crate advisories for `paste` and `unsafe-libyaml` and still passes. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 138 passed, 0 failed (138 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-21-profile-build-command-truth/`; the new capability was promoted, one requirement was modified in `profile-registry`, the archive's `TBD` Purpose was replaced with the real one, and the modified capability's purpose was updated to state the new contract. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and none in `src/profile/resolve.rs`, `src/profile/catalog.rs`, `src/generate/engine.rs` or `tests/profile_build_command_truth_contract.rs`. `rustfmt --edition 2021 --check` is clean on all four touched files; no pre-existing rustfmt-dirty file was touched. |
+
+Two environment facts changed how that evidence was produced, and both are
+recorded rather than hidden.
+
+The machine's cargo layout changed while this change was in flight. The
+cargo home and the sccache cache moved to the SSD (`$HOME/.cargo` and
+`$HOME/.cache/sccache`) and the global config points the target directory
+at `/mnt/westdata/cargo-target`, a shared directory on the slow spinning
+disk. That layout breaks four test binaries for a reason that has nothing
+to do with this change: Forge resolves its module catalog from the checkout
+the executable lives in — `src/module_catalog.rs::source_root` walks up
+from `current_exe()` looking for a `Cargo.toml` next to a `modules/`
+directory — so a target directory outside the checkout makes the module
+catalog unavailable, and the concern checker that resolves its Python
+resource the same way reports a missing resource. The owner's runs are
+therefore taken with the target directory inside the repository and the SSD
+cargo home and sccache cache, which is the layout the previous change's
+suite ran in. A full rebuild was accepted rather than working around the
+layout. The SSD cargo home was also missing 68 crates the lockfile needs,
+including `webpki-roots 1.0.10`; they were copied in from the old cargo
+home's registry with `rsync --ignore-existing` for the payload and
+`rsync --update` for the index cache, so the build resolves offline.
+
+And the first Gate run in this window reported `build unresolved: state
+\`REVIEW_REQUIRED\` ... adapter \`project-runtime\` exceeded its timeout of
+60000ms`. The `build` check runs `cargo build --workspace` and had to wait
+behind the two test-bearing checks for the shared build lock, and the
+Gate's 60 s per-check deadline for that check is shorter than that wait.
+The target directory was warmed first — `cargo build --workspace` and
+`cargo test --workspace --no-run` — and the next Gate run passed 8/8 with
+the build check finishing in 1.05 s. The Gate's per-check deadlines come
+from the generated `.ai-gate/gate.yaml` and were not edited.
+
+Deliberately not done, and stated plainly: the test command is not
+governed — a test command that analyses is a different question, and the
+test lane's contract does not change. The rule is a named list, so an
+unknown verb is accepted and Forge does not pretend to classify every
+command. The list of profiles is not filtered: a catalogue row that fails
+the rule stays visible in `forge profile list`, the pinned check fails
+naming the row, and inspecting it is refused with the reason. The
+app-store package is not the profile's build: `flutter build appbundle`
+still needs the Android SDK and an `android/` directory, so it stays a
+release-stage command and the README says so.
+
+Implementation/archive commit: `b5c9db7` (`feat: a profile's build command
+builds, and an analysis command is refused`). This HANDOFF-only update is
+the second commit. Nothing was pushed. No active OpenSpec change remains,
+so this file has no `current_spec` pointer.

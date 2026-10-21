@@ -7747,3 +7747,97 @@ Implementation/archive commit: `81ccfe8` (`feat: the doctor knows every
 supported profile's build definition`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `import-profile-detection-truth` implemented and archived (2026-10-22)
+
+`forge import` inspects an existing repository and suggests the profile it
+belongs to. The lane kept its profile knowledge in four hand-written
+places — the language, the package manager, the framework and the
+candidate detector — and `react-web` was in none of them. So a real React
+repository was invisible to the lane:
+
+```text
+Language: unknown
+Framework: unknown
+Package manager: unknown
+Suggested profile:
+unknown
+Confidence: none
+```
+
+and accepting the import was refused outright:
+
+```text
+error[import-conflict]: import conflict: directory './my-react-app' has no
+recognizable profile; re-run with --profile <id>; source and conflicting
+metadata left unchanged
+```
+
+The operator was told to name a profile by hand for a profile Forge
+itself sells. `requirement.md` §8 asks the import to detect the language,
+the framework, the package manager and to suggest a profile; for a React
+project the lane answered "unknown" to all four.
+
+Naming the profile by hand did not help either, because the lane looked
+the profile up in the same table that had no row for it:
+
+```text
+$ forge import ./my-react-app --profile react-web --accept
+$ grep -A1 runtime forge.yaml
+runtime:
+  language: unknown
+$ forge doctor ./my-react-app
+[WARN] dependency-drift (automatic)
+  evidence: manifest runtime language 'unknown' disagrees with profile language 'typescript'
+```
+
+The import lane wrote the drift the doctor then reported. The two lanes
+disagreed about the same project because they read two different tables,
+and only one of them was pinned.
+
+So the lane's profile knowledge is now one table of `(profile, language,
+package manager)`, and the npm ecosystem is detected by the markers each
+stack leaves: the `next` dependency or a `next.config.*` file for Next.js,
+the `react` dependency, a `vite.config.*` file or a root `index.html` for
+React. Next.js wins when both are present, because a Next.js application
+depends on React. That also ends the old text coincidence: the
+`package.json` branch used to propose `nextjs-web` only when the file's
+text contained "next" or "nextjs", so Forge's own dependency-free Next.js
+scaffold was detected only when the project's file name contained the
+word. A `package.json` project with neither marker set is still not
+guessed — the lane proposes no profile for it, exactly as before.
+
+The lane's profile list is pinned against the supported catalogue in both
+directions by a repository contract check, and every supported profile is
+detected end to end through the built binary.
+
+| Check | Result | Evidence |
+|---|---|---|
+| A React repository is detected | PASS | `./target/debug/forge import /tmp/dbdt18/react-app --format json` reports `suggested_profile: react-web`, `language: detected typescript`, `framework: detected react`, `package_manager: detected npm`, `alternatives: []`, `confidence: high`. Before the change the same command reported `suggested_profile: None` and `unknown` for the language, the framework and the package manager. |
+| The accepted import carries the profile's language | PASS | `forge import /tmp/dbdt18/react-app --accept` reported `imported react-app (/tmp/dbdt18/react-app)`; the written `forge.yaml` carries `runtime:` / `  language: typescript`; `forge doctor /tmp/dbdt18/react-app` then reports `[PASS] dependency-drift (automatic)` with `evidence: manifest runtime agrees with on-disk dependency evidence`. Before the change the same path wrote `language: unknown` and the doctor reported `[WARN] dependency-drift`. |
+| A generated Next.js project is detected whatever it is called | PASS | `./target/debug/forge import /tmp/dbdt18/webapp --format json` — a `forge new --profile nextjs-web` project — reports `suggested_profile: nextjs-web`, `language: typescript`, `framework: next.js`, `alternatives: []`. Before the change it reported `suggested_profile: None`, because the old detector keyed on the text "next"/"nextjs" and the scaffold's `package.json` is dependency-free. |
+| The other four profiles are unchanged | PASS | rust-app: `rust-web` / `rust` / `axum` / `cargo` before and after; flutter-app: `flutter-app` / `dart` / `flutter` / `pub` before and after; python-app: `python-service` / `python` / `fastapi` / `pip` before and after; aspnet-app: `aspnet-web` / `csharp` / `asp.net core` / `dotnet` before and after. Every one: `alternatives: []`, `confidence: high`. |
+| The new contract test | PASS | `cargo test --test import_profile_detection_contract` reported `test result: ok. 5 passed; 0 failed; 0 ignored`. It pins the lane's profile list against the supported catalogue, detects a project shaped like every supported profile, checks that a generated Next.js project is found by its markers, checks that a plain npm project is not guessed, and checks that an accepted React import carries `typescript` and passes the doctor's drift check. |
+| The affected suites | PASS | `cargo test --test import_contract` → `10 passed; 0 failed` (the existing import contract, unchanged); `cargo test --test spec_purpose_contract` → `2 passed; 0 failed` (the new capability's `TBD` Purpose was replaced by hand before the run). |
+| Repository test suite | PASS, 4057 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 over 213 test binaries: 4057 passed, 0 failed, 1 ignored. The 4052-test baseline plus the 5 new tests. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-21T23:03:00Z"` on revision `bfb11b2c338c74e98af8e736770181d145934289`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) so the `build` check did not lose the shared build lock. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 140 passed, 0 failed (140 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-21-import-profile-detection-truth/`: the new capability `import-profile-detection-truth` was promoted with three requirements, one requirement of `project-import` was modified with every canonical scenario kept, the archive's `TBD` Purpose was replaced with the real one, and the modified capability's purpose now states that the detection covers every supported profile. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and none in `src/import/detect.rs` or the new contract test. `rustfmt --edition 2021 --check` is clean on both touched files, and no pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/import/detect.rs` 952, `tests/import_profile_detection_contract.rs` 312). |
+
+The evidence was produced with the same machine layout as the previous
+change: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Deliberately not done, and stated plainly: the import lane does not
+become a framework analyser — a profile whose markers name no known
+framework stays `unknown`, and the generated Rust project's `Cargo.toml`
+names no framework. A `package.json` project with neither marker set is
+still not guessed. The other four detectors, the ambiguity rule, the
+adoption write and the manifest schema are untouched, and the import
+stays read-only until an explicit accept.
+
+Implementation/archive commit: `c43aaab` (`feat: the import lane knows every
+supported profile`). This HANDOFF-only update is the second commit. Nothing
+was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.

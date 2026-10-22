@@ -1,7 +1,7 @@
 # forge-web-project-status Specification
 
 ## Purpose
-Surface read-only project status and a fleet readiness summary from the in-process doctor, checker, and readiness projection with honest sub-check states.
+Surface read-only project status and a fleet readiness summary from the in-process doctor, checker, and readiness projection with honest sub-check states: the doctor sub-check judges with the doctor's own blocking set, so a check that could not run is an issue and the failing, unavailable and unmet counts are named apart.
 ## Requirements
 ### Requirement: Read-only project status projection
 
@@ -47,7 +47,11 @@ be `healthy`. The `readiness` sub-check SHALL be computed from the read-only
 profile/readiness projection and SHALL NOT invoke the native readiness matrix,
 generate fixtures, or run any build/test subprocess. The `check` sub-check
 SHALL reuse the in-process checker assembly over the doctor report and the
-read-only governance observation.
+read-only governance observation. The `doctor` sub-check SHALL judge with the
+doctor's own blocking set — every finding that is `FAIL` or `UNAVAILABLE` —
+so its state is the inverse of the doctor's own health field, and SHALL report
+the failing findings, the unavailable findings and the unmet controls apart so
+that a summary never reports no problems while its state reports issues.
 
 #### Scenario: Healthy project
 
@@ -68,6 +72,13 @@ read-only governance observation.
 
 - **WHEN** the status route reports readiness for a project
 - **THEN** it reports the profile's catalog support state only and performs no native build, test or fixture generation
+
+#### Scenario: A check that could not run is named, not counted as a failure
+
+- **WHEN** the doctor report carries an unavailable finding and no failing
+  finding and no unmet control
+- **THEN** the `doctor` sub-check reports `issues` and its summary names the
+  unavailable count apart from the failing count
 
 ### Requirement: Fleet readiness summary
 

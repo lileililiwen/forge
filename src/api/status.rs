@@ -236,8 +236,18 @@ fn evaluate(registry: &Registry, record: &ProjectRecord) -> ProjectStatus {
     }
 }
 
-/// Map the doctor report to a sub-check state. Failing evidence dominates; a
-/// merely stale observation with no failing evidence reads `stale`.
+/// Map the doctor report to a sub-check state.
+///
+/// The doctor's own blocking set is the rule: every `FAIL` or `UNAVAILABLE`
+/// finding denies health, exactly as [`DoctorReport::blocking_findings`]
+/// defines it. The state partition is therefore the inverse of the doctor's
+/// own `healthy` field — a report the doctor does not call healthy is never
+/// projected as healthy, and a report it calls healthy is never projected as
+/// anything else.
+///
+/// The summary names every kind of problem apart, so a check that could not
+/// run is never counted as a failing check and the summary can never report
+/// no problems while the state reports issues.
 fn doctor_check(report: Option<&DoctorReport>) -> StatusCheck {
     let Some(report) = report else {
         return StatusCheck {
@@ -247,24 +257,30 @@ fn doctor_check(report: Option<&DoctorReport>) -> StatusCheck {
             reason: "the health inspection could not run; nothing was changed.".to_string(),
         };
     };
-    let failing = report
-        .findings
+    let blocking = report.blocking_findings();
+    let failed = blocking
         .iter()
-        .filter(|finding| finding.applicable && finding.status == FindingStatus::Fail)
+        .filter(|finding| finding.status == FindingStatus::Fail)
+        .count();
+    let unavailable = blocking
+        .iter()
+        .filter(|finding| finding.status == FindingStatus::Unavailable)
         .count();
     let unmet = report.unmet_controls().len();
-    if report.healthy {
+    if !blocking.is_empty() || unmet > 0 {
+        let mut summary = format!(
+            "{failed} failing finding(s), {unavailable} unavailable finding(s), {unmet} unmet control(s)"
+        );
+        if report.stale {
+            summary.push_str("; the registry observation is stale");
+        }
         StatusCheck {
             id: "doctor",
-            state: STATE_HEALTHY,
-            summary: format!(
-                "{} finding(s), {} unmet control(s); no failing evidence",
-                report.findings.len(),
-                unmet
-            ),
+            state: STATE_ISSUES,
+            summary,
             reason: String::new(),
         }
-    } else if report.stale && failing == 0 && unmet == 0 {
+    } else if report.stale {
         StatusCheck {
             id: "doctor",
             state: STATE_STALE,
@@ -276,8 +292,12 @@ fn doctor_check(report: Option<&DoctorReport>) -> StatusCheck {
     } else {
         StatusCheck {
             id: "doctor",
-            state: STATE_ISSUES,
-            summary: format!("{failing} failing finding(s), {unmet} unmet control(s)"),
+            state: STATE_HEALTHY,
+            summary: format!(
+                "{} finding(s), {} unmet control(s); no failing evidence",
+                report.findings.len(),
+                unmet
+            ),
             reason: String::new(),
         }
     }
@@ -418,5 +438,204 @@ fn code_for(status: u16) -> &'static str {
         400 => "project-status-invalid",
         404 => "project-status-unmanaged-project",
         _ => "project-status-unavailable",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::doctor::{Finding, MaturityControl, Remediation};
+    use std::fs;
+
+    /// One applicable finding of the given status.
+    fn finding(id: &str, status: FindingStatus) -> Finding {
+        Finding {
+            id: id.to_string(),
+            status,
+            evidence: vec![format!("{id} evidence")],
+            applicable: true,
+            remediation: Remediation::Manual,
+            detail: format!("{id} detail"),
+        }
+    }
+
+    /// One applicable control without satisfying evidence.
+    fn unmet_control(id: &str) -> MaturityControl {
+        MaturityControl {
+            id: id.to_string(),
+            level: "L1".to_string(),
+            description: format!("{id} control"),
+            applicable: true,
+            met: false,
+            evidence: vec!["no evidence was gathered".to_string()],
+        }
+    }
+
+    /// A report whose `healthy` field follows the doctor's own rule, so the
+    /// projection can be compared with the field it must invert.
+    fn report(findings: Vec<Finding>, controls: Vec<MaturityControl>, stale: bool) -> DoctorReport {
+        let unmet = controls.iter().filter(|c| c.applicable && !c.met).count();
+        let healthy = findings
+            .iter()
+            .all(|f| matches!(f.status, FindingStatus::Pass | FindingStatus::Warn))
+            && unmet == 0
+            && !stale;
+        DoctorReport {
+            path: ".".to_string(),
+            profile: None,
+            policy_version: "0.1.0".to_string(),
+            current_maturity: Some("L1".to_string()),
+            target_maturity: Some("L1".to_string()),
+            findings,
+            controls,
+            healthy,
+            stale,
+        }
+    }
+
+    /// The count a summary names for one kind of problem, e.g.
+    /// `unavailable finding(s)`.
+    fn count_named(summary: &str, label: &str) -> usize {
+        summary
+            .split(", ")
+            .find(|part| part.contains(label))
+            .and_then(|part| part.split(' ').next())
+            .and_then(|digits| digits.parse::<usize>().ok())
+            .unwrap_or_else(|| panic!("the summary {summary:?} must name the {label} count"))
+    }
+
+    #[test]
+    fn an_unavailable_finding_is_issues_and_names_the_unavailable_count() {
+        let report = report(
+            vec![finding("repository", FindingStatus::Unavailable)],
+            Vec::new(),
+            false,
+        );
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_ISSUES);
+        assert_eq!(
+            check.summary,
+            "0 failing finding(s), 1 unavailable finding(s), 0 unmet control(s)"
+        );
+        assert!(
+            !check
+                .summary
+                .contains("0 failing finding(s), 0 unmet control(s)"),
+            "a summary must never report no problems while its state reports issues"
+        );
+    }
+
+    #[test]
+    fn a_failing_finding_is_issues_and_names_the_failing_count() {
+        let report = report(
+            vec![finding("profile-known", FindingStatus::Fail)],
+            Vec::new(),
+            false,
+        );
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_ISSUES);
+        assert_eq!(count_named(&check.summary, "failing finding(s)"), 1);
+        assert_eq!(count_named(&check.summary, "unavailable finding(s)"), 0);
+    }
+
+    #[test]
+    fn a_failing_and_an_unavailable_finding_are_named_apart() {
+        let report = report(
+            vec![
+                finding("profile-known", FindingStatus::Fail),
+                finding("repository", FindingStatus::Unavailable),
+            ],
+            Vec::new(),
+            false,
+        );
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_ISSUES);
+        assert_eq!(count_named(&check.summary, "failing finding(s)"), 1);
+        assert_eq!(count_named(&check.summary, "unavailable finding(s)"), 1);
+    }
+
+    #[test]
+    fn an_unmet_control_is_issues_and_names_the_unmet_count() {
+        let report = report(Vec::new(), vec![unmet_control("L1-structure")], false);
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_ISSUES);
+        assert_eq!(count_named(&check.summary, "unmet control(s)"), 1);
+    }
+
+    #[test]
+    fn a_healthy_report_keeps_its_wording() {
+        let report = report(
+            vec![
+                finding("manifest-valid", FindingStatus::Pass),
+                finding("docs-present", FindingStatus::Warn),
+            ],
+            Vec::new(),
+            false,
+        );
+        assert!(report.healthy);
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_HEALTHY);
+        assert_eq!(
+            check.summary,
+            "2 finding(s), 0 unmet control(s); no failing evidence"
+        );
+    }
+
+    #[test]
+    fn a_stale_report_with_nothing_else_wrong_is_stale() {
+        let report = report(
+            vec![finding("manifest-valid", FindingStatus::Pass)],
+            Vec::new(),
+            true,
+        );
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_STALE);
+        assert_eq!(
+            check.summary,
+            "the registry observation predates the current manifest; re-register to refresh"
+        );
+    }
+
+    #[test]
+    fn a_stale_report_with_an_unavailable_finding_is_issues_and_names_the_staleness() {
+        let report = report(
+            vec![finding("repository", FindingStatus::Unavailable)],
+            Vec::new(),
+            true,
+        );
+        let check = doctor_check(Some(&report));
+        assert_eq!(check.state, STATE_ISSUES);
+        assert_eq!(
+            check.summary,
+            "0 failing finding(s), 1 unavailable finding(s), 0 unmet control(s); the registry observation is stale"
+        );
+    }
+
+    #[test]
+    fn the_doctor_and_check_sub_checks_count_the_same_unavailable_findings() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("forge.yaml"),
+            "schema: 1\nproject:\n  id: agreement\n  name: agreement\n  profile: rust-web\n  maturity: L1\nruntime:\n  language: rust\n",
+        )
+        .unwrap();
+        let report = report(
+            vec![finding("repository", FindingStatus::Unavailable)],
+            Vec::new(),
+            false,
+        );
+
+        let doctor = doctor_check(Some(&report));
+        let check = check_check(tmp.path(), Some(&report));
+        assert_eq!(doctor.state, STATE_ISSUES);
+        assert_eq!(check.state, STATE_ISSUES);
+        assert_eq!(count_named(&doctor.summary, "unavailable finding(s)"), 1);
+        assert_eq!(
+            count_named(&check.summary, "warning(s)"),
+            count_named(&doctor.summary, "unavailable finding(s)"),
+            "the two sub-checks must count the same unavailable findings: doctor={:?} check={:?}",
+            doctor.summary,
+            check.summary
+        );
     }
 }

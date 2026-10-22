@@ -52,6 +52,14 @@ pub enum ForgeError {
     #[error("toolchain '{toolchain}' required by profile '{profile}' is unavailable locally; profile was not tested")]
     ToolchainMissing { toolchain: String, profile: String },
 
+    #[error("toolchain '{toolchain}' required by profile '{profile}' is version {observed}; the profile declares {declared}; the profile was not tested")]
+    ToolchainVersionMismatch {
+        toolchain: String,
+        profile: String,
+        declared: String,
+        observed: String,
+    },
+
     #[error("unsupported profile: {reason}; plan a tracked future profile and re-run with --profile <id>")]
     UnsupportedProfile { reason: String },
 
@@ -470,6 +478,7 @@ impl ForgeError {
             ForgeError::InvalidProfile { .. } => "invalid-profile",
             ForgeError::IncompatibleProfile { .. } => "incompatible-profile",
             ForgeError::ToolchainMissing { .. } => "toolchain-missing",
+            ForgeError::ToolchainVersionMismatch { .. } => "toolchain-version-mismatch",
             ForgeError::UnsupportedProfile { .. } => "unsupported-profile",
             ForgeError::AmbiguousImport { .. } => "ambiguous-import",
             ForgeError::ImportConflict { .. } => "import-conflict",

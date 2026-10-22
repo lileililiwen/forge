@@ -499,12 +499,43 @@ pub(crate) fn cmd_profile(command: &ProfileCommands, format: Format) -> Result<O
         }
         ProfileCommands::Preflight { id } => {
             let report = preflight_profile(id, None)?;
-            let human = format!(
-                "preflight ok: toolchain '{}' available for profile '{}' (version {})",
-                report.toolchain, report.id, report.version
-            );
+            let human = render_preflight_human(&report);
             let json = serde_json::json!({"preflight": report});
             Ok(as_output(format, human, json))
         }
+    }
+}
+
+/// The preflight line names the version it checked.
+///
+/// A profile that declares a toolchain version names the version the host
+/// reported and the version the profile declares. A profile that declares
+/// none has no version to name, and a version that could not be read is
+/// unknown: neither is invented.
+fn render_preflight_human(report: &forge::profile::PreflightReport) -> String {
+    let runtime = forge::profile::version::runtime_binary(&report.toolchain);
+    match (
+        report.toolchain_version.as_deref(),
+        report.toolchain_version_declared.as_deref(),
+    ) {
+        (Some(observed), Some(declared)) => {
+            let subject = if runtime == report.toolchain {
+                format!("toolchain '{}'", report.toolchain)
+            } else {
+                format!("toolchain '{}' ({runtime})", report.toolchain)
+            };
+            format!(
+                "preflight ok: {subject} version {observed} satisfies profile '{}' ({runtime}@{declared})",
+                report.id
+            )
+        }
+        (None, Some(declared)) => format!(
+            "preflight ok: toolchain '{}' available for profile '{}' (version {}); the declared toolchain version {declared} could not be read",
+            report.toolchain, report.id, report.version
+        ),
+        _ => format!(
+            "preflight ok: toolchain '{}' available for profile '{}' (version {})",
+            report.toolchain, report.id, report.version
+        ),
     }
 }

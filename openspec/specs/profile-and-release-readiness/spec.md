@@ -1,14 +1,19 @@
 # profile-and-release-readiness Specification
 
 ## Purpose
-Reproducible release-readiness evidence: native build/test matrix rows per supported profile with missing toolchains classified unverified (never passing), artifact checksums with version smoke, and a gate that passes only when every selected row passes. Every native command a row runs goes through the shared native command runner, under its wall-clock bound, so a row never hangs on an unresponsive command.
+Reproducible release-readiness evidence: native build/test matrix rows per supported profile with missing toolchains classified unverified (never passing) and with a runtime version that does not satisfy the profile's declared toolchain version classified unverified too, artifact checksums with version smoke, and a gate that passes only when every selected row passes. Every native command a row runs goes through the shared native command runner, under its wall-clock bound, so a row never hangs on an unresponsive command.
 ## Requirements
 ### Requirement: Supported profile native evidence
 
 Forge SHALL maintain a reproducible native evidence row for every supported
 profile, including the five v0.1 profiles and `react-web`. Every native
 command a row runs SHALL run through the shared native command runner, under
-its wall-clock bound, so a row never hangs on an unresponsive command.
+its wall-clock bound, so a row never hangs on an unresponsive command. Forge
+SHALL judge the host's runtime version against the profile's declared
+toolchain version before it runs any native command, and SHALL record the
+declaration, the observation and the verdict in the row. A host whose runtime
+version does not satisfy the declaration SHALL be treated like a host whose
+toolchain is absent.
 
 #### Scenario: Native evidence passes
 
@@ -31,6 +36,14 @@ its wall-clock bound, so a row never hangs on an unresponsive command.
   shared runner's bound elapses
 - **THEN** the command's process group is killed, the row is not reported as
   verified, and the reason names the timeout
+
+#### Scenario: The toolchain is the wrong version
+
+- **WHEN** the host's runtime version does not satisfy the profile's declared
+  toolchain version
+- **THEN** the row is unverified with the mismatch named, records the
+  declaration next to the observation, runs no native command and cannot
+  satisfy a release gate
 
 ### Requirement: Reproducible release gate and artifact smoke evidence
 
@@ -144,4 +157,3 @@ a pass or a skip.
 - **WHEN** CI qualifies a subset of profiles
 - **THEN** the CI job names the versions it installs and the evidence records the
   same versions rather than the ones a different host happened to qualify
-

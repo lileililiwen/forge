@@ -21,6 +21,7 @@ pub mod capabilities;
 pub mod catalog;
 pub mod model;
 pub mod resolve;
+pub mod version;
 
 // Re-export all types
 pub use catalog::*;

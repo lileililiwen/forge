@@ -11,6 +11,7 @@ use super::catalog::{mvp_profiles, planned_profiles};
 use super::model::{
     PreflightReport, ProfileDescriptor, ProfileSupportStatus, ResolvedProfile, WorkspaceMapping,
 };
+use super::version;
 
 /// List all supported descriptors in stable ID order. Resolution, preflight
 /// and generation consume this list; planned candidates stay discoverable
@@ -240,6 +241,13 @@ pub fn resolve_profile(id: &str, requested: &[String]) -> Result<ResolvedProfile
 /// probed. A missing toolchain is reported as unavailable — never as tested.
 /// Planned profiles are refused with `unsupported-profile` so the
 /// preflight never claims a planned candidate was tested.
+///
+/// A profile that declares a toolchain version is judged on it: the
+/// runtime's version is probed and compared with the declaration. A
+/// mismatch is refused with `toolchain-version-mismatch` — a present
+/// toolchain of the wrong version is never reported as missing. A version
+/// that cannot be read is unknown: the preflight passes on presence and
+/// records the unknown.
 pub fn preflight_profile(
     id: &str,
     available: Option<&HashSet<String>>,
@@ -255,7 +263,7 @@ pub fn preflight_profile(
         });
     }
     let present = match available {
-        Some(set) => set.contains(profile.toolchain.as_str()),
+        Some(set) => version::inventory_lookup(set, &profile.toolchain).is_some(),
         None => toolchain_on_path(profile.toolchain.as_str()),
     };
     if !present {
@@ -264,12 +272,46 @@ pub fn preflight_profile(
             profile: profile.id,
         });
     }
+    // The runtime carries the version the profile's commands run on: the
+    // Node ecosystem's runtime is `node`, so `react-web` (toolchain `npm`)
+    // is judged on node's version.
+    let runtime = version::runtime_binary(&profile.toolchain);
+    let observed = observed_runtime_version(runtime, available);
+    if let Some(false) = version::judge(profile.toolchain_version.as_deref(), observed.as_deref()) {
+        return Err(ForgeError::ToolchainVersionMismatch {
+            toolchain: runtime.to_string(),
+            profile: profile.id.clone(),
+            declared: profile.toolchain_version.clone().unwrap_or_default(),
+            observed: observed.clone().unwrap_or_default(),
+        });
+    }
     Ok(PreflightReport {
         id: profile.id,
         version: profile.version,
         toolchain: profile.toolchain,
         available: true,
+        toolchain_version: observed,
+        toolchain_version_declared: profile
+            .toolchain_version
+            .clone()
+            .filter(|declaration| version::is_version_requirement(declaration)),
     })
+}
+
+/// The runtime's version on the host the preflight judges.
+///
+/// An explicit inventory states the host: it carries the version the host
+/// reports when the entry has one, and leaves it unknown when it does not.
+/// Without an inventory the host `PATH` is probed.
+fn observed_runtime_version(runtime: &str, available: Option<&HashSet<String>>) -> Option<String> {
+    match available {
+        Some(set) => version::inventory_lookup(set, runtime)
+            .and_then(|entry| entry.version.map(str::to_string)),
+        None => {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            version::probe_version(runtime, &path)
+        }
+    }
 }
 
 fn toolchain_on_path(name: &str) -> bool {

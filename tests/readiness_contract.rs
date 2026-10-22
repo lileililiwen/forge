@@ -124,10 +124,16 @@ fn matrix_reports_passed_rust_web_row_with_full_evidence() {
     let hash = row["source_hash"].as_str().unwrap_or("");
     assert_eq!(hash.len(), 64, "source identity must be SHA-256");
     assert!(!row["generated_at"].as_str().unwrap_or("").is_empty());
-    assert!(row["toolchain_version"]
-        .as_str()
-        .unwrap_or("")
-        .contains("cargo"));
+    assert_eq!(row["toolchain_runtime"], "cargo");
+    let version = row["toolchain_version"].as_str().unwrap_or("");
+    assert!(
+        !version.is_empty(),
+        "the row must record the observed runtime version"
+    );
+    assert!(
+        version.chars().all(|c| c.is_ascii_digit() || c == '.'),
+        "the observed version is the numeric version: {version}"
+    );
     assert_eq!(row["build"]["success"], true);
     assert_eq!(row["test"]["success"], true);
     assert_eq!(value["matrix"]["ready"], true);

@@ -610,6 +610,33 @@ fn join_or_none(values: &[String]) -> String {
     }
 }
 
+/// The toolchain line names the runtime a profile's declared version is
+/// judged against.
+///
+/// The Node ecosystem's runtime is `node`, so `react-web` (toolchain `npm`)
+/// reads `toolchain: npm (node@24)`. Every other profile names its own
+/// toolchain: `toolchain: node@24`, `toolchain: python3@3.12`,
+/// `toolchain: cargo`. A profile that names a moving channel instead of a
+/// version (`rust-web` tracks `stable`) states no version: a channel is
+/// not a version.
+pub(super) fn toolchain_line(p: &forge::profile::ProfileDescriptor) -> String {
+    let runtime = forge::profile::version::runtime_binary(&p.toolchain);
+    let declared = p
+        .toolchain_version
+        .as_deref()
+        .filter(|version| forge::profile::version::is_version_requirement(version));
+    match declared {
+        None => p.toolchain.clone(),
+        Some(version) => {
+            if runtime == p.toolchain {
+                format!("{}@{version}", p.toolchain)
+            } else {
+                format!("{} ({runtime}@{version})", p.toolchain)
+            }
+        }
+    }
+}
+
 pub(super) fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> String {
     let mut lines = vec![
         format!(
@@ -623,14 +650,7 @@ pub(super) fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> Str
             p.adapter,
             p.language,
         ),
-        format!(
-            "toolchain: {}{}",
-            p.toolchain,
-            p.toolchain_version
-                .as_deref()
-                .map(|v| format!("@{v}"))
-                .unwrap_or_default()
-        ),
+        format!("toolchain: {}", toolchain_line(p)),
         format!("capabilities: {}", p.capabilities.join(", ")),
         format!("packages: {}", p.packages.join(", ")),
         format!("layout: {}", p.layout.join(", ")),

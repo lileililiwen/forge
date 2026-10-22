@@ -474,7 +474,11 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "adapter-nextjs",
             "typescript",
             "node",
-            Some("20"),
+            // The Node version the repository's own qualification
+            // provisions: CI sets `node-version: "24"` and
+            // `docs/release-readiness.md` records Node 24 as the
+            // qualification basis for this profile.
+            Some("24"),
             &[
                 "auth",
                 "admin",
@@ -566,7 +570,11 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
             "adapter-react",
             "typescript",
             "npm",
-            Some("20"),
+            // The Node version, not an npm version: npm has no version 20
+            // and Forge treats npm and node as one toolchain, so the
+            // runtime this profile is judged on is `node`. The number is
+            // the Node version CI provisions (`node-version: "24"`).
+            Some("24"),
             &[
                 "auth",
                 "admin",

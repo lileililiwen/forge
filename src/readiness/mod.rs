@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 
 use crate::core::ForgeError;
 use crate::generate::{normalize_explicit, render_files};
-use crate::profile::{inspect_profile, list_profiles, ProfileSupportStatus};
+use crate::profile::{inspect_profile, list_profiles, ProfileDescriptor, ProfileSupportStatus};
 
 /// Versioned contract for the readiness surface.
 pub const READINESS_CONTRACT_VERSION: &str = "0.1.0";
@@ -74,7 +74,16 @@ pub struct MatrixRow {
     pub adapter: String,
     pub language: String,
     pub toolchain: String,
+    /// The version the host's runtime reported, when it could be read.
     pub toolchain_version: Option<String>,
+    /// The binary whose version was probed (`node` for the npm ecosystem).
+    pub toolchain_runtime: String,
+    /// The profile's declared toolchain version requirement.
+    pub toolchain_version_declared: Option<String>,
+    /// Whether the observed version satisfies the declaration. `None` when
+    /// there is no declaration or no observation: unknown is never a
+    /// mismatch.
+    pub toolchain_version_satisfied: Option<bool>,
     pub build_command: String,
     pub test_command: String,
     pub source_hash: String,
@@ -188,39 +197,43 @@ fn now_rfc3339() -> String {
     chrono::DateTime::<chrono::Utc>::from(SystemTime::now()).to_rfc3339()
 }
 
-fn truncate_tail(text: &str, limit: usize) -> String {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    trimmed
-        .chars()
-        .rev()
-        .take(limit)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect()
+/// The toolchain version evidence one matrix row records: the runtime that
+/// was probed, the version the host reports, the profile's declaration and
+/// the verdict on the declaration.
+struct ToolchainEvidence {
+    /// The binary whose version was probed.
+    runtime: String,
+    /// The version the host reports, when it could be read.
+    observed: Option<String>,
+    /// The profile's declared requirement.
+    declared: Option<String>,
+    /// Whether the observation satisfies the declaration.
+    satisfied: Option<bool>,
 }
 
-/// Capture the first line of `<toolchain> --version` under the native PATH.
-/// `None` means the version probe itself could not run; the row keeps the
-/// descriptor's declared toolchain without claiming a host version.
-fn capture_toolchain_version(toolchain: &str, path_var: &OsStr) -> Option<String> {
-    let output = Command::new(toolchain)
-        .arg("--version")
-        .env("PATH", path_var)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+impl ToolchainEvidence {
+    /// Judge the profile's declaration against the host's observation.
+    ///
+    /// The runtime carries the version: the Node ecosystem's runtime is
+    /// `node`, so `react-web` (toolchain `npm`) is judged on node's
+    /// version. A declaration without an observation is unknown, and
+    /// unknown is never a mismatch.
+    fn judge(descriptor: &ProfileDescriptor, observed: Option<String>) -> Self {
+        let declared = descriptor
+            .toolchain_version
+            .clone()
+            .filter(|declaration| crate::profile::version::is_version_requirement(declaration));
+        let satisfied = crate::profile::version::judge(
+            descriptor.toolchain_version.as_deref(),
+            observed.as_deref(),
+        );
+        Self {
+            runtime: crate::profile::version::runtime_binary(&descriptor.toolchain).to_string(),
+            observed,
+            declared,
+            satisfied,
+        }
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let first = text.lines().next().unwrap_or("").trim();
-    if first.is_empty() {
-        return None;
-    }
-    Some(truncate_tail(first, 200))
 }
 
 fn run_native_command(command: &str, dir: &Path, path_var: &OsStr) -> NativeCommandResult {
@@ -319,6 +332,7 @@ fn unverified_row(
     source_hash: String,
     forge_absent: bool,
     reason: String,
+    evidence: &ToolchainEvidence,
 ) -> MatrixRow {
     let descriptor = inspect_profile(profile_id).ok();
     MatrixRow {
@@ -333,7 +347,10 @@ fn unverified_row(
             .map(|d| d.language.clone())
             .unwrap_or_default(),
         toolchain: toolchain.to_string(),
-        toolchain_version: None,
+        toolchain_version: evidence.observed.clone(),
+        toolchain_runtime: evidence.runtime.clone(),
+        toolchain_version_declared: evidence.declared.clone(),
+        toolchain_version_satisfied: evidence.satisfied,
         build_command: descriptor
             .as_ref()
             .map(|d| d.build_command.clone())
@@ -354,13 +371,16 @@ fn unverified_row(
 
 /// Run the matrix row for one profile.
 ///
-/// `available` overrides the host `PATH` toolchain probe with a fixed set
-/// (deterministic for tests); `None` probes the host. An unknown id fails
-/// with `unknown-profile` and a planned id with `unsupported-profile`
-/// before any directory is created. A missing toolchain yields an
-/// `unverified` row, never a pass. The fixture is rendered into a disposable
-/// directory and the registry is never contacted, so the matrix invents no
-/// project and leaves the caller's tree untouched.
+/// `available` overrides the host `PATH` toolchain probe with a fixed
+/// inventory (deterministic for tests); `None` probes the host. An unknown
+/// id fails with `unknown-profile` and a planned id with
+/// `unsupported-profile` before any directory is created. A missing
+/// toolchain yields an `unverified` row, never a pass. A runtime whose
+/// version does not satisfy the profile's declared toolchain version is
+/// treated like a missing toolchain: the row is `unverified`, the mismatch
+/// is named and no native command runs. The fixture is rendered into a
+/// disposable directory and the registry is never contacted, so the matrix
+/// invents no project and leaves the caller's tree untouched.
 pub fn run_profile_row(
     profile_id: &str,
     available: Option<&HashSet<String>>,
@@ -376,7 +396,12 @@ pub fn run_profile_row(
         });
     }
     let (native_path, forge_absent) = native_path_without_forge();
-    let toolchain_present = crate::generate::toolchain_present(&descriptor.toolchain, available);
+    let toolchain_present = match available {
+        Some(set) => {
+            crate::profile::version::inventory_lookup(set, &descriptor.toolchain).is_some()
+        }
+        None => crate::generate::toolchain_present(&descriptor.toolchain, None),
+    };
 
     let fixture_id = format!("readiness-{}", descriptor.id);
     let staging = tempfile::TempDir::new().map_err(|err| ForgeError::GenerationFailed {
@@ -394,7 +419,12 @@ pub fn run_profile_row(
     let files = render_files(&request)?;
     let source_hash = source_hash_for(&files);
 
+    let runtime = crate::profile::version::runtime_binary(&descriptor.toolchain);
+
     if !toolchain_present {
+        // The toolchain is absent: its version is unknown and no native
+        // command runs.
+        let evidence = ToolchainEvidence::judge(&descriptor, None);
         return Ok(unverified_row(
             &descriptor.id,
             &descriptor.toolchain,
@@ -404,6 +434,35 @@ pub fn run_profile_row(
                 "toolchain '{}' required by profile '{}' is unavailable locally; profile was not tested",
                 descriptor.toolchain, descriptor.id
             ),
+            &evidence,
+        ));
+    }
+
+    // The runtime carries the version: the Node ecosystem's runtime is
+    // `node`, so `react-web` (toolchain `npm`) is judged on node's version.
+    let observed = match available {
+        Some(set) => crate::profile::version::inventory_lookup(set, runtime)
+            .and_then(|entry| entry.version.map(str::to_string)),
+        None => crate::profile::version::probe_version(runtime, &native_path),
+    };
+    let evidence = ToolchainEvidence::judge(&descriptor, observed);
+
+    // A runtime of the wrong version is not evidence for this profile: the
+    // row is unverified, the mismatch is named and no native command runs.
+    if evidence.satisfied == Some(false) {
+        let observed = evidence.observed.clone().unwrap_or_default();
+        let declared = evidence.declared.clone().unwrap_or_default();
+        return Ok(unverified_row(
+            &descriptor.id,
+            &descriptor.toolchain,
+            source_hash,
+            forge_absent,
+            format!(
+                "toolchain '{runtime}' for profile '{}' is version {observed}; the profile \
+                 declares {runtime}@{declared}; the profile was not tested",
+                descriptor.id
+            ),
+            &evidence,
         ));
     }
 
@@ -425,7 +484,6 @@ pub fn run_profile_row(
         })?;
     }
 
-    let toolchain_version = capture_toolchain_version(&descriptor.toolchain, &native_path);
     let build = run_native_command(&descriptor.build_command, &target, &native_path);
     if !build.outcome.success {
         return Ok(MatrixRow {
@@ -434,7 +492,10 @@ pub fn run_profile_row(
             adapter: descriptor.adapter.clone(),
             language: descriptor.language.clone(),
             toolchain: descriptor.toolchain.clone(),
-            toolchain_version,
+            toolchain_version: evidence.observed.clone(),
+            toolchain_runtime: evidence.runtime.clone(),
+            toolchain_version_declared: evidence.declared.clone(),
+            toolchain_version_satisfied: evidence.satisfied,
             build_command: descriptor.build_command.clone(),
             test_command: descriptor.test_command.clone(),
             source_hash,
@@ -458,7 +519,10 @@ pub fn run_profile_row(
             adapter: descriptor.adapter.clone(),
             language: descriptor.language.clone(),
             toolchain: descriptor.toolchain.clone(),
-            toolchain_version,
+            toolchain_version: evidence.observed.clone(),
+            toolchain_runtime: evidence.runtime.clone(),
+            toolchain_version_declared: evidence.declared.clone(),
+            toolchain_version_satisfied: evidence.satisfied,
             build_command: descriptor.build_command.clone(),
             test_command: descriptor.test_command.clone(),
             source_hash,
@@ -476,7 +540,10 @@ pub fn run_profile_row(
         adapter: descriptor.adapter.clone(),
         language: descriptor.language.clone(),
         toolchain: descriptor.toolchain.clone(),
-        toolchain_version,
+        toolchain_version: evidence.observed.clone(),
+        toolchain_runtime: evidence.runtime.clone(),
+        toolchain_version_declared: evidence.declared.clone(),
+        toolchain_version_satisfied: evidence.satisfied,
         build_command: descriptor.build_command.clone(),
         test_command: descriptor.test_command.clone(),
         source_hash,
@@ -683,15 +750,27 @@ fn empty_gate() -> GateReport {
 /// Human rendering of one matrix row.
 pub fn render_row_human(row: &MatrixRow) -> String {
     let mut out = format!(
-        "profile={} result={} toolchain={} source={} forge_absent={}",
+        "profile={} result={} toolchain={}",
         row.profile,
         row.result.id(),
-        row.toolchain_version
-            .as_deref()
-            .unwrap_or(row.toolchain.as_str()),
+        row.toolchain,
+    );
+    // The runtime carries the version: name it when it differs from the
+    // profile's toolchain, so the reader knows which binary was probed.
+    if row.toolchain_runtime != row.toolchain {
+        out.push_str(&format!(" runtime={}", row.toolchain_runtime));
+    }
+    if let Some(version) = &row.toolchain_version {
+        out.push_str(&format!(" version={version}"));
+    }
+    if let Some(declared) = &row.toolchain_version_declared {
+        out.push_str(&format!(" declared={declared}"));
+    }
+    out.push_str(&format!(
+        " source={} forge_absent={}",
         &row.source_hash[..12.min(row.source_hash.len())],
         row.forge_absent_from_path,
-    );
+    ));
     out.push_str(&format!("\n  reason: {}", row.reason));
     if let Some(build) = &row.build {
         out.push_str(&format!(

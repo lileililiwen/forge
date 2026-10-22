@@ -118,4 +118,11 @@ pub struct PreflightReport {
     pub version: String,
     pub toolchain: String,
     pub available: bool,
+    /// The runtime version the preflight checked, when the host reported
+    /// one. `None` means the version could not be read: unknown is never
+    /// read as a mismatch.
+    pub toolchain_version: Option<String>,
+    /// The profile's declared toolchain version requirement. `None` means
+    /// the profile declares none and presence is the only condition.
+    pub toolchain_version_declared: Option<String>,
 }

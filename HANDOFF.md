@@ -7928,3 +7928,83 @@ Implementation/archive commit: `9e1cafa` (`feat: a profile's build command
 runs with the toolchain it declares`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `doctor-finding-applicability` implemented and archived (2026-10-22)
+
+`forge doctor` reports two things about a project: a **finding inventory**
+and a **maturity control list**. The controls are target-gated — a control
+applies only when the project reaches the level that declares it. Three
+findings that mirror an L2 control were not:
+
+| Finding | Control it mirrors |
+|---|---|
+| `ci-config` | `L2-ci` |
+| `deployment-config` | `L2-deployment` |
+| `driftwatch-config` | `L2-driftwatch` |
+
+Each passed `true` for applicability and warned about a missing
+configuration whatever the project targeted. So a project that targets L1
+was warned about a level it never asked for, while the same report said
+the control does not apply:
+
+```text
+  [WARN] driftwatch-config (automatic)
+    evidence: no driftwatch configuration
+    detail: no driftwatch configuration; required for L2 driftwatch (execution belongs to v0.3)
+
+  L2-driftwatch | applicable: false | met: false | ['no driftwatch configuration']
+```
+
+One report, two answers about the same requirement. The canonical
+capability promises one rule for both ("target-gated L0–L4
+applicability"). The release lane already read the requirement the other
+way, from the project's own declaration — `check 'driftwatch' is not
+configured; release does not require it` — and the warning did not stay
+inside the doctor: `forge check` rendered it as a CI alert. Every project
+Forge generates was in that state, because the scaffolds declare
+`maturity: L1` and ship no DriftWatch configuration.
+
+So the three findings now share one rule, the same one their controls
+apply: the configuration is required when the target maturity reaches L2,
+and the DriftWatch configuration is also required when the manifest's
+release checks declare a DriftWatch check — the rule the release lane
+applies. A configuration the project does not require is reported as not
+applicable, with its evidence kept (the absence is still reported as its
+own state, as the canonical "No markers" scenario requires) and no surface
+renders it as a warning. A project that does require the configuration is
+warned exactly as before.
+
+| Check | Result | Evidence |
+|---|---|---|
+| An L1 project is not warned about L2 configurations | PASS | **Before**: `[WARN] deployment-config`, `[WARN] ci-config` and `[WARN] driftwatch-config`, the last with `detail: no driftwatch configuration; required for L2 driftwatch (execution belongs to v0.3)`, while the same report's control list printed `[N/A] L2-driftwatch`. **After**: `[PASS] deployment-config` / `evidence: no deployment configuration` / `detail: the project does not require a deployment configuration at its target maturity` / `applicability: not applicable`, the same shape for `ci-config` and `driftwatch-config`. The JSON report agrees with its own control list: `finding driftwatch-config | applicable: False | status: pass | evidence: ['no driftwatch configuration']` and `control L2-driftwatch | applicable: False | met: False` (same for `L2-ci` and `L2-deployment`). |
+| An L2 project is still warned | PASS | `forge doctor` on a project with `maturity: L2` and `target_maturity: L2` and no configuration files: `finding deployment-config \| applicable: True \| status: warn \| evidence: ['no deployment configuration']`; `finding ci-config \| applicable: True \| status: warn \| evidence: ['no ci configuration']`; `finding driftwatch-config \| applicable: True \| status: warn \| evidence: ['no driftwatch configuration'] \| detail: no driftwatch configuration; required for L2 driftwatch (execution belongs to v0.3)` — today's status and detail, unchanged. |
+| A declared DriftWatch check is required at any maturity | PASS | A project with `maturity: L1`, `target_maturity: L1` and `release.checks: [- kind: driftwatch]`: `finding driftwatch-config \| applicable: True \| status: warn`, while `finding ci-config \| applicable: False \| status: pass` and `finding deployment-config \| applicable: False \| status: pass` stay not applicable. |
+| The checker plane stops alerting | PASS | **Before**: `forge check` on the L1 project emitted `{"severity":"warning","message":"driftwatch-config: …","symbol":"doctor/driftwatch-config"}` (plus `doctor/deployment-config` and `doctor/ci-config`). **After**: the same project emits only the unrelated `doctor/repository` alert. The L2 project still reports all three. |
+| The new contract test | PASS | `cargo test --test doctor_finding_applicability_contract` reported `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. It pins the applicability of the three findings across the target maturities, the declared-DriftWatch case and the checker plane's no-alert case. |
+| The affected suites | PASS | `cargo test -p forge --lib doctor::` → `50 passed; 0 failed`; `cargo test --test driftwatch_cli_contract` → `14 passed`; `cargo test --test driftwatch_cli_alignment_contract` → `10 passed`; `cargo test --test checker_contract` → `8 passed`; `cargo test --test spec_purpose_contract` → `2 passed`. |
+| Repository test suite | PASS, 4069 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 over 214 test binaries: 4069 passed, 0 failed, 1 ignored (the ignored one is pre-existing). The 4060-test baseline plus the 5 new tests and the 4 new doctor unit tests. |
+| A recorded flake, and its remediation | Recorded, not a failure of this change | The implementation worker's own suite run reported `4068 passed, 1 failed, 1 ignored`: the single failure was `profile_build_command_runnable_contract::every_declared_build_command_runs_in_a_generated_project`, where the Flutter SDK crashed while resolving packages (`Crash! The Dart VM service is not available`). It is change 19's guard running the Flutter build, it is unrelated to the doctor, and it passes on its own — `cargo test --test profile_build_command_runnable_contract` → `3 passed; 0 failed` — and the Gate's own `tests` check, which runs the suite again, passed. The run quoted above is green. Remediation path if it recurs: the Flutter build needs a reachable pub cache; the guard's failure output names the command. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-22T01:16:13Z"` on revision `63a00b8589406444c959a97fa7257d7466da8e59`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) so the `build` check did not lose the shared build lock. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 142 passed, 0 failed (142 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-22-doctor-finding-applicability/`: the new capability `doctor-finding-applicability` was promoted with one requirement, one requirement of `doctor-maturity-assessment` was modified with every canonical scenario kept, the archive's `TBD` Purpose was replaced with the real one, and the modified capability's purpose now states that the target-gated applicability is shared by each configuration finding and the control it mirrors. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and none in a touched file. `rustfmt --edition 2021 --check` is clean on all six touched Rust files, and no pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/doctor/runner.rs` 651, `src/doctor/doctor_tests.rs` 987, `tests/doctor_finding_applicability_contract.rs` 254, `tests/driftwatch_cli_contract.rs` 476, `tests/driftwatch_cli_alignment_contract.rs` 584, `tests/checker_contract.rs` 594). |
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Deliberately not done, and stated plainly: three existing contract tests
+encoded the old warning as their fixture, so they failed against the new
+contract and were updated to it — the two DriftWatch contract tests now
+pin the not-applicable state and still assert that the evidence names the
+absence, and the checker contract test's fixture now targets L2, where the
+three dropped configurations are required and warn, so it still bounds
+the alert truncation. The maturity controls, the release lane and the
+checker plane are untouched: they read the change. The policy findings
+are untouched: they are the policy adapter's findings, not a
+configuration requirement. The doctor stays read-only.
+
+Implementation/archive commit: `b07004f` (`feat: the doctor's findings and
+controls share one applicability rule`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

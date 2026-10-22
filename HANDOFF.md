@@ -7841,3 +7841,90 @@ Implementation/archive commit: `c43aaab` (`feat: the import lane knows every
 supported profile`). This HANDOFF-only update is the second commit. Nothing
 was pushed. No active OpenSpec change remains, so this file has no
 `current_spec` pointer.
+
+### `profile-build-command-runnable` implemented and archived (2026-10-22)
+
+`forge build` builds a project with the build command its profile
+declares, and the `python-service` profile declared `python3 -m build` —
+the PyPA build frontend, which is a pip package rather than part of the
+Python toolchain. The profile declares the toolchain `python3` (3.12),
+its package list (`fastapi`, `sqlalchemy`, `alembic`, `pytest`) does not
+name the `build` package, and the scaffold ships dependency-free on
+purpose. So the declared build command could not run with the toolchain
+the profile declares:
+
+```text
+error[build-failed]: build command failed: build command `python3 -m
+build` for project `dbdt-python` exited with status 1; see evidence:
+stderr: /usr/bin/python3: No module named build.__main__; 'build' is a
+package and cannot be directly executed
+```
+
+The generated project also said something false about itself. Its README
+listed that command under "Native commands" and then claimed:
+
+> FastAPI/SQLAlchemy dependencies from the profile descriptor are resolved
+> per-service; this scaffold ships dependency-free so native commands run
+> without network.
+
+The test command honoured the promise — the profile declares
+`python3 -m unittest discover -s tests -v`, the standard library, not
+`pytest`. The build command could not: running it needs
+`pip install build`, a network install of a package the profile never
+declared. The repository already knew this; its own scaffold contract
+test says "pytest/build backends are external and may be absent" and
+proves the opposite command.
+
+So the build command is now `python3 -m compileall -q app tests` — the
+standard library compile of the source roots the profile's own layout
+declares. It needs nothing beyond `python3` and no network, and it fails
+on a syntax error. The build is not a packaging build: the profile's
+generated project deploys from source (its Dockerfile copies the tree and
+runs `python3 -m app.main`), and its `pyproject.toml` stays a PEP 517
+package for an operator who wants to package it.
+
+And the declared build commands are now runnable, and the repository
+checks it. A contract test generates a project for every supported
+profile whose toolchain the host has and runs that profile's declared
+build command through Forge's own build lane. A profile whose toolchain
+the host lacks is skipped in the house's way and is never claimed as
+passing. The command's program must be a program the profile's own
+toolchain provides, with the Node ecosystem's `node` and `npm` counted as
+one toolchain: the catalogue pins `nextjs-web` to `node` and `react-web`
+to `npm` and both build with `npm run build`, and the repository already
+maps both names to the same ecosystem (`src/kit/registry.rs`) and gives
+both the same build target form (`src/target/mod.rs`).
+
+| Check | Result | Evidence |
+|---|---|---|
+| The Python build now runs | PASS | Before the change, `forge build /tmp/dbdt19/app` on a generated `python-service` project reported `error[build-failed]: build command failed: build command \`python3 -m build\` for project \`dbdt-python\` exited with status 1; see evidence: stderr: /usr/bin/python3: No module named build.__main__; 'build' is a package and cannot be directly executed`. After the change, the same project reports `project: dbdt-python` / `profile: python-service` / `command: python3 -m compileall -q app tests` / `target: host` / `status: passed` / `exit_code: 0`. |
+| The generated README names it | PASS | The generated `README.md` lists `## Native commands` with `python3 -m compileall -q app tests` and `python3 -m unittest discover -s tests -v`; the block is rendered from the descriptor, and the "dependency-free so native commands run without network" claim now holds for the build as well as the test. |
+| The other five profiles still build | PASS | `forge build` on freshly generated projects: `rust-web` → `cargo build`, `status: passed`, `exit_code: 0`; `nextjs-web` → `npm run build`, `status: passed`, `exit_code: 0`; `react-web` → `npm run build`, `status: passed`, `exit_code: 0`; `flutter-app` → `flutter build bundle`, `status: passed`, `exit_code: 0`; `aspnet-web` → `dotnet build`, `status: passed`, `exit_code: 0`. |
+| The new contract test | PASS | `cargo test --test profile_build_command_runnable_contract` reported `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.37s`. All six profiles were exercised on this host. Two negative controls confirm the rules bite: restoring `python3 -m build` in the catalogue made the runnable rule fail naming `python-service`, and restoring `cargo build` as `react-web`'s command made the program rule fail naming `react-web`. The catalogue was restored after both controls. |
+| The affected suites | PASS | `cargo test --test profile_build_command_truth_contract` → `6 passed; 0 failed` (the pinned table carries the new `python-service` row); `cargo test --test generate_contract` → `12 passed; 0 failed` (unchanged); `cargo test --test spec_purpose_contract` → `2 passed; 0 failed`. |
+| Repository test suite | PASS, 4060 tests / 0 failed | `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 in `real 4m19.900s` over 213 test binaries: 4060 passed, 0 failed, 1 ignored (the ignored one is pre-existing). The 4057-test baseline plus the 3 new tests. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-22T00:04:31Z"` on revision `644b02040db529cc125fe956d2de69586e32382d`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) so the `build` check did not lose the shared build lock. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 141 passed, 0 failed (141 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-22-profile-build-command-runnable/`: the new capability `profile-build-command-runnable` was promoted with two requirements, one requirement of `deterministic-project-generation` was modified with every canonical scenario kept, the archive's `TBD` Purpose was replaced with the real one, and the modified capability's purpose now states that a generated project builds with the stack toolchain its profile declares. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and none in a touched file. `rustfmt --edition 2021 --check` is clean on the three touched Rust files, and no pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/profile/catalog.rs` 654, `tests/profile_build_command_runnable_contract.rs` 164, `tests/profile_build_command_truth_contract.rs` 115). |
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Deliberately not done, and stated plainly: the build does not become a
+packaging build, and the generated `pyproject.toml` is untouched, so the
+project stays a PEP 517 package for an operator who installs `build`. The
+profile gains no field for extra tooling — the rule is that the build
+command runs with the declared toolchain. The `nextjs-web` profile keeps
+its `node` pin rather than being re-pinned to `npm`: that would move the
+kit registry's pin, the readiness row's toolchain evidence and the
+release-readiness document's `node`/`v24` line, all outside this change's
+boundary. The test command is not changed, the planned profiles are not
+promoted, and the other five profiles' build commands are not touched —
+the new check holds them to it instead.
+
+Implementation/archive commit: `9e1cafa` (`feat: a profile's build command
+runs with the toolchain it declares`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

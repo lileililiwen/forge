@@ -8008,3 +8008,104 @@ Implementation/archive commit: `b07004f` (`feat: the doctor's findings and
 controls share one applicability rule`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `doctor-claim-evidence` implemented and archived (2026-10-22)
+
+`forge doctor` states what it finds. Four of its statements were about
+things the doctor never looked at.
+
+| Statement | What the doctor had actually read |
+|---|---|
+| `registry-observation`: "project is not registered" | nothing — no observation was supplied |
+| `L3-registry`: "project is not registered" | nothing — no observation was supplied |
+| `L1-structure`: "project structure matches the profile layout" | the manifest's presence and the build definition's presence |
+| `dependency-drift`: "manifest runtime agrees with on-disk dependency evidence" | the manifest's runtime language against the *profile's* language, and the build definition's presence |
+
+The doctor's own module contract states the rule the code broke:
+
+> Registry access, when the caller supplies it, is limited to a read-only
+> observation used to mark stale results as stale.
+
+The release lane is the caller that supplied no observation. It resolved
+the project *from* the registry and then ran the doctor without one, so
+its own doctor report said the project it had just found was not
+registered.
+
+The callers could not tell the two situations apart either. The CLI's and
+the MCP method's `observation_for` returned `None` both when the registry
+held no record for the project and when it was never consulted — so the
+CLI could not say "this project is not registered", only nothing at all.
+Fixing the doctor alone would have replaced a false claim with a false
+silence and lost the CLI's genuine warning.
+
+The `L1-structure` claim was not only unchecked but false for four of the
+six supported profiles. `rust-web` declares `tests/`, `react-web` declares
+`public/` and `tests/`, `flutter-app` declares `android/` and `ios/`, and
+`aspnet-web` declares `src/` and `tests/` — and Forge's own scaffolds
+write none of them. The doctor told the operator that a generated
+project's structure matched its profile's declared structure while a
+directory listing of that project showed it did not.
+
+So the doctor keeps four states for the registration claim — a fresh
+observation, a stale observation, an observation that says the project is
+not registered, and the absence of an observation — and reports the
+unknown state as not applicable, in the house's own shape. The callers
+say which they have. The `L3-registry` control follows the same
+observation, so the finding and the control never contradict each other.
+The structure control names the two checks it performs, and the drift
+evidence names the languages it compared — and says so when the manifest
+declares no runtime language at all, because then no language was
+compared.
+
+The shipped quickstart quoted the old drift evidence and now matches the
+real output.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The doctor's unknown state is reported as unknown | PASS | **Before**: the `registry-observation` finding warned `project is not registered; maturity evidence is local-only` for every doctor run without an observation. **After**, with no observation supplied: `[PASS] registry-observation (automatic)` / `evidence: no registry observation was supplied; the registration state is unknown to the doctor` / `detail: no registry observation was supplied; the doctor does not open the registry itself` / `applicability: not applicable`. |
+| A genuinely unregistered project still warns | PASS | `forge --registry /tmp/dce21/registry.db doctor /tmp/dce21/unregistered` (a project the registry does not hold) printed `[WARN] registry-observation (automatic)` / `evidence: project is not registered; maturity evidence is local-only` / `detail: project is not registered`. The warning stays, and it is now backed by the registry read the caller actually made. |
+| The release lane's doctor run | PASS | The release lane's check is `run_doctor(project_dir, Some(target), None, None)` (`src/release/engine/prepare.rs:275`). Driving the lane on a registered project — `forge --registry /tmp/dce21/registry.db release prepare --version 0.1.2 --dry-run --format json` — recorded `{"kind": "doctor", "status": "pass", "applicable": true, "evidence": ["doctor healthy at target maturity"], "detail": "doctor is healthy at the configured target maturity"}`. The lane still runs the doctor without an observation; the doctor now reports what it does not know instead of claiming the project is unregistered. |
+| The registration control follows the observation | PASS | With no observation the `L3-registry` control is not applicable and its evidence names the unknown, so the project is not failed for it; with an observation that says "not registered" it is applicable and unmet. Both are pinned in `tests/doctor_claim_evidence_contract.rs` and `src/doctor/claim_evidence_tests.rs`. |
+| The structure control names its checks | PASS | **Before**: `[PASS] L1-structure (L1): project structure matches the profile layout (L1 structure)`. **After**: `[met] L1-structure (L1): the project carries its manifest and its profile's build definition (L1 structure)` / `evidence: forge.yaml and profile build definition are present`. The profile's layout is not read by the doctor and the control does not start comparing it — a layout comparison would fail four of the six supported profiles' own scaffolds. |
+| The drift evidence names what it compared | PASS | **Before**: `[PASS] dependency-drift (automatic)` / `evidence: manifest runtime agrees with on-disk dependency evidence`. **After**: `[PASS] dependency-drift (automatic)` / `evidence: manifest runtime language 'rust' agrees with profile language 'rust'` / `evidence: the profile's build definition is present (Cargo.toml)` / `detail: no dependency drift detected`. A manifest that declares no runtime language yields `evidence: the manifest declares no runtime language; no manifest language was compared`. The check's logic is unchanged. |
+| The new contract test | PASS | `cargo test --test doctor_claim_evidence_contract` reported `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. It pins the four claims through the public API and the built binary: the CLI and the MCP method each report "not registered" for a project the registry does not hold. |
+| The doctor unit tests | PASS | `cargo test -p forge --lib doctor::` reported `test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 1340 filtered out`, including the six new `doctor::claim_evidence_tests::` cases. |
+| Repository test suite | PASS, 4083 tests / 0 failed | The implementation worker's run of `cargo test --workspace --all-targets --no-fail-fast -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0: 4083 passed, 0 failed, 1 ignored. The 4069-test baseline plus 6 unit tests and 8 contract tests. |
+| A recorded flake, and its remediation | Recorded, not a failure of this change | The owning agent's own suite run over the same tree exited 101 with 4082 passed and 1 failed: `checker_contract::format_json_does_not_alter_checker_stdout`, a pre-existing timing flake. The test runs `forge check` twice and compares the two stdout bytes after stripping only the `"generated_at":"` marker, so two runs that straddle a second boundary differ (`left: "…2026-10-22T05:56:57Z…"` / `right: "…2026-10-22T05:56:58Z…"`). Nothing in the change touches a timestamp, and the fixture is a clean project with zero alerts. The binary passes on re-run — `cargo test --test checker_contract` → `test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` — and the case alone passed three times in a row. Remediation path if it recurs: the assertion should compare the document with the `generated_at` value stripped, not only the key. The Gate's own `tests` check, which runs the suite again, passed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-22T06:28:28Z"` on revision `bf1d8034bf02bda19ee2a07e21c167fddcc21bf6`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) so the `build` check did not lose the shared build lock. The `source-file-size` check reports `evaluated 457 of 457 candidate file(s); maximum 1000 physical line(s)`. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 143 passed, 0 failed (143 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-22-doctor-claim-evidence/`: the new capability `doctor-claim-evidence` was promoted with four requirements, one requirement of `doctor-maturity-assessment` was modified with every canonical scenario kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the doctor's statements name only the checks it performed and the facts it read. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and none in a touched file. `rustfmt --edition 2021 --check` is clean on all seven touched Rust files, and no pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/doctor/runner.rs` 689, `src/doctor/assessment.rs` 607, `src/doctor/mod.rs` 42, `src/doctor/claim_evidence_tests.rs` 269, `src/cli/projects.rs` 333, `src/mcp/params.rs` 249, `tests/doctor_claim_evidence_contract.rs` 377). |
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+One machine event is worth recording. Part-way through the work the
+machine's `/tmp` and the repository's `target/` directory were wiped
+outside this session — the root filesystem had reached 100% with 1.4 GB
+free, and the worker's own run died with a write error (`-122`). Nothing
+in the repository was lost: every change was in the worktree, and the
+workspace was rebuilt from scratch with the SSD cargo home and the SSD
+sccache cache, which made the rebuild a 2m11s `cargo build --workspace`.
+The worker's two Gate runs that failed were timeouts and lock contention
+under that load, not defects: the first reported `adapter project-runtime
+exceeded its timeout of 60000ms` for the `build` check and
+`git ls-files timed out` for `source-file-size`, and the second was run
+while the suite was still running. The Gate recorded in the table above
+was the owning agent's own run, with nothing else on the machine.
+
+Deliberately not done, and stated plainly: the profile's `layout` field is
+unchanged — it stays the profile's declared project structure and
+`forge profile inspect` still shows it; the doctor simply stops claiming
+to compare a project with it, because the scaffolds are the deterministic
+minimal subset of that structure and a layout comparison would fail four
+of the six supported profiles' own scaffolds. The drift check's logic is
+unchanged; only its evidence's wording changed. The staleness rule is
+unchanged. The release lane, the API surfaces and the checker plane are
+untouched: they read the change. The doctor stays read-only.
+
+Implementation/archive commit: `a2ecbe5` (`feat: the doctor's statements
+name only the checks it performs`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

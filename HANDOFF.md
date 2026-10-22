@@ -8224,3 +8224,131 @@ Implementation/archive commit: `cb2f1c4` (`feat: a declared toolchain
 version is a requirement, not decoration`). This HANDOFF-only update is
 the second commit. Nothing was pushed. No active OpenSpec change remains,
 so this file has no `current_spec` pointer.
+
+### `project-status-evidence-truth` implemented and archived (2026-10-22)
+
+`GET /v1/admin/projects/{id}/status` reports three sub-checks — `doctor`,
+`check` and `readiness` — and an overall state. The `doctor` sub-check's
+summary is the only place the evidence behind its own verdict is named.
+
+It named nothing.
+
+```rust
+// src/api/status.rs, before
+let failing = report
+    .findings
+    .iter()
+    .filter(|finding| finding.applicable && finding.status == FindingStatus::Fail)
+    .count();
+let unmet = report.unmet_controls().len();
+if report.healthy {
+    // healthy
+} else if report.stale && failing == 0 && unmet == 0 {
+    // stale
+} else {
+    StatusCheck {
+        id: "doctor",
+        state: STATE_ISSUES,
+        summary: format!("{failing} failing finding(s), {unmet} unmet control(s)"),
+        ...
+```
+
+`failing` counts only `FAIL`. The branch that reports `issues` is entered
+whenever the report is **not healthy**, and the doctor's own `healthy`
+field is false for an `UNAVAILABLE` finding too:
+
+```rust
+// src/doctor/runner.rs
+let healthy = findings
+    .iter()
+    .all(|f| matches!(f.status, FindingStatus::Pass | FindingStatus::Warn))
+    && unmet == 0
+    && !stale;
+```
+
+So a project whose only problem is a check that could not run — not a git
+repository, a host without the DriftWatch adapter — was reported like
+this:
+
+```text
+STATE=issues SUMMARY=0 failing finding(s), 0 unmet control(s)
+```
+
+The state said there were issues. The summary said there were none.
+
+**One response held two counts of the same evidence.** The `check`
+sub-check is computed over the *same* doctor report, and the checker maps
+an unavailable finding to a warning alert (`FindingStatus::Warn |
+FindingStatus::Unavailable => AlertSeverity::Warning`). The same finding
+was `1 warning(s)` in `check` and `0 failing finding(s)` in `doctor`.
+
+**The partition contradicted the capability it implements.** A report that
+is stale *and* carries an unavailable finding was reported `stale`, while
+the canonical requirement says the opposite:
+
+> #### Scenario: Real finding reported honestly
+>
+> - **WHEN** the in-process doctor or checker reports failing or warning
+>   evidence for the project
+> - **THEN** that sub-check and the overall state report `issues`, never
+>   `healthy` or a pass
+
+An unavailable finding *is* warning evidence — the checker's own mapping
+says so.
+
+The rest of the codebase already uses the doctor's own blocking set.
+`DoctorReport::blocking_findings()` is `FAIL` or `UNAVAILABLE`, and the
+release lane blocks on it. The status projection was the one surface that
+re-derived the rule with a narrower filter of its own.
+
+The projection now judges with that set, so its state partition is the
+exact inverse of the doctor's `healthy` field: a report the doctor does
+not call healthy is never projected as `healthy`, and a report it calls
+healthy is never projected as anything else. The summary names the
+failing, the unavailable and the unmet counts apart, so a check that could
+not run is never counted as a failing check, and it can never report no
+problems while its state reports issues.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The projection names the evidence | PASS | Driven over HTTP against the committed tree (`forge --registry <db> api serve --bind 127.0.0.1 --port 47313`, then `GET /v1/admin/projects/unavailable-project/status` with the session cookie and `Origin: http://127.0.0.1:4173`). The fixture is a rust-web L1 project with `forge.yaml`, `Cargo.toml` and `README.md` that is **not** a git repository. **Before**: `{"id":"doctor","state":"issues","summary":"0 failing finding(s), 0 unmet control(s)"}` while the sibling `{"id":"check","state":"issues","summary":"0 error(s), 1 warning(s)"}` named the same finding. **After**: `{"id":"doctor","state":"issues","summary":"0 failing finding(s), 1 unavailable finding(s), 0 unmet control(s)"}` and the unchanged `{"id":"check","state":"issues","summary":"0 error(s), 1 warning(s)"}` — both name the one unavailable finding. The overall state is `issues`. |
+| A stale observation never hides a finding | PASS | Same fixture, with the manifest rewritten after registration so the observation is stale. **Before**: `{"id":"doctor","state":"stale","summary":"the registry observation predates the current manifest; re-register to refresh"}`. **After**: `{"id":"doctor","state":"issues","summary":"0 failing finding(s), 1 unavailable finding(s), 0 unmet control(s); the registry observation is stale"}` — the staleness is named beside the unavailable count instead of carrying the whole verdict on its own. |
+| A healthy project keeps its wording | PASS | `GET /v1/admin/projects/healthy-project/status` (a rust-web L1 git repository with an `origin` remote) returns `{"id":"doctor","state":"healthy","summary":"14 finding(s), 0 unmet control(s); no failing evidence"}` and `{"id":"check","state":"healthy","summary":"no error or warning evidence"}` — byte-identical before and after the change. |
+| The fleet summary counts what the projection produces | PASS | `GET /v1/admin/status` returns `{"counts":{"healthy":1,"issues":1,"stale":0,"unavailable":0},"total":2}` with `healthy-project -> healthy` and `unavailable-project -> issues`. The counts sum to the total, and the stale project is counted `issues` because its doctor sub-check is `issues`. |
+| The new contract test | PASS | `cargo test --test project_status_evidence_truth_contract` → `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. It drives the real session-gated route through the public `forge::api::handle` and compares it with the report the public `forge::doctor::run_doctor` produces for the same directory. **Before** the fix the same file failed: `test result: FAILED. 2 passed; 3 failed`, with `the summary "0 failing finding(s), 0 unmet control(s)" must name the unavailable finding(s) count` and `a stale observation never hides a finding the doctor could not gather / left: String("stale") / right: "issues"`. |
+| The rule's own unit tests | PASS | `cargo test -p forge --lib api::status` → `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1411 filtered out`. The eight cases: the unavailable finding, the failing finding, both apart, the unmet control, the healthy wording, the stale wording, the stale report with an unavailable finding, and the agreement with the check sub-check. |
+| Repository test suite | PASS, 4136 tests / 0 failed | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0. The 222 `test result:` lines sum to **4136 passed, 0 failed, 1 ignored**; `grep -c FAILED` over the whole log returns 0. The previous change's baseline, measured with the same script, was 4123 passed over 221 lines, so this change adds exactly the 13 tests it declares (8 unit cases + 5 contract cases) and exactly one test binary. The 222 lines break into 217 from the root workspace and 5 from the identity-providers workspace the script also runs (13 tests). The one ignored test is `tampering::packing_leaves_the_sibling_checkout_byte_identical`. The known flake `checker_contract::format_json_does_not_alter_checker_stdout` passed in this run, so no re-run was needed. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-22T14:44:14Z"` on revision `3a849825b8d1`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) and the `build` check reported `Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 0.11s`, so it did not lose the shared build lock. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 145 passed, 0 failed (145 items)`, including the new `spec/project-status-evidence-truth` and the modified `spec/forge-web-project-status`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-22-project-status-evidence-truth/`: the new capability `project-status-evidence-truth` was promoted with three requirements, one requirement of `forge-web-project-status` was modified with every canonical scenario kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the doctor sub-check judges with the doctor's own blocking set. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on both touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/api/status.rs` 641, `tests/project_status_evidence_truth_contract.rs` 427). |
+
+Deliberately not done, and stated plainly: the doctor is unchanged — its
+report, its findings, its `healthy` field and its `blocking_findings()` are
+the truth the projection reads. The `check` sub-check is unchanged; it
+already counted an unavailable finding as a warning, and the fix makes the
+doctor sub-check agree with it. The `readiness` sub-check, the overall
+state reduction (`issues` still dominates `unavailable`, `stale` and
+`healthy`), the workbench's health document and the fleet summary's shape
+are unchanged. The summary still surfaces counts, not texts: the route
+names how many findings of each kind there are, never the finding texts,
+the project's path or a credential. The API contract version is unchanged
+— no field is added, removed or renamed. One project's classification does
+change, from `stale` to `issues`, and that is the classification the
+canonical requirement already demanded.
+
+The contract test drives the real route rather than a new public seam:
+`crate::api::status` is a private module, so the projection is not
+reachable from `tests/`. The route passes no policy outcome, so the doctor
+emits no DriftWatch policy finding and the fixture carries exactly one
+unavailable finding — the repository inspector, because the project is not
+a git repository. The counts follow the report, whatever it carries.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `b2cb4f3` (`feat: a status projection names
+the evidence behind its verdict`). This HANDOFF-only update is the second
+commit. Nothing was pushed. No active OpenSpec change remains, so this
+file has no `current_spec` pointer.

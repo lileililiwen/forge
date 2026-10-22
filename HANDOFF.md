@@ -8109,3 +8109,118 @@ Implementation/archive commit: `a2ecbe5` (`feat: the doctor's statements
 name only the checks it performs`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `profile-toolchain-version-truth` implemented and archived (2026-10-22)
+
+Every profile descriptor declares a required toolchain version. Nothing in
+Forge checked it.
+
+```rust
+// src/profile/catalog.rs
+descriptor(
+    "nextjs-web",
+    "0.1.0",
+    "adapter-nextjs",
+    "typescript",
+    "node",
+    Some("20"),          // <- the declared toolchain version
+    ...
+```
+
+`toolchain_version` was read in exactly one place in the whole repository
+— `forge profile inspect` printed it. So the preflight reported the
+toolchain "available" after checking only that a file with that name
+existed on `PATH`, and the readiness matrix — the surface that produces
+*release* evidence — recorded the host's version next to the declared one
+and never compared them:
+
+```text
+$ forge profile preflight nextjs-web
+preflight ok: toolchain 'node' available for profile 'nextjs-web'
+```
+
+Two of the five declarations also contradicted the repository's own
+qualification.
+
+| Profile | Declared | The repository's qualification | Agree? |
+|---|---|---|---|
+| `aspnet-web` | `dotnet@10.0` | `dotnet 10.0.x` (CI) | yes |
+| `python-service` | `python3@3.12` | Python 3.12 (CI) | yes |
+| `nextjs-web` | `node@20` | Node 24 (CI, `node-version: "24"`) | **no** |
+| `react-web` | `npm@20` | Node 24 / npm 11 | **no — and npm has no version 20** |
+| `flutter-app` | `flutter@3.22` | no CI qualification | unverifiable |
+| `rust-web` | `stable` | Rust `stable` | a channel is not a version |
+
+`docs/release-readiness.md` already stated the basis — "`dotnet 10.0.x`,
+matching this qualification; Node 24" — so the repository knew Node 24 was
+the version the Node profiles qualify on. `react-web`'s `npm@20` was not
+merely stale: npm is at 10/11 and never had a version 20. Under Forge's
+own model node and npm are one toolchain (`profile-build-command-runnable`
+decided that for the build command's program), so the number was a node
+version all along.
+
+The declaration is now a requirement, checked by one rule. A profile
+declares the version of the **runtime** that executes its commands; the
+runtime is the ecosystem's binary, so the Node ecosystem's runtime is
+`node` and both Node profiles judge the same node version; the
+comparison is component-wise on the declared version's component count
+(`24` is a major, `3.12` a major and a minor, `10.0` a major and a
+minor), never a string prefix — `3.1` does not satisfy `3.12` and `2` does
+not satisfy `24`. The version is read from the runtime's own banner, so
+`v24.18.0`, `Python 3.14.4`, `Flutter 3.47.1 • channel stable • …` and
+`cargo 1.99.1 (5f94df478 …)` all yield their version.
+
+A toolchain that is present but the wrong version is not missing, so it
+gets its own typed error rather than `toolchain-missing` — reporting a
+present toolchain as unavailable would be the same class of false
+statement this programme has been repairing.
+
+The readiness matrix treats a wrong version like a missing toolchain: the
+row is `unverified`, the mismatch is named, no native command runs, and
+the row records the declaration next to the observation. `failed` keeps
+its meaning — a native command that failed.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The preflight judges the version | PASS | **Before**: every profile reported `preflight ok: toolchain '<name>' available for profile '<id>' (version 0.1.0)` — the check was the binary's presence on `PATH`, never its version. **After**, on this host: `forge profile preflight python-service` → `error[toolchain-version-mismatch]: toolchain 'python3' required by profile 'python-service' is version 3.14.4; the profile declares 3.12; the profile was not tested`, and the same for `flutter-app` (`3.47.1` against `3.22`). On the matching host: `forge profile preflight nextjs-web` → `preflight ok: toolchain 'node' version 24.18.0 satisfies profile 'nextjs-web' (node@24)`, and `forge profile preflight react-web` → `preflight ok: toolchain 'npm' (node) version 24.18.0 satisfies profile 'react-web' (node@24)`. |
+| A profile with no version requirement is unchanged | PASS | `forge profile preflight rust-web` → `preflight ok: toolchain 'cargo' available for profile 'rust-web' (version 0.1.0)`. `rust-web` declares `stable`, a moving channel rather than a version, so it states no version requirement and is judged on presence only. `forge profile preflight aspnet-web` → `preflight ok: toolchain 'dotnet' version 10.0.400 satisfies profile 'aspnet-web' (dotnet@10.0)`. |
+| The matrix judges the version | PASS | `forge readiness matrix` exited 0: `readiness matrix (contract 0.1.0): passed=4 failed=0 unverified=2 ready=false`. `aspnet-web` passed (`dotnet 10.0.400` against the declared `10.0`), `nextjs-web` passed (`node 24.18.0` against `24`), `react-web` passed (`toolchain=npm runtime=node version=24.18.0 declared=24`), `rust-web` passed (`cargo 1.99.1`, no declaration), and the two rows whose host versions are newer than the declaration are `unverified` with the mismatch named: `toolchain 'python3' for profile 'python-service' is version 3.14.4; the profile declares python3@3.12; the profile was not tested`, and the same for `flutter-app` (`3.47.1` against `3.22`). The unverified rows ran no native command. |
+| The release gate still passes | PASS | `forge readiness check --profile rust-web --profile nextjs-web --profile aspnet-web` — the gate CI runs — exited 0 with `gate ready=true` over `passed=3 failed=0 unverified=0 ready=true`, each row's native build and test command passing without Forge on `PATH`. |
+| The profile inspection names the runtime | PASS | **Before**: `toolchain: npm@20` — a version npm does not have. **After**: `toolchain: npm (node@24)`; `forge profile inspect nextjs-web` → `toolchain: node@24`; `forge profile inspect rust-web` → `toolchain: cargo` (a channel states no version). |
+| The new contract test | PASS | `cargo test --test profile_toolchain_version_truth_contract` → `test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. It pins the catalogue's declarations against the versions the CI workflow provisions, the rule, the banner extraction, the runtime resolution, the preflight's refusal, and the matrix's verdict. |
+| The rule's own unit tests | PASS | `cargo test -p forge --lib profile::` → `test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 1372 filtered out`. |
+| Repository test suite | PASS, 4123 tests / 0 failed | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command — exited 0. The `test result:` lines sum to **4123 passed, 0 failed, 1 ignored** across 221 test binaries; the four python checks each printed `ok`; the identity-providers workspace suite ran. The 4083-test baseline plus the contract test's 12 cases and the rule's 28 unit cases. |
+| A recorded flake, and its remediation | Recorded, not a failure of this change | The implementation worker's own Gate run reported `tests -> fail` with `exit 101`. The owning agent then ran the same command — `bash scripts/check-tests.sh` — and it exited 0 with 4123 passed and 0 failed, so the failure was a flake and not a defect. The two flakes this repository has shown in this programme are the timestamp race in `checker_contract::format_json_does_not_alter_checker_stdout` (it compares two `forge check` runs after stripping only the `"generated_at":"` marker, so two runs straddling a second boundary differ) and the Flutter SDK crash in `profile_build_command_runnable_contract` (the Dart VM service is unavailable while resolving packages). Remediation path for the first: the assertion should compare the document with the `generated_at` value stripped, not only the key. The Gate recorded in the table above is the owning agent's own clean run, with nothing else on the machine. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-22T09:49:05Z"` on revision `049698661762abd7b89e846e2003fb019896bdad`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) and nothing else was running on the machine, so the `build` check did not lose the shared build lock. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 144 passed, 0 failed (144 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-22-profile-toolchain-version-truth/`: the new capability `profile-toolchain-version-truth` was promoted with four requirements, one requirement of `profile-registry` and one of `profile-and-release-readiness` were modified with every canonical scenario kept and one scenario added each, the archive's `TBD` Purpose was replaced by hand with the real one, and both modified capabilities' purposes now state that a declared toolchain version is a requirement the surfaces check. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all eleven touched Rust files, and no pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/profile/version.rs` 390, `src/profile/resolve.rs` 720, `src/profile/catalog.rs` 662, `src/profile/model.rs` 128, `src/profile/mod.rs` 29, `src/readiness/mod.rs` 971, `src/cli/feature.rs` 833, `src/cli/setup.rs` 541, `src/core/mod.rs` 694, `tests/profile_toolchain_version_truth_contract.rs` 261, `tests/readiness_contract.rs` 268). |
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+The host's own toolchain versions, with the repository's environment
+sourced, are `node` 24.18.0 / `npm` 11.16.0, `python3` 3.14.4, `dotnet`
+10.0.400, `flutter` 3.47.1 and `cargo` 1.99.1. Two of them are newer
+than the profiles that declare them, which is why `python-service` and
+`flutter-app` are `unverified` here; the Node rows pass because the
+declaration is the Node version CI provisions.
+
+Deliberately not done, and stated plainly: the doctor gains no toolchain
+finding — it never claimed anything about the toolchain, so there is
+nothing to repair there. The `failed` matrix state keeps its meaning of a
+native command that failed; a version mismatch is `unverified`. The
+readiness gate's qualified subset is unchanged: which profiles a runner
+qualifies for is still the operator's selection, and only each row's
+verdict became honest about the toolchain it ran on. The toolchain
+*names* are unchanged — `react-web` still pins `npm` and `nextjs-web`
+still pins `node` — because `profile-build-command-runnable` decided that
+and this change does not reopen it. The generator's `--verify-native`
+refusal is unchanged: it reports a missing toolchain, which is what it
+checks. The manifest is unchanged. The profile set is unchanged.
+
+Implementation/archive commit: `cb2f1c4` (`feat: a declared toolchain
+version is a requirement, not decoration`). This HANDOFF-only update is
+the second commit. Nothing was pushed. No active OpenSpec change remains,
+so this file has no `current_spec` pointer.

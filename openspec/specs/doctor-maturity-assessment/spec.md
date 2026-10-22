@@ -1,11 +1,11 @@
 # doctor-maturity-assessment Specification
 
 ## Purpose
-Read-only maturity assessment through forge doctor: a stable finding inventory (PASS/WARN/FAIL/UNAVAILABLE) with evidence and remediation classes, target-gated L0–L4 applicability shared by each configuration finding and the control it mirrors, registry-observation staleness, and a build configuration judged against the build definition the project's profile expects, never masking missing evidence as healthy and never reporting a check the doctor cannot run as a failure of the project.
+Read-only maturity assessment through forge doctor: a stable finding inventory (PASS/WARN/FAIL/UNAVAILABLE) with evidence and remediation classes, target-gated L0–L4 applicability shared by each configuration finding and the control it mirrors, registry-observation staleness, a build configuration judged against the build definition the project's profile expects, and statements that name only the checks the doctor performed and the facts it read — an unknown registration state reported as unknown rather than asserted, never masking missing evidence as healthy and never reporting a check the doctor cannot run as a failure of the project.
 ## Requirements
 ### Requirement: Doctor finding inventory
 
-Forge SHALL implement forge doctor checking manifest, missing/outdated features, dependency drift, build/deployment configuration, repository, CI, documentation, delivery state and maturity requirements, returning evidence and remediation classification. Forge SHALL judge a project's build configuration against the build definition its profile expects, and SHALL report a check it cannot evaluate as unavailable rather than as a failure of the project. Forge SHALL apply the same applicability rule to a configuration finding and to the maturity control that mirrors it, so that a finding and its control never disagree about whether the project requires the configuration.
+Forge SHALL implement forge doctor checking manifest, missing/outdated features, dependency drift, build/deployment configuration, repository, CI, documentation, delivery state and maturity requirements, returning evidence and remediation classification. Forge SHALL judge a project's build configuration against the build definition its profile expects, and SHALL report a check it cannot evaluate as unavailable rather than as a failure of the project. Forge SHALL apply the same applicability rule to a configuration finding and to the maturity control that mirrors it, so that a finding and its control never disagree about whether the project requires the configuration. Forge SHALL state in a finding's evidence and in a control's requirement text only the checks the doctor performed and the facts it read, and SHALL report a fact it cannot know as unknown rather than asserting it.
 
 #### Scenario: Doctor finding inventory success
 
@@ -39,6 +39,14 @@ Forge SHALL implement forge doctor checking manifest, missing/outdated features,
 - **THEN** the configuration finding is reported as not applicable with
   its evidence, and the mirrored control is reported as not applicable
   too
+
+#### Scenario: A statement names the check behind it
+
+- **WHEN** doctor runs on a project and the caller supplies no registry
+  observation
+- **THEN** the `registry-observation` finding is reported as not applicable
+  with evidence naming the unknown, and the `L3-registry` control agrees
+  with it
 
 ### Requirement: Evidence-based maturity levels
 

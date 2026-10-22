@@ -23,6 +23,7 @@
 //! controls.
 
 pub mod assessment;
+pub mod claim_evidence_tests;
 pub mod delivery;
 pub mod delivery_tests;
 pub mod doctor_tests;

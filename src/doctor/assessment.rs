@@ -95,6 +95,11 @@ pub(super) fn assess_maturity(
     let (dw_present, dw_evidence) = detect_driftwatch(dir);
     let (deploy_present, deploy_evidence) = detect_deployment(dir);
 
+    // The registration state is only known when the caller supplied an
+    // observation. Without one the control says so and stays not
+    // applicable, so the project is never failed for a fact the doctor
+    // never read.
+    let registration_known = observation.is_some();
     let registered = observation.map(|o| o.registered).unwrap_or(false);
     let distribution_met = manifest
         .distribution
@@ -170,7 +175,7 @@ pub(super) fn assess_maturity(
         control(
             "L1-structure",
             Maturity::L1,
-            "project structure matches the profile layout (L1 structure)",
+            "the project carries its manifest and its profile's build definition (L1 structure)",
             at_least(Maturity::L1),
             structure_met,
             structure_evidence,
@@ -283,13 +288,20 @@ pub(super) fn assess_maturity(
             "L3-registry",
             Maturity::L3,
             "project is registered (L3 registry)",
-            at_least(Maturity::L3),
+            at_least(Maturity::L3) && registration_known,
             registered,
-            vec![if registered {
-                "project is registered".to_string()
+            if registration_known {
+                vec![if registered {
+                    "project is registered".to_string()
+                } else {
+                    "project is not registered".to_string()
+                }]
             } else {
-                "project is not registered".to_string()
-            }],
+                vec![
+                    "no registry observation was supplied; the registration state is unknown to the doctor"
+                        .to_string(),
+                ]
+            },
         ),
         control(
             "L3-distribution",

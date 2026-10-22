@@ -179,10 +179,31 @@ pub fn run_doctor(
             drift.push(evidence.join("; "));
         }
         if drift.is_empty() {
+            // The check compared the manifest's runtime language with the
+            // profile's language and asked whether the profile's build
+            // definition is present. The evidence names exactly those two
+            // facts, and says so when no language was compared at all.
+            let mut evidence = Vec::new();
+            if manifest_lang.is_empty() {
+                evidence.push(
+                    "the manifest declares no runtime language; no manifest language was compared"
+                        .to_string(),
+                );
+            } else {
+                evidence.push(format!(
+                    "manifest runtime language '{manifest_lang}' agrees with profile language '{expected_lang}'"
+                ));
+            }
+            if let BuildDefinitionOutcome::Present(found) = &build_definition {
+                evidence.push(format!(
+                    "the profile's build definition is present ({})",
+                    found.join(", ")
+                ));
+            }
             findings.push(Finding::new(
                 "dependency-drift",
                 FindingStatus::Pass,
-                vec!["manifest runtime agrees with on-disk dependency evidence".to_string()],
+                evidence,
                 true,
                 Remediation::Automatic,
                 "no dependency drift detected",
@@ -366,7 +387,11 @@ pub fn run_doctor(
         findings.push(finding);
     }
 
-    // Registry observation: registered + fresh / stale / not registered.
+    // Registry observation: registered + fresh / stale / not registered /
+    // no observation at all. The doctor never opens the registry itself, so
+    // a caller that supplied no observation leaves the registration state
+    // unknown; only an observation that says the project is not registered
+    // can report that state.
     let mtime = manifest_mtime(dir);
     let mut stale = false;
     match observation {
@@ -400,7 +425,7 @@ pub fn run_doctor(
                 ));
             }
         }
-        _ => {
+        Some(_obs) => {
             findings.push(Finding::new(
                 "registry-observation",
                 FindingStatus::Warn,
@@ -408,6 +433,19 @@ pub fn run_doctor(
                 true,
                 Remediation::Automatic,
                 "project is not registered",
+            ));
+        }
+        None => {
+            findings.push(Finding::new(
+                "registry-observation",
+                FindingStatus::Pass,
+                vec![
+                    "no registry observation was supplied; the registration state is unknown to the doctor"
+                        .to_string(),
+                ],
+                false,
+                Remediation::Automatic,
+                "no registry observation was supplied; the doctor does not open the registry itself",
             ));
         }
     }

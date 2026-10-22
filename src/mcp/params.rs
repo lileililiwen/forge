@@ -191,11 +191,17 @@ pub(super) fn open_registry(db_path: &Path) -> Result<Registry, McpRpcError> {
 
 pub(super) fn observation_for(registry: &Registry, path: &Path) -> Option<RegistryObservation> {
     let canonical = path.canonicalize().ok()?.display().to_string();
-    let record = registry
-        .list()
-        .ok()?
-        .into_iter()
-        .find(|p| p.path == canonical)?;
+    let records = registry.list().ok()?;
+    let Some(record) = records.into_iter().find(|p| p.path == canonical) else {
+        // The registry was consulted and holds no record for this path, so
+        // the project is genuinely not registered. Say so, so the doctor
+        // reports a fact the caller actually read.
+        return Some(RegistryObservation {
+            registered: false,
+            observed_at: None,
+            delivery: None,
+        });
+    };
     // The delivery state is read through the delivery lane's own
     // projection, so this surface reports the same delivery finding as
     // the CLI and the API.

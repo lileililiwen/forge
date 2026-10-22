@@ -117,7 +117,8 @@ Findings:
     evidence: no capabilities requested
     detail: requested capabilities are compatible with the profile
   [PASS] dependency-drift (automatic)
-    evidence: manifest runtime agrees with on-disk dependency evidence
+    evidence: manifest runtime language 'rust' agrees with profile language 'rust'
+    evidence: the profile's build definition is present (Cargo.toml)
     detail: no dependency drift detected
   [PASS] build-config (automatic)
     evidence: Cargo.toml

@@ -18,7 +18,7 @@ use super::model::{
 use super::probes::{
     declaration_vocabulary_finding, dependency_text, detect_ci, detect_deployment, detect_docs,
     detect_driftwatch, file_exists, gate_evidence_finding, has_build_definition, maturity_name,
-    probe_git_remote, release_evidence_finding, BuildDefinitionOutcome,
+    maturity_rank, probe_git_remote, release_evidence_finding, BuildDefinitionOutcome,
 };
 
 /// Run the read-only doctor inspection over a project directory.
@@ -243,21 +243,11 @@ pub fn run_doctor(
     }
 
     let (deploy_present, deploy_evidence) = detect_deployment(dir);
-    findings.push(Finding::new(
-        "deployment-config",
-        if deploy_present {
-            FindingStatus::Pass
-        } else {
-            FindingStatus::Warn
-        },
+    findings.push(configuration_finding(
+        ConfigurationKind::Deployment,
+        deploy_present,
         deploy_evidence,
-        true,
-        Remediation::Manual,
-        if deploy_present {
-            "deployment configuration is present"
-        } else {
-            "no deployment configuration; required for L2 deployment"
-        },
+        configuration_required(&manifest, target, ConfigurationKind::Deployment),
     ));
 
     // Repository: detected / missing / unknown (unknown is never PASS).
@@ -289,21 +279,11 @@ pub fn run_doctor(
     }
 
     let (ci_present, ci_evidence) = detect_ci(dir);
-    findings.push(Finding::new(
-        "ci-config",
-        if ci_present {
-            FindingStatus::Pass
-        } else {
-            FindingStatus::Warn
-        },
+    findings.push(configuration_finding(
+        ConfigurationKind::Ci,
+        ci_present,
         ci_evidence,
-        true,
-        Remediation::Automatic,
-        if ci_present {
-            "ci configuration is present"
-        } else {
-            "no ci configuration; required for L2 ci"
-        },
+        configuration_required(&manifest, target, ConfigurationKind::Ci),
     ));
 
     let (docs_present, docs_evidence) = detect_docs(dir, &manifest);
@@ -355,21 +335,11 @@ pub fn run_doctor(
     }
 
     let (dw_present, dw_evidence) = detect_driftwatch(dir);
-    findings.push(Finding::new(
-        "driftwatch-config",
-        if dw_present {
-            FindingStatus::Pass
-        } else {
-            FindingStatus::Warn
-        },
+    findings.push(configuration_finding(
+        ConfigurationKind::Driftwatch,
+        dw_present,
         dw_evidence,
-        true,
-        Remediation::Automatic,
-        if dw_present {
-            "driftwatch configuration is present"
-        } else {
-            "no driftwatch configuration; required for L2 driftwatch (execution belongs to v0.3)"
-        },
+        configuration_required(&manifest, target, ConfigurationKind::Driftwatch),
     ));
 
     // DriftWatch policy findings. The execution path is delegated to
@@ -529,4 +499,153 @@ pub(super) fn control(
         met: met && applicable,
         evidence,
     }
+}
+
+/// The configuration findings that mirror an L2 maturity control.
+///
+/// Each kind names the finding, the configuration it looks for and the
+/// control it mirrors. The applicability rule is shared by all three,
+/// so a finding and its control never disagree about whether the
+/// project requires the configuration.
+#[derive(Debug, Clone, Copy)]
+enum ConfigurationKind {
+    Ci,
+    Deployment,
+    Driftwatch,
+}
+
+impl ConfigurationKind {
+    /// The stable finding ID.
+    fn id(self) -> &'static str {
+        match self {
+            ConfigurationKind::Ci => "ci-config",
+            ConfigurationKind::Deployment => "deployment-config",
+            ConfigurationKind::Driftwatch => "driftwatch-config",
+        }
+    }
+
+    /// The configuration's name, as the not-applicable detail names it.
+    fn label(self) -> &'static str {
+        match self {
+            ConfigurationKind::Ci => "CI",
+            ConfigurationKind::Deployment => "deployment",
+            ConfigurationKind::Driftwatch => "DriftWatch",
+        }
+    }
+
+    /// Who applies the fix when the configuration is missing.
+    fn remediation(self) -> Remediation {
+        match self {
+            ConfigurationKind::Ci => Remediation::Automatic,
+            ConfigurationKind::Deployment => Remediation::Manual,
+            ConfigurationKind::Driftwatch => Remediation::Automatic,
+        }
+    }
+
+    /// The detail of a configuration the project requires and has.
+    fn present_detail(self) -> &'static str {
+        match self {
+            ConfigurationKind::Ci => "ci configuration is present",
+            ConfigurationKind::Deployment => "deployment configuration is present",
+            ConfigurationKind::Driftwatch => "driftwatch configuration is present",
+        }
+    }
+
+    /// The detail of a configuration the project requires and lacks.
+    fn missing_detail(self) -> &'static str {
+        match self {
+            ConfigurationKind::Ci => "no ci configuration; required for L2 ci",
+            ConfigurationKind::Deployment => "no deployment configuration; required for L2 deployment",
+            ConfigurationKind::Driftwatch => {
+                "no driftwatch configuration; required for L2 driftwatch (execution belongs to v0.3)"
+            }
+        }
+    }
+}
+
+/// The level whose controls the configuration findings mirror.
+const CONFIGURATION_LEVEL: Maturity = Maturity::L2;
+
+/// The DriftWatch release check kind, spelled as the release lane
+/// spells it.
+const DRIFTWATCH_CHECK_KIND: &str = "driftwatch";
+
+/// Whether the project's target maturity reaches the level that declares
+/// the configuration controls (`L2-ci`, `L2-deployment`, `L2-driftwatch`).
+fn target_reaches_configuration_level(target: Maturity) -> bool {
+    maturity_rank(target) >= maturity_rank(CONFIGURATION_LEVEL)
+}
+
+/// Whether the manifest's release checks declare a DriftWatch check.
+///
+/// The release lane reads the DriftWatch requirement from the project's
+/// own declaration, so the doctor reads the same list.
+fn manifest_declares_driftwatch(manifest: &Manifest) -> bool {
+    manifest.release.as_ref().is_some_and(|release| {
+        release
+            .checks
+            .iter()
+            .any(|check| check.kind == DRIFTWATCH_CHECK_KIND)
+    })
+}
+
+/// The one applicability rule a configuration finding and the maturity
+/// control it mirrors share.
+///
+/// A project requires the configuration when its target maturity reaches
+/// the level that declares the control. The DriftWatch configuration is
+/// also required when the manifest declares a DriftWatch release check,
+/// which is the rule the release lane already applies.
+fn configuration_required(manifest: &Manifest, target: Maturity, kind: ConfigurationKind) -> bool {
+    if target_reaches_configuration_level(target) {
+        return true;
+    }
+    match kind {
+        ConfigurationKind::Driftwatch => manifest_declares_driftwatch(manifest),
+        ConfigurationKind::Ci | ConfigurationKind::Deployment => false,
+    }
+}
+
+/// Build one configuration finding.
+///
+/// A configuration the project requires keeps today's behaviour: `pass`
+/// when it is present, `warn` when it is missing, with today's detail.
+/// A configuration the project does not require is reported as not
+/// applicable: the absence stays in the evidence, the requirement is not
+/// invented, and no surface renders it as a warning.
+fn configuration_finding(
+    kind: ConfigurationKind,
+    present: bool,
+    evidence: Vec<String>,
+    required: bool,
+) -> Finding {
+    if !required {
+        return Finding::new(
+            kind.id(),
+            FindingStatus::Pass,
+            evidence,
+            false,
+            kind.remediation(),
+            format!(
+                "the project does not require a {} configuration at its target maturity",
+                kind.label()
+            ),
+        );
+    }
+    Finding::new(
+        kind.id(),
+        if present {
+            FindingStatus::Pass
+        } else {
+            FindingStatus::Warn
+        },
+        evidence,
+        true,
+        kind.remediation(),
+        if present {
+            kind.present_detail()
+        } else {
+            kind.missing_detail()
+        },
+    )
 }

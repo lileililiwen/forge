@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 pub(super) mod tests {
-    use super::super::model::{FindingStatus, RegistryObservation, Remediation};
+    use super::super::model::{Finding, FindingStatus, RegistryObservation, Remediation};
     use super::super::probes::parse_target_level;
     use super::super::runner::run_doctor;
 
@@ -30,6 +30,22 @@ pub(super) mod tests {
         format!(
             "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: react-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: typescript\n"
         )
+    }
+
+    /// A Rust project manifest at one maturity level.
+    fn rust_manifest_at(id: &str, maturity: &str) -> String {
+        format!(
+            "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: rust-web\n  maturity: {maturity}\n  target_maturity: {maturity}\nruntime:\n  language: rust\n"
+        )
+    }
+
+    /// One finding of a doctor report.
+    fn finding_of<'a>(report: &'a crate::doctor::DoctorReport, id: &str) -> &'a Finding {
+        report
+            .findings
+            .iter()
+            .find(|f| f.id == id)
+            .unwrap_or_else(|| panic!("{id} finding must be present"))
     }
 
     fn no_registry() -> Option<RegistryObservation> {
@@ -76,6 +92,99 @@ pub(super) mod tests {
             .unwrap();
         assert_eq!(build.status, FindingStatus::Fail);
         assert!(!report.healthy);
+    }
+
+    /// The configuration findings and the maturity controls they mirror.
+    const CONFIGURATION_FINDINGS: [(&str, &str); 3] = [
+        ("ci-config", "L2-ci"),
+        ("deployment-config", "L2-deployment"),
+        ("driftwatch-config", "L2-driftwatch"),
+    ];
+
+    /// A Rust project manifest that declares the DriftWatch release check
+    /// at L1: the project's own declaration requires the configuration.
+    fn checked_manifest(id: &str) -> String {
+        format!(
+            "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: rust-web\n  maturity: L1\n  target_maturity: L1\nruntime:\n  language: rust\nrelease:\n  versioning: semver\n  checks:\n    - kind: driftwatch\n"
+        )
+    }
+
+    #[test]
+    fn configuration_findings_are_not_applicable_below_the_declared_level() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest_at("l1-proj", "L1"));
+        write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        for (id, control_id) in CONFIGURATION_FINDINGS {
+            let config = finding_of(&report, id);
+            assert!(!config.applicable, "{id} must not be applicable at L1");
+            assert_eq!(config.status, FindingStatus::Pass, "{id} must not warn");
+            assert!(
+                config.evidence.iter().any(|e| e.starts_with("no ")),
+                "{id} must keep the absence in its evidence: {:?}",
+                config.evidence
+            );
+            let mirrored = report.controls.iter().find(|c| c.id == control_id).unwrap();
+            assert!(!mirrored.applicable, "{id} and {control_id} must agree");
+        }
+    }
+
+    #[test]
+    fn configuration_findings_warn_at_the_declared_level() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &rust_manifest_at("l2-proj", "L2"));
+        write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        for (id, _) in CONFIGURATION_FINDINGS {
+            let config = finding_of(&report, id);
+            assert!(config.applicable, "{id} must be applicable at L2");
+            assert_eq!(config.status, FindingStatus::Warn, "{id} must warn");
+            assert!(
+                config.detail.contains("required for L2"),
+                "{id} must name the requirement: {}",
+                config.detail
+            );
+        }
+    }
+
+    #[test]
+    fn a_declared_driftwatch_check_requires_the_configuration_at_l1() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "forge.yaml", &checked_manifest("checked-proj"));
+        write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        let driftwatch = finding_of(&report, "driftwatch-config");
+        assert!(
+            driftwatch.applicable,
+            "a declared check requires the config"
+        );
+        assert_eq!(driftwatch.status, FindingStatus::Warn, "the check warns");
+        for id in ["ci-config", "deployment-config"] {
+            assert!(
+                !finding_of(&report, id).applicable,
+                "{id} is not declared and must stay not applicable"
+            );
+        }
+    }
+
+    #[test]
+    fn a_present_configuration_passes_at_the_declared_level() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "forge.yaml",
+            &rust_manifest_at("configured-proj", "L2"),
+        );
+        write(tmp.path(), "Cargo.toml", "[package]\nname = \"demo\"\n");
+        write(tmp.path(), "Dockerfile", "FROM scratch\n");
+        write(tmp.path(), ".gitlab-ci.yml", "stages: [build]\n");
+        write(tmp.path(), "driftwatch.yaml", "version: 1\n");
+        let report = run_doctor(tmp.path(), None, no_registry().as_ref(), None).unwrap();
+        for (id, _) in CONFIGURATION_FINDINGS {
+            let config = finding_of(&report, id);
+            assert!(config.applicable, "{id} must be applicable at L2");
+            assert_eq!(config.status, FindingStatus::Pass, "{id} must pass");
+        }
     }
 
     #[test]

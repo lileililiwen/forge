@@ -434,7 +434,11 @@ fn doctor_recognizes_the_real_driftwatch_markers() {
     let out = run_with_driftwatch(&db, &["doctor", &bare.display().to_string()], &bogus);
     let value = doctor_json(&out);
     let config = findings_of(&value, "driftwatch-config");
-    assert_eq!(config[0]["status"], "warn");
+    // The project targets L1 and declares no driftwatch check, so it does
+    // not require the configuration: the absence is reported as not
+    // applicable, never as a warning about a level it did not ask for.
+    assert_eq!(config[0]["applicable"], false, "{config:?}");
+    assert_eq!(config[0]["status"], "pass", "{config:?}");
     assert!(
         config[0]["evidence"].as_array().unwrap().iter().any(|e| e
             .as_str()

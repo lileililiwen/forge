@@ -396,7 +396,10 @@ fn doctor_recognizes_sibling_markers() {
             "{marker}: {dw}"
         );
     }
-    // No markers stay a distinct state from any configured outcome.
+    // No markers stay a distinct state from any configured outcome: the
+    // project targets L1 and declares no driftwatch check, so it does not
+    // require the configuration and the absence is reported as not
+    // applicable, with the absence still named in the evidence.
     let proj = rust_proj(tmp.path());
     let out = forge(&db, &empty, &["doctor", proj.to_str().unwrap()]);
     let findings = doctor_dw_findings(&out);
@@ -404,7 +407,8 @@ fn doctor_recognizes_sibling_markers() {
         .iter()
         .find(|f| f["id"] == "driftwatch-config")
         .expect("config finding present");
-    assert_eq!(dw["status"], "warn");
+    assert_eq!(dw["applicable"], false, "{dw}");
+    assert_eq!(dw["status"], "pass", "{dw}");
     assert!(dw["evidence"]
         .to_string()
         .contains("no driftwatch configuration"));

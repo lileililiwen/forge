@@ -76,6 +76,12 @@ fn rust_manifest(id: &str) -> String {
     )
 }
 
+fn rust_manifest_at(id: &str, target: &str) -> String {
+    format!(
+        "schema: 1\nproject:\n  id: {id}\n  name: {id}\n  profile: rust-web\n  maturity: L1\n  target_maturity: {target}\nruntime:\n  language: rust\n"
+    )
+}
+
 fn git(dir: &Path, args: &[&str]) {
     let out = Command::new("git")
         .arg("-C")
@@ -91,9 +97,17 @@ fn git(dir: &Path, args: &[&str]) {
 /// DriftWatch config, git repository with an origin remote and a fresh
 /// registry observation.
 fn clean_project(parent: &Path, db: &Path, id: &str) -> PathBuf {
+    clean_project_at(parent, db, id, "L1")
+}
+
+/// A registered project whose every assessment plane passes, at one
+/// target maturity: schema-valid manifest, build definition, README,
+/// deployment config, CI, DriftWatch config, git repository with an
+/// origin remote and a fresh registry observation.
+fn clean_project_at(parent: &Path, db: &Path, id: &str, target: &str) -> PathBuf {
     let proj = parent.join(id);
     fs::create_dir_all(&proj).unwrap();
-    write_file(&proj, "forge.yaml", &rust_manifest(id));
+    write_file(&proj, "forge.yaml", &rust_manifest_at(id, target));
     write_file(&proj, "Cargo.toml", "[package]\nname = \"demo\"\n");
     write_file(&proj, "README.md", "# demo\n");
     write_file(&proj, "Dockerfile", "FROM scratch\n");
@@ -355,9 +369,10 @@ fn unregistered_target_fails_without_any_document() {
 fn truncation_is_bounded_and_explicit() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
-    let proj = clean_project(tmp.path(), &db, "bound-app");
-    // Drop the CI, DriftWatch and deployment configs: three warn
-    // findings to exceed a small bound.
+    let proj = clean_project_at(tmp.path(), &db, "bound-app", "L2");
+    // Drop the CI, DriftWatch and deployment configs: the project targets
+    // L2, so the three missing configurations are three warn findings to
+    // exceed a small bound.
     fs::remove_file(proj.join(".github/workflows/ci.yml")).unwrap();
     fs::remove_file(proj.join("driftwatch.yaml")).unwrap();
     fs::remove_file(proj.join("Dockerfile")).unwrap();

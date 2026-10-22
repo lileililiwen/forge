@@ -1,7 +1,7 @@
 # deterministic-project-generation Specification
 
 ## Purpose
-Deterministic project creation through forge new with explicit or interactive profile selection, rendering pinned native-buildable templates that produce equivalent ordinary source from identical inputs and keep working without Forge.
+Deterministic project creation through forge new with explicit or interactive profile selection, rendering pinned native-buildable templates that produce equivalent ordinary source from identical inputs, keep working without Forge, and build with the stack toolchain the profile declares.
 ## Requirements
 ### Requirement: Equivalent deterministic creation modes
 
@@ -24,7 +24,7 @@ Forge SHALL implement forge new with explicit profile selection and interactive 
 
 ### Requirement: Portable generated projects
 
-Forge SHALL generate the five MVP profile projects with manifests and documented native build/test commands, without a Forge runtime dependency.
+Forge SHALL generate the five MVP profile projects with manifests and documented native build/test commands, without a Forge runtime dependency. Each documented native build command SHALL run with the stack toolchain the profile declares.
 
 #### Scenario: Portable generated projects success
 
@@ -40,6 +40,12 @@ Forge SHALL generate the five MVP profile projects with manifests and documented
 
 - **WHEN** a host lacks a target stack toolchain
 - **THEN** Forge reports that native validation is unverified and does not claim a successful build
+
+#### Scenario: The documented build command runs with the stack toolchain
+
+- **WHEN** a generated fixture is built with its stack toolchain alone
+- **THEN** the profile's declared build command succeeds without a
+  network install and without a package outside that toolchain
 
 ### Requirement: Workspace-compatible project metadata
 

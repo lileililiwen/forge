@@ -16,7 +16,7 @@ const MATRIX: [(&str, &str); 6] = [
     ("aspnet-web", "dotnet build"),
     ("flutter-app", "flutter build bundle"),
     ("nextjs-web", "npm run build"),
-    ("python-service", "python3 -m build"),
+    ("python-service", "python3 -m compileall -q app tests"),
     ("react-web", "npm run build"),
     ("rust-web", "cargo build"),
 ];

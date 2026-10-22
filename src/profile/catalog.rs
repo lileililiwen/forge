@@ -545,7 +545,7 @@ fn mvp_profiles_supported() -> Vec<ProfileDescriptor> {
                 "alembic-migrations",
                 "pydantic-boundaries",
             ],
-            "python3 -m build",
+            "python3 -m compileall -q app tests",
             "python3 -m unittest discover -s tests -v",
             Some("container"),
             Some("home-server-01"),

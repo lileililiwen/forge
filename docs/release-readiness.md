@@ -88,9 +88,9 @@ the six toolchains. Runner prerequisite:
   SDK; without it the row is `unverified`. The app store package
   (`flutter build appbundle`) remains a release-stage command requiring
   `android/` and the Android SDK.
-- `python-service` `python3 -m build` requires the `build` module;
-  without it the row is `unverified` with the prerequisite named.
-  `python3 -m unittest discover -s tests -v` needs no third-party runner.
+- `python-service` (`python3 -m compileall -q app tests` /
+  `python3 -m unittest discover -s tests -v`) needs only the `python3`
+  toolchain; neither command needs a third-party runner.
 - Planned specialist profiles (`rust-cli`, `aspnet-saas`, …) stay
   `unsupported-profile`: discoverable via `forge profile inspect`, never
   matrix rows and never gate members.

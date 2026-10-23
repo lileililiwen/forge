@@ -9096,3 +9096,119 @@ Implementation/archive commit: `e4b39ea` (`feat: the translate verdict
 names the review status it carries`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `publish-reachability-truth` implemented and archived (2026-10-23)
+
+`forge publish` runs the publish stages on the target and then states
+what the run achieved. The canonical capability says what a deploy
+publishes:
+
+> #### Scenario: Caddy renders after fleet
+>
+> - **WHEN** `forge publish fleet` finishes with 20/20 healthy
+> - **THEN** `PLATFORM_ROOT/Caddyfile` contains one host rule per
+>   published project at `<project>.tooosall.uk` and the `apps` nav
+>   host
+
+and how the public address reaches the target: "route public HTTP
+hosts through the existing wildcard Cloudflare → Caddy boundary".
+
+So the address is real. The Cloudflare tunnel fronts the Caddy router
+on the Mac (`ssh mac`), the deploy stage ships the router documents
+that carry the host rule for `<project>.<domain>`, and the router is
+reloaded. The run establishes that the routing for that address is in
+place.
+
+The summary then claimed more than the run established:
+
+```rust
+// src/publish/pipeline.rs, before
+} else if healthy {
+    "publish succeeded; project reachable at subdomain".to_string()
+} else {
+```
+
+**Nothing in the run observed a reachability.** The deploy stage runs
+`docker compose up -d --build` for the project, ships the router
+documents, and reloads the router. No stage probes the Cloudflare
+tunnel, resolves the wildcard DNS, or sends a request to the host.
+
+And for three of the four actions the claim named an address the
+report did not even carry. The subdomain is assigned only for a deploy:
+
+```rust
+// src/publish/pipeline.rs, before
+if matches!(action, PublishAction::Deploy) && is_ok {
+    subdomain = adapter.subdomain(&request.project_id);
+}
+```
+
+so a healthy `forge publish sync` printed a summary claiming the
+project is "reachable at subdomain" while the report carried no
+subdomain and the human renderer printed no `subdomain:` line at all.
+
+**One string, read by every surface.** The note is the summary the
+human renderer prints, the `note` the JSON document carries, and the
+`reason` the CLI puts on a publish failure — in `src/cli/publish.rs`,
+`src/cli/release.rs`, `src/cli/gitops.rs` and `src/cli/fleet_exec.rs`.
+One claim, many surfaces, and the claim was not earned.
+
+There is now one rule, in the one place the note is built: the publish
+summary states what the run established. A healthy publish that carries
+a subdomain says `publish succeeded; the project is published at
+https://<subdomain>`; a healthy publish that carries none says
+`publish succeeded; no subdomain was published for this action`. The
+word "reachable" is gone. The dry-run and failure summaries are
+unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own reading of the code: `src/publish/pipeline.rs` built the healthy note as the literal `"publish succeeded; project reachable at subdomain"`, and the subdomain was assigned only under `matches!(action, PublishAction::Deploy) && is_ok`, so a healthy `Sync` published a summary naming a subdomain its report did not carry. |
+| The healthy deploy | PASS | `src/publish/pipeline.rs::tests::healthy_deploy_note_names_the_published_address`: a healthy deploy's note is exactly `publish succeeded; the project is published at https://demo.stub.test`, the report carries the subdomain `demo.stub.test`, and the note does not contain `reachable`. |
+| The healthy sync | PASS | `::tests::healthy_sync_note_says_no_subdomain_was_published`: a healthy sync's note is exactly `publish succeeded; no subdomain was published for this action`, the report carries no subdomain, and the note contains neither `https://` nor `reachable`. |
+| The healthy all run | PASS | `::tests::healthy_all_note_names_the_published_address`: the `all` run includes the deploy, so the report carries the subdomain and the note is exactly `publish succeeded; the project is published at https://demo.stub.test`. |
+| The unchanged notes | PASS | `::tests::dry_run_and_failure_notes_are_unchanged`: the dry-run note is still `dry-run: 4 stage(s) planned, no side effects` and the failure note is still `publish did not complete; see stages for failure detail`, and the failed report is not healthy. |
+| One note, every surface | PASS | `::tests::one_note_is_read_by_the_renderer_and_the_json_document`: the human renderer prints `summary: {note}` with the same note and still prints `subdomain: https://demo.stub.test`, and the JSON document's `note` equals `report.note`. The CLI's publish failure reasons in `src/cli/publish.rs`, `src/cli/release.rs`, `src/cli/gitops.rs` and `src/cli/fleet_exec.rs` all copy `report.note.clone()`, so they read the same one. |
+| The new unit tests | PASS | `cargo test -p forge --lib publish::` → `test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 1258 filtered out`. The six new cases: `healthy_deploy_note_names_the_published_address`, `healthy_sync_note_says_no_subdomain_was_published`, `healthy_all_note_names_the_published_address`, `healthy_deploy_without_an_address_says_no_subdomain_was_published`, `dry_run_and_failure_notes_are_unchanged`, `one_note_is_read_by_the_renderer_and_the_json_document`. |
+| The untouched surfaces | PASS | Only `src/publish/pipeline.rs` changed. The report's fields, the `subdomain` derivation (`src/publish/remote_compose/adapter.rs` and `src/publish/jenkins.rs`, both `Some(format!("{project_id}.{domain}"))`), the deploy stage (`plan_deploy`) and the Caddy rendering are untouched. No field is added, removed or renamed and the contract version is unchanged. |
+| The journal | PASS | The journal detail is built per stage (`format!("publish {} via {}: {} ({}, {}ms)", …)`) and never carried the summary, so no journal row changes. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 228 `test result:` lines sum to **4194 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 228 lines and 4188 passed, so this change adds exactly the 6 unit tests it declares and no new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T13:39:41Z"` on revision `c4a8813` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. |
+| The Gate's `security` check and an unreachable `github.com` | PASS, with the network fault handled | The Gate's `security` check runs `cargo audit`, which refreshes the advisory database over the network. `github.com` and `crates.io` are unreachable from this host and the firewall drops the packets instead of rejecting them, so the check's 60 s deadline was exceeded on two Gate runs of an earlier change. The substance was never in doubt: `cargo audit --no-fetch` against the cached advisory database exits 0 with `warning: 4 allowed warnings found`. The passing runs resolved the advisory database's fetch to a local mirror of that same cached database (`git clone --bare ~/.cargo/advisory-db ~/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and set `CARGO_HTTP_PROXY=http://127.0.0.1:1` so the unreachable crates.io index update failed fast instead of waiting for the TCP timeout — `cargo audit` then completes in 3.985 s instead of hanging past the deadline. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed, and the audited content is the same advisory database the fetch would have updated. The change added no failure. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 152 passed, 0 failed (152 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-publish-reachability-truth/`: the new capability `publish-reachability-truth` was promoted with one requirement and three scenarios, the `decoupled-remote-publish` Caddy requirement was modified with its canonical scenario kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the publish summary names the address it published. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 warnings, the same count as the pre-change baseline, and no warning in the touched file. `rustfmt --edition 2021 --check` is clean on the one touched Rust file, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. The touched file stays under the 1000 physical line limit (`src/publish/pipeline.rs` 920; it was 764 before this change). |
+
+Deliberately not done, and stated plainly: **no probe was added.**
+Forge does not ask the tunnel, the DNS or the host whether the address
+answers. A probe would add a network dependency to the deploy lane and
+would turn a tunnel or DNS outage into a publish failure — a worse
+outcome than a summary that does not overclaim. The subdomain itself is
+unchanged: it is still derived from the configured domain and the
+project id, still carried by the report, and still printed by the
+renderer. The deploy stage, the Caddy rendering, the journal, the
+report's fields and the contract version are unchanged. The dry-run and
+failure summaries are unchanged. What changes is the wording of the
+healthy summary, so a reader matching the phrase "reachable at
+subdomain" must read the new wording; the address itself is still in
+the report's `subdomain` field and in the renderer's `subdomain:` line.
+
+The implementation was written by a worker subagent and reviewed by the
+owning agent. The worker's session was cut while it was running a
+second suite comparison, and its uncommitted edit was gone when the
+owning agent took over; the owning agent re-applied the same change
+and the same six unit tests from the worker's diff, re-ran the build,
+the full suite, clippy, rustfmt, the strict validation, the change-name
+check, the whitespace check, the Gate and the unit tests on the final
+tree, and wrote the evidence above. The change in the tree is the
+change the worker had written. The Gate run recorded above is the
+owning agent's, because the worker does not own the Gate.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `c93e42e` (`feat: the publish
+summary names the address it published`). This HANDOFF-only update is
+the second commit. Nothing was pushed. No active OpenSpec change
+remains, so this file has no `current_spec` pointer.

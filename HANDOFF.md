@@ -8483,3 +8483,127 @@ Implementation/archive commit: `fc09c42` (`feat: the release lane judges a
 policy report with the doctor's verdict`). This HANDOFF-only update is
 the second commit. Nothing was pushed. No active OpenSpec change
 remains, so this file has no `current_spec` pointer.
+
+### `workbench-health-state-truth` implemented and archived (2026-10-23)
+
+The workbench's health document states the project's health, and its
+state is the only place an operator sees it:
+
+```rust
+// src/api/workbench.rs, before
+let label = if !report.healthy {
+    "issues"
+} else if report.stale {
+    "stale"
+} else if policy_ran {
+    "healthy"
+} else {
+    "deferred"
+};
+```
+
+**The `stale` branch was unreachable.** The doctor's own `healthy` field
+is false whenever the report is stale:
+
+```rust
+// src/doctor/runner.rs
+let healthy = findings
+    .iter()
+    .all(|f| matches!(f.status, FindingStatus::Pass | FindingStatus::Warn))
+    && unmet == 0
+    && !stale;
+```
+
+So `report.stale` implies `!report.healthy`, the first branch was always
+taken, and the health document could never report `stale`. A project
+whose only problem was a stale registry observation was reported:
+
+```text
+state: issues
+findings: manifest-valid pass, profile-known pass, features-compatible pass,
+          dependency-drift pass, build-config pass, deployment-config pass,
+          repository pass, ci-config pass, docs-present pass,
+          driftwatch-config pass, gate-evidence pass,
+          registry-observation warn, delivery-state pass,
+          maturity-requirements pass, policy-deferred unavailable
+```
+
+The state said *issues*. The document it came with named no failing
+finding — the one real problem was a `warn`.
+
+**Two surfaces of one report disagreed.** The sibling status route reads
+the same doctor report. Driven over HTTP on this host, for one project
+whose manifest was written after its registration:
+
+| Surface | State | What it names |
+|---|---|---|
+| `GET /v1/admin/projects/{id}` (workbench health) | `issues` | no failing finding; one `warn` |
+| `GET /v1/admin/projects/{id}/status` (doctor sub-check) | `stale` | `the registry observation predates the current manifest; re-register to refresh` |
+
+**The canonical capability names a state the code could not produce.**
+`workbench-health-latency` requires that "`stale` and `unavailable` keep
+their exact meanings", and that the explicit refresh returns "the full
+health document (`healthy`/`issues`/`stale`, complete findings, no
+deferred finding)". `stale` was one of the three states that requirement
+names.
+
+**The portal had a badge for a state the API could not produce.** The
+health card maps the states to labels and badges (`frontend/app.js`):
+`stale: "Stale"` with the badge `state-stale`, and a rendering branch
+`else if (state === "healthy" || state === "stale")` → "No blocking
+findings." Both were dead. A stale project wore the red *Has issues*
+badge, and the lifecycle rail — which counts `healthState === "issues"`
+as bad — counted a stale observation as a real problem.
+
+The doctor's judgement of its own report is now one typed partition —
+`Issues`, `Stale`, `Healthy` — judged by the doctor's blocking set, and
+both projections read it. The runner's `healthy` field is expressed
+through the partition, so the field and the partition cannot drift, and
+the field keeps its value for every report.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The stale project is now `stale` | PASS | Driven over the real API on the committed tree: `forge api serve --bind 127.0.0.1 --port 47321` with a session, then `GET /v1/admin/projects/stale-project`. **Before**: `health.state: issues`, `healthy: false`, `stale: true`, with every finding `pass` except `registry-observation` `warn` and the fast path's own `policy-deferred` `unavailable` row. **After**: `health.state: stale`, `healthy: false`, `stale: true` — the same findings. The sibling route answers `doctor | stale | the registry observation predates the current manifest; re-register to refresh` for the same project, so the two surfaces now agree. |
+| The other three states are unchanged | PASS | A project with a failing local check → `issues` on the detail and on the refresh, with the named failing finding `build-config` / `status: "fail"`. A locally-clean project → `deferred` on the detail with the `policy-deferred` finding (`status: "unavailable"`, `applicable: false`), and `healthy` after the refresh with no deferred row. A registered directory removed after registration → `unavailable` with its explanatory `note`. |
+| The project-status route did not change | PASS | Its doctor sub-check reads the partition instead of re-deriving it, and keeps its states and wording: stale → `state: "stale"`, `summary: "the registry observation predates the current manifest; re-register to refresh"`; a failing check → `state: "issues"`; a clean project → `state: "healthy"`. |
+| The doctor's report did not change | PASS | `cargo test -p forge --lib doctor::` → `74 passed; 0 failed; 0 ignored`. The runner's `healthy` field is now `matches!(report.health_partition(), HealthPartition::Healthy)` — the same facts it used before (no `FAIL`/`UNAVAILABLE` finding, no unmet control, not stale) — and the new unit test `the_healthy_partition_is_the_doctors_own_healthy_field` pins the old expression against the partition over ten report shapes. The findings, their statuses and their evidence text are untouched. |
+| The new contract test | PASS | `cargo test --test workbench_health_state_truth_contract` → `test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. It drives the workbench detail, the explicit refresh and the project-status route through the public `forge::api::handle`. Against the unmodified source the same file failed: `test result: FAILED. 3 passed; 1 failed`, with the stale case asserting `left: "issues"` / `right: "stale"`. |
+| Repository test suite | PASS, 4159 tests / 0 failed | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0. The 224 `test result:` lines sum to **4159 passed; 0 failed; 1 ignored**; `grep -c FAILED` over the whole log returns 0. The previous change's baseline, measured with the same script, was 4148 passed over 223 lines, so this change adds exactly the 11 tests it declares (7 partition unit cases + 4 contract cases) and exactly one test binary. Neither known flake fired. |
+| Repository Gate | PASS, 8/8 | The owning agent re-ran the Gate on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T01:24:02Z"` on revision `c1bbe57320e4`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The worker's earlier Gate run on the same tree also passed all eight, at `observed_at: 2026-10-23T00:58:38Z`; the `security` check reached the advisory database in both runs, so there was no network fault. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) and the `build` check reported `Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 0.12s`. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 147 passed, 0 failed (147 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-workbench-health-state-truth/`: the new capability `workbench-health-state-truth` was promoted with three requirements, the `workbench-health-latency` fast-open requirement was modified with both canonical scenarios kept and one added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the projected state comes from the doctor's own health partition. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/doctor/model.rs` 334, `src/doctor/runner.rs` 691, `src/api/workbench.rs` 828, `src/api/status.rs` 643, `tests/workbench_health_state_truth_contract.rs` 433). |
+
+Deliberately not done, and stated plainly: the doctor is unchanged — its
+findings, their statuses and their evidence text are untouched, and its
+`healthy` field keeps the same value for every report; only the rule
+behind it became readable by the projections. The fast path is
+unchanged: it still runs no external checker, still appends the
+`policy-deferred` finding and still reports `deferred` for a
+locally-clean project. The refresh route is unchanged: it still runs the
+live policy pass and still returns the full document. A blocking finding
+is still `issues` and an unmet maturity control is still `issues`. The
+portal is unchanged — it already rendered every state, including
+`stale`; the change only lets the *Stale* badge be reached. The API
+contract versions are unchanged, and no field is added, removed or
+renamed.
+
+One project's classification changes, from `issues` to `stale`, and that
+is the classification the canonical requirement already demanded. The
+portal's lifecycle rail will stop counting a stale observation as a bad
+project, which is the point of the badge that already exists for it.
+
+The implementation was written by a worker subagent and reviewed by the
+owning agent, who re-ran the build, the full suite, clippy, rustfmt, the
+strict validation, the change-name check, the whitespace check, the Gate
+and the live HTTP behaviour above. The worker's own Gate run and its
+evidence table are in the archived tasks file.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `a34a22b` (`feat: a health projection states
+the health the doctor found`). This HANDOFF-only update is the second
+commit. Nothing was pushed. No active OpenSpec change remains, so this
+file has no `current_spec` pointer.

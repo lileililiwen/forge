@@ -8960,3 +8960,139 @@ Implementation/archive commit: `3a18d09` (`feat: the fleet verdict names
 the projects it could not judge`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `docs-translate-review-truth` implemented and archived (2026-10-23)
+
+`forge docs translate` writes a derivative per locale and then states
+what the run achieved. The canonical capability says what the run owes
+the operator:
+
+> #### Scenario: Canonical and derivative documentation success
+>
+> - **WHEN** translation of an enabled locale completes against an
+>   unchanged source
+> - **THEN** the derivative records its source hash and review status
+
+So the derivative records a **review status**, and the capability's own
+purpose names the case: "needs-review marking on link or terminology
+violations". The doctor already reads that state and judges it as a
+warning:
+
+```rust
+// src/doctor/freshness.rs
+FreshnessStatus::NeedsReview { .. } => FindingStatus::Warn,
+```
+
+The translate report read the same state and ignored it. Its aggregate
+rule looked only at the per-locale *status*:
+
+```rust
+// src/docs/model.rs, before
+/// `true` when every locale is `translated` or `current`.
+pub(super) fn healthy_check(&self) -> bool {
+    if self.outcomes.is_empty() {
+        return false;
+    }
+    self.outcomes
+        .iter()
+        .all(|o| o.status == STATUS_TRANSLATED || o.status == STATUS_CURRENT)
+}
+```
+
+and its note was built from the failed count alone. So a locale whose
+translation dropped a link — a derivative the report itself marks
+`needs-review`, with the reason attached — was reported as **complete**,
+with `healthy: true` and exit code 0.
+
+Driven on this host, with a translator that drops the link destination
+the source carried:
+
+```text
+  - zh-CN translated derivative=docs/README.zh-CN.md: locale `zh-CN` translated to `docs/README.zh-CN.md` at source hash `82dbd281ea67` (4 segment(s) translated, 0 reused)
+      review: needs-review
+      review-reason: link destination `https://example.com/manual` was altered or dropped
+summary: docs translate complete for project `docs-app`: 1 translated, 0 current
+```
+
+**The same output contradicted itself.** Three lines above the summary,
+the report said `review: needs-review` and named the reason; the
+summary said `complete`. The report's own aggregate field said
+`healthy: true`.
+
+The release lane, which runs the same translation as a stage, hid it
+too: the stage's status came from the locale's translation status, so
+the stage's note carried the outcome's note, which does not mention the
+review. The release's own evidence for that locale never said that a
+human still had to look at it.
+
+There is now one typed aggregate verdict, computed from the outcomes
+and read by every surface: `complete` when every locale is translated
+or current and every review is `ok`, `needs-review` when every locale
+is translated or current but at least one review needs a human, and
+`partial` when a locale failed. The report carries the verdict as an
+always-present field, so the JSON document states it, and the report's
+`healthy` field — which its own doc comment called the verdict — is
+true only for `complete`.
+
+A needs-review verdict is a warning, not a failure, which is the rule
+the doctor already applies to the same state: the derivative was
+written, so the command still exits 0 and the journal still records
+the operation as `done`. What changes is the claim. The release lane's
+docs stage names the locale's review status in its note while its
+status stays `delivered`, because the derivative was written.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own run, not re-run here: a project whose `README.md` carried the link `[the manual](https://example.com/manual)`, and a translator that rewrote it to `the manual`. `FORGE_DOCS_TRANSLATOR_BIN=<dropper> forge --registry <db> docs translate zh-CN --project <dir>` printed `      review: needs-review`, `      review-reason: link destination `https://example.com/manual` was altered or dropped` and `summary: docs translate complete for project `docs-app`: 1 translated, 0 current`, and exited 0. The JSON document carried `"healthy": true` and the same note. |
+| The needs-review run | PASS | The owning agent's own run of the real CLI after the change, with the same dropping translator: the human report printed `      review: needs-review`, `      review-reason: link destination `https://example.com/manual` was altered or dropped`, `verdict: needs-review` and `summary: docs translate needs review for project `docs-app`: 1 translated, 0 current, 1 locale(s) need review (zh-CN)`, and exited 0. The JSON document carried `"verdict": "needs-review"`, `"healthy": false` and the note `docs translate needs review for project `docs-app`: 0 translated, 1 current, 1 locale(s) need review (zh-CN)`. The summary no longer says "complete" and names the locale that needs review. |
+| The clean run | PASS | `tests/docs_translate_review_truth_contract.rs::every_locale_reviewed_clean_is_complete`: the human report contains `verdict: complete` and a summary that says the run is complete, the JSON document carries `"verdict": "complete"`, `"healthy": true` and `"outcomes"[0]["review"] == "ok"`, the exit code is 0 and the journal row's state is `done` with `verdict=complete` in its detail. |
+| The failed run | PASS | `tests/docs_translate_review_truth_contract.rs::a_failed_locale_is_partial`: the exit code is 1, the human report contains `verdict: partial`, the JSON document carries `"verdict": "partial"` and `"healthy": false`, and the journal row's state is `partial` with `verdict=partial` in its detail. |
+| A failure outranks a review | PASS | `tests/docs_translate_review_truth_contract.rs::a_failure_outranks_a_review`: two locales, one translated with a dropped link and one refused by the provider, give exit code 1, `verdict: partial` in the human report, `"verdict": "partial"` in the JSON document, and the two outcomes' reviews are `needs-review` and `ok`. |
+| The published verdict | PASS | The report carries the verdict as an always-present field, so `serde_json::json!({"translate": report})` publishes it: the JSON document carries `"verdict": "needs-review"` / `"complete"` / `"partial"` in the three cases above, and the human renderer prints a `verdict: <label>` line before the summary. |
+| The release lane's docs stage | PASS | `src/release/engine/engine_tests.rs::docs_stage_names_the_review_and_stays_delivered` drives `run_docs_stage` with a dropping translator: the stage's note names the locale's review status (`review `needs-review``), and the stage's status is still `delivered`. `cargo test -p forge --lib release::engine` → `test result: ok. 20 passed; 0 failed`. |
+| The untouched derivative | PASS | `tests/docs_translate_review_truth_contract.rs::the_derivative_and_its_recorded_state_are_unchanged`: the per-locale outcome still carries `"status": "translated"`, `"review": "needs-review"` and its one reason naming the dropped destination, the derivative file still carries the provider's output and the code block verbatim, and the recorded state still carries the same review status, the same reason, the 64-character source hash and the contract `0.1.0`. |
+| The doctor's finding | PASS | `src/doctor/freshness.rs` is untouched: a needs-review derivative is still `FindingStatus::Warn`. The change makes the report agree with the doctor rather than replacing the doctor's rule. |
+| The contract version | PASS | The report still carries `"contract": "0.1.0"`; the recorded state file still carries `"contract": "0.1.0"`. The report gains one always-present field (`verdict`); no field is removed or renamed. |
+| The new contract test | PASS | `cargo test --test docs_translate_review_truth_contract` → `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. The five: `a_locale_that_needs_review_is_never_complete`, `every_locale_reviewed_clean_is_complete`, `a_failed_locale_is_partial`, `a_failure_outranks_a_review`, `the_derivative_and_its_recorded_state_are_unchanged`. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 228 `test result:` lines sum to **4188 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 227 lines and 4181 passed, so this change adds exactly the 7 tests it declares (5 contract cases, 2 unit tests) and exactly one test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T12:07:16Z"` on revision `4689c7a23740` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. |
+| The Gate's `security` check and an unreachable `github.com` | PASS, with the network fault handled | The Gate's `security` check runs `cargo audit`, which refreshes the advisory database over the network. `github.com` and `crates.io` are unreachable from this host and the firewall drops the packets instead of rejecting them, so the check's 60 s deadline was exceeded on two Gate runs of the previous change. The substance was never in doubt: `cargo audit --no-fetch` against the cached advisory database exits 0 with `warning: 4 allowed warnings found`. The passing runs resolved the advisory database's fetch to a local mirror of that same cached database (`git clone --bare ~/.cargo/advisory-db ~/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and set `CARGO_HTTP_PROXY=http://127.0.0.1:1` so the unreachable crates.io index update failed fast instead of waiting for the TCP timeout — `cargo audit` then completes in 3.985 s instead of hanging past the deadline. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed, and the audited content is the same advisory database the fetch would have updated. The change added no failure. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 151 passed, 0 failed (151 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-docs-translate-review-truth/`: the new capability `docs-translate-review-truth` was promoted with one requirement and five scenarios, the `documentation-translation` requirement was modified with every canonical scenario kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the aggregate verdict names the review status of the run. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 warnings, the same count as the pre-change baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all nine touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/docs/model.rs` 387, `src/docs/translate.rs` 731, `src/docs/docs_tests.rs` 496, `src/docs/mod.rs` 85, `src/cli/release.rs` 630, `src/release/engine/stages.rs` 652, `src/release/engine/engine_tests.rs` 875, `tests/docs_translate_review_truth_contract.rs` 436, `tests/docs_contract.rs` 673). |
+
+Deliberately not done, and stated plainly: a needs-review run does
+**not** fail. The translation succeeded and a human must review it, so
+the exit code stays 0 and the journal state stays `done` — the same
+rule the doctor already applies to the same state. The per-locale
+outcome is unchanged; it already carried `review` and
+`review_reasons`, and the human renderer already printed them. The
+derivative, its recorded review status, the source hash and the
+contract version are unchanged. The doctor's finding is unchanged: it
+already judged a needs-review derivative as a warning, and this change
+makes the report agree with it rather than replacing the doctor's rule.
+The release lane's docs stage status is unchanged — a needs-review
+locale is still `delivered`, because the derivative was written; only
+the stage's note changes. One behaviour does change for a reader that
+relied on the old one: `healthy` is now false for a needs-review run,
+and a reader that used it to mean "the translation succeeded" must read
+the new `verdict` field instead — which is what the report's own doc
+comment always called it.
+
+The implementation was written by a worker subagent and reviewed by the
+owning agent, who re-ran the build, the full suite, clippy, rustfmt, the
+strict validation, the change-name check, the whitespace check, the Gate
+and the live CLI behaviour above. The worker's session was cut before it
+filled the evidence table, so the owning agent ran every check on the
+final tree and wrote the evidence above; the worker's own unit tests and
+contract test are in the tree unchanged. The Gate run recorded above is
+the owning agent's, because the worker does not own the Gate.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `e4b39ea` (`feat: the translate verdict
+names the review status it carries`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

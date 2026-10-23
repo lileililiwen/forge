@@ -12,8 +12,8 @@ use super::delivery::delivery_finding;
 use super::freshness::{docs_freshness_findings, manifest_mtime, observation_is_stale};
 use super::model::DOCTOR_POLICY_VERSION;
 use super::model::{
-    DoctorReport, Finding, FindingStatus, GitState, MaturityControl, RegistryObservation,
-    Remediation,
+    DoctorReport, Finding, FindingStatus, GitState, HealthPartition, MaturityControl,
+    RegistryObservation, Remediation,
 };
 use super::probes::{
     declaration_vocabulary_finding, dependency_text, detect_ci, detect_deployment, detect_docs,
@@ -502,13 +502,12 @@ pub fn run_doctor(
         ));
     }
 
-    let healthy = findings
-        .iter()
-        .all(|f| matches!(f.status, FindingStatus::Pass | FindingStatus::Warn))
-        && unmet == 0
-        && !stale;
-
-    Ok(DoctorReport {
+    // The `healthy` field is the doctor's own verdict, expressed through the
+    // shared partition so the field and the partition cannot drift. The
+    // partition is the same facts the runner always used — no blocking
+    // finding, no unmet control and a current observation — so the field
+    // keeps the same value for every report.
+    let mut report = DoctorReport {
         path: dir.display().to_string(),
         profile: Some(manifest.project.profile.clone()),
         policy_version: DOCTOR_POLICY_VERSION.to_string(),
@@ -516,9 +515,12 @@ pub fn run_doctor(
         target_maturity: Some(maturity_name(target).to_string()),
         findings,
         controls,
-        healthy,
+        healthy: false,
         stale,
-    })
+    };
+    report.healthy = matches!(report.health_partition(), HealthPartition::Healthy);
+
+    Ok(report)
 }
 
 pub(super) fn control(

@@ -33,7 +33,9 @@ use sha2::{Digest, Sha256};
 
 use super::{ApiRequest, ApiResponse};
 use crate::core::{validate_project_id, ForgeError};
-use crate::doctor::{delivery_observation, run_doctor, DoctorReport, RegistryObservation};
+use crate::doctor::{
+    delivery_observation, run_doctor, DoctorReport, HealthPartition, RegistryObservation,
+};
 use crate::policy::{run_driftwatch, DriftWatchConfig};
 use crate::registry::Registry;
 use crate::upgrade::{apply_upgrade, plan_upgrade};
@@ -361,6 +363,13 @@ pub fn refresh_health(db_path: &Path, id: &str) -> ApiResponse {
 /// Shared shape finisher for both health paths: strip the absolute path,
 /// label honestly, and — on the fast path only — append the deferred
 /// policy finding so no row claims a pass that was not computed.
+///
+/// The label comes from the doctor's own health partition, so the state
+/// names the health the doctor found: a report with blocking evidence is
+/// `issues`, a report with no blocking evidence whose observation is stale
+/// is `stale`, and a report with no blocking evidence and a current
+/// observation is `healthy` when the live policy pass ran and `deferred`
+/// when it did not.
 fn finish_health(report: DoctorReport, policy_ran: bool) -> Value {
     let mut value = serde_json::to_value(&report).unwrap_or(Value::Null);
     if let Some(object) = value.as_object_mut() {
@@ -378,14 +387,11 @@ fn finish_health(report: DoctorReport, policy_ran: bool) -> Value {
             }
         }
     }
-    let label = if !report.healthy {
-        "issues"
-    } else if report.stale {
-        "stale"
-    } else if policy_ran {
-        "healthy"
-    } else {
-        "deferred"
+    let label = match report.health_partition() {
+        HealthPartition::Issues => "issues",
+        HealthPartition::Stale => "stale",
+        HealthPartition::Healthy if policy_ran => "healthy",
+        HealthPartition::Healthy => "deferred",
     };
     value["state"] = json!(label);
     value

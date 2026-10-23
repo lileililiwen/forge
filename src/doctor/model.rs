@@ -45,6 +45,42 @@ impl DoctorReport {
             .filter(|c| c.applicable && !c.met)
             .collect()
     }
+    /// The report's own health partition, judged by the doctor's blocking
+    /// set.
+    ///
+    /// This is the one rule both health projections read: the workbench
+    /// health document and the project-status doctor sub-check. A report
+    /// that carries blocking evidence is [`HealthPartition::Issues`]; a
+    /// report that carries none but whose observation is stale is
+    /// [`HealthPartition::Stale`]; a report that carries none and is
+    /// current is [`HealthPartition::Healthy`].
+    pub fn health_partition(&self) -> HealthPartition {
+        if !self.blocking_findings().is_empty() || !self.unmet_controls().is_empty() {
+            HealthPartition::Issues
+        } else if self.stale {
+            HealthPartition::Stale
+        } else {
+            HealthPartition::Healthy
+        }
+    }
+}
+
+/// How the doctor judges its own report.
+///
+/// The doctor owns this partition because it is the surface that judges
+/// the report; every consumer of a `DoctorReport` reads it instead of
+/// re-deriving the verdict from the report's fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthPartition {
+    /// The report carries blocking evidence: a failing or unavailable
+    /// finding, or an unmet maturity control.
+    Issues,
+    /// The report carries no blocking evidence and its observation is
+    /// stale.
+    Stale,
+    /// The report carries no blocking evidence and its observation is
+    /// current.
+    Healthy,
 }
 /// Git remote probe via argument arrays (never shell). A repository without
 /// an `origin` remote is `missing`; a non-repository is `unknown`.
@@ -155,6 +191,144 @@ impl std::fmt::Display for Remediation {
             Remediation::Automatic => write!(f, "automatic"),
             Remediation::Ai => write!(f, "ai"),
             Remediation::Manual => write!(f, "manual"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A doctor report with the given findings, controls and staleness.
+    fn report(findings: Vec<Finding>, controls: Vec<MaturityControl>, stale: bool) -> DoctorReport {
+        DoctorReport {
+            path: "/tmp/project".to_string(),
+            profile: Some("rust-web".to_string()),
+            policy_version: DOCTOR_POLICY_VERSION.to_string(),
+            current_maturity: Some("L1".to_string()),
+            target_maturity: Some("L1".to_string()),
+            findings,
+            controls,
+            healthy: false,
+            stale,
+        }
+    }
+
+    fn finding(status: FindingStatus) -> Finding {
+        Finding::new(
+            "rule",
+            status,
+            vec!["evidence".to_string()],
+            true,
+            Remediation::Manual,
+            "detail",
+        )
+    }
+
+    /// A control that is applicable, met or not.
+    fn control(met: bool) -> MaturityControl {
+        MaturityControl {
+            id: "L1-structure".to_string(),
+            level: "L1".to_string(),
+            description: "the project carries its manifest".to_string(),
+            applicable: true,
+            met,
+            evidence: Vec::new(),
+        }
+    }
+
+    /// The doctor's `healthy` field, expressed the way the runner expressed
+    /// it before the partition existed: no `FAIL`/`UNAVAILABLE` finding, no
+    /// unmet control and a current observation. The partition must agree
+    /// with it for every report, so the field keeps its value.
+    fn runner_healthy(findings: &[Finding], controls: &[MaturityControl], stale: bool) -> bool {
+        findings
+            .iter()
+            .all(|f| matches!(f.status, FindingStatus::Pass | FindingStatus::Warn))
+            && controls.iter().all(|c| !c.applicable || c.met)
+            && !stale
+    }
+
+    #[test]
+    fn a_failing_finding_is_issues() {
+        let report = report(vec![finding(FindingStatus::Fail)], Vec::new(), false);
+        assert_eq!(report.health_partition(), HealthPartition::Issues);
+    }
+
+    #[test]
+    fn an_unavailable_finding_is_issues() {
+        let report = report(vec![finding(FindingStatus::Unavailable)], Vec::new(), false);
+        assert_eq!(report.health_partition(), HealthPartition::Issues);
+    }
+
+    #[test]
+    fn an_unmet_control_is_issues() {
+        let report = report(Vec::new(), vec![control(false)], false);
+        assert_eq!(report.health_partition(), HealthPartition::Issues);
+    }
+
+    #[test]
+    fn a_stale_report_without_blocking_evidence_is_stale() {
+        let report = report(
+            vec![finding(FindingStatus::Pass), finding(FindingStatus::Warn)],
+            vec![control(true)],
+            true,
+        );
+        assert_eq!(report.health_partition(), HealthPartition::Stale);
+    }
+
+    #[test]
+    fn a_clean_current_report_is_healthy() {
+        let report = report(
+            vec![finding(FindingStatus::Pass), finding(FindingStatus::Warn)],
+            vec![control(true)],
+            false,
+        );
+        assert_eq!(report.health_partition(), HealthPartition::Healthy);
+    }
+
+    #[test]
+    fn blocking_evidence_outranks_a_stale_observation() {
+        let report = report(vec![finding(FindingStatus::Fail)], Vec::new(), true);
+        assert_eq!(report.health_partition(), HealthPartition::Issues);
+    }
+
+    #[test]
+    fn the_healthy_partition_is_the_doctors_own_healthy_field() {
+        let shapes: Vec<(Vec<Finding>, Vec<MaturityControl>, bool)> = vec![
+            (Vec::new(), Vec::new(), false),
+            (Vec::new(), Vec::new(), true),
+            (vec![finding(FindingStatus::Pass)], Vec::new(), false),
+            (vec![finding(FindingStatus::Warn)], Vec::new(), false),
+            (vec![finding(FindingStatus::Fail)], Vec::new(), false),
+            (vec![finding(FindingStatus::Unavailable)], Vec::new(), false),
+            (Vec::new(), vec![control(true)], false),
+            (Vec::new(), vec![control(false)], false),
+            (
+                vec![finding(FindingStatus::Warn)],
+                vec![control(true)],
+                true,
+            ),
+            (
+                vec![finding(FindingStatus::Fail)],
+                vec![control(false)],
+                true,
+            ),
+        ];
+        for (findings, controls, stale) in shapes {
+            let mut report = report(findings.clone(), controls.clone(), stale);
+            let expected = runner_healthy(&findings, &controls, stale);
+            report.healthy = expected;
+            assert_eq!(
+                matches!(report.health_partition(), HealthPartition::Healthy),
+                report.healthy,
+                "the healthy partition and the healthy field must agree: {report:?}"
+            );
+            assert_eq!(
+                matches!(report.health_partition(), HealthPartition::Healthy),
+                expected,
+                "the partition must not change the doctor's own verdict: {report:?}"
+            );
         }
     }
 }

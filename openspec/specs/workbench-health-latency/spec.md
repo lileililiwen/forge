@@ -1,7 +1,7 @@
 # workbench-health-latency Specification
 
 ## Purpose
-The workbench detail GET stays fast by running only the local doctor pass inline and reporting `deferred` with a `policy-deferred` finding when the live policy check has not run; the full DriftWatch + doctor pass runs on demand behind `POST /v1/admin/projects/{id}/health/refresh`, and the health card renders the deferred state with an explicit full-check control instead of a remediate shortcut.
+The workbench detail GET stays fast by running only the local doctor pass inline and reporting `deferred` with a `policy-deferred` finding when the live policy check has not run; the full DriftWatch + doctor pass runs on demand behind `POST /v1/admin/projects/{id}/health/refresh`, the health card renders the deferred state with an explicit full-check control instead of a remediate shortcut, and the projected state comes from the doctor's own health partition so a stale observation reads as `stale` rather than `issues`.
 ## Requirements
 ### Requirement: Fast workbench open
 
@@ -13,7 +13,10 @@ append one explicit `unavailable` finding (`policy-deferred`) whenever
 the live policy check did not run for the returned view. A locally-clean
 project SHALL report `health.state: deferred` — never `healthy` — so no
 row claims a pass it did not compute. Local problems SHALL still report
-`issues`; `stale` and `unavailable` keep their exact meanings.
+`issues`; `stale` and `unavailable` keep their exact meanings. The
+projected state SHALL be derived from the doctor's own health partition:
+a report that carries no blocking finding and no unmet control and whose
+observation is stale SHALL report `stale`, never `issues`.
 
 #### Scenario: Opening a project does not invoke the checker
 
@@ -28,6 +31,13 @@ row claims a pass it did not compute. Local problems SHALL still report
 - **WHEN** the operator opens a project with failing local checks
 - **THEN** the detail responds with `health.state: issues` naming the
   local failures, as today
+
+#### Scenario: A stale observation is not a set of issues
+
+- **WHEN** the operator opens a project whose registry observation
+  predates its current manifest and whose local checks carry no failing
+  evidence
+- **THEN** the detail responds with `health.state: stale`
 
 ### Requirement: Explicit full health check
 
@@ -71,4 +81,3 @@ plan shortcut. All other states and rows render exactly as before.
 - **WHEN** the refresh request fails
 - **THEN** the card shows an honest error and keeps the prior health
   rendering
-

@@ -33,7 +33,8 @@ use super::ApiResponse;
 use crate::checker::{self, AlertSeverity};
 use crate::core::manifest::Manifest;
 use crate::doctor::{
-    delivery_observation, run_doctor, DoctorReport, FindingStatus, RegistryObservation,
+    delivery_observation, run_doctor, DoctorReport, FindingStatus, HealthPartition,
+    RegistryObservation,
 };
 use crate::governance;
 use crate::profile::{inspect_profile, ProfileSupportStatus};
@@ -238,10 +239,11 @@ fn evaluate(registry: &Registry, record: &ProjectRecord) -> ProjectStatus {
 
 /// Map the doctor report to a sub-check state.
 ///
-/// The doctor's own blocking set is the rule: every `FAIL` or `UNAVAILABLE`
-/// finding denies health, exactly as [`DoctorReport::blocking_findings`]
-/// defines it. The state partition is therefore the inverse of the doctor's
-/// own `healthy` field — a report the doctor does not call healthy is never
+/// The doctor's own health partition is the rule: a report that carries
+/// blocking evidence is `issues`, a report that carries none but whose
+/// observation is stale is `stale`, and a report that carries none and is
+/// current is `healthy`. The partition is the inverse of the doctor's own
+/// `healthy` field — a report the doctor does not call healthy is never
 /// projected as healthy, and a report it calls healthy is never projected as
 /// anything else.
 ///
@@ -267,30 +269,30 @@ fn doctor_check(report: Option<&DoctorReport>) -> StatusCheck {
         .filter(|finding| finding.status == FindingStatus::Unavailable)
         .count();
     let unmet = report.unmet_controls().len();
-    if !blocking.is_empty() || unmet > 0 {
-        let mut summary = format!(
-            "{failed} failing finding(s), {unavailable} unavailable finding(s), {unmet} unmet control(s)"
-        );
-        if report.stale {
-            summary.push_str("; the registry observation is stale");
+    match report.health_partition() {
+        HealthPartition::Issues => {
+            let mut summary = format!(
+                "{failed} failing finding(s), {unavailable} unavailable finding(s), {unmet} unmet control(s)"
+            );
+            if report.stale {
+                summary.push_str("; the registry observation is stale");
+            }
+            StatusCheck {
+                id: "doctor",
+                state: STATE_ISSUES,
+                summary,
+                reason: String::new(),
+            }
         }
-        StatusCheck {
-            id: "doctor",
-            state: STATE_ISSUES,
-            summary,
-            reason: String::new(),
-        }
-    } else if report.stale {
-        StatusCheck {
+        HealthPartition::Stale => StatusCheck {
             id: "doctor",
             state: STATE_STALE,
             summary:
                 "the registry observation predates the current manifest; re-register to refresh"
                     .to_string(),
             reason: String::new(),
-        }
-    } else {
-        StatusCheck {
+        },
+        HealthPartition::Healthy => StatusCheck {
             id: "doctor",
             state: STATE_HEALTHY,
             summary: format!(
@@ -299,7 +301,7 @@ fn doctor_check(report: Option<&DoctorReport>) -> StatusCheck {
                 unmet
             ),
             reason: String::new(),
-        }
+        },
     }
 }
 

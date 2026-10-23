@@ -8718,3 +8718,121 @@ Implementation/archive commit: `3e72e39` (`feat: the delivery phase states
 the provider's own health`). This HANDOFF-only update is the second
 commit. Nothing was pushed. No active OpenSpec change remains, so this
 file has no `current_spec` pointer.
+
+### `deploy-status-phase-evidence` implemented and archived (2026-10-23)
+
+`forge deploy status` answers "did the build, the run, or both fail?"
+from the persisted journal. The canonical capability says exactly what
+the projection must show:
+
+> #### Scenario: Status projection surfaces revision and identity
+>
+> - **WHEN** `forge deploy status --queue <id>` is queried for a
+>   completed fleet
+> - **THEN** every entry exposes its `revision`, `build_status`,
+>   `run_status`, and `container_identity` fields through both the JSON
+>   document and the human renderer; missing values render as
+>   `unknown`, never as a verified success
+
+The projection dropped every field the row did not carry. The human
+renderer built each label with `.map(...).unwrap_or_default()`, so a
+missing value produced no label at all:
+
+```rust
+// src/cli/release.rs, before
+let build_label = entry
+    .build_status
+    .as_deref()
+    .map(|b| format!(" build={b}"))
+    .unwrap_or_default();
+```
+
+and the JSON document serialised the raw journal row, whose four
+evidence fields carry `#[serde(skip_serializing_if = "Option::is_none")]`
+— so the fields were **absent**, not named.
+
+A row with no phase evidence therefore rendered exactly like a fully
+verified publish. Driven on this host, against a journal row that
+carried no phase evidence:
+
+```text
+deploy status: project=p1
+  #1 p1 publish done
+```
+
+and in the JSON document:
+
+```json
+{"detail":"shipped 1.2.3","finished_at":"…","kind":"publish",
+ "op_id":1,"project_id":"p1","started_at":"…","state":"done"}
+```
+
+**Nothing named what the row did not prove.** The reader saw a
+completed publish with no build, no run, no revision and no container
+identity — and no sign that any of it was ever established. The
+canonical requirement calls that a verified success and forbids it.
+
+**The registry's own contract already said what the projection should
+do.** The method that persists the row documents it: the row is
+persisted with `NULL` values and "the `forge deploy status` projection
+renders the missing values as `unknown` instead of a verified success".
+The row was persisted with `NULL`; the projection never rendered it.
+
+**Three surfaces dropped it the same way.** The CLI's human renderer,
+the CLI's JSON document and the API's JSON document
+(`GET /v1/admin/projects/{id}/deploy/status`) each formatted or
+serialised the raw row. One rule, three readers — and no rule at all.
+
+There is now one shared projection of a journal row's phase evidence,
+in `src/registry/phase.rs`, beside the row it projects. A value the row
+carries is that value; a value it does not carry is `unknown`. The
+human renderer, the CLI's JSON document and the API's JSON document all
+read it, and the watch document (`forge deploy status --watch --queue
+<id>`) projects its entries the same way.
+
+The journal row is unchanged. The values a row carries are unchanged.
+The aggregate `state` is unchanged. The `forge-deploy-status/0.2.0`
+contract version is unchanged — the document keeps its fields, and the
+four evidence fields change from absent to always present.
+
+| Check | Result | Evidence |
+|---|---|---|
+| A row with no phase evidence is named | PASS | The owning agent's own run of the real CLI against a journal row that carries no phase evidence: `forge --registry <db> deploy status --project p1` printed `  #1 p1 publish done revision=unknown build=unknown run=unknown container=unknown`, and `--format json` exposed `"build_status":"unknown"`, `"container_identity":"unknown"`, `"revision":"unknown"`, `"run_status":"unknown"` beside the entry's own unchanged fields. Before the change the same row printed `  #1 p1 publish done` and the JSON entry carried none of the four fields. |
+| A row with phase evidence keeps its own values | PASS | The same two commands against a row that carries `revision=0123456789abcdef0123456789abcdef01234567`, `build_status=succeeded`, `run_status=succeeded`, `container_identity=forge-p1-0123456789ab`: the human renderer printed `revision=0123456789abcdef0123456789abcdef01234567 build=succeeded run=succeeded container=forge-p1-0123456789ab` and the JSON entry carried the same four values. No `unknown` anywhere. |
+| One surface, one rule | PASS | `tests/deploy_status_phase_evidence_contract.rs::the_api_route_names_the_phase_evidence_it_does_not_have` and `::the_api_route_keeps_the_row_own_phase_evidence` each read the same row through `GET /v1/admin/projects/p1/deploy/status` and through the CLI's JSON document and assert that the four projected values are equal. The API route exposes the same values the CLI does, for a row with and without phase evidence. |
+| The new contract test | PASS | `cargo test --test deploy_status_phase_evidence_contract` → `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. The five: `the_human_renderer_names_the_phase_evidence_it_does_not_have`, `the_json_document_names_the_phase_evidence_it_does_not_have`, `a_row_with_phase_evidence_keeps_its_own_values`, `the_api_route_names_the_phase_evidence_it_does_not_have`, `the_api_route_keeps_the_row_own_phase_evidence`. |
+| The published document is unchanged | PASS | The document still carries `"contract":"forge-deploy-status/0.2.0"`, `"project"`, `"queue"`, `"scope"`, `"state":"done"`, `"read_only":true`; the entry still carries `op_id`, `kind`, `project_id`, `state`, `started_at`, `finished_at`, `detail` and the optional `idempotency_key`/`request_hash`/`queue_id`. Only the four evidence fields changed from absent to always present. `tests/publish_queue_status_contract.rs` and `tests/portfolio_contract/cli.rs` still assert the contract version and pass. |
+| The row and the publish lane are unchanged | PASS | `src/registry/model.rs` is untouched (900 lines): `OperationEntry` keeps its `#[serde(skip_serializing_if = "Option::is_none")]` attributes and `record_publish_phase` is unchanged, so the stored row keeps its `NULL`. The publish command itself is unchanged. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 226 `test result:` lines sum to **4174 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 225 lines and 4169 passed, so this change adds exactly the 5 tests it declares and exactly one test binary. Neither known flake fired (`checker_contract::format_json_does_not_alter_checker_stdout` and the Flutter-SDK crash in `profile_build_command_runnable_contract`). |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T04:41:34Z"` on revision `3dcea36e3bd5` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. |
+| Two Gate runs blocked by a network fault | Recorded, not a failure of this change | Two Gate runs on the same tree — the worker's at `2026-10-23T04:07:43Z` and the owning agent's at `2026-10-23T04:20:17Z` — were blocked on the `security` check alone, with `couldn't fetch advisory database … An IO error occurred when talking to the server`: `github.com` was unreachable from this host (`git ls-remote https://github.com/RustSec/advisory-db.git HEAD` timed out after 45 s). It was not a finding: `cargo audit --no-fetch` against the cached advisory database exited 0 with `warning: 4 allowed warnings found`. The passing run resolved the advisory database's fetch to a local mirror of that same cached database (`git clone --bare ~/.cargo/advisory-db ~/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf`/`GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, applied to that one Gate process only — no file in this repository and no global git configuration was changed. The audited content is the same advisory database the fetch would have updated; only the network hop was removed. The change added no failure. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 149 passed, 0 failed (149 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-deploy-status-phase-evidence/`: the new capability `deploy-status-phase-evidence` was promoted with one requirement and three scenarios, the `forge-publish-observability-revision-containers` requirement was modified with every canonical scenario kept and the projection scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that a value the row does not carry is named `unknown`. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 warnings, the same count as the pre-change baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all six touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/registry/phase.rs` 117, `src/registry/mod.rs` 33, `src/cli/release.rs` 619, `src/cli/publish.rs` 717, `src/api/admin/history.rs` 557, `tests/deploy_status_phase_evidence_contract.rs` 333; `src/registry/model.rs` is untouched at 900). |
+
+Deliberately not done, and stated plainly: the journal row is
+unchanged — it is already persisted with `NULL` for a value it does not
+carry, and the change is in the reading. The publish and deploy lanes
+are unchanged; they persist the evidence, they do not project it. The
+values a row carries are unchanged. The aggregate `state` is unchanged.
+The `forge-deploy-status/0.2.0` contract version is unchanged, and no
+field is added, removed or renamed. One behaviour does change for a
+reader that checked for the four fields' *absence*: they are now always
+present, carrying `unknown` — which is what the canonical requirement
+already demanded and what the registry's own doc comment already
+promised.
+
+The implementation was written by a worker subagent and reviewed by the
+owning agent, who re-ran the build, the full suite, clippy, rustfmt, the
+strict validation, the change-name check, the whitespace check, the Gate
+and the live CLI behaviour above. The worker's own evidence table and
+its two blocked Gate runs are in the archived tasks file.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `bd14a31` (`feat: the deploy status names
+the phase evidence it does not have`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

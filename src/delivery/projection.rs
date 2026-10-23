@@ -53,6 +53,16 @@ pub struct DeliveryVerbReport {
     pub recovery: Vec<DeliveryEvidence>,
     /// The op_id the next verb should pass back as `--confirm-operation-id`.
     pub confirm_operation_id: Option<i64>,
+    /// The health the provider reported for this verb, when it
+    /// reported one. It is read from the operation row's
+    /// `provider_health` detail key, beside the evidence and recovery
+    /// lines the row already carries.
+    ///
+    /// The field is internal to the projection: the delivery status
+    /// contract keeps the fields it publishes, and the provider's own
+    /// answer reaches the operator through the phase it decides.
+    #[serde(skip_serializing, skip_deserializing)]
+    pub provider_health: Option<String>,
 }
 
 /// Hermora child operation summary. `site_id` / `environment_url`
@@ -125,11 +135,11 @@ pub fn build_delivery_report(
         if let Some(rev) = row.revision.as_ref() {
             last_revision = Some(rev.clone());
         }
-        let (evidence, recovery) = parse_evidence_and_recovery(row);
+        let detail = parse_row_detail(row);
         match row.kind.as_str() {
-            "delivery.preflight" => populate_verb(&mut preflight, row, evidence, recovery),
-            "delivery.stage" => populate_verb(&mut stage, row, evidence, recovery),
-            "delivery.promote" => populate_verb(&mut promote, row, evidence, recovery),
+            "delivery.preflight" => populate_verb(&mut preflight, row, detail),
+            "delivery.stage" => populate_verb(&mut stage, row, detail),
+            "delivery.promote" => populate_verb(&mut promote, row, detail),
             "delivery.hermora" => populate_hermora(&mut hermora, row),
             _ => {}
         }
@@ -164,12 +174,7 @@ pub fn build_delivery_report(
     })
 }
 
-fn populate_verb(
-    report: &mut DeliveryVerbReport,
-    row: &OperationEntry,
-    evidence: Vec<String>,
-    recovery: Vec<String>,
-) {
+fn populate_verb(report: &mut DeliveryVerbReport, row: &OperationEntry, detail: RowDetail) {
     report.op_id = Some(row.op_id);
     report.started_at = Some(row.started_at.clone());
     report.state = Some(row.state.clone());
@@ -185,9 +190,13 @@ fn populate_verb(
     if let Some(container) = row.container_identity.as_ref() {
         report.container_identity = Some(container.clone());
     }
+    // The provider's own health for this verb. The latest row of the
+    // verb decides it, exactly as it decides the state and the build
+    // and run statuses.
+    report.provider_health = detail.provider_health;
     report
         .evidence
-        .extend(evidence.into_iter().map(|text| DeliveryEvidence {
+        .extend(detail.evidence.into_iter().map(|text| DeliveryEvidence {
             started_at: row.started_at.clone(),
             op_id: row.op_id,
             source: row.kind.clone(),
@@ -195,7 +204,7 @@ fn populate_verb(
         }));
     report
         .recovery
-        .extend(recovery.into_iter().map(|text| DeliveryEvidence {
+        .extend(detail.recovery.into_iter().map(|text| DeliveryEvidence {
             started_at: row.started_at.clone(),
             op_id: row.op_id,
             source: row.kind.clone(),
@@ -222,29 +231,47 @@ fn populate_hermora(report: &mut DeliveryHermoraReport, row: &OperationEntry) {
     report.reason = text("reason");
 }
 
-fn parse_evidence_and_recovery(row: &OperationEntry) -> (Vec<String>, Vec<String>) {
+/// The provider's own answer, parsed out of one operation row's
+/// `detail` block. The detail is the journal's record of what the
+/// provider reported; a row whose detail is not JSON carries none of
+/// it.
+struct RowDetail {
+    evidence: Vec<String>,
+    recovery: Vec<String>,
+    /// The health the provider reported for the verb, when it reported
+    /// one. An empty health is the absence of an answer, not an answer
+    /// of its own, so it yields no health.
+    provider_health: Option<String>,
+}
+
+/// Parse one operation row's `detail` block: the provider's evidence
+/// and recovery lines, and the health the provider reported for the
+/// verb.
+fn parse_row_detail(row: &OperationEntry) -> RowDetail {
     let detail = row.detail.clone().unwrap_or_default();
     let parsed: BTreeMap<String, serde_json::Value> =
         serde_json::from_str(&detail).unwrap_or_default();
-    let evidence = parsed
-        .get("evidence")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let recovery = parsed
-        .get("recovery")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    (evidence, recovery)
+    let lines = |key: &str| {
+        parsed
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let provider_health = parsed
+        .get("provider_health")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|health| !health.is_empty());
+    RowDetail {
+        evidence: lines("evidence"),
+        recovery: lines("recovery"),
+        provider_health,
+    }
 }
 
 fn bounded_truncate<T>(items: &mut Vec<T>, max: usize) {
@@ -256,8 +283,9 @@ fn bounded_truncate<T>(items: &mut Vec<T>, max: usize) {
 /// Compute the closed `DeliveryPhase` from the per-verb terminal
 /// rows. The order of evaluation is the order the spec documents:
 ///
-///  1. If the latest terminal verb is a `promote` with `degraded`
-///     health, the phase is `Degraded`.
+///  1. If the latest terminal verb is a `promote` whose provider
+///     reported a health other than `healthy`, or whose build or run
+///     did not succeed, the phase is `Degraded`.
 ///  2. If the latest terminal verb is a `promote` with healthy
 ///     build/run, the phase is `Healthy`.
 ///  3. If the latest terminal verb is a `stage` with failed health,
@@ -292,7 +320,16 @@ fn compute_phase(
                 .as_deref()
                 .map(|s| s != "succeeded" && s != "not_started" && s != "unknown")
                 .unwrap_or(false)
-            || promote.state.as_deref() == Some("failed");
+            || promote.state.as_deref() == Some("failed")
+            // The provider's own health for the verb. Only an explicit
+            // answer degrades the phase: a row that carries no health
+            // keeps today's verdict, because the absence of an answer
+            // is not an answer of `healthy`.
+            || promote
+                .provider_health
+                .as_deref()
+                .map(|health| health != "healthy")
+                .unwrap_or(false);
         if degraded {
             return DeliveryPhase::Degraded;
         }
@@ -426,7 +463,9 @@ pub fn render_report_json(report: &DeliveryReport) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::Registry;
+    use crate::registry::{Registry, ReservationOutcome};
+
+    const SAMPLE_REV: &str = "0123456789abcdef0123456789abcdef01234567";
 
     fn temp_registry() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -445,6 +484,37 @@ mod tests {
             rusqlite::params![id, format!("/tmp/{id}"), "2026-09-29T00:00:00Z"],
         )
         .expect("seed");
+    }
+
+    /// Seed one terminal promote row for `alpha` and return its op_id.
+    /// The row's detail is written verbatim, so a test can state what
+    /// the provider reported — or leave the health out.
+    fn seed_promote_row(
+        path: &std::path::Path,
+        detail: &str,
+        build_status: Option<&str>,
+        run_status: Option<&str>,
+    ) -> i64 {
+        let registry = Registry::open(path).expect("open");
+        let outcome = registry
+            .reserve_idempotent_operation(
+                "delivery.promote",
+                "alpha",
+                "delivery.promote.alpha:0123456789ab:production",
+                "abc",
+            )
+            .expect("reserve");
+        let op_id = match outcome {
+            ReservationOutcome::Reserved { op_id } => op_id,
+            ReservationOutcome::Reused { op_id } => op_id,
+        };
+        registry
+            .finalize_operation(op_id, "done", detail)
+            .expect("finalize");
+        registry
+            .update_operation_phase(op_id, Some(SAMPLE_REV), build_status, run_status, None)
+            .ok();
+        op_id
     }
 
     #[test]
@@ -530,5 +600,99 @@ mod tests {
             Some("https://alpha.hermora.example")
         );
         assert_eq!(report.hermora.reason, None);
+    }
+
+    #[test]
+    fn a_promote_row_whose_provider_reported_degraded_is_degraded() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_row(
+            &path,
+            r#"{"evidence":["provider stub"],"recovery":[],"provider_health":"degraded"}"#,
+            Some("succeeded"),
+            Some("succeeded"),
+        );
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::Degraded);
+        assert_eq!(report.promote.provider_health.as_deref(), Some("degraded"));
+    }
+
+    #[test]
+    fn a_promote_row_whose_provider_reported_healthy_is_healthy() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_row(
+            &path,
+            r#"{"evidence":["provider stub"],"recovery":[],"provider_health":"healthy"}"#,
+            Some("succeeded"),
+            Some("succeeded"),
+        );
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::Healthy);
+        assert_eq!(report.promote.provider_health.as_deref(), Some("healthy"));
+    }
+
+    #[test]
+    fn a_promote_row_without_a_provider_health_keeps_the_healthy_verdict() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_row(
+            &path,
+            r#"{"evidence":["provider stub"],"recovery":[]}"#,
+            Some("succeeded"),
+            Some("succeeded"),
+        );
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::Healthy);
+        assert_eq!(report.promote.provider_health, None);
+    }
+
+    #[test]
+    fn a_promote_row_whose_detail_is_not_json_keeps_the_healthy_verdict() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_row(&path, "not json", Some("succeeded"), Some("succeeded"));
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::Healthy);
+        assert_eq!(report.promote.provider_health, None);
+    }
+
+    #[test]
+    fn a_promote_row_whose_build_failed_is_degraded() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_row(
+            &path,
+            r#"{"evidence":["provider stub"],"recovery":[],"provider_health":"healthy"}"#,
+            Some("failed"),
+            Some("succeeded"),
+        );
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::Degraded);
+    }
+
+    #[test]
+    fn the_projection_json_keeps_its_published_fields() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_row(
+            &path,
+            r#"{"evidence":["provider stub"],"recovery":[],"provider_health":"degraded"}"#,
+            Some("succeeded"),
+            Some("succeeded"),
+        );
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        let json = render_report_json(&report);
+        let promote = json["promote"].as_object().expect("promote object");
+        assert!(
+            !promote.contains_key("provider_health"),
+            "the delivery status contract keeps its published fields; the promote object was {promote:?}"
+        );
     }
 }

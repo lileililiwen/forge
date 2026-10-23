@@ -1,7 +1,7 @@
 # project-to-production-workflow Specification
 
 ## Purpose
-Evidence-gated staged delivery with explicit production promotion, optional post-publish Hermora onboarding, and read-only delivery status.
+Evidence-gated staged delivery with explicit production promotion, optional post-publish Hermora onboarding, and read-only delivery status whose phase is derived from the provider's own reported health.
 ## Requirements
 ### Requirement: Evidence-gated staged delivery
 
@@ -102,7 +102,7 @@ Forge SHALL treat Hermora site enrollment as a separate, optional child operatio
 
 ### Requirement: Read-only delivery status
 
-Forge SHALL expose the project's current delivery `phase`, the latest per-verb journal evidence, and the revision-bound confirmation identifier without exposing credentials, provider command lines, or registry bytes.
+Forge SHALL expose the project's current delivery `phase`, the latest per-verb journal evidence, and the revision-bound confirmation identifier without exposing credentials, provider command lines, or registry bytes. The phase SHALL be derived from the provider's own answer for the verb: a provider that reported a health other than `healthy` SHALL be projected as `degraded`, and a verb whose provider reported no health SHALL keep the existing verdict.
 
 #### Scenario: Status with no journal rows
 
@@ -113,6 +113,12 @@ Forge SHALL expose the project's current delivery `phase`, the latest per-verb j
 
 - **WHEN** the journal carries preflight, stage and promote rows for the same revision
 - **THEN** the projection returns `phase=healthy` (or `degraded` if the provider's last `verify` reports unhealthy) plus the latest per-verb evidence, sorted by `op_id` and ordered by verb
+
+#### Scenario: A provider that reports itself unhealthy
+
+- **WHEN** the latest promote row's provider reported a health other
+  than `healthy`
+- **THEN** the projection reports `phase=degraded` and never `healthy`
 
 #### Scenario: Redaction across surfaces
 

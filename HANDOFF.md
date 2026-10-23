@@ -8836,3 +8836,127 @@ Implementation/archive commit: `bd14a31` (`feat: the deploy status names
 the phase evidence it does not have`). This HANDOFF-only update is the
 second commit. Nothing was pushed. No active OpenSpec change remains, so
 this file has no `current_spec` pointer.
+
+### `upgrade-fleet-verdict-truth` implemented and archived (2026-10-23)
+
+`forge upgrade --all` runs one upgrade lane over every registered
+project and then states a verdict for the whole fleet. The canonical
+capability says what the fleet run owes the operator:
+
+> #### Scenario: Isolated fleet outcomes failure
+>
+> - **WHEN** one project fails midway through a fleet run
+> - **THEN** its partial state and recovery steps are reported without
+>   marking the fleet wholly successful
+
+So the fleet must not mark itself wholly successful when a project
+failed. Its verdict rule never asked whether the projects were judged
+at all:
+
+```rust
+// src/upgrade/model.rs, before
+/// A fleet is healthy only when no project failed or blocked.
+/// Skipped (already satisfied, unavailable, dry-run) is healthy.
+pub fn healthy(&self) -> bool {
+    self.failed == 0 && self.blocked == 0
+}
+```
+
+A project that could not be judged — its registry record was
+unreadable, or its directory is gone — was recorded as `skipped` and
+counted as healthy. The per-project `skipped` status did not
+distinguish the two very different reasons a project is skipped:
+
+| Reason the project was skipped | Judged? | Fleet verdict before |
+|---|---|---|
+| already satisfied — the plan is a no-op | yes | healthy |
+| the project path is unavailable | **no** | **healthy** |
+| the project record was unreadable | **no** | **healthy** |
+
+A fleet of nothing but unavailable projects therefore reported itself
+healthy. Driven on this host, against a registry whose only project
+had its directory removed after registration:
+
+```text
+fleet upgrade: 0 success, 0 failure, 0 blocked, 1 skipped (selection: gone-app)
+  [skipped] gone-app: skipped: project path unavailable; nothing was changed
+verdict: healthy
+```
+
+and the command **exited 0**.
+
+**Nothing was upgraded and nothing was judged.** The verdict "healthy"
+was the absence of a failure, read as the presence of a success — the
+same mistake the release lane made with its DriftWatch check, and the
+same mistake the delivery lane made with the provider's health.
+
+The JSON document was worse in one way and better in another. It
+published `succeeded: 0`, `failed: 0`, `blocked: 0`, `skipped: 1` and
+**no verdict at all**, so a reader of the JSON could not tell a judged
+fleet from an unjudged one even by counting. And the exit code — 0,
+success — was read from the same `failed == 0 && blocked == 0` rule.
+
+Three surfaces read one wrong rule: the human renderer's `verdict:`
+line, the command's exit code, and the JSON document that published no
+verdict at all.
+
+There is now one typed fleet verdict, computed once by the run from the
+entries it produced, and read by every surface: `healthy` only when
+every selected project was judged and none failed or blocked,
+`unavailable` when a project could not be judged, `not healthy` when a
+project failed or blocked. A project that could not be judged is
+reported as `unavailable` — a distinct result from `skipped`, which
+means the fleet judged the project and chose not to change it — and the
+entry's note names the result it carries. The JSON document publishes
+the verdict, so a reader of the JSON can tell a judged fleet from an
+unjudged one, and the exit code follows it.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own run, not re-run here: a registry whose only project `gone-app` had its directory removed after registration, then `forge --registry <db> upgrade --all` printed `fleet upgrade: 0 success, 0 failure, 0 blocked, 1 skipped (selection: gone-app)`, `  [skipped] gone-app: skipped: project path unavailable; nothing was changed`, `verdict: healthy`, and exited 0. The JSON document carried `succeeded: 0`, `failed: 0`, `blocked: 0`, `skipped: 1` and no verdict field at all. |
+| The unavailable fleet | PASS | The owning agent's own run of the same command after the change: `fleet upgrade: 0 success, 0 failure, 0 blocked, 0 skipped, 1 unavailable (selection: gone-app)`, `  [unavailable] gone-app: unavailable: project path unavailable; nothing was changed`, `verdict: unavailable`, exit 1. The JSON document carried `"verdict": "unavailable"`, `"unavailable": 1`, `"skipped": 0`, `"succeeded": 0`, `"failed": 0`, `"blocked": 0` and the entry's `"status": "unavailable"`. The human output contains no `verdict: healthy` line. |
+| The judged fleet | PASS | `tests/upgrade_fleet_verdict_truth_contract.rs::a_judged_fleet_is_healthy` and `::an_already_satisfied_fleet_stays_skipped_and_healthy`: a fleet whose projects were all judged and none failed or blocked reports `verdict: healthy` and exits 0; a fleet whose only project was already satisfied still reports the entry's `"status": "skipped"` and a healthy verdict. |
+| A failure outranks an unknown | PASS | `tests/upgrade_fleet_verdict_truth_contract.rs::a_blocked_project_outranks_an_unavailable_one`: one blocked project plus one project whose directory was removed reports `verdict: not healthy`, the entries are `blocked` and `unavailable`, and the exit code is 1. |
+| One verdict, every surface | PASS | `tests/upgrade_fleet_verdict_truth_contract.rs::the_json_document_and_the_human_renderer_state_the_same_verdict`: the same fleet is rendered as JSON and as human text, and both carry the same verdict; the JSON document publishes the verdict the renderer states. |
+| The new contract test | PASS | `cargo test --test upgrade_fleet_verdict_truth_contract` → `test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. The seven: `an_unavailable_project_is_not_a_healthy_fleet`, `the_json_document_publishes_the_verdict`, `a_judged_fleet_is_healthy`, `a_blocked_fleet_is_not_healthy`, `a_blocked_project_outranks_an_unavailable_one`, `the_json_document_and_the_human_renderer_state_the_same_verdict`, `an_already_satisfied_fleet_stays_skipped_and_healthy`. |
+| The dry-run fleet | PASS | `tests/upgrade_fleet_verdict_truth_contract.rs::a_dry_run_fleet_keeps_its_header_and_its_verdict`: the header still says `(dry-run)`, the entry's `"status"` is still `skipped`, `changed` is `false` and the note still contains `plan only`. The dry-run verdict is unchanged by design. |
+| The untouched surfaces | PASS | The single-project upgrade, `plan_upgrade`, the manifests, the receipts and the journal rows are unchanged: an unavailable project still records an `upgrade` operation row with the state `skipped` and the detail `skipped: project path unavailable; selection preserved and nothing was changed`, because the operation changed nothing. `src/upgrade/upgrade_tests.rs` (the fleet's own unit tests) and `tests/upgrade_contract.rs` (the fleet's existing contract) pass unchanged. |
+| The contract version | PASS | The fleet report still carries `"contract": "0.1.0"`. The report gains a `verdict` field and an `unavailable` count; no field is removed or renamed. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 227 `test result:` lines sum to **4181 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 226 lines and 4174 passed, so this change adds exactly the 7 tests it declares and exactly one test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T07:03:16Z"` on revision `1225e8162c2f` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. |
+| Two Gate runs blocked by host faults | Recorded, not a failure of this change | Two Gate runs on the same tree were blocked on the `security` check alone, with the diagnostic `adapter 'project-runtime' exceeded its timeout of 60000ms` and the stderr `Fetching advisory database from 'https://github.com/RustSec/advisory-db.git'` / `Updating crates.io index`. The cause was this host's network and load, not the change: `github.com` is unreachable (`git ls-remote https://github.com/RustSec/advisory-db.git HEAD` timed out after 45 s), and `cargo audit`'s crates.io index update sat in `SYN-SENT` to `146.75.114.137:443` until the TCP timeout, because the host's firewall drops the packets instead of rejecting them. The substance was never in doubt — `cargo audit --no-fetch` against the cached advisory database exits 0 with `warning: 4 allowed warnings found`. The passing run resolved the advisory database's fetch to a local mirror of that same cached database (`git clone --bare ~/.cargo/advisory-db ~/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and set `CARGO_HTTP_PROXY=http://127.0.0.1:1` so the unreachable index update failed fast instead of waiting for the TCP timeout — `cargo audit` then completes in 3.985 s instead of hanging past the check's 60 s deadline. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed, and the audited content is the same advisory database the fetch would have updated. The change added no failure. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 150 passed, 0 failed (150 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-upgrade-fleet-verdict-truth/`: the new capability `upgrade-fleet-verdict-truth` was promoted with one requirement and four scenarios, the `project-upgrade-orchestration` requirement was modified with every canonical scenario kept and two scenarios added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the fleet verdict distinguishes a judged fleet from one whose projects could not be judged. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 warnings, the same count as the pre-change baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/upgrade/model.rs` 150, `src/upgrade/engine.rs` 798, `src/upgrade/mod.rs` 46, `src/cli/feature.rs` 833, `tests/upgrade_fleet_verdict_truth_contract.rs` 311). |
+
+Deliberately not done, and stated plainly: the single-project
+upgrade is unchanged — `forge upgrade <project>` already fails loudly
+on a project it cannot read. A dry-run fleet keeps its verdict, because
+a dry run judges the plan and its header already says `(dry-run)`. The
+`skipped` result is unchanged: a project that was judged and needed no
+change is still `skipped`, and a fleet of such projects is still
+healthy. The journal rows are unchanged, because the operation changed
+nothing. The plan, the manifests, the receipts and the contract version
+are unchanged. Two behaviours do change for a reader that relied on the
+old ones: a project that could not be judged now reads `unavailable`
+rather than `skipped`, and the exit code for such a fleet is 1 rather
+than 0 — which is what the verdict means.
+
+The implementation was written by a worker subagent and reviewed by the
+owning agent, who re-ran the build, the full suite, clippy, rustfmt, the
+strict validation, the change-name check, the whitespace check, the Gate
+and the live CLI behaviour above. The worker's own evidence table is in
+the archived tasks file. One of the worker's choices was changed by the
+owning agent after review: the entry's note now opens with
+`unavailable:` instead of `skipped:`, so the rendered line does not
+contradict its own status. The Gate runs recorded above are the owning
+agent's, because the worker does not own the Gate.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `3a18d09` (`feat: the fleet verdict names
+the projects it could not judge`). This HANDOFF-only update is the
+second commit. Nothing was pushed. No active OpenSpec change remains, so
+this file has no `current_spec` pointer.

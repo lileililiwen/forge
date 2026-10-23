@@ -17,7 +17,14 @@
 //! front, journal each project independently (`upgrade` operation rows with
 //! `done`/`failed`/`blocked`/`skipped` states) and report distinct
 //! per-project statuses without marking the fleet wholly successful when
-//! any project fails or blocks. Retries re-plan from current manifest
+//! any project fails or blocks. A project the fleet could not read at all
+//! is `unavailable`, not `skipped`: `skipped` means the fleet judged the
+//! project and chose not to change it. The run derives one
+//! [`FleetVerdict`] from those per-project results and every surface — the
+//! human renderer, the JSON document and the exit code — reads it:
+//! `healthy` only when every selected project was judged and none failed
+//! or blocked, `unavailable` when one could not be judged, `not healthy`
+//! when one failed or blocked. Retries re-plan from current manifest
 //! state, so completed steps are not repeated and changed preconditions
 //! cause fresh conflict reporting.
 //!

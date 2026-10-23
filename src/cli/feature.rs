@@ -22,7 +22,8 @@ use forge::spec::{
 };
 use forge::upgrade::{
     apply_upgrade, plan_upgrade, render_fleet_human, render_outcome_human as render_upgrade_human,
-    render_plan_human as render_upgrade_plan_human, run_fleet, FleetReport, UpgradeOutcome,
+    render_plan_human as render_upgrade_plan_human, run_fleet, FleetReport, FleetVerdict,
+    UpgradeOutcome,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -285,10 +286,9 @@ pub(crate) fn cmd_upgrade_fleet(
         }
         Output::Raw(text) => print!("{text}"),
     }
-    if report.healthy() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
+    match report.verdict {
+        FleetVerdict::Healthy => ExitCode::SUCCESS,
+        FleetVerdict::Unavailable | FleetVerdict::NotHealthy => ExitCode::from(1),
     }
 }
 

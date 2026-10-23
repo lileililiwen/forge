@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use super::contract::UPGRADE_CONTRACT_VERSION;
 use super::model::{
-    FleetEntry, FleetReport, SemanticConflict, UpgradeOutcome, UpgradePlan, UpgradeStep,
+    FleetEntry, FleetReport, FleetVerdict, SemanticConflict, UpgradeOutcome, UpgradePlan,
+    UpgradeStep,
 };
 
 /// Features whose upgrade includes a schema migration that filesystem
@@ -524,9 +525,9 @@ pub fn run_fleet(
             Err(_) => {
                 entries.push(FleetEntry {
                     project_id: project_id.clone(),
-                    status: "skipped".to_string(),
+                    status: "unavailable".to_string(),
                     changed: false,
-                    note: "skipped: project record unreadable at selection time".to_string(),
+                    note: "unavailable: project record unreadable at selection time".to_string(),
                     features: std::collections::BTreeMap::new(),
                     validation: Vec::new(),
                     recovery: Vec::new(),
@@ -545,9 +546,9 @@ pub fn run_fleet(
             );
             entries.push(FleetEntry {
                 project_id: project_id.clone(),
-                status: "skipped".to_string(),
+                status: "unavailable".to_string(),
                 changed: false,
-                note: "skipped: project path unavailable; nothing was changed".to_string(),
+                note: "unavailable: project path unavailable; nothing was changed".to_string(),
                 features: record.features.clone(),
                 validation: Vec::new(),
                 recovery: Vec::new(),
@@ -663,16 +664,20 @@ pub fn run_fleet(
     let failed = entries.iter().filter(|e| e.status == "failure").count();
     let blocked = entries.iter().filter(|e| e.status == "blocked").count();
     let skipped = entries.iter().filter(|e| e.status == "skipped").count();
+    let unavailable = entries.iter().filter(|e| e.status == "unavailable").count();
+    let verdict = FleetVerdict::from_entries(&entries);
     Ok(FleetReport {
         contract: UPGRADE_CONTRACT_VERSION.to_string(),
         selection: selection.clone(),
         requested: requested.map(|s| vec![s.to_string()]).unwrap_or_default(),
         dry_run,
+        verdict,
         entries,
         succeeded,
         failed,
         blocked,
         skipped,
+        unavailable,
     })
 }
 
@@ -769,12 +774,13 @@ pub fn render_outcome_human(outcome: &UpgradeOutcome) -> String {
 /// Render a fleet report for human output.
 pub fn render_fleet_human(report: &FleetReport) -> String {
     let mut lines = vec![format!(
-        "fleet upgrade{}: {} success, {} failure, {} blocked, {} skipped (selection: {})",
+        "fleet upgrade{}: {} success, {} failure, {} blocked, {} skipped, {} unavailable (selection: {})",
         if report.dry_run { " (dry-run)" } else { "" },
         report.succeeded,
         report.failed,
         report.blocked,
         report.skipped,
+        report.unavailable,
         if report.selection.is_empty() {
             "empty".to_string()
         } else {
@@ -787,13 +793,6 @@ pub fn render_fleet_human(report: &FleetReport) -> String {
             entry.status, entry.project_id, entry.note
         ));
     }
-    lines.push(format!(
-        "verdict: {}",
-        if report.healthy() {
-            "healthy"
-        } else {
-            "not healthy"
-        }
-    ));
+    lines.push(format!("verdict: {}", report.verdict.as_str()));
     lines.join("\n")
 }

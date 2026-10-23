@@ -1,7 +1,7 @@
 # project-upgrade-orchestration Specification
 
 ## Purpose
-Deterministic upgrade planning and fleet orchestration: pinned plans with compatibility checks and recovery implications, semantic-conflict handoff to spec generation, per-project failure isolation, and no-op on already-satisfied upgrades.
+Deterministic upgrade planning and fleet orchestration: pinned plans with compatibility checks and recovery implications, semantic-conflict handoff to spec generation, per-project failure isolation, no-op on already-satisfied upgrades, and a fleet verdict that distinguishes a judged fleet from one whose projects could not be judged.
 ## Requirements
 ### Requirement: Deterministic upgrade planning
 
@@ -24,7 +24,7 @@ Forge SHALL produce pinned upgrade plans with compatibility checks, package/conf
 
 ### Requirement: Isolated fleet outcomes
 
-Forge SHALL implement upgrade --all with explicit project selection, per-project journals and distinct success, failure, blocked and skipped results.
+Forge SHALL implement upgrade --all with explicit project selection, per-project journals and distinct success, failure, blocked, skipped and unavailable results. A project that could not be judged — its registry record was unreadable, or its path was unavailable — SHALL be reported as `unavailable` rather than `skipped`, and the fleet's verdict SHALL be `unavailable` rather than `healthy`.
 
 #### Scenario: Isolated fleet outcomes success
 
@@ -40,4 +40,14 @@ Forge SHALL implement upgrade --all with explicit project selection, per-project
 
 - **WHEN** a previous run is retried
 - **THEN** completed steps are not blindly repeated and changed preconditions cause re-planning
+
+#### Scenario: A project that could not be judged is unavailable
+
+- **WHEN** a selected project's registry record was unreadable, or its path was unavailable
+- **THEN** that project's result is `unavailable`, the fleet's verdict is `unavailable`, and the fleet is not reported as healthy
+
+#### Scenario: One verdict, every surface
+
+- **WHEN** the fleet report is rendered for a human, rendered as JSON, or used to decide the command's exit code
+- **THEN** all three read the same verdict
 

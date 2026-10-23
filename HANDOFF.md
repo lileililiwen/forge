@@ -8352,3 +8352,134 @@ Implementation/archive commit: `b2cb4f3` (`feat: a status projection names
 the evidence behind its verdict`). This HANDOFF-only update is the second
 commit. Nothing was pushed. No active OpenSpec change remains, so this
 file has no `current_spec` pointer.
+
+### `release-driftwatch-check-truth` implemented and archived (2026-10-23)
+
+`forge release prepare` captures one check per configured kind and judges
+the plan ready when every applicable check passed. The DriftWatch check
+counted only one severity:
+
+```rust
+// src/release/engine/prepare.rs, before
+if matches!(finding.severity, crate::policy::PolicySeverity::Fail) {
+    fail_ids.push(finding.id.clone());
+}
+if !fail_ids.is_empty() {
+    // fail
+} else {
+    CapturedCheck {
+        kind: "driftwatch".to_string(),
+        status: CHECK_PASS.to_string(),
+        applicable: true,
+        evidence: vec!["driftwatch report healthy".to_string()],
+        detail: "driftwatch report is healthy".to_string(),
+        ...
+```
+
+The doctor judges the **same report** with the full severity set, plus
+staleness and applicability (`src/doctor/assessment.rs`):
+
+```rust
+let status = if fail > 0 {
+    FindingStatus::Fail
+} else if warn > 0 || stale {
+    FindingStatus::Warn
+} else if applicable == 0 {
+    FindingStatus::Unavailable
+} else {
+    FindingStatus::Pass
+};
+```
+
+So the release lane counted a subset of what the doctor counts, and then
+called the difference healthy. Three reports, two verdicts — each row
+produced on this host with a fake policy adapter and one project
+declaring `release.checks: [driftwatch]`.
+
+| The policy report says | `forge doctor` says | `forge release prepare` said |
+|---|---|---|
+| one rule warned | `[WARN] driftwatch-policy` — `1 finding(s): 0 pass, 1 warn, 0 fail` | `driftwatch pass … driftwatch report is healthy` |
+| no rule applied to this profile | `[UNAVAILABLE] driftwatch-policy` — `1 finding(s): 0 pass, 0 warn, 0 fail` | `driftwatch pass … driftwatch report is healthy` |
+| the report was produced against an older revision | `[WARN] driftwatch-policy` — `source revision older than current forge.yaml` | `driftwatch pass … driftwatch report is healthy` |
+
+**A report the doctor calls unavailable passed the release.** The
+canonical policy capability says the opposite in its own Purpose —
+*"unavailable (never pass)"* — and its boundary scenario says *"the
+reason is preserved rather than manufacturing a detector result"*. A
+policy that does not apply to a profile is exactly the case the doctor
+refuses to call a pass.
+
+**A report that belongs to an older revision passed the release.** The
+canonical release capability names this case:
+
+> #### Scenario: Verified release preparation failure
+>
+> - **WHEN** a required check fails, is unavailable or belongs to an
+>   older revision
+> - **THEN** release execution blocks before tag or publication
+
+The release lane's own doctor check already honoured both clauses — it
+reports `stale` for a stale doctor report and `unavailable` for a doctor
+run that could not complete, and `check_readiness` blocks on any status
+that is not `pass`. Only the DriftWatch check could not.
+
+**The function's own contract said it should not happen.** The doc
+comment above `prepare_release` reads: *"refuses to mark the plan `ready`
+when any required check fails, is unavailable or is stale."* The
+DriftWatch check could report neither `unavailable` nor `stale` for a
+report it did receive.
+
+The doctor's judgement of a policy report is now one typed verdict —
+`Failing`, `Stale`, `Unjudged`, `Warning`, `Passed` — with the doctor's
+own precedence, and the release lane reads it instead of filtering the
+report again. A failing rule, a report no rule applied to and a report
+from an older revision each block the release. A warning still does not
+block — it is not one of the three conditions the canonical release
+requirement names, and the lane's own doctor check does not block on a
+warning finding either — but its evidence now names the warning instead
+of calling the report healthy. Only a report where every applicable rule
+passed is called healthy.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The release lane and the doctor agree | PASS | Driven over the real CLI: `forge release prepare <project> --version 1.0.0 --dry-run` with `FORGE_DRIFTWATCH_BIN` pointing at a fake policy adapter. **Before**, all three reports produced the same check: `driftwatch pass applicable=true revision=…: driftwatch report is healthy`. **After**: the warning report is `driftwatch pass … driftwatch report carries warnings` (the evidence names `driftwatch warned on rule(s) POLICY-DOCS-001` and the word *healthy* appears nowhere in the check), the unjudged report is `driftwatch unavailable … driftwatch applied no rule; there is no policy evidence to release on`, and the stale report is `driftwatch stale … driftwatch report is stale relative to the current source revision`. The plan's summary for the two blocking reports reads `release plan not ready: failing check(s) driftwatch:unavailable, gate:fail; release execution blocks before tag or publication`. |
+| A report where every rule passed | PASS | `driftwatch pass applicable=true revision=…: driftwatch report is healthy` — the only case that says *healthy* — and the doctor reads `[PASS] driftwatch-policy … 1 finding(s): 1 pass, 0 warn, 0 fail`. |
+| The doctor's verdicts did not change | PASS | `forge doctor` on the same four reports: the warning report → `[WARN] driftwatch-policy … 0 pass, 1 warn, 0 fail`; the unjudged report → `[UNAVAILABLE] driftwatch-policy … 0 pass, 0 warn, 0 fail`; the stale report → `[WARN] driftwatch-policy … source revision older than current forge.yaml`; the passing report → `[PASS] driftwatch-policy … 1 pass, 0 warn, 0 fail`. All four are byte-identical to the pre-change output. The unit tests `the_rollup_keeps_the_doctors_own_statuses` and `the_rollup_keeps_the_doctors_own_counts_and_wording` pin the rollup's statuses, counts and wording, including the case where a report is both stale and unjudged (it reads `WARN`, as the doctor's own ordering produced). |
+| The new contract test | PASS | `cargo test --test release_driftwatch_check_truth_contract` → `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. It drives the real plan through the public `forge::release::engine::prepare_release` with the fake adapter and pins the five verdicts on the release check and the doctor's finding at once. `cargo test -p forge --lib doctor::` → `67 passed; 0 failed`; `cargo test -p forge --lib release::` → `34 passed; 0 failed`. |
+| Repository test suite | PASS, 4148 tests / 0 failed | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0. The 223 `test result:` lines sum to **4148 passed; 0 failed; 1 ignored**; `grep -c FAILED` over the whole log returns 0. The previous change's baseline, measured with the same script, was 4136 passed over 222 lines, so this change adds exactly the 12 tests it declares (11 verdict cases + 1 contract case) and exactly one test binary. Neither known flake fired. |
+| Repository Gate | PASS, 8/8 | `forge gate --dry-run` resolved all 8 required checks with none unbound and `verdict=within` on the exemption budget. The full `forge gate --timeout-secs 1800` run exited 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T00:18:32Z"` on revision `43065cba34b4`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The revision is the parent commit because the implementation was still uncommitted in the worktree when the Gate ran; the Gate's own `repository` check ran against that worktree. The tree was warmed first (`cargo build --workspace`, `cargo test --workspace --no-run`) and the `build` check reported `Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 0.20s`. |
+| A network fault in an earlier Gate run | Recorded, not a failure of this change | The first Gate run on the same tree failed on the `security` check alone: `couldn't fetch advisory database … An IO error occurred when talking to the server` — `cargo audit` could not reach the RustSec advisory database. It was a network fault, not a defect: `cargo audit` run on its own then exited 0 with `warning: 4 allowed warnings found`, `git ls-remote https://github.com/RustSec/advisory-db.git HEAD` answered, and the second Gate run passed all eight checks with `security` in state `pass`. The change added no failure. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 146 passed, 0 failed (146 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-release-driftwatch-check-truth/`: the new capability `release-driftwatch-check-truth` was promoted with three requirements, one requirement of `release-publishing` and one of `quality-policy-integration` were modified with every canonical scenario kept and one scenario added each, the archive's `TBD` Purpose was replaced by hand with the real one, and both modified capabilities' purposes now state the rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all four touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/doctor/assessment.rs` 878, `src/doctor/freshness.rs` 223, `src/release/engine/prepare.rs` 511, `tests/release_driftwatch_check_truth_contract.rs` 409). |
+
+Deliberately not done, and stated plainly: the doctor is unchanged — its
+findings, its severities, its counts and its wording are byte-identical
+for every report; only the rule behind them became readable by the
+release lane. The release lane's other checks are untouched: its doctor
+check already judged with the doctor's own blocking set, and its test and
+Gate checks are unchanged. The readiness rule is unchanged, and it
+already blocked on any applicable check that is not `pass`. A warning
+still does not block a release: a warning is not one of the three
+conditions the canonical release requirement names, and the lane's own
+doctor check does not block on a warning finding either. What changed is
+the evidence, which no longer calls a warninging report healthy. The
+policy adapter, the report shape, the release contract version and the
+plan's fields are all unchanged.
+
+The worker's session was lost before it could report, so the
+implementation was verified by the owning agent instead: the build, the
+contract test, the doctor's and the release lane's unit tests, the full
+suite, clippy, rustfmt, the strict validation, the change-name check,
+the whitespace check, the Gate and the five release verdicts above are
+the owning agent's own runs. The implementation itself was written by
+the worker and is unchanged.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `fc09c42` (`feat: the release lane judges a
+policy report with the doctor's verdict`). This HANDOFF-only update is
+the second commit. Nothing was pushed. No active OpenSpec change
+remains, so this file has no `current_spec` pointer.

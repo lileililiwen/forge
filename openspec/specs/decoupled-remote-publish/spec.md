@@ -1,7 +1,7 @@
 # decoupled-remote-publish Specification
 
 ## Purpose
-A Forge-owned `remote-compose` publish lane that allocates ports, renders the shared-DB overlay and Caddy hosts, and issues plain `docker compose`/`rsync` over SSH, so the target is a generic Docker host with no deployment scripts on it.
+A Forge-owned `remote-compose` publish lane that allocates ports, renders the shared-DB overlay and Caddy hosts, and issues plain `docker compose`/`rsync` over SSH, so the target is a generic Docker host with no deployment scripts on it; the publish summary names the address the deploy published and never claims a reachability the run did not observe.
 ## Requirements
 ### Requirement: Remote-compose publish without target-hosted deployment scripts
 Forge SHALL publish the fleet (and bare `forge publish` via cwd discovery) to a generic Docker host without invoking any file under the target's `scripts/` directory; `Sync` SHALL remain `mkdir` + `rsync`, while `Prepare`/`Db`/`Deploy` SHALL be expressed as plain `ssh`/`rsync`/`scp` + `docker compose` commands issued from Linux.
@@ -37,11 +37,16 @@ For projects that declare shared-DB intent via the target-local `secrets/<projec
 - **THEN** it maps `DATABASE_URL` → `${PRODUCTION_DATABASE_URL}`, `PGDATABASE` → `${PRODUCTION_DB_NAME}`, etc., prunes DB `depends_on`, and injects `production-db-network`
 
 ### Requirement: Caddy host rendering in Forge
-After successful per-project deploys, Forge SHALL render the host's `platform/Caddyfile` (and `platform/site/index.html` when the template exists) from `RUNTIME_ROOT/port-registry.json` and ship it to the target followed by `docker compose -f PLATFORM_ROOT/compose.yml up -d --force-recreate`.
+After successful per-project deploys, Forge SHALL render the host's `platform/Caddyfile` (and `platform/site/index.html` when the template exists) from `RUNTIME_ROOT/port-registry.json` and ship it to the target followed by `docker compose -f PLATFORM_ROOT/compose.yml up -d --force-recreate`. The publish summary SHALL name the address the deploy published, and SHALL NOT claim that the project is reachable, because no stage of a publish observes a reachability.
 
 #### Scenario: Caddy renders after fleet
 - **WHEN** `forge publish fleet` finishes with 20/20 healthy
 - **THEN** `PLATFORM_ROOT/Caddyfile` contains one host rule per published project at `<project>.tooosall.uk` and the `apps` nav host
+
+#### Scenario: The publish summary names the published address
+
+- **WHEN** a publish deploy completes and the report carries a subdomain
+- **THEN** the summary names the published address, and does not claim that the project is reachable
 
 ### Requirement: Secrets remain target-local
 Forge SHALL NOT read or copy `SECRETS_ROOT/<project>/.env` or `.shared-db.env` contents over SSH; deploys SHALL reference them via `--env-file RUNTIME_ROOT/<project>/production.env` (or `--env-file SECRETS_ROOT/<project>/.env`), and no secret value SHALL appear in the journal, evidence, or Caddy rendering.

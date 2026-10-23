@@ -205,13 +205,21 @@ pub fn run_publish(
         }
     }
 
+    // The summary states what the run established. A deploy shipped
+    // the router documents and reloaded the router, so the routing
+    // for the address is in place — but no stage observed the
+    // tunnel, the DNS or the host, so the summary never claims a
+    // reachability. An action that publishes no address says so.
     let note = if request.dry_run {
         format!(
             "dry-run: {} stage(s) planned, no side effects",
             stages.len()
         )
     } else if healthy {
-        "publish succeeded; project reachable at subdomain".to_string()
+        match &subdomain {
+            Some(sub) => format!("publish succeeded; the project is published at https://{sub}"),
+            None => "publish succeeded; no subdomain was published for this action".to_string(),
+        }
     } else {
         "publish did not complete; see stages for failure detail".to_string()
     };
@@ -743,6 +751,154 @@ pub(super) mod tests {
         assert!(rendered.contains("adapter: stub"));
         assert!(rendered.contains("action: sync"));
         assert!(rendered.contains("mode: dry-run"));
+    }
+
+    /// A stub adapter whose deploy publishes no address, so the
+    /// no-address form of the healthy note is pinned too.
+    struct NoAddressAdapter(StubAdapter);
+    impl PublishAdapter for NoAddressAdapter {
+        fn id(&self) -> &'static str {
+            self.0.id()
+        }
+        fn label(&self) -> &'static str {
+            self.0.label()
+        }
+        fn plan(
+            &self,
+            request: &PublishRequest,
+            stage: PublishAction,
+        ) -> Result<StagePlan, ForgeError> {
+            self.0.plan(request, stage)
+        }
+        fn classify(&self, plan: &StagePlan, result: &CommandResult) -> Classification {
+            self.0.classify(plan, result)
+        }
+        fn subdomain(&self, _project_id: &str) -> Option<String> {
+            None
+        }
+    }
+
+    /// The healthy summary names the published address and never
+    /// claims a reachability the run did not observe.
+    #[test]
+    fn healthy_deploy_note_names_the_published_address() {
+        let (req, _tmp) = fixture_request(PublishAction::Deploy, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(1);
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(report.healthy);
+        assert_eq!(report.subdomain(), Some("demo.stub.test"));
+        assert_eq!(
+            report.note,
+            "publish succeeded; the project is published at https://demo.stub.test"
+        );
+        assert!(!report.note.contains("reachable"));
+    }
+
+    /// An action that publishes no address says so, and names none.
+    #[test]
+    fn healthy_sync_note_says_no_subdomain_was_published() {
+        let (req, _tmp) = fixture_request(PublishAction::Sync, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(1);
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(report.healthy);
+        assert_eq!(report.subdomain(), None);
+        assert_eq!(
+            report.note,
+            "publish succeeded; no subdomain was published for this action"
+        );
+        assert!(!report.note.contains("https://"));
+        assert!(!report.note.contains("reachable"));
+    }
+
+    /// The `all` run includes the deploy, so it names the address.
+    #[test]
+    fn healthy_all_note_names_the_published_address() {
+        let (req, _tmp) = fixture_request(PublishAction::All, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(4);
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(report.healthy);
+        assert_eq!(report.subdomain(), Some("demo.stub.test"));
+        assert_eq!(
+            report.note,
+            "publish succeeded; the project is published at https://demo.stub.test"
+        );
+    }
+
+    /// A deploy whose adapter publishes no address takes the
+    /// no-address form; the report carries no subdomain either.
+    #[test]
+    fn healthy_deploy_without_an_address_says_no_subdomain_was_published() {
+        let (req, _tmp) = fixture_request(PublishAction::Deploy, false);
+        let adapter = NoAddressAdapter(StubAdapter {
+            id: "stub",
+            label: "stub",
+        });
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(1);
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        assert!(report.healthy);
+        assert_eq!(report.subdomain(), None);
+        assert_eq!(
+            report.note,
+            "publish succeeded; no subdomain was published for this action"
+        );
+    }
+
+    /// The dry-run and failure summaries are unchanged.
+    #[test]
+    fn dry_run_and_failure_notes_are_unchanged() {
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let (dry_req, _dry_tmp) = fixture_request(PublishAction::All, true);
+        let transport = RecordingTransport::new();
+        let dry = run_publish(&dry_req, &adapter, &transport, None).unwrap();
+        assert_eq!(dry.note, "dry-run: 4 stage(s) planned, no side effects");
+
+        let (fail_req, _fail_tmp) = fixture_request(PublishAction::All, false);
+        let mut failing = RecordingTransport::new();
+        failing.push(Err("boom".to_string()));
+        let failed = run_publish(&fail_req, &adapter, &failing, None).unwrap();
+        assert!(!failed.healthy);
+        assert_eq!(
+            failed.note,
+            "publish did not complete; see stages for failure detail"
+        );
+    }
+
+    /// One note, read by every surface: the human `summary:` line
+    /// and the JSON document's `note` field.
+    #[test]
+    fn one_note_is_read_by_the_renderer_and_the_json_document() {
+        let (req, _tmp) = fixture_request(PublishAction::Deploy, false);
+        let adapter = StubAdapter {
+            id: "stub",
+            label: "stub",
+        };
+        let mut transport = RecordingTransport::new();
+        transport.succeeding(1);
+        let report = run_publish(&req, &adapter, &transport, None).unwrap();
+        let rendered = render_report_human(&report);
+        assert!(rendered.contains(&format!("summary: {}", report.note)));
+        assert!(rendered.contains("subdomain: https://demo.stub.test"));
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["note"], report.note);
     }
 
     #[test]

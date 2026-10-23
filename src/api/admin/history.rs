@@ -9,7 +9,7 @@
 //! version and is scrubbed of the absolute project directory.
 
 use super::super::{ApiConfig, ApiRequest, ApiResponse, Route, API_CONTRACT_VERSION};
-use crate::registry::Registry;
+use crate::registry::{DeployStatusEntry, Registry};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -513,13 +513,14 @@ pub(in crate::api) fn deploy_status(
             };
             match registry.operations_for_project(id, limit) {
                 Ok(rows) => {
-                    let entries: Vec<_> = rows
+                    let entries: Vec<DeployStatusEntry> = rows
                         .into_iter()
                         .filter(|entry| {
                             entry.kind == "publish"
                                 || entry.kind == "deploy"
                                 || entry.kind == "publish.github"
                         })
+                        .map(|entry| DeployStatusEntry::from(&entry))
                         .collect();
                     let state = entries
                         .first()

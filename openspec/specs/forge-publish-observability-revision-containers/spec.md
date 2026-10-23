@@ -1,14 +1,18 @@
 # forge-publish-observability-revision-containers Specification
 
 ## Purpose
-Phase-visible publish lifecycle events and revision-bound container identity, so an in-flight publish is observable and a container is attributable to the revision that produced it.
+Phase-visible publish lifecycle events and revision-bound container identity, so an in-flight publish is observable and a container is attributable to the revision that produced it. Every projected entry names the phase evidence it carries and names a value the journal row does not carry `unknown`, so no entry reads as a verified success by silence.
 ## Requirements
 ### Requirement: Phase-visible publish lifecycle
 
 Forge SHALL persist and project every published project's `build` and
 `run` phase evidence independently so `forge deploy status` answers
 "did the build, the run, or both fail?" without contacting the
-provider again.
+provider again. Every projected entry SHALL expose its `revision`,
+`build_status`, `run_status` and `container_identity` fields, and a
+value the journal row does not carry SHALL be projected as `unknown`
+rather than omitted, so no entry reads as a verified success by
+silence.
 
 #### Scenario: Build success records build=succeeded and run=succeeded
 
@@ -56,6 +60,15 @@ provider again.
   phase vocabulary from
   `succeeded`/`failed`/`not_started`/`unknown`, non-empty bounded
   container identity) and persists the values on the journal row
+
+#### Scenario: Status projection surfaces revision and identity
+
+- **WHEN** `forge deploy status --queue <id>` is queried for a
+  completed fleet
+- **THEN** every entry exposes its `revision`,
+  `build_status`, `run_status`, and `container_identity` fields
+  through both the JSON document and the human renderer; missing
+  values render as `unknown`, never as a verified success
 
 ### Requirement: Revision-bound container identity
 

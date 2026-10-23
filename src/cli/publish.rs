@@ -14,7 +14,7 @@ use forge::publish::{
     render_report_human as render_publish_report_human, request_from as build_publish_request,
     run_publish, PublishAction, SubprocessTransport, PUBLISH_CONTRACT_VERSION,
 };
-use forge::registry::PublishPhaseEvidence;
+use forge::registry::{DeployStatusEntry, PublishPhaseEvidence};
 use std::path::{Path, PathBuf};
 
 use super::commands::{PublishCommands, PublishProviderCommands};
@@ -57,7 +57,10 @@ pub(super) fn cmd_deploy_status_watch(
             "queue": queue_id,
             "scope": format!("queue={queue_id}"),
             "state": if still_active { "active" } else { "terminal" },
-            "entries": entries,
+            "entries": entries
+                .iter()
+                .map(DeployStatusEntry::from)
+                .collect::<Vec<DeployStatusEntry>>(),
             "read_only": true,
         });
         render_output(as_output(format, rendered_human, rendered_json));

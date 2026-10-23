@@ -17,6 +17,7 @@
 
 mod interest;
 pub mod model;
+mod phase;
 mod portfolio;
 pub mod schema;
 mod share;
@@ -25,6 +26,7 @@ pub mod store;
 // Re-export all types
 pub use interest::SnapshotOutcome;
 pub use model::*;
+pub use phase::{DeployStatusEntry, PhaseEvidence, UNKNOWN_PHASE_VALUE};
 pub use portfolio::{PortfolioWrite, SnapshotWrite};
 pub use schema::*;
 pub use share::audit::PublicationReservation;

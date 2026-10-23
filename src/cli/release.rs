@@ -526,13 +526,17 @@ fn cmd_deploy_status(
     };
     let latest = entries.first();
     let aggregate_state = latest.map(|entry| entry.state.as_str()).unwrap_or("empty");
+    let projected: Vec<forge::registry::DeployStatusEntry> = entries
+        .iter()
+        .map(forge::registry::DeployStatusEntry::from)
+        .collect();
     let value = serde_json::json!({
         "contract": "forge-deploy-status/0.2.0",
         "project": project,
         "queue": queue,
         "scope": read_only_label,
         "state": aggregate_state,
-        "entries": entries,
+        "entries": projected,
         "read_only": true,
     });
     let human = render_deploy_status_human(&entries, project, queue, &read_only_label);
@@ -590,26 +594,14 @@ pub(super) fn render_deploy_status_human(
             .as_deref()
             .map(|q| format!(" queue={q}"))
             .unwrap_or_default();
-        let revision_label = entry
-            .revision
-            .as_deref()
-            .map(|r| format!(" revision={r}"))
-            .unwrap_or_default();
-        let build_label = entry
-            .build_status
-            .as_deref()
-            .map(|b| format!(" build={b}"))
-            .unwrap_or_default();
-        let run_label = entry
-            .run_status
-            .as_deref()
-            .map(|r| format!(" run={r}"))
-            .unwrap_or_default();
-        let identity_label = entry
-            .container_identity
-            .as_deref()
-            .map(|c| format!(" container={c}"))
-            .unwrap_or_default();
+        // The shared projection names the evidence the row does not
+        // carry, so a row without phase evidence never reads as a
+        // verified success by silence.
+        let evidence = forge::registry::PhaseEvidence::project(entry);
+        let revision_label = format!(" revision={}", evidence.revision);
+        let build_label = format!(" build={}", evidence.build_status);
+        let run_label = format!(" run={}", evidence.run_status);
+        let identity_label = format!(" container={}", evidence.container_identity);
         lines.push(format!(
             "  #{} {} {} {}{}{}{}{}{}",
             entry.op_id,

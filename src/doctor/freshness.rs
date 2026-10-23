@@ -152,7 +152,13 @@ pub(super) fn docs_freshness_findings(dir: &Path, manifest: &Manifest) -> Vec<Fi
     out
 }
 
-pub(super) fn observation_is_stale_from_report(dir: &Path, report: &PolicyReport) -> bool {
+/// Whether a policy report belongs to an older source state than the
+/// project it is judged against. The rule compares the report's own
+/// source revision with the manifest's modification time. It is
+/// public so every consumer of a policy report reaches the same
+/// staleness fact — the doctor and the release lane — instead of
+/// re-deriving it.
+pub fn observation_is_stale_from_report(dir: &Path, report: &PolicyReport) -> bool {
     let Some(revision) = report.source_revision else {
         return false;
     };

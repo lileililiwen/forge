@@ -439,6 +439,99 @@ pub fn render_report_human(report: &DoctorReport) -> String {
     lines.join("\n")
 }
 
+/// The doctor's conclusion about one policy report. The precedence is
+/// the doctor's own and it is unchanged: an applicable rule that
+/// failed outranks a report that belongs to an older source state, a
+/// stale report outranks a report no rule applied to, an unjudged
+/// report outranks a warning, and a warning outranks a pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyConclusion {
+    /// An applicable rule failed.
+    Failing,
+    /// The report belongs to an older source state than the one judged.
+    Stale,
+    /// No rule applied, so nothing was judged.
+    Unjudged,
+    /// Applicable rules warned; none failed.
+    Warning,
+    /// Every applicable rule passed.
+    Passed,
+}
+impl PolicyConclusion {
+    /// The doctor's finding status for this conclusion. A stale
+    /// report reads as a warning and an unjudged report reads as
+    /// unavailable — never as a pass.
+    pub fn to_finding_status(self) -> FindingStatus {
+        match self {
+            PolicyConclusion::Failing => FindingStatus::Fail,
+            PolicyConclusion::Stale => FindingStatus::Warn,
+            PolicyConclusion::Unjudged => FindingStatus::Unavailable,
+            PolicyConclusion::Warning => FindingStatus::Warn,
+            PolicyConclusion::Passed => FindingStatus::Pass,
+        }
+    }
+}
+/// The doctor's judgement of one policy report: the conclusion and
+/// the rule ids behind it. The verdict is the single rule every
+/// consumer of a policy report reads, so the release lane and the
+/// doctor cannot disagree about the same report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyVerdict {
+    /// What the report is.
+    pub conclusion: PolicyConclusion,
+    /// Ids of the applicable rules that failed.
+    pub failing: Vec<String>,
+    /// Ids of the applicable rules that warned.
+    pub warning: Vec<String>,
+    /// How many rules applied to the profile.
+    pub applicable: usize,
+    /// How many applicable rules passed.
+    pub passed: usize,
+    /// Whether the report belongs to an older source state.
+    pub stale: bool,
+}
+impl PolicyVerdict {
+    /// Judge one policy report with the doctor's precedence. `stale`
+    /// is the staleness fact read from the report's own source
+    /// revision, so every consumer reaches the same fact.
+    pub fn judge(report: &PolicyReport, stale: bool) -> Self {
+        let mut failing: Vec<String> = Vec::new();
+        let mut warning: Vec<String> = Vec::new();
+        let mut applicable = 0usize;
+        let mut passed = 0usize;
+        for pf in &report.findings {
+            if !pf.applicable {
+                continue;
+            }
+            applicable += 1;
+            match pf.severity {
+                PolicySeverity::Pass => passed += 1,
+                PolicySeverity::Warn => warning.push(pf.id.clone()),
+                PolicySeverity::Fail => failing.push(pf.id.clone()),
+            }
+        }
+        let conclusion = if !failing.is_empty() {
+            PolicyConclusion::Failing
+        } else if stale {
+            PolicyConclusion::Stale
+        } else if applicable == 0 {
+            PolicyConclusion::Unjudged
+        } else if !warning.is_empty() {
+            PolicyConclusion::Warning
+        } else {
+            PolicyConclusion::Passed
+        };
+        PolicyVerdict {
+            conclusion,
+            failing,
+            warning,
+            applicable,
+            passed,
+            stale,
+        }
+    }
+}
+
 /// Convert a DriftWatch policy outcome into one or more typed findings
 /// while preserving the original rule ID, category, severity, tool
 /// version and (already redacted) evidence. A missing binary, non-zero
@@ -546,39 +639,20 @@ fn reported_policy_findings(dir: &Path, report: &PolicyReport) -> Vec<Finding> {
 }
 
 fn aggregate_rollup(report: &PolicyReport, stale: bool) -> Rollup {
-    let mut applicable = 0usize;
-    let mut warn = 0usize;
-    let mut fail = 0usize;
-    let mut pass = 0usize;
-    for pf in &report.findings {
-        if !pf.applicable {
-            continue;
-        }
-        applicable += 1;
-        match pf.severity {
-            PolicySeverity::Pass => pass += 1,
-            PolicySeverity::Warn => warn += 1,
-            PolicySeverity::Fail => fail += 1,
-        }
-    }
+    // The rollup is the doctor's own rule, expressed through the
+    // shared verdict: the status, the counts and the wording stay
+    // exactly as they were.
+    let verdict = PolicyVerdict::judge(report, stale);
     let detail = format!(
         "driftwatch {} (contract {}) reported {} finding(s): {} pass, {} warn, {} fail",
         report.tool_version,
         report.contract,
         report.findings.len(),
-        pass,
-        warn,
-        fail
+        verdict.passed,
+        verdict.warning.len(),
+        verdict.failing.len()
     );
-    let status = if fail > 0 {
-        FindingStatus::Fail
-    } else if warn > 0 || stale {
-        FindingStatus::Warn
-    } else if applicable == 0 {
-        FindingStatus::Unavailable
-    } else {
-        FindingStatus::Pass
-    };
+    let status = verdict.conclusion.to_finding_status();
     let evidence = if stale {
         vec![format!(
             "driftwatch {} reported at {}; source revision older than current {}",
@@ -594,14 +668,211 @@ fn aggregate_rollup(report: &PolicyReport, stale: bool) -> Rollup {
             "driftwatch {} reported {} finding(s) ({} pass, {} warn, {} fail)",
             report.tool,
             report.findings.len(),
-            pass,
-            warn,
-            fail
+            verdict.passed,
+            verdict.warning.len(),
+            verdict.failing.len()
         )]
     };
     Rollup {
         status,
         evidence,
         detail,
+    }
+}
+
+#[cfg(test)]
+mod policy_verdict_tests {
+    use super::*;
+    use crate::policy::PolicyFinding;
+
+    fn finding(id: &str, severity: PolicySeverity, applicable: bool) -> PolicyFinding {
+        PolicyFinding {
+            id: id.to_string(),
+            category: "documentation".to_string(),
+            severity,
+            applicable,
+            message: format!("{id} reported a finding"),
+            evidence: vec![],
+            reason: None,
+        }
+    }
+
+    fn report(findings: Vec<PolicyFinding>) -> PolicyReport {
+        PolicyReport {
+            tool: "driftwatch".to_string(),
+            tool_version: "0.9.9".to_string(),
+            contract: "0.1.0".to_string(),
+            source_revision: None,
+            findings,
+        }
+    }
+
+    #[test]
+    fn a_failing_applicable_rule_is_the_failing_conclusion() {
+        let report = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Fail, true)]);
+        let verdict = PolicyVerdict::judge(&report, false);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Failing);
+        assert_eq!(verdict.failing, vec!["POLICY-DOCS-001".to_string()]);
+        assert_eq!(verdict.warning, Vec::<String>::new());
+        assert_eq!(verdict.applicable, 1);
+        assert_eq!(verdict.passed, 0);
+        assert!(!verdict.stale);
+    }
+
+    #[test]
+    fn a_report_from_an_older_source_state_is_the_stale_conclusion() {
+        let report = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Pass, true)]);
+        let verdict = PolicyVerdict::judge(&report, true);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Stale);
+        assert!(verdict.stale);
+        assert_eq!(verdict.applicable, 1);
+        assert_eq!(verdict.passed, 1);
+    }
+
+    #[test]
+    fn a_report_no_rule_applied_to_is_the_unjudged_conclusion() {
+        let report = report(vec![finding(
+            "POLICY-DOCS-001",
+            PolicySeverity::Pass,
+            false,
+        )]);
+        let verdict = PolicyVerdict::judge(&report, false);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Unjudged);
+        assert_eq!(verdict.applicable, 0);
+        assert_eq!(verdict.passed, 0);
+        assert_eq!(verdict.failing, Vec::<String>::new());
+        assert_eq!(verdict.warning, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_applicable_rule_that_warned_is_the_warning_conclusion() {
+        let report = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Warn, true)]);
+        let verdict = PolicyVerdict::judge(&report, false);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Warning);
+        assert_eq!(verdict.warning, vec!["POLICY-DOCS-001".to_string()]);
+        assert_eq!(verdict.applicable, 1);
+        assert_eq!(verdict.passed, 0);
+    }
+
+    #[test]
+    fn every_applicable_rule_passing_is_the_passed_conclusion() {
+        let report = report(vec![
+            finding("POLICY-DOCS-001", PolicySeverity::Pass, true),
+            finding("POLICY-SEC-002", PolicySeverity::Pass, true),
+        ]);
+        let verdict = PolicyVerdict::judge(&report, false);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Passed);
+        assert_eq!(verdict.applicable, 2);
+        assert_eq!(verdict.passed, 2);
+        assert_eq!(verdict.failing, Vec::<String>::new());
+        assert_eq!(verdict.warning, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_failing_rule_outranks_a_stale_report() {
+        let report = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Fail, true)]);
+        let verdict = PolicyVerdict::judge(&report, true);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Failing);
+        assert!(verdict.stale);
+    }
+
+    #[test]
+    fn a_stale_report_outranks_an_unjudged_report() {
+        let report = report(vec![finding(
+            "POLICY-DOCS-001",
+            PolicySeverity::Pass,
+            false,
+        )]);
+        let verdict = PolicyVerdict::judge(&report, true);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Stale);
+        assert_eq!(verdict.applicable, 0);
+    }
+
+    #[test]
+    fn a_warning_outranks_a_pass() {
+        let report = report(vec![
+            finding("POLICY-DOCS-001", PolicySeverity::Pass, true),
+            finding("POLICY-SEC-002", PolicySeverity::Warn, true),
+        ]);
+        let verdict = PolicyVerdict::judge(&report, false);
+        assert_eq!(verdict.conclusion, PolicyConclusion::Warning);
+        assert_eq!(verdict.passed, 1);
+        assert_eq!(verdict.warning, vec!["POLICY-SEC-002".to_string()]);
+    }
+
+    #[test]
+    fn every_conclusion_maps_to_the_doctors_own_finding_status() {
+        assert_eq!(
+            PolicyConclusion::Failing.to_finding_status(),
+            FindingStatus::Fail
+        );
+        assert_eq!(
+            PolicyConclusion::Stale.to_finding_status(),
+            FindingStatus::Warn
+        );
+        assert_eq!(
+            PolicyConclusion::Unjudged.to_finding_status(),
+            FindingStatus::Unavailable
+        );
+        assert_eq!(
+            PolicyConclusion::Warning.to_finding_status(),
+            FindingStatus::Warn
+        );
+        assert_eq!(
+            PolicyConclusion::Passed.to_finding_status(),
+            FindingStatus::Pass
+        );
+    }
+
+    #[test]
+    fn the_rollup_keeps_the_doctors_own_statuses() {
+        let failing = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Fail, true)]);
+        assert_eq!(
+            aggregate_rollup(&failing, false).status,
+            FindingStatus::Fail
+        );
+        let warned = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Warn, true)]);
+        assert_eq!(aggregate_rollup(&warned, false).status, FindingStatus::Warn);
+        let stale = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Pass, true)]);
+        assert_eq!(aggregate_rollup(&stale, true).status, FindingStatus::Warn);
+        // A report that is both stale and unjudged reads as a warning,
+        // exactly as the doctor's ordering produces.
+        let unjudged = report(vec![finding(
+            "POLICY-DOCS-001",
+            PolicySeverity::Pass,
+            false,
+        )]);
+        assert_eq!(
+            aggregate_rollup(&unjudged, true).status,
+            FindingStatus::Warn
+        );
+        assert_eq!(
+            aggregate_rollup(&unjudged, false).status,
+            FindingStatus::Unavailable
+        );
+        let passed = report(vec![finding("POLICY-DOCS-001", PolicySeverity::Pass, true)]);
+        assert_eq!(aggregate_rollup(&passed, false).status, FindingStatus::Pass);
+    }
+
+    #[test]
+    fn the_rollup_keeps_the_doctors_own_counts_and_wording() {
+        let report = report(vec![
+            finding("POLICY-DOCS-001", PolicySeverity::Pass, true),
+            finding("POLICY-SEC-002", PolicySeverity::Warn, true),
+            finding("POLICY-ARCH-003", PolicySeverity::Fail, true),
+            finding("POLICY-DOCS-004", PolicySeverity::Pass, false),
+        ]);
+        let rollup = aggregate_rollup(&report, false);
+        assert_eq!(rollup.status, FindingStatus::Fail);
+        assert_eq!(
+            rollup.detail,
+            "driftwatch 0.9.9 (contract 0.1.0) reported 4 finding(s): 1 pass, 1 warn, 1 fail"
+        );
+        assert_eq!(
+            rollup.evidence,
+            vec![
+                "driftwatch driftwatch reported 4 finding(s) (1 pass, 1 warn, 1 fail)".to_string()
+            ]
+        );
     }
 }

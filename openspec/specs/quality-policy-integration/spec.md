@@ -1,11 +1,11 @@
 # quality-policy-integration Specification
 
 ## Purpose
-Delegated quality execution through the DriftWatch policy plane: configured checks invoked with bounded waits, findings mapped to project observations with category, policy ID, severity, tool version and evidence, and unavailable (never pass) on adapter failure.
+Delegated quality execution through the DriftWatch policy plane: configured checks invoked with bounded waits, findings mapped to project observations with category, policy ID, severity, tool version and evidence, unavailable (never pass) on adapter failure, and one verdict about a report that every consumer of it reaches.
 ## Requirements
 ### Requirement: Delegated policy execution
 
-Forge SHALL invoke configured DriftWatch checks and map findings to project observations while retaining category, policy ID, severity, tool version and evidence.
+Forge SHALL invoke configured DriftWatch checks and map findings to project observations while retaining category, policy ID, severity, tool version and evidence. Every consumer of a policy report SHALL reach the same verdict about that report: a report whose applicable rule failed is a failure, a report produced against an older source state is stale, a report in which no rule applied is unavailable and never a pass, and a report in which every applicable rule passed is the only report that may be called healthy.
 
 #### Scenario: Delegated policy execution success
 
@@ -21,6 +21,12 @@ Forge SHALL invoke configured DriftWatch checks and map findings to project obse
 
 - **WHEN** a policy is not applicable to a profile
 - **THEN** the reason is preserved rather than manufacturing a detector result
+
+#### Scenario: A second consumer of the same report
+
+- **WHEN** a surface other than the doctor reads the same policy report
+- **THEN** it reaches the same verdict as the doctor and never captures
+  the report as a healthy pass when the doctor does not call it healthy
 
 ### Requirement: Quality result isolation
 

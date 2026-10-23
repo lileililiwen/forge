@@ -9,6 +9,7 @@ use super::super::{
 };
 use crate::core::manifest::Manifest;
 use crate::core::ForgeError;
+use crate::doctor::{PolicyConclusion, PolicyVerdict};
 use crate::gitops::run_test;
 use crate::policy::{run_driftwatch, DriftWatchConfig, PolicyOutcome};
 use std::path::Path;
@@ -399,34 +400,14 @@ fn run_driftwatch_check(
     let _ = manifest;
     match outcome {
         PolicyOutcome::Reported(report) => {
-            let mut fail_ids: Vec<String> = Vec::new();
-            for finding in &report.findings {
-                if !finding.applicable {
-                    continue;
-                }
-                if matches!(finding.severity, crate::policy::PolicySeverity::Fail) {
-                    fail_ids.push(finding.id.clone());
-                }
-            }
-            if !fail_ids.is_empty() {
-                CapturedCheck {
-                    kind: "driftwatch".to_string(),
-                    status: CHECK_FAIL.to_string(),
-                    applicable: true,
-                    evidence: fail_ids,
-                    detail: "driftwatch reports failing rules".to_string(),
-                    source_revision: revision.to_string(),
-                }
-            } else {
-                CapturedCheck {
-                    kind: "driftwatch".to_string(),
-                    status: CHECK_PASS.to_string(),
-                    applicable: true,
-                    evidence: vec!["driftwatch report healthy".to_string()],
-                    detail: "driftwatch report is healthy".to_string(),
-                    source_revision: revision.to_string(),
-                }
-            }
+            // The doctor owns the judgement of a policy report; the
+            // release lane reads its verdict instead of filtering the
+            // report again. The staleness fact is the doctor's own
+            // rule, so both surfaces read the same fact.
+            let stale =
+                crate::doctor::freshness::observation_is_stale_from_report(project_dir, &report);
+            let verdict = PolicyVerdict::judge(&report, stale);
+            driftwatch_check_from_verdict(&verdict, revision)
         }
         PolicyOutcome::Unavailable { reason } => CapturedCheck {
             kind: "driftwatch".to_string(),
@@ -436,6 +417,55 @@ fn run_driftwatch_check(
             detail: "driftwatch adapter is unavailable".to_string(),
             source_revision: revision.to_string(),
         },
+    }
+}
+
+/// Map the doctor's verdict on one policy report onto the release
+/// contract's check statuses. A failing rule, a report that belongs
+/// to an older source revision and a report no rule applied to each
+/// block the release; a warning does not block, but it is never
+/// called healthy. Only a report where every applicable rule passed
+/// is called healthy.
+fn driftwatch_check_from_verdict(verdict: &PolicyVerdict, revision: &str) -> CapturedCheck {
+    let (status, evidence, detail) = match verdict.conclusion {
+        PolicyConclusion::Failing => (
+            CHECK_FAIL,
+            verdict.failing.clone(),
+            "driftwatch reports failing rules".to_string(),
+        ),
+        PolicyConclusion::Stale => (
+            CHECK_STALE,
+            vec!["driftwatch report belongs to an older source revision".to_string()],
+            "driftwatch report is stale relative to the current source revision".to_string(),
+        ),
+        PolicyConclusion::Unjudged => (
+            CHECK_UNAVAILABLE,
+            vec![
+                "no driftwatch rule applied; there is no policy evidence to release on".to_string(),
+            ],
+            "driftwatch applied no rule; there is no policy evidence to release on".to_string(),
+        ),
+        PolicyConclusion::Warning => (
+            CHECK_PASS,
+            vec![format!(
+                "driftwatch warned on rule(s) {}",
+                verdict.warning.join(", ")
+            )],
+            "driftwatch report carries warnings".to_string(),
+        ),
+        PolicyConclusion::Passed => (
+            CHECK_PASS,
+            vec!["driftwatch report healthy".to_string()],
+            "driftwatch report is healthy".to_string(),
+        ),
+    };
+    CapturedCheck {
+        kind: "driftwatch".to_string(),
+        status: status.to_string(),
+        applicable: true,
+        evidence,
+        detail,
+        source_revision: revision.to_string(),
     }
 }
 

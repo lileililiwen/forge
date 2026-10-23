@@ -76,18 +76,24 @@ fn cmd_docs_translate(
         .map(|o| format!("{}={}", o.locale, o.status))
         .collect();
     let detail = format!(
-        "docs translate `{}` locales={} healthy={} all={}",
+        "docs translate `{}` locales={} verdict={} healthy={} all={}",
         report.project_id,
         statuses.join(","),
+        report.verdict.label(),
         report.healthy,
         report.all
     );
-    let state_label = if report.healthy() { "done" } else { "partial" };
+    // A needs-review run is a warning, not a failure: the
+    // translation succeeded and a human must look at it, so the
+    // journal still records the operation as `done`.
+    let state_label = if report.verdict.is_failure() {
+        "partial"
+    } else {
+        "done"
+    };
     let _ = registry.record_operation("docs", &report.project_id, state_label, &detail);
     let output = docs_translate_output(&report, format)?;
-    if report.healthy() {
-        Ok(output)
-    } else {
+    if report.verdict.is_failure() {
         // Partial failure: print the per-locale outcome JSON to
         // stdout so the caller sees exactly which locales were
         // translated and which failed, then surface a typed
@@ -102,6 +108,11 @@ fn cmd_docs_translate(
         Err(ForgeError::TranslationFailed {
             reason: report.note.clone(),
         })
+    } else {
+        // `complete` and `needs-review` both succeeded: the
+        // derivative was written. A needs-review run only says
+        // that a human must look at it.
+        Ok(output)
     }
 }
 

@@ -15,6 +15,67 @@ use super::constants::{
 };
 use super::source::validate_locale;
 
+/// The run's aggregate verdict over its locale outcomes. The
+/// verdict names the review status the outcomes carry, so no
+/// surface can call a run complete while a derivative still waits
+/// for a human.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranslateVerdict {
+    /// Every locale is translated or current, and every review is
+    /// `ok`.
+    Complete,
+    /// Every locale is translated or current, and at least one
+    /// review needs a human. A warning, not a failure: the
+    /// translation succeeded.
+    NeedsReview,
+    /// At least one locale failed. A failure outranks a review.
+    Partial,
+}
+impl TranslateVerdict {
+    /// The stable label the report, the JSON document and the
+    /// journal row publish.
+    pub fn label(self) -> &'static str {
+        match self {
+            TranslateVerdict::Complete => "complete",
+            TranslateVerdict::NeedsReview => "needs-review",
+            TranslateVerdict::Partial => "partial",
+        }
+    }
+    /// `true` when the run did not finish every locale. Only a
+    /// partial verdict fails the command.
+    pub fn is_failure(self) -> bool {
+        matches!(self, TranslateVerdict::Partial)
+    }
+}
+/// The aggregate verdict over a set of locale outcomes.
+///
+/// - `complete`: every locale is translated or current and every
+///   outcome's review status is `ok`.
+/// - `needs-review`: every locale is translated or current, but at
+///   least one outcome's review status is not `ok`.
+/// - `partial`: at least one locale failed, or the run has no
+///   outcome at all — the request was meaningless.
+pub fn verdict_for_outcomes(outcomes: &[TranslateOutcome]) -> TranslateVerdict {
+    if outcomes.is_empty() {
+        return TranslateVerdict::Partial;
+    }
+    let mut needs_review = false;
+    for outcome in outcomes {
+        if outcome.status != STATUS_TRANSLATED && outcome.status != STATUS_CURRENT {
+            // A definite failure outranks any review.
+            return TranslateVerdict::Partial;
+        }
+        if outcome.review != ReviewStatus::Ok.label() {
+            needs_review = true;
+        }
+    }
+    if needs_review {
+        TranslateVerdict::NeedsReview
+    } else {
+        TranslateVerdict::Complete
+    }
+}
 /// Aggregate translate report. The report is the typed outcome
 /// the CLI renders; Core owns every field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -29,24 +90,30 @@ pub struct TranslateReport {
     pub outcomes: Vec<TranslateOutcome>,
     pub note: String,
     /// Aggregate health. The CLI renders this field directly so
-    /// a caller can read the verdict without re-evaluating the
-    /// per-locale outcomes.
+    /// a caller can read the run's state without re-evaluating the
+    /// per-locale outcomes. True only for the `complete` verdict:
+    /// a run that needs a human is never called healthy.
     pub healthy: bool,
+    /// The run's aggregate verdict. The field is always present,
+    /// so a reader learns the outcome of the run without
+    /// re-deriving it from the per-locale outcomes.
+    pub verdict: TranslateVerdict,
 }
 impl TranslateReport {
-    /// `true` when every locale is `translated` or `current`.
-    /// A run with no outcomes is not healthy: the request was
-    /// meaningless.
+    /// `true` only for the `complete` verdict. A run with no
+    /// outcomes is not healthy: the request was meaningless.
     pub fn healthy(&self) -> bool {
         self.healthy_check()
     }
+    /// The aggregate verdict over the outcomes.
+    pub fn verdict(&self) -> TranslateVerdict {
+        self.verdict_check()
+    }
     pub(super) fn healthy_check(&self) -> bool {
-        if self.outcomes.is_empty() {
-            return false;
-        }
-        self.outcomes
-            .iter()
-            .all(|o| o.status == STATUS_TRANSLATED || o.status == STATUS_CURRENT)
+        self.verdict_check() == TranslateVerdict::Complete
+    }
+    pub(super) fn verdict_check(&self) -> TranslateVerdict {
+        verdict_for_outcomes(&self.outcomes)
     }
 }
 /// Validated docs config parsed from a manifest.

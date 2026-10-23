@@ -453,6 +453,10 @@ pub(super) fn run_docs_stage(
     let translator = crate::docs::TranslatorConfig::from_env();
     let translator_default = translator.binary.to_string_lossy().to_string();
     let mut outcomes: Vec<StageOutcome> = Vec::new();
+    // The review status of every locale the stage translated, so
+    // the aggregate stage note can name the locales a human still
+    // has to look at.
+    let mut reviews: Vec<(String, String)> = Vec::new();
     for locale in &locales {
         let request = crate::docs::TranslateRequest {
             project_id: manifest.project.id.clone(),
@@ -518,12 +522,19 @@ pub(super) fn run_docs_stage(
         } else {
             STATUS_FAILED.to_string()
         };
+        reviews.push((locale.clone(), outcome.review.clone()));
         outcomes.push(StageOutcome {
             stage: STAGE_DOCS.to_string(),
             target: format!("docs/translate:{locale}"),
             status,
             identity: Some(identity.id.clone()),
-            note: format!("docs stage for locale `{locale}`: {}", outcome.note),
+            // The stage's status is the locale's translation
+            // status; the note names the review status, so the
+            // release's evidence says what the report knows.
+            note: format!(
+                "docs stage for locale `{locale}`: review `{}`; {}",
+                outcome.review, outcome.note
+            ),
             evidence: outcome.evidence,
             recovery: outcome.recovery,
         });
@@ -544,11 +555,26 @@ pub(super) fn run_docs_stage(
         STATUS_FAILED.to_string()
     };
     let note = if all_delivered {
-        format!(
-            "{} docs locale(s) delivered for release `{}`",
-            outcomes.len(),
-            identity.id
-        )
+        let pending: Vec<String> = reviews
+            .iter()
+            .filter(|(_, review)| review.as_str() != crate::docs::ReviewStatus::Ok.label())
+            .map(|(locale, _)| locale.clone())
+            .collect();
+        if pending.is_empty() {
+            format!(
+                "{} docs locale(s) delivered for release `{}`",
+                outcomes.len(),
+                identity.id
+            )
+        } else {
+            format!(
+                "{} docs locale(s) delivered for release `{}`; {} locale(s) need review ({})",
+                outcomes.len(),
+                identity.id,
+                pending.len(),
+                pending.join(", ")
+            )
+        }
     } else {
         let failing: Vec<String> = outcomes
             .iter()

@@ -31,6 +31,12 @@
 //!   state recorded with the new source hash plus a review
 //!   status (`ok` or `needs-review`). Provider success alone
 //!   never claims translation quality.
+//! - The report carries one aggregate verdict over its outcomes:
+//!   `complete` when every locale is translated or current and
+//!   every review is `ok`, `needs-review` when a review still
+//!   waits for a human, and `partial` when a locale failed. The
+//!   report is healthy only for `complete`, and a needs-review
+//!   run is a warning, not a failure: the derivative was written.
 //!
 //! ## Why
 //!

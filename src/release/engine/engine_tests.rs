@@ -4,17 +4,19 @@
 pub(super) mod tests {
     use super::super::super::{
         release_config_from_manifest, CapturedCheck, ReleaseAdapterConfig, ReleaseConfig,
-        ReleaseRequest, Semver,
+        ReleaseIdentity, ReleaseRequest, Semver,
     };
     use super::super::{
         apply::apply_release,
         operations::{list_releases, run_with_timeout},
         prepare::{check_readiness, prepare_release},
+        stages::run_docs_stage,
     };
     use crate::core::manifest::{Manifest, Maturity};
     use crate::policy::DriftWatchConfig;
     use std::fs;
-    use std::path::Path;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -386,6 +388,83 @@ pub(super) mod tests {
         let policy = DriftWatchConfig::from_env();
         let plan = prepare_release(dir, &manifest, &config, &request, &policy).unwrap();
         assert!(plan.docs_locales.is_empty());
+    }
+
+    /// A translator that drops the link destination the source
+    /// carried, so the derivative needs a human review.
+    fn write_dropping_translator(dir: &Path) -> PathBuf {
+        let path = dir.join("dropping-translator.sh");
+        fs::write(
+            &path,
+            "#!/bin/sh\nsed 's|\\[the manual\\](https://example.com/manual)|the manual|'\n",
+        )
+        .unwrap();
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    /// The release lane names the review status of the locale it
+    /// translated. The stage's status stays `delivered`: the
+    /// derivative was written, and only a human has to look at it.
+    #[test]
+    fn docs_stage_names_the_review_and_stays_delivered() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_fixture(
+            dir,
+            "rel-docs-review",
+            "  checks:\n    - kind: doctor\n    - kind: test\n  docs:\n    translate:\n      - zh-CN\n",
+            "docs:\n  source_language: en\n  translations:\n    zh-CN:\n      enabled: true\n",
+        );
+        fs::write(
+            dir.join("README.md"),
+            "# Guide\n\nalpha section with [the manual](https://example.com/manual).\n",
+        )
+        .unwrap();
+        let fake = write_dropping_translator(dir);
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let identity = ReleaseIdentity::derive(
+            &manifest.project.id,
+            &Semver::parse("1.0.0").unwrap(),
+            "abc123",
+        );
+        // The stage reads the translator from the environment; the
+        // previous value is restored so the rest of the suite sees
+        // the environment it expects.
+        let previous = std::env::var_os("FORGE_DOCS_TRANSLATOR_BIN");
+        std::env::set_var("FORGE_DOCS_TRANSLATOR_BIN", &fake);
+        let stage = run_docs_stage(dir, &manifest, &config, &identity, "abc123");
+        match previous {
+            Some(value) => std::env::set_var("FORGE_DOCS_TRANSLATOR_BIN", value),
+            None => std::env::remove_var("FORGE_DOCS_TRANSLATOR_BIN"),
+        }
+        let stage = stage.expect("docs stage");
+        assert_eq!(stage.stage, "docs");
+        assert_eq!(stage.status, "delivered", "note={}", stage.note);
+        assert!(
+            stage.note.contains("need review"),
+            "the stage's note must name the review: {}",
+            stage.note
+        );
+        assert!(
+            stage.note.contains("zh-CN"),
+            "the stage's note must name the locale: {}",
+            stage.note
+        );
+        // The derivative was written; the locale only waits for a
+        // human.
+        assert!(dir.join("docs/README.zh-CN.md").is_file());
+        assert!(
+            stage
+                .evidence
+                .iter()
+                .any(|line| line == "docs/translate:zh-CN -> delivered"),
+            "evidence={:?}",
+            stage.evidence
+        );
     }
 
     #[test]

@@ -10,8 +10,9 @@ pub(super) mod tests {
         DOCS_CONTRACT_VERSION, STATUS_CURRENT, STATUS_FAILED, STATUS_TRANSLATED,
     };
     use crate::docs::model::{
-        DocBlock, DocsConfig, FreshnessStatus, ReviewStatus, TranslateOutcome, TranslateReport,
-        TranslateRequest, TranslationState, TranslatorConfig,
+        verdict_for_outcomes, DocBlock, DocsConfig, FreshnessStatus, ReviewStatus,
+        TranslateOutcome, TranslateReport, TranslateRequest, TranslateVerdict, TranslationState,
+        TranslatorConfig,
     };
     use crate::docs::source::{
         default_derivative_path, docs_config_from_manifest, extract_link_destinations, hash_bytes,
@@ -400,14 +401,14 @@ pub(super) mod tests {
 
     #[test]
     fn report_health_requires_all_locales_ok() {
-        let outcome = |status: &str| TranslateOutcome {
+        let outcome = |status: &str, review: &str| TranslateOutcome {
             locale: "zh-CN".to_string(),
             status: status.to_string(),
             source_hash: None,
             segments_translated: 0,
             segments_reused: 0,
             derivative: None,
-            review: "ok".to_string(),
+            review: review.to_string(),
             review_reasons: Vec::new(),
             note: String::new(),
             evidence: Vec::new(),
@@ -421,22 +422,75 @@ pub(super) mod tests {
             locales: vec!["zh-CN".to_string()],
             all: false,
             state_dir: ".forge/docs".to_string(),
-            outcomes: vec![outcome(STATUS_TRANSLATED), outcome(STATUS_CURRENT)],
+            outcomes: vec![
+                outcome(STATUS_TRANSLATED, "ok"),
+                outcome(STATUS_CURRENT, "ok"),
+            ],
             note: String::new(),
             healthy: true,
+            verdict: TranslateVerdict::Complete,
         };
         assert!(healthy.healthy());
+        assert_eq!(healthy.verdict(), TranslateVerdict::Complete);
         let partial = TranslateReport {
-            outcomes: vec![outcome(STATUS_TRANSLATED), outcome(STATUS_FAILED)],
+            outcomes: vec![
+                outcome(STATUS_TRANSLATED, "ok"),
+                outcome(STATUS_FAILED, "ok"),
+            ],
             healthy: false,
+            verdict: TranslateVerdict::Partial,
             ..healthy.clone()
         };
         assert!(!partial.healthy());
+        assert_eq!(partial.verdict(), TranslateVerdict::Partial);
         let empty = TranslateReport {
             outcomes: Vec::new(),
             healthy: false,
+            verdict: TranslateVerdict::Partial,
             ..healthy.clone()
         };
         assert!(!empty.healthy());
+        assert_eq!(empty.verdict(), TranslateVerdict::Partial);
+    }
+
+    #[test]
+    fn verdict_names_the_review_and_a_failure_outranks_it() {
+        let outcome = |locale: &str, status: &str, review: &str| TranslateOutcome {
+            locale: locale.to_string(),
+            status: status.to_string(),
+            source_hash: None,
+            segments_translated: 0,
+            segments_reused: 0,
+            derivative: None,
+            review: review.to_string(),
+            review_reasons: Vec::new(),
+            note: String::new(),
+            evidence: Vec::new(),
+            recovery: Vec::new(),
+        };
+        // Every locale judged, every review ok: complete.
+        let clean = vec![
+            outcome("zh-CN", STATUS_TRANSLATED, "ok"),
+            outcome("fr", STATUS_CURRENT, "ok"),
+        ];
+        assert_eq!(verdict_for_outcomes(&clean), TranslateVerdict::Complete);
+        // Every locale judged, one review needs a human: the run
+        // is never called complete.
+        let reviewed = vec![
+            outcome("zh-CN", STATUS_TRANSLATED, "ok"),
+            outcome("fr", STATUS_TRANSLATED, "needs-review"),
+        ];
+        assert_eq!(
+            verdict_for_outcomes(&reviewed),
+            TranslateVerdict::NeedsReview
+        );
+        // A definite failure outranks the review.
+        let mixed = vec![
+            outcome("zh-CN", STATUS_TRANSLATED, "needs-review"),
+            outcome("fr", STATUS_FAILED, "ok"),
+        ];
+        assert_eq!(verdict_for_outcomes(&mixed), TranslateVerdict::Partial);
+        // No outcome at all: the request was meaningless.
+        assert_eq!(verdict_for_outcomes(&[]), TranslateVerdict::Partial);
     }
 }

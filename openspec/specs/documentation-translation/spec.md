@@ -1,11 +1,11 @@
 # documentation-translation Specification
 
 ## Purpose
-Source-of-truth documentation translation: incremental per-locale derivatives with source-hash freshness, explicit enablement, verbatim code preservation, external translator adapters under bounded execution, and needs-review marking on link or terminology violations.
+Source-of-truth documentation translation: incremental per-locale derivatives with source-hash freshness, explicit enablement, verbatim code preservation, external translator adapters under bounded execution, needs-review marking on link or terminology violations, and one aggregate verdict that names the review status of the run.
 ## Requirements
 ### Requirement: Canonical and derivative documentation
 
-Forge SHALL implement docs translate with explicit locale enablement, derivative paths, source hashes and stale status on source changes.
+Forge SHALL implement docs translate with explicit locale enablement, derivative paths, source hashes and stale status on source changes. The report SHALL carry one aggregate verdict over its outcomes, and that verdict SHALL name the outcomes' review status.
 
 #### Scenario: Canonical and derivative documentation success
 
@@ -21,6 +21,11 @@ Forge SHALL implement docs translate with explicit locale enablement, derivative
 
 - **WHEN** a locale is disabled
 - **THEN** automatic workflows do not invoke its provider or create output
+
+#### Scenario: The report's verdict names the review status
+
+- **WHEN** a locale's translation completes but its derivative needs review
+- **THEN** the report's verdict names that review status, the report is not healthy, and no surface calls the run complete
 
 ### Requirement: Incremental and reliable translation
 

@@ -652,8 +652,10 @@ fn altered_links_and_terms_mark_needs_review() {
         &["zh-CN"],
     );
     // Translation completes (exit 0) but quality is not
-    // claimed: the review state names both violations.
-    assert_eq!(value["translate"]["healthy"], true);
+    // claimed: the review state names both violations and the
+    // aggregate verdict is `needs-review`, never `complete`.
+    assert_eq!(value["translate"]["verdict"], "needs-review");
+    assert_eq!(value["translate"]["healthy"], false);
     let outcome = &value["translate"]["outcomes"][0];
     assert_eq!(outcome["status"], "translated");
     assert_eq!(outcome["review"], "needs-review");

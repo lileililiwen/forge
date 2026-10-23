@@ -15,9 +15,9 @@ use super::constants::{
     DOCS_CONTRACT_VERSION, DOCS_STATE_DIR, STATUS_CURRENT, STATUS_FAILED, STATUS_TRANSLATED,
 };
 use super::model::{
-    CapturedOutput, DocBlock, DocsConfig, LocaleConfigEntry, ReviewStatus, Segment,
-    TranslateOutcome, TranslateReport, TranslateRequest, TranslatorConfig, TranslatorWireRequest,
-    TranslatorWireResponse,
+    verdict_for_outcomes, CapturedOutput, DocBlock, DocsConfig, LocaleConfigEntry, ReviewStatus,
+    Segment, TranslateOutcome, TranslateReport, TranslateRequest, TranslateVerdict,
+    TranslatorConfig, TranslatorWireRequest, TranslatorWireResponse,
 };
 use super::source::{
     default_derivative_path, hash_bytes, load_translation_state, save_translation_state,
@@ -644,16 +644,30 @@ pub fn run_translate(
         .iter()
         .filter(|o| o.status == STATUS_FAILED)
         .count();
-    let note = if failed == 0 {
-        format!(
+    let verdict = verdict_for_outcomes(&outcomes);
+    let needs_review: Vec<String> = outcomes
+        .iter()
+        .filter(|o| o.review != ReviewStatus::Ok.label())
+        .map(|o| o.locale.clone())
+        .collect();
+    // The note names the verdict: a run that waits for a human is
+    // never summarised as complete, and the locales that need a
+    // review are named.
+    let note = match verdict {
+        TranslateVerdict::Complete => format!(
             "docs translate complete for project `{}`: {translated} translated, {current} current",
             request.project_id
-        )
-    } else {
-        format!(
+        ),
+        TranslateVerdict::NeedsReview => format!(
+            "docs translate needs review for project `{}`: {translated} translated, {current} current, {} locale(s) need review ({})",
+            request.project_id,
+            needs_review.len(),
+            needs_review.join(", ")
+        ),
+        TranslateVerdict::Partial => format!(
             "docs translate partial for project `{}`: {translated} translated, {current} current, {failed} failed; prior derivatives left intact",
             request.project_id
-        )
+        ),
     };
     let mut report = TranslateReport {
         contract: DOCS_CONTRACT_VERSION.to_string(),
@@ -666,6 +680,7 @@ pub fn run_translate(
         outcomes,
         note,
         healthy: false,
+        verdict,
     };
     report.healthy = report.healthy_check();
     Ok(report)
@@ -710,6 +725,7 @@ pub fn render_report_human(report: &TranslateReport) -> String {
             lines.push(format!("      recovery: {line}"));
         }
     }
+    lines.push(format!("verdict: {}", report.verdict.label()));
     lines.push(format!("summary: {}", report.note));
     lines.join("\n")
 }

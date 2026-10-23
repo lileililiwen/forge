@@ -8607,3 +8607,114 @@ Implementation/archive commit: `a34a22b` (`feat: a health projection states
 the health the doctor found`). This HANDOFF-only update is the second
 commit. Nothing was pushed. No active OpenSpec change remains, so this
 file has no `current_spec` pointer.
+
+### `delivery-provider-health-truth` implemented and archived (2026-10-23)
+
+`forge delivery status` projects the project's delivery `phase`. The
+canonical capability says what that phase must be:
+
+> #### Scenario: Status after a partial run
+>
+> - **WHEN** the journal carries preflight, stage and promote rows for
+>   the same revision
+> - **THEN** the projection returns `phase=healthy` (or `degraded` if
+>   the provider's last `verify` reports unhealthy) plus the latest
+>   per-verb evidence, sorted by `op_id` and ordered by verb
+
+The projection never read the provider's health. Its promote branch
+looked only at the build status, the run status and the operation's own
+state:
+
+```rust
+// src/delivery/projection.rs, before
+if promote.op_id.is_some() {
+    let degraded = promote.build_status… || promote.run_status… || promote.state == "failed";
+    if degraded { return DeliveryPhase::Degraded; }
+    return DeliveryPhase::Healthy;
+}
+```
+
+The provider's own answer was in hand and unused. The delivery handler
+writes it into every operation row's detail, and the projection parses
+that same detail for the evidence and recovery lines — but not for the
+health:
+
+```rust
+// src/delivery/handlers.rs
+serde_json::to_string(&json!({
+    "evidence": evidence,
+    "recovery": recovery,
+    "provider_status": response.status,
+    "provider_health": response.health,
+}))
+```
+
+**A provider that says it is unhealthy was projected as healthy.**
+Driven on this host with a stubbed `forge-publish-provider/0.1.0`
+adapter — the same stubbing pattern `tests/delivery_contract.rs` uses
+— that answered `health: "degraded"` with `build_status: "succeeded"`,
+`run_status: "succeeded"` and `status: "succeeded"`, the projection
+answered:
+
+```json
+{"phase":"healthy","environment":"production", …}
+```
+
+The phase was the only place the verdict was stated, and it contradicted
+the provider. The rest of the platform already trusted the provider: the
+doctor's `delivery-state` finding maps `DeliveryPhase::Degraded` to
+`FAIL`, and the delivery lane's promote guards refuse a stage that is
+not healthy. The status projection was the one surface that discarded
+it.
+
+The projection now reads the health the provider reported for the verb
+and treats anything other than `healthy` as `degraded`. A row that
+carries no health keeps today's verdict: the absence of an answer is
+not an answer of `healthy`, and the projection does not invent one.
+
+| Check | Result | Evidence |
+|---|---|---|
+| A provider that reports unhealthy is `degraded` | PASS | The contract test drives the real CLI — `forge delivery preflight`, `stage`, `promote`, then `forge delivery status --format json` — against a stubbed provider on a controlled `PATH`. **Before**: the projection answered `"phase":"healthy"` for a provider that answered `health: "degraded"`; the test failed with `left: "healthy"` / `right: "degraded"`. **After**: `phase=degraded`. The same case is held at the row level by the projection unit test `a_promote_row_whose_provider_reported_degraded_is_degraded`. |
+| A provider that reports healthy is unchanged | PASS | `phase=healthy`, as before, held by `a_provider_that_reports_healthy_is_still_projected_as_healthy` and the unit test `a_promote_row_whose_provider_reported_healthy_is_healthy`. |
+| A provider that reported no health keeps today's verdict | PASS | The stub answers `"health":""` — the adapter contract makes `health` a required response field, so an omitted field is not a legal provider response and an empty health is. The projection answers `phase=healthy`, the verdict it gives a successful build and run. The row-level boundaries are held by `a_promote_row_without_a_provider_health_keeps_the_healthy_verdict` (a detail with no `provider_health` key) and `a_promote_row_whose_detail_is_not_json_keeps_the_healthy_verdict`. |
+| A failed build or run is unchanged | PASS | `a_promote_whose_build_failed_is_projected_as_degraded` and the unit test `a_promote_row_whose_build_failed_is_degraded` — `phase=degraded`, as before. |
+| The published contract is unchanged | PASS | The per-verb report's new `provider_health` field is `#[serde(skip_serializing, skip_deserializing)]`: the projection's JSON keeps the fields it published, held by the unit test `the_projection_json_keeps_its_published_fields`. `cargo test --test delivery_contract` → `21 passed; 0 failed`. `DeliveryPhase::Degraded` still renders `degraded` and `DELIVERY_CONTRACT_VERSION` is still `forge-delivery-status/0.1.0`. |
+| The doctor's finding is unchanged | PASS | `cargo test -p forge --lib doctor::` → `74 passed; 0 failed`. `src/doctor/delivery.rs` is untouched; the doctor already mapped `Degraded` to `FAIL`, so a degraded delivery now reaches it. |
+| The new contract test | PASS | `cargo test --test delivery_provider_health_truth_contract` → `test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`. The four: `a_provider_that_reports_unhealthy_is_projected_as_degraded`, `a_provider_that_reports_healthy_is_still_projected_as_healthy`, `a_provider_that_reports_no_health_keeps_the_existing_verdict`, `a_promote_whose_build_failed_is_projected_as_degraded`. |
+| Repository test suite | PASS, 4169 tests / 0 failed | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0. The 225 `test result:` lines sum to **4169 passed; 0 failed; 1 ignored**; `grep -c FAILED` over the whole log returns 0. The previous change's baseline, measured with the same script, was 4159 passed over 224 lines, so this change adds exactly the 10 tests it declares (4 contract cases + 6 projection unit cases) and exactly one test binary. The worker's own run of the same command reported the same 225 lines and 4169 passed. Neither known flake fired. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-23T03:18:37Z"` on revision `59ab6694c03c`, with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The worker's own passing run on the same tree is at `2026-10-23T02:32:46Z`. |
+| Two Gate runs blocked by a network fault | Recorded, not a failure of this change | Two Gate runs on the same tree — the worker's at `2026-10-23T02:14:42Z` and the owning agent's at `2026-10-23T03:01:28Z` — were blocked on the `security` check alone, with `couldn't fetch advisory database … An IO error occurred when talking to the server`: `github.com` was unreachable from this host at those moments. It was not a finding: `cargo audit --no-fetch` against the cached advisory database exited 0 with `warning: 4 allowed warnings found`, `git ls-remote https://github.com/RustSec/advisory-db.git HEAD` answered once the network recovered (after about 135 s of polling), and the re-run passed all eight checks with `security` in state `pass`. The change added no failure. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 148 passed, 0 failed (148 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` → clean. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-23-delivery-provider-health-truth/`: the new capability `delivery-provider-health-truth` was promoted with two requirements, the `project-to-production-workflow` status requirement was modified with all three canonical scenarios kept and one added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the phase comes from the provider's own reported health. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 pre-existing warnings, the same count as the baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on both touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit (`src/delivery/projection.rs` 698, `tests/delivery_provider_health_truth_contract.rs` 336). |
+
+Deliberately not done, and stated plainly: the delivery workflow is
+unchanged — preflight, stage, promote and the Hermora onboarding behave
+exactly as before. The promote guards are unchanged. The phase
+vocabulary and its rendered names are unchanged. The stage and preflight
+branches are unchanged: they never produced `healthy`, so the
+provider's health does not change them. The doctor's `delivery-state`
+finding is unchanged, though a degraded delivery now reaches it. The
+delivery contract version is unchanged and no field is added, removed or
+renamed — the provider's health is read from the detail the row already
+carries and is not published in the projection's response.
+
+One project's classification changes, from `healthy` to `degraded`, and
+that is the classification the canonical requirement already demanded.
+A provider that reports itself unhealthy now says so in the phase, and
+the doctor's `delivery-state` finding sees it.
+
+The implementation was written by a worker subagent and reviewed by the
+owning agent, who re-ran the build, the full suite, clippy, rustfmt, the
+strict validation, the change-name check, the whitespace check, the Gate
+and the live CLI behaviour above. The worker's own evidence table and
+its Gate run are in the archived tasks file.
+
+The evidence was produced with the same machine layout as the previous
+changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache
+(`$HOME/.cache/sccache`) and the target directory inside the repository
+(`/home/paul/code/forge/target`). No `/mnt` path was used for a build.
+
+Implementation/archive commit: `3e72e39` (`feat: the delivery phase states
+the provider's own health`). This HANDOFF-only update is the second
+commit. Nothing was pushed. No active OpenSpec change remains, so this
+file has no `current_spec` pointer.

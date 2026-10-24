@@ -212,6 +212,14 @@ pub fn apply_deploy(
             "deploy did not complete cleanly: apply={} observe={}",
             apply_outcome.status, observe_outcome.status
         ),
+        // `verdict_for_report` never returns `Blocked`: that arm
+        // belongs to the plan lane and a report is an apply's
+        // artifact. A report that reached it would have applied
+        // nothing, so it says what the failure note says.
+        DeployVerdict::Blocked => format!(
+            "deploy did not complete cleanly: apply={} observe={}",
+            apply_outcome.status, observe_outcome.status
+        ),
     };
     Ok(DeployReport {
         contract: DEPLOY_CONTRACT_VERSION.to_string(),
@@ -563,6 +571,14 @@ pub fn observe_deploy(
             )
         }
         DeployVerdict::Failed => format!(
+            "deploy `{}` re-observed as `{}`; state recorded as `{}`",
+            identity.id, observation.status, observe_outcome.status
+        ),
+        // `verdict_for_report` never returns `Blocked`: that arm
+        // belongs to the plan lane and a report is an apply's
+        // artifact. A report that reached it would have applied
+        // nothing, so it says what the failure note says.
+        DeployVerdict::Blocked => format!(
             "deploy `{}` re-observed as `{}`; state recorded as `{}`",
             identity.id, observation.status, observe_outcome.status
         ),

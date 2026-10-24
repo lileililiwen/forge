@@ -1,7 +1,7 @@
 # adapter-deployment Specification
 
 ## Purpose
-Simple deployment targets and observed runtime state. v0.1.0 of the contract supports Docker Compose, local-host, Jenkins, runtime and SSH adapters, and records timestamped health observations (running, failed, unknown) for every apply. Remote hosts are independent failure domains; disconnected means unknown, not offline proof. Recovery may require operator action. The deploy report carries a verdict that names what the run did.
+Simple deployment targets and observed runtime state. v0.1.0 of the contract supports Docker Compose, local-host, Jenkins, runtime and SSH adapters, and records timestamped health observations (running, failed, unknown) for every apply. Remote hosts are independent failure domains; disconnected means unknown, not offline proof. Recovery may require operator action. The deploy report carries a verdict that names what the run did, and the registry journal names a plan a plan and never a completed deployment.
 ## Requirements
 ### Requirement: Explicit adapter deployment
 
@@ -31,7 +31,7 @@ Forge SHALL implement deploy with project and target selection through versioned
 
 ### Requirement: Observed health and recovery
 
-Forge SHALL distinguish pending, running, failed and unknown deployment states using timestamped health evidence and expose recovery information for failed rollouts. The deploy report SHALL carry a verdict that names what the run did, so a run that deployed nothing is reported and journalled as a plan and never as a completed deployment, and the report's health SHALL be true only for a delivery.
+Forge SHALL distinguish pending, running, failed and unknown deployment states using timestamped health evidence and expose recovery information for failed rollouts. The deploy report SHALL carry a verdict that names what the run did, so a run that deployed nothing is reported and journalled as a plan and never as a completed deployment, and the report's health SHALL be true only for a delivery. A deploy plan SHALL be journalled by the same rule: a plan the shared delivery rule allows is a planned run, a plan it blocks is a blocked run, and neither is a completed deployment.
 
 #### Scenario: Observed health and recovery success
 
@@ -52,6 +52,11 @@ Forge SHALL distinguish pending, running, failed and unknown deployment states u
 
 - **WHEN** a deploy apply runs as a dry run and no deploy is attempted
 - **THEN** the report's verdict names the run a plan, the report is not healthy, the note says nothing was deployed, and the journal records a planned deploy
+
+#### Scenario: A plan is never a completed deployment
+
+- **WHEN** a deploy plan is computed and no deploy is attempted
+- **THEN** the journal records a planned deploy when the shared delivery rule allows the revision and a blocked deploy when it does not, and never a completed deployment
 
 ### Requirement: Versioned deploy executor contract
 

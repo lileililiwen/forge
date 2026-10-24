@@ -437,12 +437,19 @@ pub(crate) fn cmd_deploy(
             let plan =
                 forge::deploy::engine::prepare_deploy(&project_dir, &manifest, &config, &request)?;
             let registry = open_registry(db_path)?;
+            // One rule names the run: a plan deploys nothing, so it is
+            // a planned run and never a completed deployment.
+            let verdict = forge::deploy::verdict_for_plan(plan.ready);
             let detail = format!(
-                "deploy plan `{}` target=`{}` adapter=`{}` ready={}",
-                plan.identity.id, plan.target.name, plan.target.kind, plan.ready
+                "deploy plan `{}` target=`{}` adapter=`{}` ready={} verdict={}",
+                plan.identity.id,
+                plan.target.name,
+                plan.target.kind,
+                plan.ready,
+                verdict.label()
             );
-            let state_label = if plan.healthy() { "done" } else { "blocked" };
-            let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
+            let _ =
+                registry.record_operation("deploy", &project_id, verdict.journal_state(), &detail);
             deploy_plan_output(&plan, format)
         }
         DeployCommands::Apply {

@@ -482,6 +482,10 @@ pub enum DeployVerdict {
     Planned,
     /// A stage did not complete.
     Failed,
+    /// A plan the shared delivery rule blocks. A plan never reaches an
+    /// adapter, so this arm belongs to the plan lane alone: the report
+    /// of an apply never carries it.
+    Blocked,
 }
 impl DeployVerdict {
     /// The stable label the report, the JSON document and the journal
@@ -491,16 +495,18 @@ impl DeployVerdict {
             DeployVerdict::Delivered => "delivered",
             DeployVerdict::Planned => "planned",
             DeployVerdict::Failed => "failed",
+            DeployVerdict::Blocked => "blocked",
         }
     }
     /// The registry journal state this verdict records. A delivery is a
-    /// completed deploy, a rehearsal is a planned deploy and a failure
-    /// is a failed deploy.
+    /// completed deploy, a rehearsal is a planned deploy, a failure is
+    /// a failed deploy and a blocked plan is a blocked deploy.
     pub fn journal_state(self) -> &'static str {
         match self {
             DeployVerdict::Delivered => "done",
             DeployVerdict::Planned => "planned",
             DeployVerdict::Failed => "failed",
+            DeployVerdict::Blocked => "blocked",
         }
     }
 }
@@ -518,6 +524,19 @@ pub fn verdict_for_report(dry_run: bool, healthy: bool) -> DeployVerdict {
         DeployVerdict::Delivered
     } else {
         DeployVerdict::Failed
+    }
+}
+/// The one rule that judges a deploy plan.
+///
+/// A plan deploys nothing: it names the target, the artifact and the
+/// revision, and asks the shared delivery rule whether the revision may
+/// go out. A plan the rule allows is a planned run and a plan the rule
+/// blocks is a blocked run. Neither is a completed deployment.
+pub fn verdict_for_plan(ready: bool) -> DeployVerdict {
+    if ready {
+        DeployVerdict::Planned
+    } else {
+        DeployVerdict::Blocked
     }
 }
 /// Aggregate deploy report from a prepare/apply/observe run.
@@ -865,8 +884,36 @@ mod tests {
         assert_eq!(DeployVerdict::Delivered.label(), "delivered");
         assert_eq!(DeployVerdict::Planned.label(), "planned");
         assert_eq!(DeployVerdict::Failed.label(), "failed");
+        assert_eq!(DeployVerdict::Blocked.label(), "blocked");
         assert_eq!(DeployVerdict::Delivered.journal_state(), "done");
         assert_eq!(DeployVerdict::Planned.journal_state(), "planned");
         assert_eq!(DeployVerdict::Failed.journal_state(), "failed");
+        assert_eq!(DeployVerdict::Blocked.journal_state(), "blocked");
+    }
+
+    #[test]
+    fn a_plan_is_never_a_completed_deployment() {
+        // The one rule for the plan lane: a plan deploys nothing, so
+        // it is a planned run and never a delivery.
+        assert_eq!(
+            verdict_for_plan(true),
+            DeployVerdict::Planned,
+            "a plan the delivery rule allows is a planned run"
+        );
+        assert_eq!(
+            verdict_for_plan(false),
+            DeployVerdict::Blocked,
+            "a plan the delivery rule blocks is a blocked run"
+        );
+        assert_ne!(
+            verdict_for_plan(true).journal_state(),
+            "done",
+            "a plan is never recorded as a completed deployment"
+        );
+        assert_ne!(
+            verdict_for_plan(false).journal_state(),
+            "done",
+            "a blocked plan is never recorded as a completed deployment"
+        );
     }
 }

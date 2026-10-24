@@ -132,7 +132,11 @@ pub(super) fn cmd_deploy_apply(
         forge::deploy::DeployVerdict::Delivered | forge::deploy::DeployVerdict::Planned => {
             Ok(output)
         }
-        forge::deploy::DeployVerdict::Failed => {
+        // `verdict_for_report` never returns `Blocked`: that arm
+        // belongs to the plan lane and a report is an apply's
+        // artifact. A report that reached it would have applied
+        // nothing, so it fails exactly as a broken deploy fails.
+        forge::deploy::DeployVerdict::Failed | forge::deploy::DeployVerdict::Blocked => {
             match &output {
                 Output::Human(text) => println!("{text}"),
                 Output::Json(value) => {
@@ -180,7 +184,11 @@ pub(super) fn cmd_deploy_observe(
         forge::deploy::DeployVerdict::Delivered | forge::deploy::DeployVerdict::Planned => {
             Ok(output)
         }
-        forge::deploy::DeployVerdict::Failed => {
+        // `verdict_for_report` never returns `Blocked`: that arm
+        // belongs to the plan lane and a report is an apply's
+        // artifact. A report that reached it would have applied
+        // nothing, so it fails exactly as a broken deploy fails.
+        forge::deploy::DeployVerdict::Failed | forge::deploy::DeployVerdict::Blocked => {
             match &output {
                 Output::Human(text) => println!("{text}"),
                 Output::Json(value) => {

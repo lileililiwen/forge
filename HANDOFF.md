@@ -10579,3 +10579,149 @@ different: its status is a *quality verdict* about the policy plane.
 
 Implementation/archive commit: `b7294a1` (`feat: the portal states a policy verdict only when it observed one`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 41: `component-qualify-evidence-truth`
+
+`forge component qualify` promoted a component to `certified` with an
+evidence block it invented, and the receipt recorded the invention as
+if it were a measurement.
+
+### The defect
+
+Reproduced on the tree before the change, in a directory with no test
+run, no security review and no verification:
+
+```
+$ forge component qualify toast --to certified --reason "looks fine" --path /tmp/comp-probe
+$ cat /tmp/comp-probe/.forge/components/toast/qualify.json
+{
+  "contract": "0.1.0",
+  "component_id": "toast",
+  "target_quality": "certified",
+  "reason": "looks fine",
+  "evidence": {
+    "test_coverage": 0.949999988079071,
+    "known_issues": [],
+    "last_verified": "2026-10-24T15:00:16.482913Z",
+    "security_review": true
+  }
+}
+```
+
+Nothing measured the coverage, nobody reviewed the security, nobody
+verified the component. The three numbers are the command's defaults:
+
+```rust
+// src/cli/component.rs, before
+let last_verified_ts = match last_verified.as_deref() {
+    Some(value) => parse_rfc3339_for_qualify(value).ok_or_else(...)?,
+    None => chrono::Utc::now(),
+};
+let evidence = ComponentQualifyEvidence {
+    test_coverage: coverage.unwrap_or(0.95),
+    last_verified: last_verified_ts,
+    known_issues: known_issues.clone(),
+    security_review: security_review.unwrap_or(target == ComponentQuality::Certified),
+};
+```
+
+**The certified gate could not fail.** Each of its three checks read a
+field the command had already defaulted:
+
+| Gate | The default | Why it always passed |
+|---|---|---|
+| `security_review` | `unwrap_or(target == Certified)` | The default is `true` exactly for the level that asks for it. |
+| `test_coverage` at or above 0.85 | `unwrap_or(0.95)` | 0.95 is above the minimum. |
+| `last_verified` within 180 days | `chrono::Utc::now()` | The default is the current instant. |
+
+The command's own help text advertised the defaults ("default: 0.95 for
+`certified`", "Default: now", "default: `true` for `certified`").
+
+**The damage went past the receipt.** `Certified` is the level the
+resolver prefers, and the resolver reports a candidate's evidence back
+to the caller. A fabricated receipt put a component into the preferred
+slot on the strength of numbers nobody produced.
+
+### The rule
+
+One rule in the core promotion path: **a promotion records only the
+evidence the operator supplied; an absent field is absent, not a
+default.**
+
+- **The evidence type can now say "absent".**
+  `ComponentQualifyEvidence`'s three measured fields are `Option`
+  (`src/component/model.rs`). The previous type could not express a
+  missing measurement at all.
+- **One gate, in the core.** `missing_certified_evidence` names every
+  absent field and `evidence_meets_certified_gate` refuses the
+  promotion before it judges any value (`src/component/engine.rs`). The
+  command and every future surface read the same gate; the command no
+  longer decides what a certification needs.
+- **The command passes the flags through.** No default coverage, no
+  default timestamp, no default security review
+  (`src/cli/component.rs`), and the help text no longer advertises
+  defaults that do not exist (`src/cli/commands_ops.rs`).
+- **The refusal is the outcome the command already had.**
+  `promoted: false`, the prior quality level in the output, the missing
+  evidence named in the new `missing_evidence` field, and no receipt
+  written.
+- **The receipt carries only what was supplied.** A field that was not
+  supplied is absent from the evidence object, so the receipt cannot
+  carry a measurement nobody made.
+
+The same command on the tree after the change:
+
+```
+$ forge component qualify toast --to certified --reason "looks fine" --path /tmp/comp-probe2
+promotion refused: missing required evidence: test_coverage, last_verified, security_review; a certified promotion requires the operator to supply it; component 'toast' remains at quality 'verified'
+missing evidence: test_coverage, last_verified, security_review
+files: (none)
+prior: verified target: certified promoted: false
+$ find /tmp/comp-probe2 -type f
+/tmp/comp-probe2/registry.db
+```
+
+### The options, decided
+
+| Option for a certified promotion without complete evidence | Verdict |
+|---|---|
+| Keep the defaults (coverage 0.95, security review true, timestamp now) | Rejected. The three gates cannot fail, the receipt states measurements nobody made, and the resolver prefers the component because of them. |
+| Keep the defaults and mark them "unverified" in the receipt | Rejected. The resolver reports the receipt's evidence as the component's evidence; a receipt that carries a measurement nobody made is still that, and the level is still `certified`. |
+| Refuse the promotion and name the missing evidence | **Chosen.** The canonical requirement's own shape: the promotion fails, the prior quality level remains, and no receipt is written. The refusal names every missing field, so the operator knows what to measure. |
+| Refuse with a typed CLI error and a non-zero exit code | Rejected. The command already returns a refusal outcome for the same class of outcome (a negative security review, a stale timestamp), and the canonical requirement gives one outcome for one condition — "certification lacks required verification or security evidence". A second shape for the same class would split the contract, and a non-zero exit would need the CLI to own its exit code for one command while the outcome already says plainly that nothing was promoted. |
+| Require the same evidence for every promotion level | Rejected here. The canonical requirement names certification. A promotion to `experimental` or `verified` records the evidence the operator supplied and no more; a rule for those levels is a separate change with its own contract. |
+| Let Forge measure the coverage itself (run the component's tests) | Rejected. The catalog is a static catalog: it names a test surface, it does not own a test harness it could run. Forge has nothing to measure, so the operator's measurement is the evidence. |
+| Drop the receipt entirely | Rejected. The receipt is the promotion's audit record and the artifact the resolver reports. Removing it would lose the record of what was promoted and on what evidence. |
+| Back-fill the receipts already written | Rejected. The change cannot know what the evidence of an old promotion really was. The old receipts stay as they are; the rule applies to new promotions. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge component qualify toast --to certified --reason "looks fine" --path /tmp/comp-probe` wrote a receipt with `"test_coverage": 0.949999988079071`, `"last_verified": "2026-10-24T15:00:16.482913Z"` and `"security_review": true` for a component nobody tested, reviewed or verified. The defaults were in `src/cli/component.rs`. |
+| The one rule | PASS | `src/component/engine.rs`: `missing_certified_evidence` names the absent fields and `evidence_meets_certified_gate` refuses the promotion before it judges a value. The unit tests `qualify_to_certified_refuses_missing_evidence`, `qualify_to_certified_refuses_a_missing_timestamp` and `a_refused_promotion_writes_no_receipt` cover the refusal, and `a_receipt_carries_only_the_supplied_evidence` covers the receipt. |
+| A certified promotion without evidence | PASS | `a_certified_promotion_without_evidence_is_refused` asserts `promoted: false`, the prior quality `verified`, the missing evidence `test_coverage`, `last_verified` and `security_review`, no file written and no `.forge` directory at all. |
+| A certified promotion with complete evidence | PASS | `a_certified_promotion_with_complete_evidence_is_accepted` asserts the promotion is accepted and the receipt records `test_coverage` 0.93, the supplied timestamp and `security_review` true. |
+| A receipt with nothing invented | PASS | `a_receipt_carries_only_the_supplied_evidence` asserts a promotion below `certified` writes a receipt with the supplied coverage and no `last_verified` and no `security_review`. |
+| The contract test fails without the change | PASS | With the six touched source and test files reverted to the tree before the change, all three cases fail: the promotion is accepted, and the receipt carries a fabricated `last_verified` of `now`. |
+| The untouched surfaces | PASS | `git diff` shows no change to the catalog, the resolver, the deprecated path, the no-op path, the invalid-value path, the receipt layout (the same field names), the registry journal (a refused promotion is still `blocked`) or the catalog browser. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 239 `test result:` lines sum to **4260 passed; 0 failed; 1 ignored**. The pre-change baseline was 238 lines and 4253 passed, so this change adds exactly the 7 tests it declares (4 unit cases and 3 contract cases) and one new test binary. The component unit tests are 27 passed and the component contract test is 15 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T16:08:33Z"` on revision `36c66a43c56b9f6ca670ea3e8b145c5042a7a333` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 163 passed, 0 failed (163 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-component-qualify-evidence-truth/`: the new capability `component-qualify-evidence-truth` was promoted with one requirement and four scenarios, the `semantic-component-registry` "Quality classification and selection" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states the general rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all seven touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/cli/commands_ops.rs` 672, `src/cli/component.rs` 233, `src/component/engine.rs` 536, `src/component/engine_tests.rs` 557, `src/component/model.rs` 218, `tests/component_contract.rs` 492, `tests/component_qualify_evidence_truth_contract.rs` 185. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code, change 35's worker wrote everything then stopped, and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the one gate in the core, the optional evidence type, the receipt writer, the command, the help text, the unit tests and the contract test. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- `component resolve` and `ui-pattern resolve` journal a pure plan as
+  `done` (`src/cli/component.rs`, `src/cli/ui_pattern.rs`). The same
+  shape as changes 37 and 38: a plan is not a completed action, and the
+  journal state should follow a typed run, not a private copy.
+- `delivery.next-idea` hardcodes "publish landed"
+  (`src/api/lifecycle_exec/delivery.rs`). The idea lane states a delivery
+  it did not observe.
+
+Implementation/archive commit: `dd3a110` (`feat: a component promotion records only the evidence it was given`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

@@ -9411,3 +9411,96 @@ unchanged.
 
 Implementation/archive commit: `56276c8` (`feat: the mirror report names what the run did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+### `publish-dry-run-verdict-truth` implemented and archived (2026-10-24)
+
+`forge publish --dry-run` recorded a completed publish in the registry
+journal.
+
+```rust
+// src/publish/pipeline.rs, before
+let verdict = if request.dry_run || healthy {
+    "done"
+} else {
+    "failed"
+};
+let _ = reg.record_operation("publish", &request.project_id, verdict,
+    &format!("publish {} summary via {}: healthy={} stages={}", ...));
+```
+
+The row said `done` and its detail said `healthy=true` for a run that
+published nothing, while the same function's own note said `dry-run:
+N stage(s) planned, no side effects`. One document, two answers, and
+the append-only evidence a later reader consults claimed a publication
+that never happened.
+
+**The rule was written three times.** The `dry_run || healthy`
+decision appears in the pipeline and again in the fleet exec lane, and
+a third time, from the report's boolean, in the fleet lane:
+
+```rust
+// src/cli/fleet_exec.rs, before
+let verdict = if report.dry_run || report.healthy {
+    "done"
+} else {
+    "failed"
+};
+```
+
+None of them could say "planned", because a boolean has only two
+values, and a dry run fails no stage — so a plan was "healthy" and
+every copy of the rule said `done`.
+
+There is now one rule, in the one place the publish report is built:
+
+```rust
+// src/publish/model.rs
+pub enum PublishVerdict {
+    /// Every stage completed and the run delivered.
+    Delivered,
+    /// No write was attempted. The report is a plan.
+    Planned,
+    /// A stage did not complete.
+    Failed,
+}
+
+pub fn verdict_for_report(dry_run: bool, healthy: bool) -> PublishVerdict {
+    if dry_run {
+        return PublishVerdict::Planned;
+    }
+    if healthy {
+        PublishVerdict::Delivered
+    } else {
+        PublishVerdict::Failed
+    }
+}
+```
+
+`healthy` is true only for `delivered`, the report carries the
+verdict, and every journal writer for a publish reads that one
+verdict. A plan is recorded as `planned`, never as `done`, and the
+exit code follows the verdict: a plan is a successful plan and still
+exits 0, a failed publish still exits 1 with the report on stdout.
+
+The publish summary's note, the stage behaviour, the deploy lane, the
+fleet lane's provider branch and the publish contract version are
+unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own reading of the code: `src/publish/pipeline.rs` wrote the publish journal row with `let verdict = if request.dry_run || healthy { "done" } else { "failed" };` and a detail of `healthy={}`, so a dry run recorded state `done` with `healthy=true`; the same function's note said `dry-run: N stage(s) planned, no side effects`. The same `dry_run \|\| healthy` decision was written a second time in `src/cli/fleet_exec.rs` and a third time, from the report's boolean, in `src/cli/fleet.rs`. |
+| The one rule | PASS | `src/publish/model.rs`: `PublishVerdict` with `Delivered`, `Planned` and `Failed`, a `label()` and a `journal_state()`, and `verdict_for_report(dry_run, healthy)`. `run_publish` is the one place a `PublishReport` is built; it derives the verdict and then derives `healthy` from it. The pipeline, the fleet exec lane and the fleet lane all read that verdict — the fleet lane through the shared `fleet_project_verdict` helper. |
+| A plan's verdict | PASS | `a_dry_run_is_planned_and_journals_a_planned_row` asserts the JSON report's `verdict` is `planned`, `dry_run` is `true`, `healthy` is `false`, the note contains `dry-run`, and the registry's `publish` row has state `planned` with a detail carrying `verdict=planned healthy=false`. The pipeline's own unit test asserts `report.verdict == PublishVerdict::Planned` and `!report.healthy` for a dry run. |
+| A plan exits 0 | PASS | The same contract test asserts the command's exit code is 0. The publish CLI's exit decision now matches on the verdict: `Delivered` and `Planned` succeed, `Failed` renders the report and fails exactly as before. |
+| A delivery's verdict | PASS | `a_completed_publish_is_delivered_and_journals_a_done_row` asserts `verdict` is `delivered`, `healthy` is `true` and the journal row's state is `done`. |
+| A failed publish | PASS | `a_failed_publish_is_failed_and_journals_a_failed_row` asserts `verdict` is `failed`, `healthy` is `false`, the exit code is 1 and the journal row's state is `failed`. |
+| The fleet lane | PASS | `a_planned_fleet_publish_is_planned_and_not_a_failure` asserts the fleet lane's per-project summary carries `verdict: planned` with `healthy: false`, that the per-project state is `planned` and that a planned fleet publish is not counted as a failure. The provider branch, whose evidence is the provider's own `health` field, is untouched. |
+| The untouched surfaces | PASS | `git diff` shows no change to the publish `note`, to the stage behaviour, to `PUBLISH_CONTRACT_VERSION`, to the deploy lane or to the fleet lane's provider branch. The report keeps every existing field and gains only `verdict`. `tests/publish_contract.rs` (16), `tests/fleet_contract.rs` (11), `tests/decoupled_remote_publish_contract.rs` (5), `tests/fleet_cross_surface.rs` (7), `tests/fleet_live_rollout_contract.rs` (9), `tests/publish_observability_contract.rs` (8), `tests/publish_queue_status_contract.rs` (7) and `tests/sibling_cwd_publish_contract.rs` (12) all pass unchanged, as do `tests/release_contract.rs` (10), `tests/release_cross_surface.rs` (4), `tests/mirror_plan_verdict_truth_contract.rs` (4) and `tests/upgrade_fleet_verdict_truth_contract.rs` (7). |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 231 `test result:` lines sum to **4211 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 230 lines and 4207 passed, so this change adds exactly the 4 contract tests it declares and no new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T05:23:02Z"` on revision `b4bf4acdc4f68cf7b4f8e63cf79bd0a5d00d988b` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 155 passed, 0 failed (155 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-publish-dry-run-verdict-truth/`: the new capability `publish-dry-run-verdict-truth` was promoted with one requirement and five scenarios, the `decoupled-remote-publish` "Caddy host rendering in Forge" requirement was modified with both canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the report carries a verdict. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 and no warning points at a touched file. Two warnings the new test file introduced on the worker's first run — a `while let Some(doc) = stream.next()` loop and the `mut` it needed — were removed by the owning agent, so the change adds no warning. `rustfmt --edition 2021 --check` is clean on all six touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/publish/model.rs` 356, `src/publish/pipeline.rs` 926, `src/cli/publish.rs` 724, `src/cli/fleet.rs` 858, `src/cli/fleet_exec.rs` 830, `tests/publish_dry_run_verdict_truth_contract.rs` 333. |
+| The worker | the owning agent finished the change | The implementation was written by a worker subagent, which wrote the five source files and the contract test and then stopped reporting before it filled the task file. The owning agent re-ran every check on the final tree, removed the two clippy warnings the new test file introduced, wrote the evidence above and produced the Gate run. The change in the tree is the change the worker had written, plus the clippy fix. |
+
+Implementation/archive commit: `2e83c78` (`feat: the publish report names what the run did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

@@ -13,8 +13,8 @@ use super::contract::{
     PUBLISH_CONTRACT_VERSION, STATUS_DONE, STATUS_DRY_RUN, STATUS_FAILED, STATUS_SKIPPED,
 };
 use super::model::{
-    Classification, CommandResult, CommandSpec, PublishAction, PublishReport, PublishRequest,
-    StageOutcome, StagePlan,
+    verdict_for_report, Classification, CommandResult, CommandSpec, PublishAction, PublishReport,
+    PublishRequest, PublishVerdict, StageOutcome, StagePlan,
 };
 
 pub(super) fn validate_project_id(project_id: &str) -> Result<(), ForgeError> {
@@ -224,20 +224,22 @@ pub fn run_publish(
         "publish did not complete; see stages for failure detail".to_string()
     };
 
+    // The verdict is the one rule; health follows the verdict. A plan
+    // attempted no write, so it delivered nothing and is never
+    // healthy.
+    let verdict = verdict_for_report(request.dry_run, healthy);
+    let healthy = verdict == PublishVerdict::Delivered;
+
     if let Some(reg) = registry {
-        let verdict = if request.dry_run || healthy {
-            "done"
-        } else {
-            "failed"
-        };
         let _ = reg.record_operation(
             "publish",
             &request.project_id,
-            verdict,
+            verdict.journal_state(),
             &format!(
-                "publish {} summary via {}: healthy={} stages={}",
+                "publish {} summary via {}: verdict={} healthy={} stages={}",
                 request.action.label(),
                 adapter.id(),
+                verdict.label(),
                 healthy,
                 stages.len()
             ),
@@ -254,6 +256,7 @@ pub fn run_publish(
         stages,
         note,
         healthy,
+        verdict,
     })
 }
 
@@ -678,7 +681,10 @@ pub(super) mod tests {
         // short-circuits regardless; confirm the recorder stays
         // empty.
         assert_eq!(transport.command_count(), 0);
-        assert!(report.healthy);
+        // A plan attempted no write, so it delivered nothing and is
+        // never healthy.
+        assert_eq!(report.verdict, PublishVerdict::Planned);
+        assert!(!report.healthy);
     }
 
     #[test]

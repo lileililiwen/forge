@@ -7,7 +7,7 @@ use forge::core::ForgeError;
 use forge::publish::{
     jenkins::JenkinsAdapter, remote_compose::RemoteComposeAdapter,
     render_report_human as render_publish_report_human, request_from as build_publish_request,
-    run_publish, PublishAction, SubprocessTransport, PUBLISH_CONTRACT_VERSION,
+    run_publish, PublishAction, PublishVerdict, SubprocessTransport, PUBLISH_CONTRACT_VERSION,
 };
 use forge::registry::PublishPhaseEvidence;
 use std::path::Path;
@@ -432,7 +432,8 @@ pub(super) fn cmd_publish_fleet(
                 }
                 continue;
             }
-            let healthy = !prog.failed && prog.reports.iter().all(|report| report.healthy);
+            let verdict = fleet_project_verdict(&prog.reports, prog.failed);
+            let healthy = verdict == PublishVerdict::Delivered;
             let stage_count: usize = prog.reports.iter().map(|r| r.stages.len()).sum();
             let subdomain = prog
                 .reports
@@ -442,10 +443,11 @@ pub(super) fn cmd_publish_fleet(
             summaries.push(serde_json::json!({
                 "project": project_id,
                 "healthy": healthy,
+                "verdict": verdict.label(),
                 "subdomain": subdomain,
                 "stages": stage_count,
             }));
-            let terminal_state = if healthy { "done" } else { "failed" };
+            let terminal_state = verdict.journal_state();
             let journal = if prog.reports.is_empty() {
                 format!(
                     "fleet publish failed before any stage: {}",
@@ -466,9 +468,7 @@ pub(super) fn cmd_publish_fleet(
             ) {
                 queue_op_ids.push((project_id.clone(), op_id));
             }
-            if healthy {
-                success_count += 1;
-            } else {
+            if verdict == PublishVerdict::Failed {
                 failure_count += 1;
                 if fail_fast && first_failure.is_none() {
                     first_failure = prog.fail_error.take().or_else(|| {
@@ -680,30 +680,31 @@ pub(super) fn cmd_publish_fleet(
                         }
                     }
                     render_output(as_output(format, human.clone(), value.clone()));
+                    let verdict = report.verdict;
                     let healthy = report.healthy;
                     summaries.push(serde_json::json!({
                         "project": project_id,
                         "healthy": healthy,
+                        "verdict": verdict.label(),
                         "subdomain": report.subdomain,
                         "stages": report.stages.len(),
                     }));
-                    let terminal_state = if healthy { "done" } else { "failed" };
+                    let terminal_state = verdict.journal_state();
                     if let Ok(op_id) = core_registry.record_queue_operation(
                         "publish",
                         &project_id,
                         &queue_id,
                         terminal_state,
                         Some(&format!(
-                            "fleet stages={} healthy={}",
+                            "fleet stages={} verdict={} healthy={}",
                             report.stages.len(),
+                            verdict.label(),
                             healthy
                         )),
                     ) {
                         queue_op_ids.push((project_id.clone(), op_id));
                     }
-                    if healthy {
-                        success_count += 1;
-                    } else {
+                    if verdict == PublishVerdict::Failed {
                         failure_count += 1;
                         if fail_fast && first_failure.is_none() {
                             first_failure = Some(ForgeError::PublishDeployFailed {
@@ -711,6 +712,8 @@ pub(super) fn cmd_publish_fleet(
                             });
                             break;
                         }
+                    } else {
+                        success_count += 1;
                     }
                 }
                 Err(err) => {
@@ -791,6 +794,31 @@ pub(super) fn cmd_publish_fleet(
     } else {
         Ok(Output::Human(String::new()))
     }
+}
+
+/// The fleet lane's per-project verdict, read from the project's own
+/// publish reports. A project whose reports are all plans is a plan, a
+/// project with a failed report is a failure, and a project that
+/// delivered is a delivery. One rule, shared by the fleet lanes.
+fn fleet_project_verdict(
+    reports: &[forge::publish::PublishReport],
+    failed: bool,
+) -> PublishVerdict {
+    if failed
+        || reports
+            .iter()
+            .any(|report| report.verdict == PublishVerdict::Failed)
+    {
+        return PublishVerdict::Failed;
+    }
+    if !reports.is_empty()
+        && reports
+            .iter()
+            .all(|report| report.verdict == PublishVerdict::Planned)
+    {
+        return PublishVerdict::Planned;
+    }
+    PublishVerdict::Delivered
 }
 
 /// The rule that held a shared-host entry back, named in the

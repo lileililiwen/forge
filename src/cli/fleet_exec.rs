@@ -442,19 +442,15 @@ pub(super) fn replay_publish_journal(registry: &Registry, report: &forge::publis
             ),
         );
     }
-    let verdict = if report.dry_run || report.healthy {
-        "done"
-    } else {
-        "failed"
-    };
     let _ = registry.record_operation(
         "publish",
         &report.project_id,
-        verdict,
+        report.verdict.journal_state(),
         &format!(
-            "publish {} summary via {}: healthy={} stages={}",
+            "publish {} summary via {}: verdict={} healthy={} stages={}",
             report.action,
             report.adapter,
+            report.verdict.label(),
             report.healthy,
             report.stages.len()
         ),

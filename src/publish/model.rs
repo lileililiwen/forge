@@ -252,6 +252,57 @@ pub struct StageOutcome {
     pub recovery: Vec<String>,
     pub elapsed_ms: u128,
 }
+/// The publish run's verdict.
+///
+/// The verdict is what the run did. A plan is not a delivery, and a
+/// delivery that did not complete every stage is not a delivery
+/// either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublishVerdict {
+    /// Every stage completed and the run delivered.
+    Delivered,
+    /// No write was attempted. The report is a plan.
+    Planned,
+    /// A stage did not complete.
+    Failed,
+}
+impl PublishVerdict {
+    /// The stable label the report, the JSON document and the
+    /// journal detail publish.
+    pub fn label(self) -> &'static str {
+        match self {
+            PublishVerdict::Delivered => "delivered",
+            PublishVerdict::Planned => "planned",
+            PublishVerdict::Failed => "failed",
+        }
+    }
+    /// The registry journal state this verdict records. A delivery is
+    /// a completed publish, a plan is a planned publish and a failure
+    /// is a failed publish.
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            PublishVerdict::Delivered => "done",
+            PublishVerdict::Planned => "planned",
+            PublishVerdict::Failed => "failed",
+        }
+    }
+}
+/// The one rule that judges a publish run.
+///
+/// A run that attempted no write is a plan, whatever its stages say.
+/// A run that attempted a write is a delivery only when every stage
+/// completed.
+pub fn verdict_for_report(dry_run: bool, healthy: bool) -> PublishVerdict {
+    if dry_run {
+        return PublishVerdict::Planned;
+    }
+    if healthy {
+        PublishVerdict::Delivered
+    } else {
+        PublishVerdict::Failed
+    }
+}
 /// Aggregate publish report. The transport renders this before the
 /// process exits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -265,6 +316,10 @@ pub struct PublishReport {
     pub stages: Vec<StageOutcome>,
     pub note: String,
     pub healthy: bool,
+    /// The run's verdict. The field is always present, so a reader
+    /// learns what the run did without re-deriving it from the
+    /// stages.
+    pub verdict: PublishVerdict,
 }
 impl PublishReport {
     pub fn healthy(&self) -> bool {

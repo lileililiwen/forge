@@ -694,13 +694,20 @@ fn cmd_publish_single(
             serde_json::json!(PUBLISH_CONTRACT_VERSION),
         );
     }
-    if !report.healthy {
-        // Surface the report so the operator sees which stage failed
-        // even when the aggregate is unhealthy.
-        render_output(as_output(format, human, value));
-        return Err(ForgeError::PublishDeployFailed {
-            reason: report.note.clone(),
-        });
+    // The exit code follows the verdict, not `healthy`. A plan is a
+    // successful plan: it attempted no write, so it exits 0 exactly
+    // as it does today. A failed publish still exits 1 with the
+    // report on stdout.
+    match report.verdict {
+        forge::publish::PublishVerdict::Delivered | forge::publish::PublishVerdict::Planned => {}
+        forge::publish::PublishVerdict::Failed => {
+            // Surface the report so the operator sees which stage failed
+            // even when the aggregate is unhealthy.
+            render_output(as_output(format, human, value));
+            return Err(ForgeError::PublishDeployFailed {
+                reason: report.note.clone(),
+            });
+        }
     }
     Ok(as_output(format, human, value))
 }

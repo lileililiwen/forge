@@ -1,7 +1,7 @@
 # release-dry-run-evidence-truth Specification
 
 ## Purpose
-A release dry run writes nothing and says so: one gate decides whether a release stage may write, every write-capable stage consults it, and the report of a dry run states that no side effect was attempted.
+A release dry run writes nothing and says so: one gate decides whether a release stage may write, every write-capable stage consults it, the report of a dry run states that no side effect was attempted, and every plan that releases nothing — a dry run of an apply or a release preparation — is journalled as a planned run rather than a completed one.
 ## Requirements
 ### Requirement: A release dry run writes nothing and says so
 
@@ -12,7 +12,9 @@ stage SHALL consult that rule before it writes, and a stage that may not
 write SHALL record a status that is not a delivery together with a note
 that names the reason it did not write. The report of a dry run SHALL
 state that no side effect was attempted, and no stage outcome in that
-report SHALL claim a delivery.
+report SHALL claim a delivery. A plan that releases nothing — a dry run
+of a release apply, or a release preparation — SHALL be recorded in the
+registry journal as a planned run rather than a completed one.
 
 #### Scenario: A dry run writes nothing
 
@@ -36,5 +38,5 @@ report SHALL claim a delivery.
 
 #### Scenario: The journal records the plan, not an applied release
 
-- **WHEN** a dry run of a release apply is recorded in the registry journal
+- **WHEN** a dry run of a release apply, or a release preparation, is recorded in the registry journal
 - **THEN** the row records a planned run rather than a completed one

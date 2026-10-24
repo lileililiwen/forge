@@ -19,7 +19,7 @@ use forge::release::engine::{
 };
 use forge::release::{
     release_config_from_manifest, render_report_human as render_release_report_human,
-    ReleaseAdapterConfig, ReleaseReport, ReleaseRequest, ReleaseState, Semver,
+    ReleaseAdapterConfig, ReleaseReport, ReleaseRequest, ReleaseRun, ReleaseState, Semver,
 };
 use std::path::{Path, PathBuf};
 
@@ -188,12 +188,23 @@ fn cmd_release_prepare(
     let policy = DriftWatchConfig::from_env();
     let plan = prepare_release(&project_dir, &manifest, &config, &request, &policy)?;
     let registry = open_registry(db_path)?;
+    // One rule names the run: a preparation releases nothing, so a
+    // preparation is a planned run and never an applied release.
+    let run = if plan.healthy() {
+        ReleaseRun::Planned
+    } else {
+        ReleaseRun::Blocked
+    };
     let detail = format!(
-        "release prepare `{}` v{} revision=`{}` ready={} dry_run={}",
-        project_id, plan.identity.version, plan.identity.source_revision, plan.ready, dry_run
+        "release prepare `{}` v{} revision=`{}` ready={} verdict={} dry_run={}",
+        project_id,
+        plan.identity.version,
+        plan.identity.source_revision,
+        plan.ready,
+        run.label(),
+        dry_run
     );
-    let state_label = if plan.healthy() { "done" } else { "blocked" };
-    let _ = registry.record_operation("release", &project_id, state_label, &detail);
+    let _ = registry.record_operation("release", &project_id, run.journal_state(), &detail);
     release_plan_output(&plan, format)
 }
 
@@ -238,26 +249,27 @@ fn cmd_release_apply(
         Err(err) => return Err(err),
     };
     let registry = open_registry(db_path)?;
+    // The same rule names this run: a dry run writes nothing, so it
+    // is a planned run rather than an applied release.
+    let run = if report.dry_run {
+        ReleaseRun::Planned
+    } else if report.healthy() {
+        ReleaseRun::Delivered
+    } else {
+        ReleaseRun::Partial
+    };
     let detail = format!(
-        "release apply `{}` v{} revision=`{}` stages={} dry_run={} retry={} healthy={}",
+        "release apply `{}` v{} revision=`{}` stages={} verdict={} dry_run={} retry={} healthy={}",
         report.project_id,
         report.identity.version,
         report.identity.source_revision,
         report.stage_outcomes.len(),
+        run.label(),
         report.dry_run,
         report.retry,
         report.healthy
     );
-    // A dry run writes nothing, so the journal records a planned
-    // run rather than an applied release.
-    let state_label = if report.dry_run {
-        "planned"
-    } else if report.healthy() {
-        "done"
-    } else {
-        "partial"
-    };
-    let _ = registry.record_operation("release", &project_id, state_label, &detail);
+    let _ = registry.record_operation("release", &project_id, run.journal_state(), &detail);
     let output = release_report_output(&report, format)?;
     if report.healthy() {
         Ok(output)

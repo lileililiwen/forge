@@ -545,3 +545,66 @@ pub struct CapturedCheck {
 pub struct DocsSpec {
     pub translate: Vec<String>,
 }
+
+/// What a release run did.
+///
+/// The journal state names this and nothing else: a plan is a plan,
+/// and an applied release is the only thing that is `done`. A
+/// preparation releases nothing, so it is never an applied release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseRun {
+    /// A plan the checks allow.
+    Planned,
+    /// A plan a check blocks.
+    Blocked,
+    /// An applied release whose stages all completed.
+    Delivered,
+    /// An applied release that did not complete every stage.
+    Partial,
+}
+impl ReleaseRun {
+    /// The registry journal state this run records.
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            ReleaseRun::Planned => "planned",
+            ReleaseRun::Blocked => "blocked",
+            ReleaseRun::Delivered => "done",
+            ReleaseRun::Partial => "partial",
+        }
+    }
+    /// The label the journal detail publishes, so a reader never has
+    /// to guess what the state means.
+    pub fn label(self) -> &'static str {
+        match self {
+            ReleaseRun::Planned => "planned",
+            ReleaseRun::Blocked => "blocked",
+            ReleaseRun::Delivered => "delivered",
+            ReleaseRun::Partial => "partial",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReleaseRun;
+
+    #[test]
+    fn a_plan_is_never_a_completed_release() {
+        assert_eq!(ReleaseRun::Planned.journal_state(), "planned");
+        assert_eq!(ReleaseRun::Blocked.journal_state(), "blocked");
+        assert_eq!(
+            ReleaseRun::Delivered.journal_state(),
+            "done",
+            "only an applied release is `done`"
+        );
+        assert_eq!(ReleaseRun::Partial.journal_state(), "partial");
+    }
+
+    #[test]
+    fn every_run_names_itself_in_the_detail() {
+        assert_eq!(ReleaseRun::Planned.label(), "planned");
+        assert_eq!(ReleaseRun::Blocked.label(), "blocked");
+        assert_eq!(ReleaseRun::Delivered.label(), "delivered");
+        assert_eq!(ReleaseRun::Partial.label(), "partial");
+    }
+}

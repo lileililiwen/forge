@@ -120,23 +120,30 @@ pub(super) fn cmd_deploy_apply(
     let report =
         forge::deploy::engine::apply_deploy(&project_dir, &manifest, &config, &request, &adapters)?;
     let registry = open_registry(db_path)?;
-    let detail = forge::deploy::engine::journal_report(&report, report.healthy);
-    let state_label = if report.healthy() { "done" } else { "partial" };
+    let detail = forge::deploy::engine::journal_report(&report);
+    let state_label = report.verdict.journal_state();
     let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
     let output = deploy_report_output(&report, format)?;
-    if report.healthy() {
-        Ok(output)
-    } else {
-        match &output {
-            Output::Human(text) => println!("{text}"),
-            Output::Json(value) => {
-                println!("{}", serde_json::to_string_pretty(value).unwrap());
-            }
-            Output::Raw(text) => print!("{text}"),
+    // The exit code follows the verdict, not `healthy`. A rehearsal is
+    // a successful rehearsal: it deployed nothing, so it exits 0
+    // exactly as it does today. A failed deploy still exits 1 with the
+    // report on stdout.
+    match report.verdict {
+        forge::deploy::DeployVerdict::Delivered | forge::deploy::DeployVerdict::Planned => {
+            Ok(output)
         }
-        Err(ForgeError::DeployHealthFailed {
-            reason: report.note.clone(),
-        })
+        forge::deploy::DeployVerdict::Failed => {
+            match &output {
+                Output::Human(text) => println!("{text}"),
+                Output::Json(value) => {
+                    println!("{}", serde_json::to_string_pretty(value).unwrap());
+                }
+                Output::Raw(text) => print!("{text}"),
+            }
+            Err(ForgeError::DeployHealthFailed {
+                reason: report.note.clone(),
+            })
+        }
     }
 }
 
@@ -165,23 +172,26 @@ pub(super) fn cmd_deploy_observe(
         &adapters,
     )?;
     let registry = open_registry(db_path)?;
-    let detail = forge::deploy::engine::journal_report(&report, report.healthy);
-    let state_label = if report.healthy() { "done" } else { "partial" };
+    let detail = forge::deploy::engine::journal_report(&report);
+    let state_label = report.verdict.journal_state();
     let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
     let output = deploy_report_output(&report, format)?;
-    if report.healthy() {
-        Ok(output)
-    } else {
-        match &output {
-            Output::Human(text) => println!("{text}"),
-            Output::Json(value) => {
-                println!("{}", serde_json::to_string_pretty(value).unwrap());
-            }
-            Output::Raw(text) => print!("{text}"),
+    match report.verdict {
+        forge::deploy::DeployVerdict::Delivered | forge::deploy::DeployVerdict::Planned => {
+            Ok(output)
         }
-        Err(ForgeError::DeployHealthFailed {
-            reason: report.note.clone(),
-        })
+        forge::deploy::DeployVerdict::Failed => {
+            match &output {
+                Output::Human(text) => println!("{text}"),
+                Output::Json(value) => {
+                    println!("{}", serde_json::to_string_pretty(value).unwrap());
+                }
+                Output::Raw(text) => print!("{text}"),
+            }
+            Err(ForgeError::DeployHealthFailed {
+                reason: report.note.clone(),
+            })
+        }
     }
 }
 

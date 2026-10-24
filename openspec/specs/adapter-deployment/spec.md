@@ -1,7 +1,7 @@
 # adapter-deployment Specification
 
 ## Purpose
-Simple deployment targets and observed runtime state. v0.1.0 of the contract supports Docker Compose, local-host, Jenkins, runtime and SSH adapters, and records timestamped health observations (running, failed, unknown) for every apply. Remote hosts are independent failure domains; disconnected means unknown, not offline proof. Recovery may require operator action.
+Simple deployment targets and observed runtime state. v0.1.0 of the contract supports Docker Compose, local-host, Jenkins, runtime and SSH adapters, and records timestamped health observations (running, failed, unknown) for every apply. Remote hosts are independent failure domains; disconnected means unknown, not offline proof. Recovery may require operator action. The deploy report carries a verdict that names what the run did.
 ## Requirements
 ### Requirement: Explicit adapter deployment
 
@@ -31,7 +31,7 @@ Forge SHALL implement deploy with project and target selection through versioned
 
 ### Requirement: Observed health and recovery
 
-Forge SHALL distinguish pending, running, failed and unknown deployment states using timestamped health evidence and expose recovery information for failed rollouts.
+Forge SHALL distinguish pending, running, failed and unknown deployment states using timestamped health evidence and expose recovery information for failed rollouts. The deploy report SHALL carry a verdict that names what the run did, so a run that deployed nothing is reported and journalled as a plan and never as a completed deployment, and the report's health SHALL be true only for a delivery.
 
 #### Scenario: Observed health and recovery success
 
@@ -47,6 +47,11 @@ Forge SHALL distinguish pending, running, failed and unknown deployment states u
 
 - **WHEN** the target becomes unreachable after a previous success
 - **THEN** the last observation is retained as stale and current state is unknown
+
+#### Scenario: A rehearsal is never a completed deployment
+
+- **WHEN** a deploy apply runs as a dry run and no deploy is attempted
+- **THEN** the report's verdict names the run a plan, the report is not healthy, the note says nothing was deployed, and the journal records a planned deploy
 
 ### Requirement: Versioned deploy executor contract
 
@@ -94,4 +99,3 @@ status reports `unknown` and never `healthy`.
 - **WHEN** the adapter is used against a real Jenkins host
 - **THEN** success or failure is attributed to the provider run evidence,
   and no fixture-only claim is represented as production support
-

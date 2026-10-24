@@ -468,6 +468,58 @@ impl DeployHealthSpec {
         })
     }
 }
+/// The deploy run's verdict.
+///
+/// The verdict is what the run did. A rehearsal is a plan, and a plan
+/// is not a delivery: a rehearsal contacts the adapter, but it deploys
+/// nothing and observes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeployVerdict {
+    /// The deploy ran and every stage completed.
+    Delivered,
+    /// No deploy was attempted. The report is a rehearsal.
+    Planned,
+    /// A stage did not complete.
+    Failed,
+}
+impl DeployVerdict {
+    /// The stable label the report, the JSON document and the journal
+    /// detail publish.
+    pub fn label(self) -> &'static str {
+        match self {
+            DeployVerdict::Delivered => "delivered",
+            DeployVerdict::Planned => "planned",
+            DeployVerdict::Failed => "failed",
+        }
+    }
+    /// The registry journal state this verdict records. A delivery is a
+    /// completed deploy, a rehearsal is a planned deploy and a failure
+    /// is a failed deploy.
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            DeployVerdict::Delivered => "done",
+            DeployVerdict::Planned => "planned",
+            DeployVerdict::Failed => "failed",
+        }
+    }
+}
+/// The one rule that judges a deploy run.
+///
+/// A rehearsal attempted no deploy, whatever its stages say: the
+/// adapter rehearsed, so its stages are the adapter's rehearsal
+/// output and not evidence that anything was deployed. A run that
+/// attempted a deploy is a delivery only when every stage completed.
+pub fn verdict_for_report(dry_run: bool, healthy: bool) -> DeployVerdict {
+    if dry_run {
+        return DeployVerdict::Planned;
+    }
+    if healthy {
+        DeployVerdict::Delivered
+    } else {
+        DeployVerdict::Failed
+    }
+}
 /// Aggregate deploy report from a prepare/apply/observe run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DeployReport {
@@ -484,6 +536,9 @@ pub struct DeployReport {
     pub state_path: String,
     pub note: String,
     pub healthy: bool,
+    /// The run's verdict. The field is always present, so a reader
+    /// learns what the run did without re-deriving it from the stages.
+    pub verdict: DeployVerdict,
 }
 impl DeployReport {
     pub fn healthy(&self) -> bool {
@@ -781,5 +836,37 @@ mod tests {
                 .contains("deployment target `vps` of kind `ssh` must declare `host`"),
             "a blank field is a missing field: {err}"
         );
+    }
+
+    #[test]
+    fn a_rehearsal_is_a_plan_and_never_a_delivery() {
+        // The one rule: a rehearsal deployed nothing, whatever the
+        // adapter's rehearsal said.
+        assert_eq!(
+            verdict_for_report(true, true),
+            DeployVerdict::Planned,
+            "a rehearsal is a plan even when every stage completed"
+        );
+        assert_eq!(
+            verdict_for_report(true, false),
+            DeployVerdict::Planned,
+            "a rehearsal is a plan even when a stage failed"
+        );
+    }
+
+    #[test]
+    fn a_complete_run_is_a_delivery_and_a_broken_run_is_a_failure() {
+        assert_eq!(verdict_for_report(false, true), DeployVerdict::Delivered);
+        assert_eq!(verdict_for_report(false, false), DeployVerdict::Failed);
+    }
+
+    #[test]
+    fn the_verdict_publishes_a_label_and_a_journal_state() {
+        assert_eq!(DeployVerdict::Delivered.label(), "delivered");
+        assert_eq!(DeployVerdict::Planned.label(), "planned");
+        assert_eq!(DeployVerdict::Failed.label(), "failed");
+        assert_eq!(DeployVerdict::Delivered.journal_state(), "done");
+        assert_eq!(DeployVerdict::Planned.journal_state(), "planned");
+        assert_eq!(DeployVerdict::Failed.journal_state(), "failed");
     }
 }

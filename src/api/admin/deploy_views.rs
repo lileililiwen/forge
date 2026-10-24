@@ -94,6 +94,7 @@ pub(super) fn report_view(report: &DeployReport) -> Value {
         "deploy_id": report.identity.id,
         "source_revision": report.identity.source_revision,
         "dry_run": report.dry_run,
+        "verdict": report.verdict.label(),
         "healthy": report.healthy,
         "note": report.note,
         "stages": stages,
@@ -128,4 +129,75 @@ pub(super) fn typed_deploy_error(project_dir: &Path, err: &crate::core::ForgeErr
             "contract": API_CONTRACT_VERSION,
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::deploy::{
+        DeployIdentity, DeployStageOutcome, DeployTargetSpec, DeployVerdict, HealthObservation,
+    };
+
+    /// A report with the fields the view reads.
+    fn report(verdict: DeployVerdict, healthy: bool) -> DeployReport {
+        DeployReport {
+            contract: "forge-deploy/0.1.0".to_string(),
+            project_id: "p1".to_string(),
+            identity: DeployIdentity {
+                id: "p1-home-abc".to_string(),
+                project_id: "p1".to_string(),
+                target: "home".to_string(),
+                source_revision: "cafe1234".to_string(),
+            },
+            target: DeployTargetSpec {
+                name: "home".to_string(),
+                kind: "local".to_string(),
+                host: None,
+                user: None,
+                path: None,
+                service: None,
+                note: None,
+            },
+            adapter: "local".to_string(),
+            artifact: None,
+            health: None,
+            stages: vec![DeployStageOutcome {
+                stage: "apply".to_string(),
+                target: "home".to_string(),
+                status: "delivered".to_string(),
+                note: "rehearsed".to_string(),
+                evidence: Vec::new(),
+                recovery: Vec::new(),
+            }],
+            observation: Some(HealthObservation {
+                status: "running".to_string(),
+                detail: "up".to_string(),
+                observed_at: "2026-10-24T00:00:00Z".to_string(),
+                evidence: Vec::new(),
+            }),
+            dry_run: matches!(verdict, DeployVerdict::Planned),
+            state_path: "/tmp/p1/state.json".to_string(),
+            note: "dry-run: 2 stage(s) rehearsed; nothing was deployed".to_string(),
+            healthy,
+            verdict,
+        }
+    }
+
+    #[test]
+    fn the_report_view_carries_the_verdict() {
+        // The browser reads the same rule as the CLI: a rehearsal is a
+        // plan, and the view says so next to its dry-run flag.
+        let view = report_view(&report(DeployVerdict::Planned, false));
+        assert_eq!(view["verdict"], "planned");
+        assert_eq!(view["healthy"], false);
+        assert_eq!(view["dry_run"], true);
+    }
+
+    #[test]
+    fn the_report_view_carries_a_delivery() {
+        let view = report_view(&report(DeployVerdict::Delivered, true));
+        assert_eq!(view["verdict"], "delivered");
+        assert_eq!(view["healthy"], true);
+        assert_eq!(view["dry_run"], false);
+    }
 }

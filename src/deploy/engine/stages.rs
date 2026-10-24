@@ -6,7 +6,7 @@ use super::super::{
     capture_source_revision, deploy_config_from_manifest, load_artifact, load_deploy_state,
     redact_deploy_evidence, save_deploy_state, state_path_for, DeployAdapterConfig, DeployConfig,
     DeployHealthSpec, DeployIdentity, DeployListEntry, DeployPlan, DeployReport, DeployRequest,
-    DeployStageOutcome, DeployState, HealthObservation, DEPLOY_ADAPTER_TIMEOUT,
+    DeployStageOutcome, DeployState, DeployVerdict, HealthObservation, DEPLOY_ADAPTER_TIMEOUT,
     DEPLOY_CONTRACT_VERSION, DEPLOY_EXECUTOR_CONTRACT, HEALTH_DOCKER, HEALTH_HTTP, HEALTH_PROCESS,
     STATUS_DELIVERED, STATUS_DISABLED, STATUS_FAILED, STATUS_RUNNING, STATUS_SKIPPED,
     STATUS_UNKNOWN, TARGET_LOCAL,
@@ -21,6 +21,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::super::prepare::validate_target_kind;
+use super::super::verdict_for_report;
 use super::model::{AdapterOp, AdapterRequest, AdapterResponse};
 
 /// Read-only plan report. The transport renders this
@@ -193,16 +194,24 @@ pub fn apply_deploy(
             || s.status == STATUS_DISABLED
             || s.status == STATUS_RUNNING
     });
-    let note = if healthy {
-        format!(
+    // The one rule judges the run: a rehearsal deployed nothing, so it
+    // is a plan whatever the adapter's rehearsal said, and a plan is
+    // not a healthy deploy.
+    let verdict = verdict_for_report(request.dry_run, healthy);
+    let healthy = verdict == DeployVerdict::Delivered;
+    let note = match verdict {
+        DeployVerdict::Planned => format!(
+            "dry-run: {} stage(s) rehearsed; nothing was deployed",
+            stages.len()
+        ),
+        DeployVerdict::Delivered => format!(
             "deploy applied to target `{}` and observed as `{}`",
             plan.target.name, observation.status
-        )
-    } else {
-        format!(
+        ),
+        DeployVerdict::Failed => format!(
             "deploy did not complete cleanly: apply={} observe={}",
             apply_outcome.status, observe_outcome.status
-        )
+        ),
     };
     Ok(DeployReport {
         contract: DEPLOY_CONTRACT_VERSION.to_string(),
@@ -218,6 +227,7 @@ pub fn apply_deploy(
         state_path: state_path.display().to_string(),
         note,
         healthy,
+        verdict,
     })
 }
 
@@ -539,16 +549,23 @@ pub fn observe_deploy(
     let healthy = observe_outcome.status == STATUS_RUNNING
         || observe_outcome.status == STATUS_DELIVERED
         || observe_outcome.status == STATUS_SKIPPED;
-    let note = if healthy {
-        format!(
-            "deploy `{}` re-observed as `{}`",
-            identity.id, observation.status
-        )
-    } else {
-        format!(
+    // The same rule as the apply path: a rehearsal observed nothing.
+    let verdict = verdict_for_report(request.dry_run, healthy);
+    let healthy = verdict == DeployVerdict::Delivered;
+    let note = match verdict {
+        DeployVerdict::Planned => {
+            format!("dry-run: {} stage(s) rehearsed; nothing was deployed", 1)
+        }
+        DeployVerdict::Delivered => {
+            format!(
+                "deploy `{}` re-observed as `{}`",
+                identity.id, observation.status
+            )
+        }
+        DeployVerdict::Failed => format!(
             "deploy `{}` re-observed as `{}`; state recorded as `{}`",
             identity.id, observation.status, observe_outcome.status
-        )
+        ),
     };
     Ok(DeployReport {
         contract: DEPLOY_CONTRACT_VERSION.to_string(),
@@ -564,6 +581,7 @@ pub fn observe_deploy(
         state_path: state_path.display().to_string(),
         note,
         healthy,
+        verdict,
     })
 }
 
@@ -680,7 +698,7 @@ pub fn load_config(project_dir: &Path) -> Result<(Manifest, DeployConfig), Forge
 
 /// Optional: record a journal row for a deploy run. The
 /// CLI owns the journal kind, not the engine.
-pub fn journal_report(report: &DeployReport, healthy: bool) -> String {
+pub fn journal_report(report: &DeployReport) -> String {
     let stage_summary = report
         .stages
         .iter()
@@ -688,12 +706,13 @@ pub fn journal_report(report: &DeployReport, healthy: bool) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "deploy `{}` target=`{}` adapter=`{}` stages={} healthy={} dry_run={}",
+        "deploy `{}` target=`{}` adapter=`{}` stages={} verdict={} healthy={} dry_run={}",
         report.identity.id,
         report.target.name,
         report.adapter,
         stage_summary,
-        healthy,
+        report.verdict.label(),
+        report.healthy,
         report.dry_run
     )
 }

@@ -224,14 +224,46 @@ fn evidence_is_fresh(last_verified: DateTime<Utc>) -> bool {
     age_days <= CERTIFIED_FRESHNESS_DAYS
 }
 
+/// The evidence a `Certified` promotion requires. An absent field is
+/// never a default: the gate refuses the promotion and names what is
+/// missing, so the operator knows what to measure.
+pub fn missing_certified_evidence(evidence: &ComponentQualifyEvidence) -> Vec<&'static str> {
+    let mut missing = Vec::new();
+    if evidence.test_coverage.is_none() {
+        missing.push("test_coverage");
+    }
+    if evidence.last_verified.is_none() {
+        missing.push("last_verified");
+    }
+    if evidence.security_review.is_none() {
+        missing.push("security_review");
+    }
+    missing
+}
+
 fn evidence_meets_certified_gate(evidence: &ComponentQualifyEvidence) -> Result<(), String> {
-    if !evidence.security_review {
+    // An absent piece of evidence is a refusal, never a default
+    // value. The gate checks absence before it judges a value, so a
+    // promotion can never be certified on evidence nobody supplied.
+    let missing = missing_certified_evidence(evidence);
+    if !missing.is_empty() {
+        return Err(format!(
+            "missing required evidence: {}; a certified promotion requires the operator to \
+             supply it",
+            missing.join(", ")
+        ));
+    }
+    // Every measured field is present from here on. The fallbacks
+    // below are unreachable, and each one keeps a later field from
+    // inventing a value if the check above ever changes.
+    if !evidence.security_review.unwrap_or(false) {
         return Err("missing security review".to_string());
     }
-    if evidence.test_coverage < CERTIFIED_TEST_COVERAGE {
+    let coverage = evidence.test_coverage.unwrap_or(0.0);
+    if coverage < CERTIFIED_TEST_COVERAGE {
         return Err(format!(
             "test coverage {} is below the certified minimum {}",
-            evidence.test_coverage, CERTIFIED_TEST_COVERAGE
+            coverage, CERTIFIED_TEST_COVERAGE
         ));
     }
     if evidence.known_issues.len() > MAX_KNOWN_ISSUES {
@@ -241,21 +273,34 @@ fn evidence_meets_certified_gate(evidence: &ComponentQualifyEvidence) -> Result<
             MAX_KNOWN_ISSUES
         ));
     }
-    if !evidence_is_fresh(evidence.last_verified) {
+    let last_verified = evidence
+        .last_verified
+        .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).expect("epoch is valid"));
+    if !evidence_is_fresh(last_verified) {
         return Err(format!(
             "last_verified {} is older than the certified freshness window of \
              {CERTIFIED_FRESHNESS_DAYS} days",
-            evidence.last_verified.to_rfc3339()
+            last_verified.to_rfc3339()
         ));
     }
     Ok(())
+}
+
+/// Coverage ratios are held as `f32`; widening one to `f64` for JSON
+/// shows the binary artifact (`0.949999988079071`). The receipt
+/// rounds to four decimals so the stored number is the ratio the
+/// operator supplied.
+fn coverage_for_receipt(coverage: f32) -> f64 {
+    (f64::from(coverage) * 10_000.0).round() / 10_000.0
 }
 
 /// Persist the promotion receipt under
 /// `.forge/components/<id>/qualify.json`. The receipt is a pure
 /// function of the request: a drifted receipt means the caller
 /// tampered with the evidence record and the next promotion is
-/// refused until the receipt is restored.
+/// refused until the receipt is restored. The evidence block carries
+/// only the evidence the operator supplied; a field that was not
+/// supplied is absent, never a default value.
 pub fn write_qualify_receipt(
     dir: &Path,
     request: &ComponentQualifyRequest,
@@ -270,17 +315,35 @@ pub fn write_qualify_receipt(
             ),
         })?;
     }
+    let mut evidence_json = serde_json::Map::new();
+    if let Some(coverage) = evidence.test_coverage {
+        evidence_json.insert(
+            "test_coverage".to_string(),
+            serde_json::json!(coverage_for_receipt(coverage)),
+        );
+    }
+    if let Some(last_verified) = evidence.last_verified {
+        evidence_json.insert(
+            "last_verified".to_string(),
+            serde_json::json!(last_verified.to_rfc3339()),
+        );
+    }
+    evidence_json.insert(
+        "known_issues".to_string(),
+        serde_json::json!(evidence.known_issues),
+    );
+    if let Some(security_review) = evidence.security_review {
+        evidence_json.insert(
+            "security_review".to_string(),
+            serde_json::json!(security_review),
+        );
+    }
     let payload = serde_json::json!({
         "contract": COMPONENT_CATALOG_VERSION,
         "component_id": request.component_id,
         "target_quality": request.target_quality.label(),
         "reason": request.reason,
-        "evidence": {
-            "test_coverage": evidence.test_coverage,
-            "last_verified": evidence.last_verified.to_rfc3339(),
-            "known_issues": evidence.known_issues,
-            "security_review": evidence.security_review,
-        },
+        "evidence": serde_json::Value::Object(evidence_json),
     });
     let body = serde_json::to_string_pretty(&payload).map_err(|err| {
         ForgeError::ComponentQualityConflict {
@@ -316,6 +379,7 @@ pub fn qualify_component(
             target_quality: request.target_quality,
             promoted: false,
             files_written: Vec::new(),
+            missing_evidence: Vec::new(),
             note: format!(
                 "component '{}' is already at quality '{}'; no change",
                 request.component_id,
@@ -330,6 +394,7 @@ pub fn qualify_component(
             target_quality: request.target_quality,
             promoted: true,
             files_written: Vec::new(),
+            missing_evidence: Vec::new(),
             note: format!(
                 "component '{}' marked deprecated; no evidence gate required",
                 request.component_id
@@ -344,6 +409,10 @@ pub fn qualify_component(
                 target_quality: request.target_quality,
                 promoted: false,
                 files_written: Vec::new(),
+                missing_evidence: missing_certified_evidence(evidence)
+                    .into_iter()
+                    .map(|field| field.to_string())
+                    .collect(),
                 note: format!(
                     "promotion refused: {reason}; component '{}' remains at quality '{}'",
                     request.component_id,
@@ -358,6 +427,7 @@ pub fn qualify_component(
         target_quality: request.target_quality,
         promoted: true,
         files_written: Vec::new(),
+        missing_evidence: Vec::new(),
         note: format!(
             "promotion accepted: component '{}' moves from '{}' to '{}' (reason: {})",
             request.component_id,
@@ -445,6 +515,12 @@ pub fn render_outcome_human(outcome: &ComponentResolveOutcome) -> String {
 /// Render a promotion outcome for human output.
 pub fn render_qualify_human(outcome: &ComponentQualifyOutcome) -> String {
     let mut lines = vec![outcome.note.clone()];
+    if !outcome.missing_evidence.is_empty() {
+        lines.push(format!(
+            "missing evidence: {}",
+            outcome.missing_evidence.join(", ")
+        ));
+    }
     if !outcome.files_written.is_empty() {
         lines.push(format!("files: {}", outcome.files_written.join(", ")));
     } else {

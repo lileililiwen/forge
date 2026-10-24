@@ -275,10 +275,10 @@ pub(super) mod tests {
             reason: "promote for production".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.95,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.95),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: false,
+            security_review: Some(false),
         };
         let outcome = qualify_component(&request, &evidence).unwrap();
         assert!(!outcome.promoted);
@@ -303,10 +303,10 @@ pub(super) mod tests {
             reason: "promote for production".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.50,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.50),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = qualify_component(&request, &evidence).unwrap();
         assert!(!outcome.promoted);
@@ -325,10 +325,10 @@ pub(super) mod tests {
             reason: "promote for production".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.95,
-            last_verified: epoch_record_time(),
+            test_coverage: Some(0.95),
+            last_verified: Some(epoch_record_time()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = qualify_component(&request, &evidence).unwrap();
         assert!(!outcome.promoted);
@@ -347,15 +347,110 @@ pub(super) mod tests {
             reason: "production ready".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.95,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.95),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = qualify_component(&request, &evidence).unwrap();
         assert!(outcome.promoted);
         assert_eq!(outcome.prior_quality, ComponentQuality::Verified);
         assert_eq!(outcome.target_quality, ComponentQuality::Certified);
+    }
+
+    #[test]
+    fn qualify_to_certified_refuses_missing_evidence() {
+        let request = ComponentQualifyRequest {
+            component_id: "toast".to_string(),
+            target_quality: ComponentQuality::Certified,
+            reason: "looks fine".to_string(),
+        };
+        // Nothing was measured, reviewed or verified.
+        let evidence = ComponentQualifyEvidence::default();
+        let outcome = qualify_component(&request, &evidence).unwrap();
+        assert!(!outcome.promoted);
+        assert_eq!(outcome.prior_quality, ComponentQuality::Verified);
+        assert_eq!(
+            outcome.missing_evidence,
+            vec![
+                "test_coverage".to_string(),
+                "last_verified".to_string(),
+                "security_review".to_string()
+            ]
+        );
+        assert!(
+            outcome.note.contains("missing required evidence"),
+            "{}",
+            outcome.note
+        );
+        assert!(
+            outcome.note.contains("remains at quality 'verified'"),
+            "{}",
+            outcome.note
+        );
+    }
+
+    #[test]
+    fn qualify_to_certified_refuses_a_missing_timestamp() {
+        let request = ComponentQualifyRequest {
+            component_id: "toast".to_string(),
+            target_quality: ComponentQuality::Certified,
+            reason: "no verification".to_string(),
+        };
+        let evidence = ComponentQualifyEvidence {
+            test_coverage: Some(0.95),
+            last_verified: None,
+            known_issues: Vec::new(),
+            security_review: Some(true),
+        };
+        let outcome = qualify_component(&request, &evidence).unwrap();
+        assert!(!outcome.promoted);
+        assert_eq!(outcome.missing_evidence, vec!["last_verified".to_string()]);
+    }
+
+    #[test]
+    fn a_refused_promotion_writes_no_receipt() {
+        let tmp = TempDir::new().unwrap();
+        let request = ComponentQualifyRequest {
+            component_id: "toast".to_string(),
+            target_quality: ComponentQuality::Certified,
+            reason: "looks fine".to_string(),
+        };
+        let evidence = ComponentQualifyEvidence::default();
+        let outcome = record_qualification(tmp.path(), &request, &evidence).unwrap();
+        assert!(!outcome.promoted);
+        assert!(outcome.files_written.is_empty());
+        assert!(!tmp.path().join(".forge/components").exists());
+    }
+
+    #[test]
+    fn a_receipt_carries_only_the_supplied_evidence() {
+        let tmp = TempDir::new().unwrap();
+        let request = ComponentQualifyRequest {
+            component_id: "file-picker".to_string(),
+            target_quality: ComponentQuality::Verified,
+            reason: "exercised on one profile".to_string(),
+        };
+        // A promotion below `certified` needs no evidence; the receipt
+        // must not carry a coverage, a timestamp or a security review
+        // the operator never supplied.
+        let evidence = ComponentQualifyEvidence::default();
+        let outcome = record_qualification(tmp.path(), &request, &evidence).unwrap();
+        assert!(outcome.promoted);
+        assert_eq!(
+            outcome.files_written,
+            vec![".forge/components/file-picker/qualify.json".to_string()]
+        );
+        let body = std::fs::read_to_string(
+            tmp.path()
+                .join(".forge/components/file-picker/qualify.json"),
+        )
+        .unwrap();
+        assert!(body.contains("\"target_quality\": \"verified\""));
+        assert!(body.contains("\"known_issues\": []"));
+        assert!(!body.contains("test_coverage"), "{body}");
+        assert!(!body.contains("last_verified"), "{body}");
+        assert!(!body.contains("security_review"), "{body}");
     }
 
     #[test]
@@ -367,10 +462,10 @@ pub(super) mod tests {
             reason: "superseded by toast-v2".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.95,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.95),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = record_qualification(tmp.path(), &request, &evidence).unwrap();
         assert!(outcome.promoted);
@@ -386,10 +481,10 @@ pub(super) mod tests {
             reason: "noop".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.95,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.95),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = qualify_component(&request, &evidence).unwrap();
         assert!(!outcome.promoted);
@@ -409,10 +504,10 @@ pub(super) mod tests {
             reason: "promote for production".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.50,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.50),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = record_qualification(tmp.path(), &request, &evidence).unwrap();
         assert!(!outcome.promoted);
@@ -429,10 +524,10 @@ pub(super) mod tests {
             reason: "production ready".to_string(),
         };
         let evidence = ComponentQualifyEvidence {
-            test_coverage: 0.95,
-            last_verified: latest_verified_timestamp(),
+            test_coverage: Some(0.95),
+            last_verified: Some(latest_verified_timestamp()),
             known_issues: Vec::new(),
-            security_review: true,
+            security_review: Some(true),
         };
         let outcome = record_qualification(tmp.path(), &request, &evidence).unwrap();
         assert!(outcome.promoted);

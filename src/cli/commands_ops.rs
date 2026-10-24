@@ -443,16 +443,16 @@ pub(crate) enum ComponentCommands {
         /// Human reason for the promotion.
         #[arg(long)]
         reason: String,
-        /// Override test coverage (default: 0.95 for `certified`).
+        /// Measured test coverage (`0.0`-`1.0`); required for a `certified` promotion.
         #[arg(long)]
         coverage: Option<f32>,
-        /// Override the last-verified timestamp (RFC 3339). Default: now.
+        /// When the component was last independently verified (RFC 3339); required for a `certified` promotion.
         #[arg(long)]
         last_verified: Option<String>,
         /// Mark known issues (repeatable).
         #[arg(long = "known-issue")]
         known_issues: Vec<String>,
-        /// Set security review status (default: `true` for `certified`).
+        /// Whether a security review was recorded; required for a `certified` promotion.
         #[arg(long)]
         security_review: Option<bool>,
         /// Project directory the receipt is written under (default: current directory).

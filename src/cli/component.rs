@@ -162,21 +162,25 @@ pub(crate) fn cmd_component(
                     });
                 }
             };
+            // The evidence is what the operator supplied, and
+            // nothing else. A flag that was not given stays
+            // absent: the certified gate refuses a promotion whose
+            // evidence is missing instead of inventing it.
             let last_verified_ts = match last_verified.as_deref() {
-                Some(value) => parse_rfc3339_for_qualify(value).ok_or_else(|| {
+                Some(value) => Some(parse_rfc3339_for_qualify(value).ok_or_else(|| {
                     ForgeError::ComponentInvalid {
                         reason: format!(
                             "last_verified '{value}' is not a valid RFC 3339 timestamp"
                         ),
                     }
-                })?,
-                None => chrono::Utc::now(),
+                })?),
+                None => None,
             };
             let evidence = ComponentQualifyEvidence {
-                test_coverage: coverage.unwrap_or(0.95),
+                test_coverage: *coverage,
                 last_verified: last_verified_ts,
                 known_issues: known_issues.clone(),
-                security_review: security_review.unwrap_or(target == ComponentQuality::Certified),
+                security_review: *security_review,
             };
             let request = ComponentQualifyRequest {
                 component_id: id.clone(),
@@ -213,6 +217,7 @@ pub(crate) fn cmd_component(
                 "prior_quality": outcome.prior_quality.label(),
                 "target_quality": outcome.target_quality.label(),
                 "promoted": outcome.promoted,
+                "missing_evidence": outcome.missing_evidence,
                 "files_written": outcome.files_written,
                 "note": outcome.note,
             });

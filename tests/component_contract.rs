@@ -339,6 +339,7 @@ fn qualify_missing_security_review_refuses_and_preserves_prior_quality() {
     let db = tmp.path().join("registry.db");
     let work = tmp.path().join("work");
     fs::create_dir_all(&work).unwrap();
+    let now = chrono::Utc::now().to_rfc3339();
     let (value, _code) = run_json(
         &db,
         &[
@@ -351,6 +352,8 @@ fn qualify_missing_security_review_refuses_and_preserves_prior_quality() {
             "no security review",
             "--coverage",
             "0.95",
+            "--last-verified",
+            &now,
             "--security-review",
             "false",
             "--path",
@@ -389,6 +392,8 @@ fn qualify_stale_verification_refuses_promotion() {
             "0.95",
             "--last-verified",
             "2000-01-01T00:00:00Z",
+            "--security-review",
+            "true",
             "--path",
             work.to_str().unwrap(),
         ],
@@ -403,6 +408,7 @@ fn qualify_complete_evidence_promotes_and_writes_receipt() {
     let db = tmp.path().join("registry.db");
     let work = tmp.path().join("work");
     fs::create_dir_all(&work).unwrap();
+    let now = chrono::Utc::now().to_rfc3339();
     let (value, _code) = run_json(
         &db,
         &[
@@ -415,6 +421,10 @@ fn qualify_complete_evidence_promotes_and_writes_receipt() {
             "production ready",
             "--coverage",
             "0.95",
+            "--last-verified",
+            &now,
+            "--security-review",
+            "true",
             "--path",
             work.to_str().unwrap(),
         ],
@@ -457,6 +467,7 @@ fn qualify_refusal_does_not_create_dot_forge_directory() {
     let db = tmp.path().join("registry.db");
     let work = tmp.path().join("work");
     fs::create_dir_all(&work).unwrap();
+    let now = chrono::Utc::now().to_rfc3339();
     let _ = run(
         &db,
         &[
@@ -469,6 +480,8 @@ fn qualify_refusal_does_not_create_dot_forge_directory() {
             "no security review",
             "--coverage",
             "0.95",
+            "--last-verified",
+            &now,
             "--security-review",
             "false",
             "--path",

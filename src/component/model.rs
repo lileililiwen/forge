@@ -58,22 +58,31 @@ pub struct ComponentQualifyRequest {
     pub target_quality: ComponentQuality,
     pub reason: String,
 }
-/// Evidence required by the promotion gate for `Certified`. The
-/// `last_verified` and `test_coverage` fields override the catalog
-/// defaults; `security_review` and `known_issues` re-confirm the
-/// descriptor's evidence.
-#[derive(Debug, Clone, PartialEq)]
+/// Evidence supplied for a promotion. Every measured field is
+/// optional: the caller supplies only the evidence it actually has.
+/// A `Certified` promotion requires `test_coverage`, `last_verified`
+/// and `security_review`; an absent field is a refusal, never a
+/// default value.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComponentQualifyEvidence {
-    pub test_coverage: f32,
-    pub last_verified: DateTime<Utc>,
+    /// Measured test coverage (`0.0`-`1.0`), when the operator has
+    /// one.
+    pub test_coverage: Option<f32>,
+    /// When the component was last independently verified, when the
+    /// operator knows it.
+    pub last_verified: Option<DateTime<Utc>>,
+    /// Known issues the operator listed.
     pub known_issues: Vec<String>,
-    pub security_review: bool,
+    /// Whether a security review was recorded.
+    pub security_review: Option<bool>,
 }
 /// Outcome of a `forge component qualify` invocation. On success
 /// `promoted == true` and `prior_quality` is the quality level the
 /// descriptor carried before the promotion; on failure the prior
 /// quality level is preserved and `note` names the missing or stale
-/// evidence.
+/// evidence. `missing_evidence` names the evidence a refusal was
+/// missing, so a caller does not have to read the note to learn what
+/// to measure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ComponentQualifyOutcome {
     pub component_id: String,
@@ -81,6 +90,9 @@ pub struct ComponentQualifyOutcome {
     pub target_quality: ComponentQuality,
     pub promoted: bool,
     pub files_written: Vec<String>,
+    /// The evidence a refused promotion was missing, named by the
+    /// receipt's field names. Empty when nothing was missing.
+    pub missing_evidence: Vec<String>,
     pub note: String,
 }
 /// Evidence summary attached to a resolved step. The planner

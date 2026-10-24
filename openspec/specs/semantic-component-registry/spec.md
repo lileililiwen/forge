@@ -1,7 +1,7 @@
 # semantic-component-registry Specification
 
 ## Purpose
-Semantic reusable-component registry below feature granularity: meaningful units with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, under quality levels (experimental/verified/certified/deprecated) with certified preferred and deprecated refused.
+Semantic reusable-component registry below feature granularity: meaningful units with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, under quality levels (experimental/verified/certified/deprecated) with certified preferred and deprecated refused. A promotion records only the evidence the operator supplied: an absent measurement is never a default value, and a certification is refused unless the coverage, the verification timestamp and the security review it requires were supplied.
 ## Requirements
 ### Requirement: Semantic reusable unit contracts
 
@@ -24,7 +24,7 @@ Forge SHALL register meaningful components with explicit inputs/outputs, tests, 
 
 ### Requirement: Quality classification and selection
 
-Forge SHALL track Experimental, Verified, Certified and Deprecated states with supporting evidence and prefer compatible Certified components without violating constraints.
+Forge SHALL track Experimental, Verified, Certified and Deprecated states with supporting evidence and prefer compatible Certified components without violating constraints. Forge SHALL record a promotion only from evidence the operator supplied: an absent measurement is never a default value, and a promotion to Certified SHALL be refused unless the operator supplied a test coverage, a last-verified timestamp and a security review.
 
 #### Scenario: Quality classification and selection success
 
@@ -40,4 +40,11 @@ Forge SHALL track Experimental, Verified, Certified and Deprecated states with s
 
 - **WHEN** only a deprecated or incompatible certified candidate exists
 - **THEN** the resolver reports the policy conflict rather than silently selecting it
+
+#### Scenario: A certification is never claimed without its evidence
+
+- **WHEN** a promotion to certified is requested without the evidence a
+  certification requires
+- **THEN** the promotion is refused, the refusal names the missing evidence,
+  the prior quality level remains and no receipt is written
 

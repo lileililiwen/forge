@@ -10243,3 +10243,190 @@ let _ = registry.record_operation("deploy", &project_id, verdict.journal_state()
 
 Implementation/archive commit: `9b9e09c` (`feat: the deploy journal names what the plan did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 39: `publish-fleet-dry-run-verdict-truth`
+
+The fleet publish's **provider** lane recorded a **completed publish** in
+the registry journal for a run that published nothing.
+
+### The defect
+
+Reproduced on the tree before the change, with an inventory whose one
+entry is compose-ready and a project that is a git worktree at a real
+revision:
+
+```
+$ forge publish fleet --inventory /tmp/pub-probe/inventory.json \
+    --provider probe --dry-run
+```
+
+The fleet summary said:
+
+```json
+"projects": [
+  {
+    "build_status": null,
+    "container_identity": null,
+    "healthy": true,
+    "project": "alpha",
+    "provider": "probe",
+    "run_status": null,
+    "status": null
+  }
+],
+"success": 1
+```
+
+and the append-only row the same run wrote:
+
+```
+op_id = 1
+kind = publish
+project_id = alpha
+state = done
+detail = fleet provider=probe
+revision = d593d117fd0dbfede91bca0eee12bae6e3addd6a
+container_identity = forge-alpha-d593d117fd0d
+```
+
+`state='done'`, `healthy=true`, `success=1`, and a container identity
+for a container that was never created. **No provider ran**: the dry run
+returns the serialized *request*, which has no health field at all.
+
+**The lane already knew the difference.** The fleet lane's other path —
+the publish pipeline — reads the report's verdict
+(`src/cli/fleet.rs:683-692`) and records `planned` for a plan. The
+provider lane kept a private copy of the rule, and the copy was wrong
+in exactly the case the canonical requirement names:
+
+```rust
+// src/cli/fleet.rs, before
+let healthy = value
+    .get("health")
+    .and_then(|v| v.as_str())
+    .map(|v| v == "healthy")
+    .unwrap_or(dry_run);              // ← a dry run invents `true`
+...
+let terminal_state = if healthy { "done" } else { "failed" };
+```
+
+The `.unwrap_or(dry_run)` fallback reads the dry-run flag as a health
+verdict: when the provider's answer carries no health — which is always
+the case for a dry run, because there is no provider answer — the lane
+answers `true`.
+
+**The canonical rule already forbade this.** The
+`publish-dry-run-verdict-truth` capability says:
+
+> A plan SHALL NOT be recorded as a completed publish, and every registry
+> journal row for a publish SHALL follow the one rule rather than a
+> private copy of it.
+
+> #### Scenario: The fleet lane follows the same rule
+> - **WHEN** a fleet publish run is planned, or a fleet project's publish fails
+> - **THEN** the per-project state names the run a plan or a failure, and a planned fleet publish is not counted as a failure
+
+> #### Scenario: One rule, every journal writer
+> - **WHEN** the publish pipeline, the fleet lane and the fleet exec lane record a publish
+> - **THEN** all three read the report's verdict
+
+Three writers read the publish model's rule; the fourth kept a copy of
+its own, and the copy was wrong.
+
+### The rule
+
+The provider lane now reads the publish model's one rule, and the health
+it judges from is the provider's own answer:
+
+```rust
+// src/cli/fleet.rs
+let healthy = value
+    .get("health")
+    .and_then(|v| v.as_str())
+    .map(|v| v == "healthy")
+    .unwrap_or(false);
+let verdict = forge::publish::verdict_for_report(dry_run, healthy);
+```
+
+- the summary's per-project row gains `verdict`, and its `healthy` is
+  true only for a delivery;
+- the journal row's state is `verdict.journal_state()` — `planned` for a
+  plan, `done` for a delivery, `failed` otherwise;
+- the journal detail names the run: `fleet provider=probe
+  verdict=planned healthy=false`;
+- the container identity is the provider's own; the lane never composes
+  one, so a plan records no container;
+- a plan is not a failure: it is counted as neither and never trips
+  `--fail-fast`.
+
+### The options, decided
+
+| Option for the fleet provider lane | Verdict |
+|---|---|
+| Keep the `.unwrap_or(dry_run)` fallback | Rejected. The dry-run flag is not a health verdict: it invents `healthy = true` for a run that contacted nobody. |
+| Read the health from the provider's answer only, and judge the run with the model's one rule | **Chosen.** The lane reaches the same `PublishVerdict` the other three writers reach, and its health is an observation. |
+| Give the provider lane its own `PublishVerdict` rule | Rejected. Two rules for one lane is two vocabularies, which is exactly what the requirement forbids. |
+| Make the provider lane build a `PublishReport` and read `report.verdict` | Rejected here. The provider lane has no publish stages — it hands the request to an external provider and reads one answer — so a report would invent a stage list. The model rule is what the requirement protects: one rule, every writer. |
+| Drop the provider branch from the fleet lane | Rejected. The provider branch is the fleet lane's external-provider path; removing it removes a supported surface. |
+| Treat a provider answer with no health as healthy | Rejected. "Unverified is not a pass" is the rule the whole product follows. |
+| Keep the composed container identity for a plan | Rejected. A plan created no container, so the row would name one that does not exist. |
+
+### The next candidate: the portal's Policies section
+
+The explore agent's sweep and the owning agent's own search both found
+the next false claim, and it is recorded here so it is not re-litigated.
+
+`src/portal/sections.rs:578-599` renders the portal's Policies section
+as `ok` for every registered project with a runtime, with **no
+evidence**, although no policy was ever evaluated:
+
+```rust
+let status = match r.quality_status.as_deref() {
+    Some("ok") | Some("healthy") | None if r.runtime.is_some() => PortalStatus::Ok,
+    Some("warn") => PortalStatus::Warn,
+    Some("fail") => PortalStatus::Fail,
+    _ => PortalStatus::Unknown,
+};
+```
+
+`quality_status` is **never written**: the registry inserts `NULL` for
+it (`src/registry/model.rs:644`) and no statement anywhere updates it,
+so the `None` arm is every project. Every sibling section is honest
+about having nothing — `receipts=0`, `proposals=0`, `Gate has not run
+for this project; unverified is not a pass.` — and each of them says
+`unknown`. The Policies section is the only one that reports a pass it
+never observed.
+
+Reproduced on the tree before this change, with a project that has no
+DriftWatch configuration at all:
+
+```
+[Policies] section=`policies` status=`ok` source=`registry` ...
+  - id=`portal-probe:policies` status=`ok` label=`portal-probe driftwatch policies` source=`policy` ...
+```
+
+The decided repair: one rule judges a project's policies in the portal; a
+policy verdict that was never observed is `unknown`, never `ok`; the
+entry names the policy artifacts the portal observed (the doctor's own
+detector, so there is one list) and the command that produces a verdict;
+and a project whose directory cannot be read is `unavailable`.
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge publish fleet --inventory /tmp/pub-probe/inventory.json --provider probe --dry-run` on the tree before the change printed a fleet summary with `"healthy": true`, `"success": 1` and no `verdict` field, and wrote the registry row `('publish', 'alpha', 'done', 'fleet provider=probe', revision=d593d117fd0dbfede91bca0eee12bae6e3addd6a, container_identity=forge-alpha-d593d117fd0d)`. No provider ran: the dry run returns the serialized request, which has no health field. |
+| The one rule | PASS | `src/cli/fleet.rs`: the provider lane's health comes from the provider's answer alone (`.unwrap_or(false)`), the verdict comes from `forge::publish::verdict_for_report(dry_run, healthy)` — the publish model's one rule — and the journal state is `verdict.journal_state()`. The private copy (`if healthy { "done" } else { "failed" }`) is gone. |
+| A planned fleet provider publish | PASS | `a_planned_fleet_provider_publish_is_not_a_completed_publish` asserts the exit code is 0, that the summary's per-project row reads `healthy: false` and `verdict: planned`, that the journal row's state is `planned` with `verdict=planned` and `healthy=false` in its detail, and that the row carries **no** container identity. |
+| A delivered fleet provider publish | PASS | `a_delivered_fleet_provider_publish_is_unchanged` runs a real provider that reports `health: healthy` and asserts the exit code is 0, that the summary reads `healthy: true` and `verdict: delivered`, that the journal row's state is `done` with `verdict=delivered`, and that the row carries the provider's container identity `forge-alpha-0123456789ab`. |
+| A fleet provider publish that is not healthy | PASS | `a_fleet_provider_publish_that_is_not_healthy_fails` runs a provider that reports `health: degraded` and asserts the exit code is 1, that the summary reads `healthy: false`, `verdict: failed` and `failed: 1`, and that the journal row's state is `failed` with `verdict=failed`. |
+| The contract test fails without the change | PASS | With `src/cli/fleet.rs` reverted, all three cases fail: the planned publish's summary reads `healthy: true` and has no `verdict` field, and the delivered and failed cases have no `verdict` field either. |
+| The untouched surfaces | PASS | `git diff` shows no change to the publish pipeline lane, the fleet exec lane, `forge publish provider`, the provider request and response shapes, the provider contract, the publish contract version, the fleet summary's keys and counts, or the exit codes. The real provider path still records the provider's container identity, because `cmd_publish_provider` already gives the response the conventional name when the provider reports none (`src/cli/publish.rs:615-617`). |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 237 `test result:` lines sum to **4246 passed; 0 failed; 1 ignored**. The pre-change baseline was 236 lines and 4243 passed, so this change adds exactly the 3 tests it declares and one new test binary. The publish unit tests are 193 passed, `publish_contract` 11 passed, `fleet_contract` 16 passed, `fleet_cross_surface` 7 passed, `inventory_contract` 9 passed, `publish_observability_contract` 8 passed and `publish_dry_run_verdict_truth_contract` 4 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T14:07:06Z"` on revision `06eaa9ccd36f1ba055b89438c4b623f76c5c8d6d` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 161 passed, 0 failed (161 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-publish-fleet-dry-run-verdict-truth/`: the new capability `publish-fleet-dry-run-verdict-truth` was promoted with one requirement and four scenarios, the `publish-dry-run-verdict-truth` requirement was modified with all five canonical scenarios kept, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now names the provider lane. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on both touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/cli/fleet.rs` 866, `tests/publish_fleet_dry_run_verdict_truth_contract.rs` 354. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the lane's health, the verdict, the journal state, the detail and the phase evidence in `src/cli/fleet.rs`, plus the contract test. An `explore` subagent did sweep the repository for the next false claim and reported four candidates; its strongest one (this change) was verified by the owning agent before it was adopted, and the portal finding it also reported is recorded above as the next candidate. |
+
+Implementation/archive commit: `839481d` (`feat: the fleet provider lane names what its run did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

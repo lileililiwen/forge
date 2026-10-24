@@ -9949,3 +9949,170 @@ unchanged.
 
 Implementation/archive commit: `b8aa834` (`feat: the deploy report names what the run did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 37: `release-plan-verdict-truth`
+
+`forge release prepare` recorded a **completed release** in the registry
+journal for a run that released nothing.
+
+### The defect
+
+Reproduced on the tree before the change, with a project whose Gate
+evidence satisfies the shared delivery rule:
+
+```
+$ forge release prepare /tmp/rel-probe/proj --version 1.0.0
+summary: release plan ready for `rel-probe`: 1 check(s) passed at revision `8cee66eb27b`
+```
+
+and the append-only row the same run wrote:
+
+```
+('release', 'done', 'release prepare `rel-probe` v1.0.0 revision=`8cee66eb27be9c8555f21e9b80e61abca0fc2e88` ready=true dry_run=false')
+```
+
+`state='done'`. Nothing was released: no commit, no tag, no
+publication. In the release journal `done` is the state the *apply*
+lane writes after every stage of an applied release completed — so a
+preparation and an applied release were the same row.
+
+**The lane already knew the difference.** The sibling command
+`forge release apply --dry-run` records `planned`, which is the
+canonical rule in the `release-dry-run-evidence-truth` capability. A
+preparation is a plan in exactly that sense, but it was recorded as a
+completed run. The prepare's own `--dry-run` was recorded the same way:
+`state='done'` with `dry_run=true` in the detail.
+
+**The state was chosen in two places, from two different rules.**
+
+```rust
+// src/cli/release.rs, before — the prepare
+let state_label = if plan.healthy() { "done" } else { "blocked" };
+
+// src/cli/release.rs, before — the apply
+let state_label = if report.dry_run {
+    "planned"
+} else if report.healthy() {
+    "done"
+} else {
+    "partial"
+};
+```
+
+Two writers, two private copies of "what did this run do". The
+prepare's copy had no dry-run arm at all, which is how a plan reached
+`done`.
+
+### The rule
+
+One rule, in the release model:
+
+```rust
+// src/release/model.rs
+pub enum ReleaseRun {
+    /// A plan the checks allow.
+    Planned,
+    /// A plan a check blocks.
+    Blocked,
+    /// An applied release whose stages all completed.
+    Delivered,
+    /// An applied release that did not complete every stage.
+    Partial,
+}
+
+impl ReleaseRun {
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            ReleaseRun::Planned => "planned",
+            ReleaseRun::Blocked => "blocked",
+            ReleaseRun::Delivered => "done",
+            ReleaseRun::Partial => "partial",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ReleaseRun::Planned => "planned",
+            ReleaseRun::Blocked => "blocked",
+            ReleaseRun::Delivered => "delivered",
+            ReleaseRun::Partial => "partial",
+        }
+    }
+}
+```
+
+Both writers read it, and both details name the run:
+
+```rust
+// src/cli/release.rs, cmd_release_prepare
+let run = if plan.healthy() { ReleaseRun::Planned } else { ReleaseRun::Blocked };
+let detail = format!(
+    "release prepare `{}` v{} revision=`{}` ready={} verdict={} dry_run={}",
+    project_id, plan.identity.version, plan.identity.source_revision,
+    plan.ready, run.label(), dry_run
+);
+let _ = registry.record_operation("release", &project_id, run.journal_state(), &detail);
+
+// src/cli/release.rs, cmd_release_apply
+let run = if report.dry_run {
+    ReleaseRun::Planned
+} else if report.healthy() {
+    ReleaseRun::Delivered
+} else {
+    ReleaseRun::Partial
+};
+let detail = format!(
+    "release apply `{}` v{} revision=`{}` stages={} verdict={} dry_run={} retry={} healthy={}",
+    report.project_id, report.identity.version, report.identity.source_revision,
+    report.stage_outcomes.len(), run.label(), report.dry_run, report.retry, report.healthy
+);
+let _ = registry.record_operation("release", &project_id, run.journal_state(), &detail);
+```
+
+### The options, decided
+
+| Option for the preparation's journal row | Verdict |
+|---|---|
+| Keep `done` and document that "done" means "the operation finished" | Rejected. `done` is the state an applied release writes after every stage completed. A preparation would be indistinguishable from a delivery, and the canonical `release-dry-run-evidence-truth` already requires the journal to record a plan as a plan. |
+| `planned` for a ready plan, `blocked` for a plan a check blocks | **Chosen.** The lane already has `planned` — change 31 gave the dry run that state — and the state then names what the run did. |
+| A new state `prepared` | Rejected. New vocabulary for a plan the lane already names `planned`; it adds a word, not a truth. |
+| Stop journalling the preparation | Rejected. The journal is the product's only record that a plan was computed and with which checks; dropping the row loses evidence. |
+
+### The change-35 follow-up: the analytics local-state metric counters
+
+Change 35 removed the fabricated doctor summary, so the eight quality
+counters have no honest source today. The decision, so it is not
+re-litigated:
+
+| Counter | The honest source | Decision |
+|---|---|---|
+| `agents-running` | none | The recorded session state says `active`, not `running`, and the live check spawns the runtime binary. No counter until a probe-free source exists. |
+| `specs-queued` | none | The spec registry has no lifecycle state, so "queued" cannot be counted. |
+| `deployment-offline` | none | The deploy contract says a disconnected target is `unknown`, not offline proof. |
+| The deployment counters | the deploy status projection | Gathered in a later change, once the deploy status projection's freshness rule is reused. |
+
+**Decision: no gatherer was invented.** A counter that cannot be
+measured stays `unavailable` with its note, and the metrics report
+stays `complete: false`. A follow-up change will gather the deployment
+counters when the freshness rule is reusable.
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge release prepare /tmp/rel-probe/proj --version 1.0.0` on the tree before the change printed `summary: release plan ready for `rel-probe`: 1 check(s) passed at revision `8cee66eb27b`` and wrote the registry row `('release', 'done', 'release prepare `rel-probe` v1.0.0 revision=`8cee66eb27be9c8555f21e9b80e61abca0fc2e88` ready=true dry_run=false')`, while the project carried no tag and no new commit. The state was Forge's own word, at `src/cli/release.rs`. |
+| The one rule | PASS | `src/release/model.rs`: `ReleaseRun` with `Planned`, `Blocked`, `Delivered` and `Partial`, a `journal_state()` and a `label()`. Both writers read it: the prepare's `cmd_release_prepare` and the apply's `cmd_release_apply`. The unit tests `a_plan_is_never_a_completed_release` and `every_run_names_itself_in_the_detail` pin the states and the labels. |
+| A ready preparation is a plan | PASS | `a_ready_preparation_is_planned_and_journals_a_planned_row` asserts the exit code is 0, that the plan is `ready`, that the project carries no tag and no new commit afterwards, that the registry row's state is `planned` with `verdict=planned` and `ready=true` in its detail. |
+| A blocked preparation stays blocked | PASS | `a_blocked_preparation_stays_blocked` runs the preparation without the Gate evidence, asserts the plan is `ready: false`, that the plan's own note names the failing check, and that the registry row's state is `blocked` with `verdict=blocked` and `ready=false` in its detail. |
+| A rehearsal is still a plan | PASS | `a_rehearsal_preparation_is_still_planned` runs the preparation with `--dry-run`, asserts the plan is still `ready` and that the registry row's state is `planned` with `verdict=planned` and `dry_run=true` in its detail. |
+| The applied release is unchanged | PASS | `an_applied_release_still_journals_a_done_row` runs a confirmed apply and asserts the exit code is 0, that the report is `healthy`, that the tag `v1.0.0` exists, and that the registry row's state is `done` with `verdict=delivered` in its detail. `an_applied_release_that_did_not_complete_journals_a_partial_row` runs a confirmed apply whose push stage cannot deliver and asserts the exit code is 1, that the report is not `healthy`, that the push stage's status is `failed`, and that the registry row's state is `partial` with `verdict=partial` in its detail. |
+| The contract test fails without the change | PASS | With `src/cli/release.rs` reverted, all five cases of `tests/release_plan_verdict_truth_contract.rs` fail: the ready preparation's row reads `done` instead of `planned`, and no detail carries `verdict=`. |
+| The untouched surfaces | PASS | `git diff` shows no change to the prepare's rendered plan, the release state file, the release contract version, the apply lane's exit codes, the apply lane's states, or the API's release plan route. The apply lane's rows keep their states exactly; only their details gain the `verdict=` field. The existing `release_dry_run_truth_contract` cases pass unchanged: the dry run of an apply still records `planned` and writes no tag. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 235 `test result:` lines sum to **4238 passed; 0 failed; 1 ignored**. The pre-change baseline was 234 lines and 4231 passed, so this change adds exactly the 7 tests it declares (2 unit cases for the rule and 5 contract cases) and one new test binary. The release unit tests are 40 passed and the new `release_plan_verdict_truth_contract` 5 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T11:33:33Z"` on revision `e5f338f29e8c2024921be2c64ee8b3d0e8f3fc09` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 159 passed, 0 failed (159 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-release-plan-verdict-truth/`: the new capability `release-plan-verdict-truth` was promoted with one requirement and four scenarios, the `release-publishing` "Verified release preparation" requirement was modified with all four canonical scenarios kept and one scenario added, the `release-dry-run-evidence-truth` requirement was modified with all five canonical scenarios kept, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capabilities' purposes now state that a preparation is journalled as a plan. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all three touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/release/model.rs` 610, `src/cli/release.rs` 650, `tests/release_plan_verdict_truth_contract.rs` 404. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the rule in the model, the two journal rows in the CLI, the unit tests and the contract test. |
+
+Implementation/archive commit: `daa9200` (`feat: the release journal names what the run did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

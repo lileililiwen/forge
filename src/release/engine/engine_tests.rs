@@ -4,7 +4,7 @@
 pub(super) mod tests {
     use super::super::super::{
         release_config_from_manifest, CapturedCheck, ReleaseAdapterConfig, ReleaseConfig,
-        ReleaseIdentity, ReleaseRequest, Semver,
+        ReleaseIdentity, ReleaseReport, ReleaseRequest, Semver, STATUS_DELIVERED,
     };
     use super::super::{
         apply::apply_release,
@@ -431,12 +431,22 @@ pub(super) mod tests {
             &Semver::parse("1.0.0").unwrap(),
             "abc123",
         );
+        // The stage writes the translated files, so it runs as a
+        // confirmed, non-dry release.
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: Semver::parse("1.0.0").unwrap(),
+            confirm: true,
+            dry_run: false,
+            retry: false,
+            stages: config.stages.clone(),
+        };
         // The stage reads the translator from the environment; the
         // previous value is restored so the rest of the suite sees
         // the environment it expects.
         let previous = std::env::var_os("FORGE_DOCS_TRANSLATOR_BIN");
         std::env::set_var("FORGE_DOCS_TRANSLATOR_BIN", &fake);
-        let stage = run_docs_stage(dir, &manifest, &config, &identity, "abc123");
+        let stage = run_docs_stage(dir, &manifest, &config, &identity, "abc123", &request);
         match previous {
             Some(value) => std::env::set_var("FORGE_DOCS_TRANSLATOR_BIN", value),
             None => std::env::remove_var("FORGE_DOCS_TRANSLATOR_BIN"),
@@ -871,5 +881,117 @@ pub(super) mod tests {
             "non-zero exit must not read as success"
         );
         assert!(String::from_utf8_lossy(&output.stderr).contains("boom"));
+    }
+
+    /// The tags the fixture repository carries.
+    fn tags(dir: &Path) -> Vec<String> {
+        git_output(dir, &["tag", "--list"])
+            .lines()
+            .map(|line| line.trim().to_string())
+            .filter(|line| !line.is_empty())
+            .collect()
+    }
+
+    /// A fixture whose changelog carries an uncommitted edit, so the
+    /// commit stage has something to commit when it may write.
+    fn write_release_manifest_with_pending_changelog(dir: &Path, id: &str) {
+        write_release_manifest(dir, id, "");
+        fs::write(
+            dir.join("CHANGELOG.md"),
+            "## 1.0.0\n- initial release\n- an unreleased entry\n",
+        )
+        .unwrap();
+    }
+
+    /// Apply the release over the fixture's full stage list with the
+    /// given confirmation and dry-run flags.
+    fn apply_with(dir: &Path, confirm: bool, dry_run: bool) -> ReleaseReport {
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: Semver::parse("1.0.0").unwrap(),
+            confirm,
+            dry_run,
+            retry: false,
+            stages: config.stages.clone(),
+        };
+        let adapters = ReleaseAdapterConfig::from_env();
+        apply_release(dir, &manifest, &config, &request, &adapters).unwrap()
+    }
+
+    /// A dry run writes nothing: no tag, no commit and no stage
+    /// that claims a delivery.
+    fn assert_wrote_nothing(dir: &Path, head: &str, report: &ReleaseReport) {
+        assert!(tags(dir).is_empty(), "a dry run must create no tag");
+        assert_eq!(
+            git_output(dir, &["rev-parse", "HEAD"]),
+            head,
+            "a dry run must create no commit"
+        );
+        for outcome in &report.stage_outcomes {
+            assert_ne!(
+                outcome.status, STATUS_DELIVERED,
+                "a dry run stage must not claim a delivery: {outcome:?}"
+            );
+        }
+    }
+
+    /// A dry run states that no side effect was attempted, so it
+    /// creates no tag and no commit, and no stage claims a
+    /// delivery.
+    #[test]
+    fn apply_dry_run_writes_no_tag_and_no_commit() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest_with_pending_changelog(dir, "rel-dry-run");
+        let head = git_output(dir, &["rev-parse", "HEAD"]);
+        let report = apply_with(dir, false, true);
+        assert_wrote_nothing(dir, &head, &report);
+        assert!(
+            report.note.contains("no side effects were attempted"),
+            "the note must state that nothing was written: {}",
+            report.note
+        );
+    }
+
+    /// A confirmation does not open the gate for a dry run: the
+    /// dry run is the stronger promise the report makes.
+    #[test]
+    fn apply_dry_run_with_confirm_still_writes_nothing() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest_with_pending_changelog(dir, "rel-dry-run-confirm");
+        let head = git_output(dir, &["rev-parse", "HEAD"]);
+        let report = apply_with(dir, true, true);
+        assert_wrote_nothing(dir, &head, &report);
+    }
+
+    /// A confirmed, non-dry release still writes: the tag stage
+    /// delivers the release tag.
+    #[test]
+    fn apply_confirmed_release_still_creates_the_tag() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path();
+        write_release_manifest_with_pending_changelog(dir, "rel-confirmed");
+        let manifest = read_manifest(dir);
+        let config = read_release_config(dir);
+        let request = ReleaseRequest {
+            project_id: manifest.project.id.clone(),
+            version: Semver::parse("1.0.0").unwrap(),
+            confirm: true,
+            dry_run: false,
+            retry: false,
+            stages: vec!["commit".to_string(), "tag".to_string()],
+        };
+        let adapters = ReleaseAdapterConfig::from_env();
+        let report = apply_release(dir, &manifest, &config, &request, &adapters).unwrap();
+        assert_eq!(tags(dir), vec!["v1.0.0".to_string()]);
+        let tag = report
+            .stage_outcomes
+            .iter()
+            .find(|s| s.stage == "tag")
+            .expect("tag stage");
+        assert_eq!(tag.status, STATUS_DELIVERED, "note={}", tag.note);
     }
 }

@@ -148,7 +148,10 @@ pub fn apply_release(
         )
     }) && !stage_outcomes.is_empty();
     let note = if dry_run {
-        "dry-run: no side effects were attempted".to_string()
+        format!(
+            "dry-run: no side effects were attempted; {} stage(s) planned",
+            stage_outcomes.len()
+        )
     } else if healthy {
         format!(
             "release `{}` delivered; {deliverable_count} stage(s) recorded for revision `{}`",
@@ -239,7 +242,9 @@ fn run_stage(
     request: &ReleaseRequest,
 ) -> Result<StageOutcome, ForgeError> {
     match stage {
-        STAGE_COMMIT => run_commit_stage(project_dir, manifest, config, identity, revision),
+        STAGE_COMMIT => {
+            run_commit_stage(project_dir, manifest, config, identity, revision, request)
+        }
         STAGE_TAG => run_tag_stage(project_dir, manifest, identity, revision, request),
         STAGE_PUSH => run_push_stage(project_dir, manifest, identity, revision, request),
         STAGE_MIRROR => run_mirror_stage(project_dir, manifest, identity, revision, request),
@@ -249,7 +254,7 @@ fn run_stage(
         STAGE_CONTAINER => {
             run_container_stage(project_dir, config, identity, revision, adapters, request)
         }
-        STAGE_DOCS => run_docs_stage(project_dir, manifest, config, identity, revision),
+        STAGE_DOCS => run_docs_stage(project_dir, manifest, config, identity, revision, request),
         STAGE_NOTES => run_notes_stage(project_dir, config, identity, revision, adapters, request),
         other => Ok(StageOutcome {
             stage: other.to_string(),
@@ -269,6 +274,7 @@ fn run_commit_stage(
     config: &ReleaseConfig,
     identity: &ReleaseIdentity,
     revision: &str,
+    request: &ReleaseRequest,
 ) -> Result<StageOutcome, ForgeError> {
     // The release commit bundles the changelog (and any
     // release-managed files) into one commit. The user can
@@ -277,6 +283,22 @@ fn run_commit_stage(
     // unrelated working-tree edits are never silently pulled
     // in.
     let path = config.changelog.clone();
+    // The write gate comes first: a stage that may not write
+    // says why, instead of reporting on a changelog it never
+    // committed.
+    if !request.may_write() {
+        return Ok(StageOutcome {
+            stage: STAGE_COMMIT.to_string(),
+            target: path,
+            status: STATUS_DISABLED.to_string(),
+            identity: Some(identity.id.clone()),
+            note: request.write_refusal(STAGE_COMMIT),
+            evidence: Vec::new(),
+            recovery: vec![
+                "re-run with --confirm and without --dry-run to commit the changelog".to_string(),
+            ],
+        });
+    }
     if !project_dir.join(&path).is_file() {
         return Ok(StageOutcome {
             stage: STAGE_COMMIT.to_string(),
@@ -343,9 +365,24 @@ fn run_tag_stage(
     manifest: &Manifest,
     identity: &ReleaseIdentity,
     revision: &str,
-    _request: &ReleaseRequest,
+    request: &ReleaseRequest,
 ) -> Result<StageOutcome, ForgeError> {
     let tag = format!("v{}", identity.version);
+    // The write gate comes first: a dry run must not create a
+    // tag, so the stage does not even read the existing one.
+    if !request.may_write() {
+        return Ok(StageOutcome {
+            stage: STAGE_TAG.to_string(),
+            target: tag,
+            status: STATUS_DISABLED.to_string(),
+            identity: Some(identity.id.clone()),
+            note: request.write_refusal(STAGE_TAG),
+            evidence: Vec::new(),
+            recovery: vec![
+                "re-run with --confirm and without --dry-run to create the release tag".to_string(),
+            ],
+        });
+    }
     // The tag is annotated so the release identity is
     // preserved alongside the commit. A pre-existing tag at a
     // different commit is a `release-identity-conflict`; a

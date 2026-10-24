@@ -493,6 +493,27 @@ impl ReleaseRequest {
         }
         Ok(())
     }
+
+    /// Whether a release stage may write to the host, the
+    /// repository or a provider.
+    ///
+    /// A stage writes only when the release is confirmed and the
+    /// run is not a dry run. A dry run states that no side effect
+    /// was attempted, so a stage that writes would make the
+    /// release report false.
+    pub fn may_write(&self) -> bool {
+        self.confirm && !self.dry_run
+    }
+
+    /// The reason a stage may not write, named for the reader of
+    /// the release record.
+    pub fn write_refusal(&self, stage: &str) -> String {
+        if self.dry_run {
+            format!("{stage} stage is a dry run; no side effect was attempted")
+        } else {
+            format!("{stage} stage requires --confirm; treating as disabled")
+        }
+    }
 }
 /// One prepared check outcome. `evidence` is the typed reason
 /// the check passed, failed, was unavailable, was stale or was

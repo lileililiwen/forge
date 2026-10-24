@@ -27,13 +27,13 @@ pub(super) fn run_push_stage(
     request: &ReleaseRequest,
 ) -> Result<StageOutcome, ForgeError> {
     let tag = format!("v{}", identity.version);
-    if !request.confirm {
+    if !request.may_write() {
         return Ok(StageOutcome {
             stage: STAGE_PUSH.to_string(),
             target: format!("origin:{tag}"),
             status: STATUS_DISABLED.to_string(),
             identity: Some(identity.id.clone()),
-            note: "push stage requires --confirm; treating as disabled".to_string(),
+            note: request.write_refusal(STAGE_PUSH),
             evidence: Vec::new(),
             recovery: vec![
                 "re-run with --confirm to push the release tag to the primary remote".to_string(),
@@ -121,8 +121,10 @@ pub(super) fn run_mirror_stage(
         dry_run: request.dry_run,
         retry_failed: request.retry,
     };
-    if !request.confirm {
-        // Plan-only path: surface what would happen.
+    if !request.may_write() {
+        // Plan-only path: surface what would happen. The stage
+        // is not a delivery, so it records `disabled` and keeps
+        // the plan evidence it collected.
         let state_path = crate::distribution::state_path_for(project_dir, &manifest.project.id)
             .unwrap_or_else(|_| project_dir.join(".forge/distribution/state.json"));
         let state = crate::distribution::load_mirror_state(&state_path).unwrap_or_default();
@@ -141,14 +143,11 @@ pub(super) fn run_mirror_stage(
         return Ok(StageOutcome {
             stage: STAGE_MIRROR.to_string(),
             target: "distribution/mirrors".to_string(),
-            status: if plan.healthy() {
-                STATUS_DELIVERED.to_string()
-            } else {
-                STATUS_FAILED.to_string()
-            },
+            status: STATUS_DISABLED.to_string(),
             identity: Some(identity.id.clone()),
             note: format!(
-                "mirror plan only: primary `{primary}`, {mirror_count} mirror(s) scheduled for `{tag}` (retry)"
+                "{}; mirror plan only: primary `{primary}`, {mirror_count} mirror(s) scheduled for `{tag}` (retry)",
+                request.write_refusal(STAGE_MIRROR)
             ),
             evidence: plan
                 .outcomes
@@ -221,7 +220,7 @@ pub(super) fn run_package_stage(
             ],
         });
     }
-    if !request.confirm {
+    if !request.may_write() {
         return Ok(StageOutcome {
             stage: STAGE_PACKAGE.to_string(),
             target: config
@@ -231,7 +230,7 @@ pub(super) fn run_package_stage(
                 .unwrap_or_else(|| "(none)".to_string()),
             status: STATUS_DISABLED.to_string(),
             identity: Some(identity.id.clone()),
-            note: "package stage requires --confirm; treating as disabled".to_string(),
+            note: request.write_refusal(STAGE_PACKAGE),
             evidence: Vec::new(),
             recovery: vec![
                 "re-run with --confirm to publish packages through the package adapter".to_string(),
@@ -335,7 +334,7 @@ pub(super) fn run_container_stage(
             ],
         });
     }
-    if !request.confirm {
+    if !request.may_write() {
         return Ok(StageOutcome {
             stage: STAGE_CONTAINER.to_string(),
             target: config
@@ -345,7 +344,7 @@ pub(super) fn run_container_stage(
                 .unwrap_or_else(|| "(none)".to_string()),
             status: STATUS_DISABLED.to_string(),
             identity: Some(identity.id.clone()),
-            note: "container stage requires --confirm; treating as disabled".to_string(),
+            note: request.write_refusal(STAGE_CONTAINER),
             evidence: Vec::new(),
             recovery: vec![
                 "re-run with --confirm to publish container images through the container adapter"
@@ -434,7 +433,25 @@ pub(super) fn run_docs_stage(
     config: &ReleaseConfig,
     identity: &ReleaseIdentity,
     revision: &str,
+    request: &ReleaseRequest,
 ) -> Result<StageOutcome, ForgeError> {
+    // The write gate comes first: the translator writes the
+    // translated files, so a stage that may not write must not
+    // reach the translator.
+    if !request.may_write() {
+        return Ok(StageOutcome {
+            stage: STAGE_DOCS.to_string(),
+            target: "docs/translate".to_string(),
+            status: STATUS_DISABLED.to_string(),
+            identity: Some(identity.id.clone()),
+            note: request.write_refusal(STAGE_DOCS),
+            evidence: Vec::new(),
+            recovery: vec![
+                "re-run with --confirm and without --dry-run to translate the release docs"
+                    .to_string(),
+            ],
+        });
+    }
     let locales: Vec<String> = effective_docs_locales(manifest, config);
     if locales.is_empty() {
         return Ok(StageOutcome {
@@ -606,6 +623,23 @@ pub(super) fn run_notes_stage(
     adapters: &ReleaseAdapterConfig,
     request: &ReleaseRequest,
 ) -> Result<StageOutcome, ForgeError> {
+    // The write gate comes first: the notes adapter renders the
+    // notes file, so a stage that may not write must not reach
+    // the adapter.
+    if !request.may_write() {
+        return Ok(StageOutcome {
+            stage: STAGE_NOTES.to_string(),
+            target: "(none)".to_string(),
+            status: STATUS_DISABLED.to_string(),
+            identity: Some(identity.id.clone()),
+            note: request.write_refusal(STAGE_NOTES),
+            evidence: Vec::new(),
+            recovery: vec![
+                "re-run with --confirm and without --dry-run to render the release notes"
+                    .to_string(),
+            ],
+        });
+    }
     let notes = match &config.notes {
         Some(notes) => notes,
         None => {
@@ -622,7 +656,7 @@ pub(super) fn run_notes_stage(
             });
         }
     };
-    let _ = (revision, request);
+    let _ = revision;
     match run_notes_adapter(&adapters.notes_bin, project_dir, notes, identity, request) {
         Ok(receipt) => Ok(StageOutcome {
             stage: STAGE_NOTES.to_string(),

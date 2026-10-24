@@ -248,7 +248,15 @@ fn cmd_release_apply(
         report.retry,
         report.healthy
     );
-    let state_label = if report.healthy() { "done" } else { "partial" };
+    // A dry run writes nothing, so the journal records a planned
+    // run rather than an applied release.
+    let state_label = if report.dry_run {
+        "planned"
+    } else if report.healthy() {
+        "done"
+    } else {
+        "partial"
+    };
     let _ = registry.record_operation("release", &project_id, state_label, &detail);
     let output = release_report_output(&report, format)?;
     if report.healthy() {

@@ -10430,3 +10430,152 @@ and a project whose directory cannot be read is `unavailable`.
 
 Implementation/archive commit: `839481d` (`feat: the fleet provider lane names what its run did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 40: `portal-policy-verdict-truth`
+
+The control-plane portal reported the **Policies** section as `ok` for
+every registered project, with no evidence, although no policy was ever
+evaluated.
+
+### The defect
+
+Reproduced on the tree before the change, with a project that has no
+DriftWatch configuration at all:
+
+```
+$ forge register /tmp/portal-probe/proj
+$ forge portal dashboard portal-probe
+...
+[Policies] section=`policies` status=`ok` source=`registry` generated_at 2026-10-24T13:00:53Z
+  spa: /workbench
+  web: partial — reads in the workbench; policy writes stay in the terminal
+  project_id: portal-probe
+  entries: 1
+  - id=`portal-probe:policies` status=`ok` label=`portal-probe driftwatch policies` source=`policy` observed_at 2026-10-24T13:00:15Z
+```
+
+`status='ok'`, and **no evidence line at all**. The project has no
+policy file, and no policy was ever evaluated.
+
+**Every sibling section is honest about having nothing.** The same
+dashboard says `receipts=0`, `proposals=0`, `sessions=0`, `states=0`
+and `Gate has not run for this project; unverified is not a pass.` —
+each with `status=unknown`. The Policies section was the only one that
+reported a pass it never observed.
+
+**The column it reads is never written.** The section's status came
+from the registry's `quality_status` column:
+
+```rust
+// src/portal/sections.rs, before
+let status = match r.quality_status.as_deref() {
+    Some("ok") | Some("healthy") | None if r.runtime.is_some() => PortalStatus::Ok,
+    Some("warn") => PortalStatus::Warn,
+    Some("fail") => PortalStatus::Fail,
+    _ => PortalStatus::Unknown,
+};
+```
+
+`quality_status` is inserted as `NULL` by the registry
+(`src/registry/model.rs:644`), the `ON CONFLICT DO UPDATE` clause does
+not touch it, and no statement anywhere in the product updates it. So
+the `None` arm was not an edge case: it was every project, and it was
+wired to `Ok`.
+
+The canonical `control-plane-portal` capability already required the
+honest behaviour — *"WHEN a status observation is stale or unknown THEN
+the view labels that state and retains its observation timestamp"* — and
+the section broke it.
+
+### The rule
+
+One rule judges a project's policies in the portal:
+
+```rust
+// src/portal/sections.rs
+pub(super) fn policy_verdict(
+    available: bool,
+    recorded: Option<&str>,
+) -> (PortalStatus, Vec<String>) {
+    if !available {
+        return (
+            PortalStatus::Unavailable,
+            vec![
+                "the project directory could not be read; the policy plane was not observed"
+                    .to_string(),
+            ],
+        );
+    }
+    match recorded {
+        Some("ok") | Some("healthy") => {
+            (PortalStatus::Ok, vec!["policy verdict=ok".to_string()])
+        }
+        Some("warn") => (PortalStatus::Warn, vec!["policy verdict=warn".to_string()]),
+        Some("fail") => (PortalStatus::Fail, vec!["policy verdict=fail".to_string()]),
+        _ => (
+            PortalStatus::Unknown,
+            vec![
+                "no policy verdict was observed; unverified is not a pass".to_string(),
+                "run `forge doctor` to evaluate the policy plane".to_string(),
+            ],
+        ),
+    }
+}
+```
+
+- no observed verdict is `unknown`, never `ok`: an unevaluated policy is
+  not a healthy policy;
+- a project whose directory cannot be read is `unavailable`, and the
+  entry says the policy plane was not observed;
+- the entry names what the portal looked at: the DriftWatch policy
+  artifacts in the project directory, taken from **the doctor's own
+  detector**, so the two agree on what a policy artifact is.
+
+The rendered section after the change:
+
+```
+[Policies] section=`policies` status=`unknown` source=`registry` ...
+  - id=`portal-probe:policies` status=`unknown` label=`portal-probe driftwatch policies` source=`policy` ...
+      evidence: no policy verdict was observed; unverified is not a pass
+      evidence: run `forge doctor` to evaluate the policy plane
+      evidence: no driftwatch configuration
+```
+
+### The options, decided
+
+| Option for the Policies section's status | Verdict |
+|---|---|
+| Keep `Ok` when `quality_status` is absent | Rejected. The column is never written, so this arm was every project, and it turned "never evaluated" into "healthy". |
+| `Unknown` when no policy verdict was observed, with the observed artifacts and the command that produces a verdict as evidence | **Chosen.** The absence of an observation is `unknown`, never a pass — the rule the Quality section already follows ("unverified is not a pass"), and the rule the canonical boundary scenario requires. |
+| Run the policy adapter from the portal | Rejected. The portal is a read-only view over the same Core contracts; spawning the DriftWatch binary from a dashboard read is a side effect the read-only plane must not have. |
+| Use the Gate evidence's aggregate as the policy verdict | Rejected. The Gate is the project gate, not the policy plane; naming it a policy verdict would be a different false claim. |
+| Use the doctor's own policy finding | Rejected. The doctor judges a report it obtained by running the adapter, and it does not persist one, so there is no stored finding for the portal to read. |
+| Delete the Policies section | Rejected. §36 names twelve sections; removing one breaks the section contract and the SPA deep link. |
+| Start writing `quality_status` from the doctor | Rejected here. It is the right long-term shape, but it adds a registry write to a read-only assessment and a schema migration; it is a separate change with its own contract. This change keeps the column as the verdict source and makes its absence honest. |
+
+The portal's **projects** section also reads `quality_status`, and its
+`else` arm is also `Ok`. That `ok` is a **liveness** signal — the
+project directory is available and a runtime is recorded — and the
+programme already decided that it stays one. The Policies section is
+different: its status is a *quality verdict* about the policy plane.
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge portal dashboard portal-probe` on the tree before the change printed `[Policies] section=`policies` status=`ok`` with the entry `id=`portal-probe:policies` status=`ok`` and **no evidence line**, for a project with no DriftWatch configuration and no policy evaluation. The status came from `src/portal/sections.rs`. |
+| The one rule | PASS | `src/portal/sections.rs`: `policy_verdict(available, recorded)` is the one rule; the section reads it and the entry carries the evidence. The unit test `a_policy_that_was_never_evaluated_is_not_a_pass` covers the absent verdict, `a_recorded_policy_verdict_is_reported` covers the four recorded values, and `an_unreadable_project_is_unavailable` covers the unreadable directory. |
+| A policy that was never evaluated | PASS | `a_policy_that_was_never_evaluated_is_unknown` registers a project with a `driftwatch.yaml`, renders `forge portal view policies` and asserts the entry's status is `unknown`, that its evidence says `unverified is not a pass`, that it names `forge doctor`, and that it names the `driftwatch.yaml` it found. |
+| A project with no policy configuration | PASS | `a_project_with_no_policy_configuration_is_unknown` asserts the status is `unknown` and that the evidence says `no driftwatch configuration`. |
+| An unreadable project | PASS | `a_project_whose_directory_cannot_be_read_is_unavailable` removes the project directory after registering it and asserts the status is `unavailable` with the note that the policy plane was not observed. |
+| The contract test fails without the change | PASS | With `src/portal/sections.rs` reverted, all three cases fail: the entries read `status: "ok"`. |
+| One list of policy artifacts | PASS | `src/doctor/probes.rs`: `detect_driftwatch` became `pub(crate)` and its body, its arguments and its callers are unchanged; the portal reads the same names the doctor reads. The doctor's own findings are untouched. |
+| The untouched surfaces | PASS | `git diff` shows no change to the other eleven portal sections, the portal's projects section, the dashboard's rollup, the portal contract version, the registry schema, or the doctor's policy findings and verdicts. The portal still writes nothing but its own `portal` journal row. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 238 `test result:` lines sum to **4253 passed; 0 failed; 1 ignored**. The pre-change baseline was 237 lines and 4246 passed, so this change adds exactly the 7 tests it declares (4 unit cases for the rule and 3 contract cases) and one new test binary. The portal unit tests are 34 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T14:47:05Z"` on revision `585dec3601c7c8e15a1bdb984df823ba21253d28` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 162 passed, 0 failed (162 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-portal-policy-verdict-truth/`: the new capability `portal-policy-verdict-truth` was promoted with one requirement and four scenarios, the `control-plane-portal` "Shared project and lifecycle views" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states the general rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all four touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/portal/sections.rs` 880, `src/portal/portal_tests.rs` 957, `src/doctor/probes.rs` 936, `tests/portal_policy_verdict_truth_contract.rs` 172. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the rule in the portal, the shared detector's visibility, the four unit tests and the contract test. The `explore` subagent's sweep found this defect and the owning agent verified and reproduced it before it was adopted. |
+
+Implementation/archive commit: `b7294a1` (`feat: the portal states a policy verdict only when it observed one`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

@@ -63,10 +63,13 @@ pub(super) fn cmd_analytics_metrics(
         }
         summary_path_dir = Some(dir);
     }
-    let doctor = DoctorSummary::default();
+    // No doctor summary was gathered for this run: the
+    // doctor-sourced metrics are reported as `unavailable`
+    // with a note, never as a fabricated zero.
+    let doctor: Option<DoctorSummary> = None;
     let report = aggregate_project_metrics(
         &registry,
-        Some(doctor),
+        doctor,
         &MetricsAggregateOptions {
             default_window_days: default_window,
             external_observations,
@@ -82,12 +85,18 @@ pub(super) fn cmd_analytics_metrics(
         let path = metrics_summary_path(&dir, &project_id)?;
         let _ = save_metrics_summary(&path, &summary);
     }
+    let unavailable = report
+        .aggregates
+        .iter()
+        .filter(|a| a.state == forge::analytics::METRIC_STATE_UNAVAILABLE)
+        .count();
     let detail = format!(
-        "metrics: scope={} default_window={}d complete={} aggregates={}",
+        "metrics: scope={} default_window={}d complete={} aggregates={} unavailable={}",
         if all { "all" } else { &project_id },
         default_window,
         report.complete,
-        report.aggregates.len()
+        report.aggregates.len(),
+        unavailable
     );
     if let Ok(reg) = open_registry(db_path) {
         let journal_project = if all {

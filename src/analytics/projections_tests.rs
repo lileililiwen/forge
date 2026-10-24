@@ -5,10 +5,12 @@
 #[cfg(test)]
 pub(super) mod tests {
     use crate::analytics::constants::{
-        ANALYTICS_CONTRACT_VERSION, MAX_PROVIDERS_PER_PLANE, MAX_WINDOW_DAYS, METRIC_PROJECTS,
-        METRIC_QUALITY_FAILURES, METRIC_QUALITY_HEALTHY, METRIC_REPOSITORY_STARS,
-        METRIC_REPOSITORY_STARS_GROWTH, METRIC_STATE_MIXED_WINDOWS, METRIC_STATE_PRESENT,
-        METRIC_STATE_UNAVAILABLE, PROVIDER_GITHUB_ANALYTICS, PROVIDER_NOTION,
+        ANALYTICS_CONTRACT_VERSION, MAX_PROVIDERS_PER_PLANE, MAX_WINDOW_DAYS,
+        METRIC_AGENTS_RUNNING, METRIC_DEPLOYMENT_OFFLINE, METRIC_DEPLOYMENT_PENDING,
+        METRIC_DEPLOYMENT_RUNNING, METRIC_PROJECTS, METRIC_QUALITY_FAILURES,
+        METRIC_QUALITY_HEALTHY, METRIC_QUALITY_WARNINGS, METRIC_REPOSITORY_STARS,
+        METRIC_REPOSITORY_STARS_GROWTH, METRIC_SPECS_QUEUED, METRIC_STATE_MIXED_WINDOWS,
+        METRIC_STATE_PRESENT, METRIC_STATE_UNAVAILABLE, PROVIDER_GITHUB_ANALYTICS, PROVIDER_NOTION,
         PROVIDER_UNIFIED_CONTENT, STATUS_AMBIGUOUS, STATUS_AVAILABLE, STATUS_DISABLED,
         STATUS_PLANNED, STATUS_UNAVAILABLE, WINDOW_INSTANT,
     };
@@ -472,6 +474,65 @@ pub(super) mod tests {
         assert_eq!(healthy.current, Some(2));
         let failures = report.aggregate(METRIC_QUALITY_FAILURES).unwrap();
         assert_eq!(failures.current, Some(1));
+        // A gathered summary is reported with its source and
+        // its observation window, exactly as before.
+        for (metric_id, source, value) in [
+            (METRIC_QUALITY_HEALTHY, "doctor", 2),
+            (METRIC_QUALITY_WARNINGS, "doctor", 1),
+            (METRIC_QUALITY_FAILURES, "doctor", 1),
+            (METRIC_AGENTS_RUNNING, "agent-sessions", 3),
+            (METRIC_SPECS_QUEUED, "spec-registry", 4),
+            (METRIC_DEPLOYMENT_RUNNING, "deploy-state", 5),
+            (METRIC_DEPLOYMENT_OFFLINE, "deploy-state", 1),
+            (METRIC_DEPLOYMENT_PENDING, "deploy-state", 2),
+        ] {
+            let aggregate = report.aggregate(metric_id).expect(metric_id);
+            assert_eq!(aggregate.state, METRIC_STATE_PRESENT, "{metric_id}");
+            assert_eq!(aggregate.current, Some(value), "{metric_id}");
+            assert_eq!(
+                aggregate.windows,
+                vec![WINDOW_INSTANT.to_string()],
+                "{metric_id}"
+            );
+            assert_eq!(aggregate.snapshots.len(), 1, "{metric_id}");
+            assert_eq!(aggregate.snapshots[0].source, source, "{metric_id}");
+        }
+    }
+
+    #[test]
+    fn metrics_without_a_doctor_summary_report_unavailable_metrics() {
+        // No doctor summary was gathered, so the eight
+        // doctor-sourced metrics carry no reading at all:
+        // they are `unavailable`, with no snapshot, no value
+        // and no window, and the report is not complete.
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("registry.db");
+        let registry = Registry::open(&db_path).unwrap();
+        let report =
+            aggregate_project_metrics(&registry, None, &MetricsAggregateOptions::default())
+                .unwrap();
+        for metric_id in [
+            METRIC_QUALITY_HEALTHY,
+            METRIC_QUALITY_WARNINGS,
+            METRIC_QUALITY_FAILURES,
+            METRIC_AGENTS_RUNNING,
+            METRIC_SPECS_QUEUED,
+            METRIC_DEPLOYMENT_RUNNING,
+            METRIC_DEPLOYMENT_OFFLINE,
+            METRIC_DEPLOYMENT_PENDING,
+        ] {
+            let aggregate = report.aggregate(metric_id).expect(metric_id);
+            assert_eq!(aggregate.state, METRIC_STATE_UNAVAILABLE, "{metric_id}");
+            assert!(aggregate.current.is_none(), "{metric_id}");
+            assert!(aggregate.snapshots.is_empty(), "{metric_id}");
+            assert!(aggregate.windows.is_empty(), "{metric_id}");
+            assert!(
+                aggregate.note.contains("no doctor summary was gathered"),
+                "{metric_id}: {}",
+                aggregate.note
+            );
+        }
+        assert!(!report.complete);
     }
 
     #[test]

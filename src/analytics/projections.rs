@@ -31,6 +31,34 @@ use super::model::{
     ProjectMetricsReport, ProviderSupportStatus,
 };
 
+/// The doctor-sourced metrics. Their sources are `doctor` for the
+/// quality counters, `agent-sessions` for the agent counter,
+/// `spec-registry` for the queued-spec counter and `deploy-state`
+/// for the three deployment counters; the gathered branch below
+/// names each one. These metrics are only reported when a doctor
+/// summary was actually gathered; otherwise they are
+/// `unavailable`.
+const DOCTOR_SOURCED_METRICS: [&str; 8] = [
+    METRIC_QUALITY_HEALTHY,
+    METRIC_QUALITY_WARNINGS,
+    METRIC_QUALITY_FAILURES,
+    METRIC_AGENTS_RUNNING,
+    METRIC_SPECS_QUEUED,
+    METRIC_DEPLOYMENT_RUNNING,
+    METRIC_DEPLOYMENT_OFFLINE,
+    METRIC_DEPLOYMENT_PENDING,
+];
+
+/// The note every doctor-sourced metric carries when no summary
+/// was gathered. It names the missing evidence, so the reader
+/// knows what was not measured.
+const DOCTOR_NOT_GATHERED: &str =
+    "no doctor summary was gathered for this run; this metric was not measured";
+
+/// The note the repository metrics carry when no provider
+/// answered.
+const REPOSITORY_NOT_OBSERVED: &str = "no repository analytics observations";
+
 /// Stable provider id parsing. Unknown providers are
 /// refused with the typed `analytics-invalid` code so the
 /// manifest cannot silently declare an unsupported
@@ -464,6 +492,12 @@ fn spawn_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<AdapterOut
 /// different windows into one total: every snapshot
 /// carries its `window` and the aggregate reports the
 /// distinct windows it observed.
+///
+/// One rule judges every metric: a metric states a value
+/// only when Forge observed it. A metric whose source was
+/// not gathered is `unavailable` with a note naming the
+/// missing evidence, and the report is complete only when
+/// every metric it carries was measured.
 pub fn aggregate_project_metrics(
     registry: &Registry,
     doctor_summary: Option<DoctorSummary>,
@@ -491,80 +525,80 @@ pub fn aggregate_project_metrics(
         now_str.clone(),
         projects.len() as i64,
     ));
-    let doctor = doctor_summary.unwrap_or_default();
-    aggregates.push(count_metric(
-        METRIC_QUALITY_HEALTHY,
-        WINDOW_INSTANT,
-        "doctor",
-        now_str.clone(),
-        doctor.healthy,
-    ));
-    aggregates.push(count_metric(
-        METRIC_QUALITY_WARNINGS,
-        WINDOW_INSTANT,
-        "doctor",
-        now_str.clone(),
-        doctor.warnings,
-    ));
-    aggregates.push(count_metric(
-        METRIC_QUALITY_FAILURES,
-        WINDOW_INSTANT,
-        "doctor",
-        now_str.clone(),
-        doctor.failures,
-    ));
-    aggregates.push(count_metric(
-        METRIC_AGENTS_RUNNING,
-        WINDOW_INSTANT,
-        "agent-sessions",
-        now_str.clone(),
-        doctor.agents_running,
-    ));
-    aggregates.push(count_metric(
-        METRIC_SPECS_QUEUED,
-        WINDOW_INSTANT,
-        "spec-registry",
-        now_str.clone(),
-        doctor.specs_queued,
-    ));
-    aggregates.push(count_metric(
-        METRIC_DEPLOYMENT_RUNNING,
-        WINDOW_INSTANT,
-        "deploy-state",
-        now_str.clone(),
-        doctor.deployments_running,
-    ));
-    aggregates.push(count_metric(
-        METRIC_DEPLOYMENT_OFFLINE,
-        WINDOW_INSTANT,
-        "deploy-state",
-        now_str.clone(),
-        doctor.deployments_offline,
-    ));
-    aggregates.push(count_metric(
-        METRIC_DEPLOYMENT_PENDING,
-        WINDOW_INSTANT,
-        "deploy-state",
-        now_str.clone(),
-        doctor.deployments_pending,
-    ));
+    // A metric states a value only when Forge observed it.
+    // Without a gathered doctor summary the eight
+    // doctor-sourced metrics carry no reading at all: they
+    // are `unavailable` with a note naming the missing
+    // evidence, never a fabricated zero.
+    match doctor_summary {
+        Some(doctor) => {
+            aggregates.push(count_metric(
+                METRIC_QUALITY_HEALTHY,
+                WINDOW_INSTANT,
+                "doctor",
+                now_str.clone(),
+                doctor.healthy,
+            ));
+            aggregates.push(count_metric(
+                METRIC_QUALITY_WARNINGS,
+                WINDOW_INSTANT,
+                "doctor",
+                now_str.clone(),
+                doctor.warnings,
+            ));
+            aggregates.push(count_metric(
+                METRIC_QUALITY_FAILURES,
+                WINDOW_INSTANT,
+                "doctor",
+                now_str.clone(),
+                doctor.failures,
+            ));
+            aggregates.push(count_metric(
+                METRIC_AGENTS_RUNNING,
+                WINDOW_INSTANT,
+                "agent-sessions",
+                now_str.clone(),
+                doctor.agents_running,
+            ));
+            aggregates.push(count_metric(
+                METRIC_SPECS_QUEUED,
+                WINDOW_INSTANT,
+                "spec-registry",
+                now_str.clone(),
+                doctor.specs_queued,
+            ));
+            aggregates.push(count_metric(
+                METRIC_DEPLOYMENT_RUNNING,
+                WINDOW_INSTANT,
+                "deploy-state",
+                now_str.clone(),
+                doctor.deployments_running,
+            ));
+            aggregates.push(count_metric(
+                METRIC_DEPLOYMENT_OFFLINE,
+                WINDOW_INSTANT,
+                "deploy-state",
+                now_str.clone(),
+                doctor.deployments_offline,
+            ));
+            aggregates.push(count_metric(
+                METRIC_DEPLOYMENT_PENDING,
+                WINDOW_INSTANT,
+                "deploy-state",
+                now_str.clone(),
+                doctor.deployments_pending,
+            ));
+        }
+        None => {
+            for metric_id in DOCTOR_SOURCED_METRICS {
+                aggregates.push(unavailable_metric(metric_id, DOCTOR_NOT_GATHERED));
+            }
+        }
+    }
     let stars_window = format!("{}-day", options.default_window_days);
-    let mut repo_aggregate = MetricAggregate {
-        metric_id: METRIC_REPOSITORY_STARS.to_string(),
-        state: METRIC_STATE_UNAVAILABLE.to_string(),
-        snapshots: Vec::new(),
-        current: None,
-        windows: Vec::new(),
-        note: "no repository analytics observations".to_string(),
-    };
-    let mut growth_aggregate = MetricAggregate {
-        metric_id: METRIC_REPOSITORY_STARS_GROWTH.to_string(),
-        state: METRIC_STATE_UNAVAILABLE.to_string(),
-        snapshots: Vec::new(),
-        current: None,
-        windows: Vec::new(),
-        note: "no repository analytics observations".to_string(),
-    };
+    let mut repo_aggregate = unavailable_metric(METRIC_REPOSITORY_STARS, REPOSITORY_NOT_OBSERVED);
+    let mut growth_aggregate =
+        unavailable_metric(METRIC_REPOSITORY_STARS_GROWTH, REPOSITORY_NOT_OBSERVED);
     for obs in &options.external_observations {
         if !matches!(obs.plane.as_str(), "repository") {
             continue;
@@ -616,6 +650,19 @@ pub fn aggregate_project_metrics(
         aggregates,
         complete,
     })
+}
+
+/// A metric nobody measured. It carries no snapshot, no value and no
+/// window: an unmeasured metric has no reading to report.
+pub(super) fn unavailable_metric(metric_id: &str, note: &str) -> MetricAggregate {
+    MetricAggregate {
+        metric_id: metric_id.to_string(),
+        state: METRIC_STATE_UNAVAILABLE.to_string(),
+        snapshots: Vec::new(),
+        current: None,
+        windows: Vec::new(),
+        note: note.to_string(),
+    }
 }
 
 pub(super) fn count_metric(

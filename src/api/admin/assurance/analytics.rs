@@ -31,7 +31,7 @@ pub(super) fn metrics(db_path: &Path, id: &str, query: Option<&str>) -> ApiRespo
     };
     match crate::analytics::aggregate_project_metrics(
         &registry,
-        Some(crate::analytics::DoctorSummary::default()),
+        None,
         &crate::analytics::MetricsAggregateOptions {
             default_window_days: window_days,
             external_observations: Vec::new(),

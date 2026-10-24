@@ -22,8 +22,10 @@
 //! - R2 success: the metrics aggregator renders every
 //!   named metric (projects, agents, specs, quality
 //!   states, deployment states, repository stars and
-//!   seven-day growth) with the per-source timestamp and
-//!   observation window.
+//!   seven-day growth); the doctor-sourced metrics are
+//!   `unavailable` with a note unless a doctor summary was
+//!   gathered, and a measured metric carries the
+//!   per-source timestamp and observation window.
 //! - R2 failure: a missing or failing adapter reports
 //!   the affected metrics as `unavailable` without
 //!   fabricating zeros; the report `complete` flag

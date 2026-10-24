@@ -241,7 +241,17 @@ impl AnalyticsConfig {
 /// Reduced doctor summary consumed by the metrics
 /// aggregator. The CLI / MCP transport is responsible for
 /// producing it; the aggregator stays read-only.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The type has no `Default` on purpose. An all-zero
+/// summary is not a reading: Forge measured no findings, no
+/// agent session, no queued spec and no deployment state.
+/// A default handed to the aggregator becomes eight
+/// `present` metrics with a source and an observation
+/// timestamp, which claims eight measurements Forge never
+/// made. A summary that was really gathered is built field
+/// by field from a real observation; a summary that was
+/// not gathered is `None`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DoctorSummary {
     #[serde(default)]
     pub healthy: i64,

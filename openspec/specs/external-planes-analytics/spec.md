@@ -1,7 +1,7 @@
 # external-planes-analytics Specification
 
 ## Purpose
-External content and analytics plane over configured adapters (unified-content and github-analytics supported, notion/confluence/gitlab-analytics/codeberg-analytics planned): per-provider health observations, windowed metric aggregates that never sum across windows, and credential-safe evidence. The inspection report carries a verdict that names what the inspection did.
+External content and analytics plane over configured adapters (unified-content and github-analytics supported, notion/confluence/gitlab-analytics/codeberg-analytics planned): per-provider health observations, windowed metric aggregates that never sum across windows, and credential-safe evidence. The inspection report carries a verdict that names what the inspection did, and every metric in the aggregate is reported only when Forge measured it.
 ## Requirements
 ### Requirement: External system identity and health
 
@@ -29,7 +29,7 @@ Forge SHALL integrate existing content and analytics providers through configure
 
 ### Requirement: Timestamped project metrics
 
-Forge SHALL aggregate project, agent, spec, quality, deployment and repository-star metrics with timestamps, source and explicit unavailable/stale states.
+Forge SHALL aggregate project, agent, spec, quality, deployment and repository-star metrics with timestamps, source and explicit unavailable/stale states. A metric SHALL be reported with a value, a source and an observation timestamp only when Forge observed it; a metric whose source was not gathered SHALL be reported as `unavailable` with a note naming the missing evidence, and the summary SHALL NOT fabricate zeros. The summary's completion flag SHALL be true only when every metric it carries was measured.
 
 #### Scenario: Timestamped project metrics success
 
@@ -45,3 +45,8 @@ Forge SHALL aggregate project, agent, spec, quality, deployment and repository-s
 
 - **WHEN** observations span different time windows
 - **THEN** the summary identifies those windows and avoids presenting them as one simultaneous measurement
+
+#### Scenario: A metric nobody measured is not a zero
+
+- **WHEN** a metrics report is aggregated and a metric's source was not gathered
+- **THEN** that metric is `unavailable` with a note naming the missing evidence, it carries no value and no observation timestamp, and the summary is not complete

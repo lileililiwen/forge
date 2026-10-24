@@ -21,7 +21,7 @@ use super::constants::{
     METRIC_SPECS_QUEUED, METRIC_STATE_MIXED_WINDOWS, METRIC_STATE_PRESENT,
     METRIC_STATE_UNAVAILABLE, MIN_WINDOW_DAYS, PROVIDER_CODEBERG_ANALYTICS, PROVIDER_CONFLUENCE,
     PROVIDER_GITHUB_ANALYTICS, PROVIDER_GITLAB_ANALYTICS, PROVIDER_NOTION,
-    PROVIDER_UNIFIED_CONTENT, STATUS_AMBIGUOUS, STATUS_AVAILABLE, STATUS_DISABLED,
+    PROVIDER_UNIFIED_CONTENT, STATUS_AMBIGUOUS, STATUS_AVAILABLE, STATUS_DISABLED, STATUS_PLANNED,
     STATUS_UNAVAILABLE, WINDOW_INSTANT,
 };
 use super::model::{
@@ -176,14 +176,13 @@ pub fn inspect_external_planes(
                 note: "analytics block is disabled; provider is not contacted".to_string(),
             });
         }
-        return Ok(ExternalPlaneReport {
-            contract: ANALYTICS_CONTRACT_VERSION.to_string(),
-            project_id: project_id.to_string(),
-            enabled: false,
-            default_window_days: config.default_window_days,
+        return Ok(ExternalPlaneReport::from_observations(
+            ANALYTICS_CONTRACT_VERSION.to_string(),
+            project_id.to_string(),
+            false,
+            config.default_window_days,
             observations,
-            available: true,
-        });
+        ));
     }
     for entry in config.content.iter() {
         observations.push(observe_one(project_id, "content", entry, options, now)?);
@@ -191,14 +190,13 @@ pub fn inspect_external_planes(
     for entry in config.repository.iter() {
         observations.push(observe_one(project_id, "repository", entry, options, now)?);
     }
-    let report = ExternalPlaneReport {
-        contract: ANALYTICS_CONTRACT_VERSION.to_string(),
-        project_id: project_id.to_string(),
-        enabled: true,
-        default_window_days: config.default_window_days,
+    let report = ExternalPlaneReport::from_observations(
+        ANALYTICS_CONTRACT_VERSION.to_string(),
+        project_id.to_string(),
+        true,
+        config.default_window_days,
         observations,
-        available: false,
-    };
+    );
     Ok(report)
 }
 
@@ -252,7 +250,7 @@ fn observe_one(
             provider: provider_label(entry.provider).to_string(),
             plane: plane.to_string(),
             project_ref: entry.project_ref.clone(),
-            status: STATUS_AVAILABLE.to_string(),
+            status: STATUS_PLANNED.to_string(),
             observed_at: now.to_rfc3339(),
             source: "dry-run".to_string(),
             evidence: vec![format!(

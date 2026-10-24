@@ -64,16 +64,21 @@ pub(super) fn cmd_analytics_inspect(
     let report =
         inspect_external_planes(&project_id, &config, &AnalyticsInspectOptions { dry_run })?;
     let detail = format!(
-        "inspect: project={} enabled={} observations={} healthy={} dry_run={}",
+        "inspect: project={} enabled={} observations={} verdict={} healthy={} dry_run={}",
         project_id,
         report.enabled,
         report.observations.len(),
+        report.verdict.label(),
         report.healthy(),
         dry_run,
     );
     if let Ok(registry) = open_registry(db_path) {
-        let state = if report.healthy() { "done" } else { "rejected" };
-        let _ = registry.record_operation("analytics", &project_id, state, &detail);
+        let _ = registry.record_operation(
+            "analytics",
+            &project_id,
+            report.verdict.journal_state(),
+            &detail,
+        );
     }
     let json = serde_json::json!({
         "contract": ANALYTICS_CONTRACT_VERSION,

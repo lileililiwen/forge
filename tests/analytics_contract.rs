@@ -148,7 +148,10 @@ fn inspect_accepts_well_formed_block() {
     let stdout = lossy(&out.stdout);
     assert!(stdout.contains("unified-content"));
     assert!(stdout.contains("github-analytics"));
-    assert!(stdout.contains("available"));
+    // A dry run invokes no adapter, so no provider is reported
+    // `available`: the observations say `planned`.
+    assert!(stdout.contains("planned"));
+    assert!(!stdout.contains("status=available"));
     let json = run_json(
         &db,
         &[

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::constants::{
     DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS, MIN_WINDOW_DAYS, STATUS_AMBIGUOUS, STATUS_AVAILABLE,
-    STATUS_DISABLED, STATUS_UNCONFIGURED,
+    STATUS_DISABLED, STATUS_PLANNED, STATUS_UNCONFIGURED,
 };
 use super::projections::parse_provider_list;
 
@@ -58,6 +58,87 @@ pub enum ProviderSupportStatus {
     Supported,
     Planned,
 }
+/// The statuses that carry healthy evidence. A `planned`
+/// observation is not one of them: the adapter was not
+/// invoked, so nothing was checked.
+const HEALTHY_STATUSES: [&str; 4] = [
+    STATUS_AVAILABLE,
+    STATUS_DISABLED,
+    STATUS_UNCONFIGURED,
+    STATUS_AMBIGUOUS,
+];
+/// The inspection's verdict.
+///
+/// The verdict is what the inspection did. An inspection that
+/// invoked no adapter planned; an inspection whose providers
+/// were all healthy delivered; an inspection whose provider
+/// failed is failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AnalyticsVerdict {
+    /// Every provider was inspected and none failed.
+    Delivered,
+    /// No adapter was invoked. The report is a plan.
+    Planned,
+    /// A provider was inspected and did not report a healthy
+    /// state.
+    Failed,
+}
+impl AnalyticsVerdict {
+    /// The verdict's own label, as the report and the journal
+    /// detail carry it.
+    pub fn label(self) -> &'static str {
+        match self {
+            AnalyticsVerdict::Delivered => "delivered",
+            AnalyticsVerdict::Planned => "planned",
+            AnalyticsVerdict::Failed => "failed",
+        }
+    }
+    /// The registry journal state for this verdict.
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            AnalyticsVerdict::Delivered => "done",
+            AnalyticsVerdict::Planned => "planned",
+            AnalyticsVerdict::Failed => "failed",
+        }
+    }
+}
+/// The one rule that judges an inspection.
+///
+/// The verdict is read from the observations the inspection
+/// actually made: a `planned` observation was never checked,
+/// so the run planned; an observation that carries no healthy
+/// evidence fails the run.
+pub fn verdict_for_observations(observations: &[HealthObservation]) -> AnalyticsVerdict {
+    if observations.iter().any(|obs| obs.status == STATUS_PLANNED) {
+        return AnalyticsVerdict::Planned;
+    }
+    if observations
+        .iter()
+        .any(|obs| !HEALTHY_STATUSES.contains(&obs.status.as_str()))
+    {
+        return AnalyticsVerdict::Failed;
+    }
+    AnalyticsVerdict::Delivered
+}
+/// The report's availability, read from the observations.
+///
+/// The report is available when a provider reported
+/// `available`, or when every provider is `disabled`: an
+/// opted-out plane is not a failure. An empty report is not
+/// available.
+fn available_for_observations(observations: &[HealthObservation]) -> bool {
+    if observations.is_empty() {
+        return false;
+    }
+    if observations
+        .iter()
+        .any(|obs| obs.status == STATUS_AVAILABLE)
+    {
+        return true;
+    }
+    observations.iter().all(|obs| obs.status == STATUS_DISABLED)
+}
 /// Aggregate external-plane report. The CLI renders this
 /// verbatim so a caller can audit every observation in one
 /// pass.
@@ -73,23 +154,37 @@ pub struct ExternalPlaneReport {
     /// report is still `available: true` (the integration
     /// surface is healthy, it is just opted out).
     pub available: bool,
+    /// What the inspection did: `delivered`, `planned` or
+    /// `failed`. The verdict is read from the observations, so
+    /// it cannot contradict them.
+    pub verdict: AnalyticsVerdict,
 }
 impl ExternalPlaneReport {
-    /// `true` when every configured provider is either
-    /// `available`, `disabled`, `unconfigured` (no entry
-    /// declared) or `ambiguous-mapping` (refused, not a
-    /// transport failure). A `failed`/`unavailable`
-    /// adapter call flips the verdict to `false`.
-    pub fn healthy(&self) -> bool {
-        for obs in &self.observations {
-            match obs.status.as_str() {
-                STATUS_AVAILABLE | STATUS_DISABLED | STATUS_UNCONFIGURED | STATUS_AMBIGUOUS => {
-                    continue
-                }
-                _ => return false,
-            }
+    /// Build the report from the observations the inspection
+    /// made. The verdict and the availability are read from
+    /// them, so no caller can hand out a report whose summary
+    /// contradicts its evidence.
+    pub fn from_observations(
+        contract: String,
+        project_id: String,
+        enabled: bool,
+        default_window_days: u32,
+        observations: Vec<HealthObservation>,
+    ) -> Self {
+        Self {
+            contract,
+            project_id,
+            enabled,
+            default_window_days,
+            available: available_for_observations(&observations),
+            verdict: verdict_for_observations(&observations),
+            observations,
         }
-        true
+    }
+    /// `true` when the inspection delivered healthy evidence.
+    /// A plan checked nothing, so it is not healthy.
+    pub fn healthy(&self) -> bool {
+        self.verdict == AnalyticsVerdict::Delivered
     }
 }
 /// Validated analytics config parsed from a manifest.

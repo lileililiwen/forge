@@ -86,6 +86,11 @@ pub const STATUS_UNCONFIGURED: &str = "unconfigured";
 
 pub const STATUS_AMBIGUOUS: &str = "ambiguous-mapping";
 
+/// The status of an observation that was never checked. A dry
+/// run reports `planned`: the adapter was not invoked, so the
+/// provider was not seen at all.
+pub const STATUS_PLANNED: &str = "planned";
+
 pub const METRIC_PROJECTS: &str = "projects";
 
 pub const METRIC_AGENTS_RUNNING: &str = "agents-running";

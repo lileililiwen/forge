@@ -64,10 +64,14 @@
 //! from the local registry, doctor findings, deploy
 //! states, identity sessions and adapter invocations. The
 //! Core registry's `operations` table receives one
-//! `analytics` row per `inspect` / `metrics` call with a
-//! `done` / `rejected` verdict and the project id (no
-//! synthetic project is invented; analytics stays
-//! project-scoped).
+//! `analytics` row per `inspect` / `metrics` call with the
+//! call's own verdict and the project id (no synthetic
+//! project is invented; analytics stays project-scoped).
+//! The inspection's verdict is the report's own: a dry run
+//! journals `planned`, a healthy inspection journals `done`,
+//! an inspection whose provider failed journals `failed` and
+//! a refused request (a project with no `analytics:` block)
+//! journals `rejected`.
 //!
 //! ## Risk model
 //!

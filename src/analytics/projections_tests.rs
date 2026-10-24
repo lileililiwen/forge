@@ -10,11 +10,12 @@ pub(super) mod tests {
         METRIC_REPOSITORY_STARS_GROWTH, METRIC_STATE_MIXED_WINDOWS, METRIC_STATE_PRESENT,
         METRIC_STATE_UNAVAILABLE, PROVIDER_GITHUB_ANALYTICS, PROVIDER_NOTION,
         PROVIDER_UNIFIED_CONTENT, STATUS_AMBIGUOUS, STATUS_AVAILABLE, STATUS_DISABLED,
-        STATUS_UNAVAILABLE, WINDOW_INSTANT,
+        STATUS_PLANNED, STATUS_UNAVAILABLE, WINDOW_INSTANT,
     };
     use crate::analytics::model::{
-        AnalyticsConfig, AnalyticsInspectOptions, AnalyticsProvider, DoctorSummary,
-        HealthObservation, MetricsAggregateOptions, MetricsSummary, ProviderSupportStatus,
+        verdict_for_observations, AnalyticsConfig, AnalyticsInspectOptions, AnalyticsProvider,
+        AnalyticsVerdict, DoctorSummary, HealthObservation, MetricsAggregateOptions,
+        MetricsSummary, ProviderSupportStatus,
     };
     use crate::analytics::projections::{
         aggregate_project_metrics, count_metric, inspect_external_planes, load_metrics_summary,
@@ -219,7 +220,7 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn inspect_dry_run_reports_available_without_invoking_adapter() {
+    fn inspect_dry_run_reports_planned_without_invoking_adapter() {
         let cfg = AnalyticsConfig::from_manifest_meta(&sample_meta()).unwrap();
         let report = inspect_external_planes(
             "forge-proj",
@@ -227,11 +228,147 @@ pub(super) mod tests {
             &AnalyticsInspectOptions { dry_run: true },
         )
         .unwrap();
+        // A dry run invokes no adapter, so no provider was
+        // checked: the observations say `planned`, never
+        // `available`.
         assert!(report
             .observations
             .iter()
-            .all(|o| o.status == STATUS_AVAILABLE));
+            .all(|o| o.status == STATUS_PLANNED));
+        assert_eq!(report.verdict, AnalyticsVerdict::Planned);
+        assert!(!report.healthy());
+        assert!(!report.available);
+    }
+
+    /// One observation with the given status, for the verdict
+    /// rule's unit coverage.
+    fn observation(status: &str) -> HealthObservation {
+        HealthObservation {
+            provider: PROVIDER_GITHUB_ANALYTICS.to_string(),
+            plane: "repository".to_string(),
+            project_ref: "owner/repo".to_string(),
+            status: status.to_string(),
+            observed_at: "2026-01-15T12:00:00Z".to_string(),
+            source: "adapter".to_string(),
+            evidence: Vec::new(),
+            note: String::new(),
+        }
+    }
+
+    #[test]
+    fn verdict_rule_reads_the_observations() {
+        // A healthy observation delivers.
+        assert_eq!(
+            verdict_for_observations(&[observation(STATUS_AVAILABLE)]),
+            AnalyticsVerdict::Delivered
+        );
+        // A `planned` observation was never checked: the run
+        // planned, whatever else it saw.
+        assert_eq!(
+            verdict_for_observations(
+                &[observation(STATUS_AVAILABLE), observation(STATUS_PLANNED),]
+            ),
+            AnalyticsVerdict::Planned
+        );
+        // An observation without healthy evidence fails the
+        // run.
+        assert_eq!(
+            verdict_for_observations(&[
+                observation(STATUS_AVAILABLE),
+                observation(STATUS_UNAVAILABLE),
+            ]),
+            AnalyticsVerdict::Failed
+        );
+        // A disabled provider is not a failure.
+        assert_eq!(
+            verdict_for_observations(&[observation(STATUS_DISABLED)]),
+            AnalyticsVerdict::Delivered
+        );
+        // Nothing to judge is nothing to fail.
+        assert_eq!(verdict_for_observations(&[]), AnalyticsVerdict::Delivered);
+    }
+
+    #[cfg(unix)]
+    fn stage_adapter(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/usr/bin/env bash\n{body}")).unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inspect_healthy_adapter_is_delivered_and_healthy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let adapter = stage_adapter(
+            tmp.path(),
+            "healthy.sh",
+            "printf '{\"project_ref\":\"owner/repo\",\"evidence\":[\"stars=42\"],\"note\":\"ok\"}\\n'\n",
+        );
+        let meta = AnalyticsMeta {
+            enabled: Some(true),
+            default_window_days: Some(7),
+            content: Vec::new(),
+            repository: vec![AnalyticsProviderEntry {
+                provider: PROVIDER_GITHUB_ANALYTICS.to_string(),
+                enabled: Some(true),
+                project_ref: Some("owner/repo".to_string()),
+                adapter_command: Some(adapter.display().to_string()),
+            }],
+        };
+        let cfg = AnalyticsConfig::from_manifest_meta(&meta).unwrap();
+        let report = inspect_external_planes(
+            "forge-proj",
+            &cfg,
+            &AnalyticsInspectOptions { dry_run: false },
+        )
+        .unwrap();
+        let repo_obs = report
+            .observations
+            .iter()
+            .find(|o| o.plane == "repository")
+            .unwrap();
+        assert_eq!(repo_obs.status, STATUS_AVAILABLE);
+        assert_eq!(report.verdict, AnalyticsVerdict::Delivered);
         assert!(report.healthy());
+        assert!(report.available);
+    }
+
+    #[test]
+    fn inspect_failing_adapter_is_failed_and_not_healthy() {
+        let mut meta = sample_meta();
+        meta.repository[0].adapter_command = Some("false".to_string());
+        let cfg = AnalyticsConfig::from_manifest_meta(&meta).unwrap();
+        let report = inspect_external_planes(
+            "forge-proj",
+            &cfg,
+            &AnalyticsInspectOptions { dry_run: false },
+        )
+        .unwrap();
+        assert_eq!(report.verdict, AnalyticsVerdict::Failed);
+        assert!(!report.healthy());
+        assert!(!report.available);
+    }
+
+    #[test]
+    fn inspect_disabled_block_is_delivered_and_healthy() {
+        let mut meta = sample_meta();
+        meta.enabled = Some(false);
+        let cfg = AnalyticsConfig::from_manifest_meta(&meta).unwrap();
+        let report = inspect_external_planes(
+            "forge-proj",
+            &cfg,
+            &AnalyticsInspectOptions { dry_run: false },
+        )
+        .unwrap();
+        assert_eq!(report.verdict, AnalyticsVerdict::Delivered);
+        assert!(report.healthy());
+        // Every provider is disabled: the plane is opted out,
+        // not failed.
+        assert!(report.available);
     }
 
     #[test]

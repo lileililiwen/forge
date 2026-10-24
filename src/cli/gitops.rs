@@ -275,41 +275,50 @@ pub(crate) fn cmd_mirror(
     };
     let registry = open_registry(db_path)?;
     let detail = format!(
-        "mirror `{}` refs={} primary={} healthy={} dry_run={} retry={}",
+        "mirror `{}` refs={} primary={} verdict={} healthy={} dry_run={} retry={}",
         report.project_id,
         report.refs.join(","),
         report
             .primary
             .clone()
             .unwrap_or_else(|| "(none)".to_string()),
+        report.verdict.label(),
         report.healthy,
         report.dry_run,
         report.retry_failed
     );
-    let state_label = if report.healthy() { "done" } else { "partial" };
+    // The journal state label follows the verdict: a plan is
+    // journaled as a plan, never as a completed mirror.
+    let state_label = match report.verdict {
+        forge::distribution::MirrorVerdict::Delivered => "done",
+        forge::distribution::MirrorVerdict::Partial => "partial",
+        forge::distribution::MirrorVerdict::Planned => "planned",
+    };
     let _ = registry.record_operation("mirror", &report.project_id, state_label, &detail);
     let output = mirror_output(&report, format)?;
-    if report.healthy() {
-        Ok(output)
-    } else {
-        // Partial failure: print the per-remote outcome
-        // JSON to stdout so the caller sees exactly which
-        // remotes succeeded and which failed, then surface
-        // a typed exit-code error referencing the
-        // distribution verdict. The error is rendered on
-        // stderr by the generic error path so the exit
-        // code matches the verdict without hiding the
-        // per-remote evidence.
-        match &output {
-            Output::Human(text) => println!("{text}"),
-            Output::Json(value) => {
-                println!("{}", serde_json::to_string_pretty(value).unwrap());
+    match report.verdict {
+        forge::distribution::MirrorVerdict::Delivered
+        | forge::distribution::MirrorVerdict::Planned => Ok(output),
+        forge::distribution::MirrorVerdict::Partial => {
+            // Partial failure: print the per-remote outcome
+            // JSON to stdout so the caller sees exactly which
+            // remotes succeeded and which failed, then surface
+            // a typed exit-code error referencing the
+            // distribution verdict. The error is rendered on
+            // stderr by the generic error path so the exit
+            // code matches the verdict without hiding the
+            // per-remote evidence.
+            match &output {
+                Output::Human(text) => println!("{text}"),
+                Output::Json(value) => {
+                    println!("{}", serde_json::to_string_pretty(value).unwrap());
+                }
+                Output::Raw(text) => print!("{text}"),
             }
-            Output::Raw(text) => print!("{text}"),
+            Err(ForgeError::DistributionInvalid {
+                reason: report.note.clone(),
+            })
         }
-        Err(ForgeError::DistributionInvalid {
-            reason: report.note.clone(),
-        })
     }
 }
 

@@ -8,7 +8,8 @@ GitLab/Codeberg planned). The contract keeps the primary
 canonical, refuses force pushes and reverse syncs into the
 primary, and reports per-remote outcomes plus credential-redacted
 evidence so partial external writes never get misreported as
-wholesale success.
+wholesale success, and the report carries a verdict that names what
+the run did.
 ## Requirements
 ### Requirement: Canonical one-way distribution
 
@@ -31,7 +32,7 @@ Forge SHALL implement forge mirror to preserve a configured canonical primary an
 
 ### Requirement: Partial failure and credentials
 
-Forge SHALL report per-remote outcomes and support retrying failed mirror delivery without misreporting primary state or exposing credentials.
+Forge SHALL report per-remote outcomes and support retrying failed mirror delivery without misreporting primary state or exposing credentials. The report SHALL carry a verdict that names what the run did, so a partial external write, a plan that attempted no write and a delivery are never reported as the same thing.
 
 #### Scenario: Partial failure and credentials success
 
@@ -47,4 +48,9 @@ Forge SHALL report per-remote outcomes and support retrying failed mirror delive
 
 - **WHEN** the failed mirror is retried after recovery
 - **THEN** already delivered refs remain intact and only the requested outstanding work executes
+
+#### Scenario: A plan never claims a delivery
+
+- **WHEN** a mirror run is planned instead of applied
+- **THEN** the report's verdict names the run a plan and the per-remote outcomes still name the provider that is unavailable
 

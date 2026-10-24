@@ -12,8 +12,8 @@ pub(super) mod tests {
         parse_mirror_provider, plan_mirror, redact_distribution_evidence, save_mirror_state,
     };
     use crate::distribution::model::{
-        DistributionConfig, MirrorConfigEntry, MirrorProvider, MirrorRequest, MirrorState,
-        MirrorSupportStatus,
+        verdict_for_outcomes, DistributionConfig, MirrorConfigEntry, MirrorProvider,
+        MirrorRemoteOutcome, MirrorRequest, MirrorState, MirrorSupportStatus, MirrorVerdict,
     };
     use std::path::Path;
     use std::process::Command;
@@ -200,6 +200,71 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn verdict_rule_names_a_plan_a_partial_and_a_delivery() {
+        let outcome = |status: &str| MirrorRemoteOutcome {
+            provider: "gitee".to_string(),
+            role: "mirror".to_string(),
+            status: status.to_string(),
+            commit_sha: None,
+            note: String::new(),
+            evidence: Vec::new(),
+            recovery: Vec::new(),
+        };
+        // A run that attempted no write is a plan, whatever its
+        // per-remote outcomes say.
+        assert_eq!(
+            verdict_for_outcomes(true, &[outcome("delivered")]),
+            MirrorVerdict::Planned
+        );
+        // A write without any remote evidence is not a delivery.
+        assert_eq!(verdict_for_outcomes(false, &[]), MirrorVerdict::Partial);
+        // Every enabled remote reached the ref.
+        assert_eq!(
+            verdict_for_outcomes(
+                false,
+                &[
+                    outcome("delivered"),
+                    outcome("skipped"),
+                    outcome("disabled")
+                ]
+            ),
+            MirrorVerdict::Delivered
+        );
+        // One remote that did not reach the ref makes the run partial.
+        assert_eq!(
+            verdict_for_outcomes(false, &[outcome("delivered"), outcome("failed")]),
+            MirrorVerdict::Partial
+        );
+        assert_eq!(
+            verdict_for_outcomes(false, &[outcome("delivered"), outcome("unavailable")]),
+            MirrorVerdict::Partial
+        );
+        assert_eq!(MirrorVerdict::Delivered.label(), "delivered");
+        assert_eq!(MirrorVerdict::Partial.label(), "partial");
+        assert_eq!(MirrorVerdict::Planned.label(), "planned");
+    }
+
+    #[test]
+    fn plan_report_is_planned_and_never_healthy() {
+        let manifest = manifest_with_distribution(
+            "schema: 1\nproject:\n  id: a\n  name: A\n  profile: rust-web\ndistribution:\n  primary: github\n  mirrors:\n    - gitee\n",
+        );
+        let config = distribution_config_from_manifest(&manifest).unwrap();
+        let req = MirrorRequest {
+            project_id: "a".to_string(),
+            refs: vec!["main".to_string()],
+            confirm: true,
+            dry_run: true,
+            retry_failed: false,
+        };
+        let state = MirrorState::default();
+        let report = plan_mirror(&config, &req, &state, Path::new("/tmp/state.json")).unwrap();
+        assert_eq!(report.verdict, MirrorVerdict::Planned);
+        assert_eq!(report.verdict_check(), MirrorVerdict::Planned);
+        assert!(!report.healthy(), "a plan delivered nothing");
+    }
+
+    #[test]
     fn apply_records_primary_and_mirror_independently() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = git_working_tree(tmp.path(), "distrib-app");
@@ -243,6 +308,7 @@ pub(super) mod tests {
         assert!(primary.commit_sha.is_some());
         assert!(mirror.commit_sha.is_some());
         assert!(report.healthy());
+        assert_eq!(report.verdict, MirrorVerdict::Delivered);
     }
 
     #[test]
@@ -294,6 +360,7 @@ pub(super) mod tests {
         // primary state and the per-remote failure without
         // misreporting one for the other.
         assert!(!report.healthy(), "primary delivered but mirror failed");
+        assert_eq!(report.verdict, MirrorVerdict::Partial);
         // State file records only the primary delivery.
         let state = load_mirror_state(Path::new(&report.state_path)).unwrap();
         assert!(state.primary_delivered.contains_key("main"));

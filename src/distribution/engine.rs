@@ -11,8 +11,9 @@ use std::process::Command;
 
 use super::contract::{DISTRIBUTION_CONTRACT_VERSION, DISTRIBUTION_DIR, PRIMARY_REMOTE};
 use super::model::{
-    DistributionConfig, MirrorConfigEntry, MirrorProvider, MirrorRemoteOutcome, MirrorReport,
-    MirrorRequest, MirrorState, MirrorSupportStatus, PushResult,
+    verdict_for_outcomes, DistributionConfig, MirrorConfigEntry, MirrorProvider,
+    MirrorRemoteOutcome, MirrorReport, MirrorRequest, MirrorState, MirrorSupportStatus,
+    MirrorVerdict, PushResult,
 };
 
 /// Provider id matching the manifest's `distribution.primary`
@@ -197,6 +198,7 @@ pub fn plan_mirror(
         .primary
         .as_ref()
         .map(|p| mirror_provider_label(p.provider).to_string());
+    let verdict = MirrorVerdict::Planned;
     let report = MirrorReport {
         contract: DISTRIBUTION_CONTRACT_VERSION.to_string(),
         project_id: request.project_id.clone(),
@@ -207,7 +209,8 @@ pub fn plan_mirror(
         state_path: state_file.display().to_string(),
         outcomes,
         note: "plan only; no push was attempted".to_string(),
-        healthy: true,
+        healthy: verdict == MirrorVerdict::Delivered,
+        verdict,
     };
     Ok(report)
 }
@@ -435,7 +438,9 @@ pub fn apply_mirror(
         Some(other) => format!("primary status: {other}"),
         None => "no primary configured; only mirrors were attempted".to_string(),
     };
-    let mut report = MirrorReport {
+    // The verdict is the one rule; health follows the verdict.
+    let verdict = verdict_for_outcomes(false, &outcomes);
+    let report = MirrorReport {
         contract: DISTRIBUTION_CONTRACT_VERSION.to_string(),
         project_id: request.project_id.clone(),
         primary,
@@ -445,9 +450,9 @@ pub fn apply_mirror(
         state_path: state_path.display().to_string(),
         outcomes,
         note,
-        healthy: false,
+        healthy: verdict == MirrorVerdict::Delivered,
+        verdict,
     };
-    report.healthy = report.healthy_check();
     Ok(report)
 }
 
@@ -496,6 +501,7 @@ pub fn render_report_human(report: &MirrorReport) -> String {
             lines.push(format!("      recovery: {line}"));
         }
     }
+    lines.push(format!("verdict: {}", report.verdict.label()));
     lines.push(format!("summary: {}", report.note));
     lines.join("\n")
 }

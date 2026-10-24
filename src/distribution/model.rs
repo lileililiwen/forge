@@ -163,6 +163,54 @@ impl DistributionConfig {
         out
     }
 }
+/// The mirror run's verdict.
+///
+/// The verdict is what the run did. A plan is not a delivery, and a
+/// delivery that did not reach every enabled remote is not a
+/// delivery either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MirrorVerdict {
+    /// Every enabled remote reached the requested ref.
+    Delivered,
+    /// A write was attempted and at least one enabled remote did
+    /// not reach the requested ref.
+    Partial,
+    /// No write was attempted. The report is a plan.
+    Planned,
+}
+impl MirrorVerdict {
+    /// The stable label the report, the JSON document and the
+    /// journal row publish.
+    pub fn label(self) -> &'static str {
+        match self {
+            MirrorVerdict::Delivered => "delivered",
+            MirrorVerdict::Partial => "partial",
+            MirrorVerdict::Planned => "planned",
+        }
+    }
+}
+/// The one rule that judges a mirror run.
+///
+/// A run that attempted no write is a plan, whatever its per-remote
+/// outcomes say. A run that attempted a write is a delivery only
+/// when every enabled remote reached the requested ref.
+pub fn verdict_for_outcomes(dry_run: bool, outcomes: &[MirrorRemoteOutcome]) -> MirrorVerdict {
+    if dry_run {
+        return MirrorVerdict::Planned;
+    }
+    if outcomes.is_empty() {
+        return MirrorVerdict::Partial;
+    }
+    let complete = outcomes
+        .iter()
+        .all(|o| matches!(o.status.as_str(), "delivered" | "skipped" | "disabled"));
+    if complete {
+        MirrorVerdict::Delivered
+    } else {
+        MirrorVerdict::Partial
+    }
+}
 /// Aggregate mirror report. The report is the typed outcome
 /// the CLI and MCP transport render; Core owns every field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -178,35 +226,23 @@ pub struct MirrorReport {
     pub note: String,
     /// Aggregate health. The CLI and MCP transport render this
     /// field directly so a caller can read the verdict without
-    /// re-evaluating the per-remote outcomes.
+    /// re-evaluating the per-remote outcomes. True only for a
+    /// `delivered` verdict: a plan delivered nothing.
     pub healthy: bool,
+    /// The run's verdict. The field is always present, so a
+    /// reader learns what the run did without re-deriving it
+    /// from the per-remote outcomes.
+    pub verdict: MirrorVerdict,
 }
 impl MirrorReport {
-    /// `true` when every enabled remote is in a successful
-    /// state (`delivered` or `skipped` from a retry). A run
-    /// whose primary is `failed` or `diverged`, or whose any
-    /// enabled mirror is `failed` or `diverged`, is not
-    /// healthy. A `disabled` mirror outcome is always
-    /// non-fatal because the configuration opted out of
-    /// writing. A dry run is reported as healthy because no
-    /// remote was contacted.
+    /// `true` only for a `delivered` run. A plan delivered
+    /// nothing, so it is never healthy.
     pub fn healthy(&self) -> bool {
-        self.healthy_check()
+        self.healthy
     }
-    pub(super) fn healthy_check(&self) -> bool {
-        if self.dry_run {
-            return true;
-        }
-        for outcome in &self.outcomes {
-            match outcome.status.as_str() {
-                "delivered" | "skipped" | "disabled" => continue,
-                _ => return false,
-            }
-        }
-        if self.outcomes.is_empty() {
-            return false;
-        }
-        true
+    /// The run's verdict, derived from the run's own evidence.
+    pub fn verdict_check(&self) -> MirrorVerdict {
+        verdict_for_outcomes(self.dry_run, &self.outcomes)
     }
 }
 /// Mirror execution request. The CLI and the MCP transport

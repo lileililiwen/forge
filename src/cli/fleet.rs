@@ -546,11 +546,16 @@ pub(super) fn cmd_publish_fleet(
                 );
                 match outcome {
                     Ok(Output::Json(value)) => {
+                        // The provider's answer decides the health. A dry
+                        // run never contacts the provider, so it has no
+                        // health to report and the run is a plan, not a
+                        // delivery.
                         let healthy = value
                             .get("health")
                             .and_then(|v| v.as_str())
                             .map(|v| v == "healthy")
-                            .unwrap_or(dry_run);
+                            .unwrap_or(false);
+                        let verdict = forge::publish::verdict_for_report(dry_run, healthy);
                         render_output(as_output(
                             format,
                             format!("publish {project_id}: provider={provider_id}"),
@@ -560,27 +565,23 @@ pub(super) fn cmd_publish_fleet(
                             "project": project_id,
                             "provider": provider_id,
                             "healthy": healthy,
+                            "verdict": verdict.label(),
                             "status": value.get("status"),
                             "build_status": value.get("build_status"),
                             "run_status": value.get("run_status"),
                             "container_identity": value.get("container_identity"),
                         }));
-                        let terminal_state = if healthy { "done" } else { "failed" };
+                        let terminal_state = verdict.journal_state();
                         let phase_revision = value.get("revision").and_then(|v| v.as_str());
                         let build_status = value.get("build_status").and_then(|v| v.as_str());
                         let run_status = value.get("run_status").and_then(|v| v.as_str());
+                        // The container identity is the provider's own.
+                        // The lane never composes one: a run that
+                        // published nothing has no container.
                         let container_identity = value
                             .get("container_identity")
                             .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                            .or_else(|| {
-                                phase_revision.map(|rev| {
-                                    forge::publish::providers::compose_project_name(
-                                        &project_id,
-                                        rev,
-                                    )
-                                })
-                            });
+                            .map(|s| s.to_string());
                         let mut phase = PublishPhaseEvidence::new();
                         if let Some(rev) = phase_revision {
                             phase = phase.revision(rev);
@@ -594,18 +595,23 @@ pub(super) fn cmd_publish_fleet(
                         if let Some(c) = container_identity.as_deref() {
                             phase = phase.container_identity(c);
                         }
+                        let detail = format!(
+                            "fleet provider={provider_id} verdict={} healthy={}",
+                            verdict.label(),
+                            healthy
+                        );
                         if let Ok(op_id) = core_registry.record_queue_publish_phase(
                             &project_id,
                             &queue_id,
                             terminal_state,
                             phase,
-                            Some(&format!("fleet provider={provider_id}")),
+                            Some(&detail),
                         ) {
                             queue_op_ids.push((project_id.clone(), op_id));
                         }
-                        if healthy {
-                            success_count += 1;
-                        } else {
+                        // A plan is not a failure: the fleet counts it
+                        // as neither, and it never trips `--fail-fast`.
+                        if verdict == PublishVerdict::Failed {
                             failure_count += 1;
                             if fail_fast && first_failure.is_none() {
                                 first_failure = Some(ForgeError::PublishDeployFailed {
@@ -615,6 +621,8 @@ pub(super) fn cmd_publish_fleet(
                                 });
                                 break;
                             }
+                        } else {
+                            success_count += 1;
                         }
                     }
                     Ok(Output::Human(text)) | Ok(Output::Raw(text)) => {

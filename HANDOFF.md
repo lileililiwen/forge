@@ -10116,3 +10116,130 @@ counters when the freshness rule is reusable.
 
 Implementation/archive commit: `daa9200` (`feat: the release journal names what the run did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 38: `deploy-plan-verdict-truth`
+
+`forge deploy plan` recorded a **completed deployment** in the registry
+journal for a plan that deployed nothing.
+
+### The defect
+
+Reproduced on the tree before the change, with a project whose Gate
+evidence satisfies the shared delivery rule:
+
+```
+$ forge deploy plan /tmp/dep-probe/proj
+project: dep-probe
+deploy_id: dep-probe-home-b6630d40797e
+target: home (local)
+ready: yes
+summary: deploy plan ready for target `home` (kind `local`) at revision `0faabe2b0603`
+```
+
+and the append-only row the same run wrote:
+
+```
+('deploy', 'dep-probe', 'done', 'deploy plan `dep-probe-home-b6630d40797e` target=`home` adapter=`local` ready=true')
+```
+
+`state='done'`. Nothing was deployed: the adapter never ran, the
+artifact was never applied, and `.forge/deploy` did not exist
+afterwards. The plan's own note says `deploy plan ready` — but the
+state next to it says the deployment happened.
+
+**The lane already knew the difference.** `forge deploy apply --dry-run`
+records `planned` (change 36), and the canonical `adapter-deployment`
+requirement already says that a run which deployed nothing is
+*journalled as a plan and never as a completed deployment*. The plan
+lane was the one writer that did not follow it.
+
+The row also reaches the browser: the admin delivery timeline renders
+every `deploy` operation row with its state, so the operator read a
+completed deployment that never happened.
+
+**The state was chosen in two places, from two private copies.**
+
+```rust
+// src/cli/release.rs, before — the deploy plan
+let state_label = if plan.healthy() { "done" } else { "blocked" };
+
+// src/cli/publish.rs — the deploy apply
+let state_label = report.verdict.journal_state();
+```
+
+The plan's copy had no plan arm at all, which is how a plan reached
+`done`.
+
+### The rule
+
+One type names what a deploy run did, in the one place the deploy model
+lives. Change 36 gave it the run's three arms; this change adds the
+plan's own arm:
+
+```rust
+// src/deploy/model.rs
+pub enum DeployVerdict {
+    /// The deploy ran and every stage completed.
+    Delivered,
+    /// No deploy was attempted. The report is a rehearsal.
+    Planned,
+    /// A stage did not complete.
+    Failed,
+    /// A plan the shared delivery rule blocks. A plan never reaches an
+    /// adapter, so this arm belongs to the plan lane alone: the report
+    /// of an apply never carries it.
+    Blocked,
+}
+
+/// The one rule that judges a deploy plan.
+pub fn verdict_for_plan(ready: bool) -> DeployVerdict {
+    if ready {
+        DeployVerdict::Planned
+    } else {
+        DeployVerdict::Blocked
+    }
+}
+```
+
+The plan's writer reads it:
+
+```rust
+// src/cli/release.rs, the deploy plan
+let verdict = forge::deploy::verdict_for_plan(plan.ready);
+let detail = format!(
+    "deploy plan `{}` target=`{}` adapter=`{}` ready={} verdict={}",
+    plan.identity.id, plan.target.name, plan.target.kind, plan.ready, verdict.label()
+);
+let _ = registry.record_operation("deploy", &project_id, verdict.journal_state(), &detail);
+```
+
+### The options, decided
+
+| Option for the deploy plan's journal row | Verdict |
+|---|---|
+| Keep `done` and document that "done" means "the operation finished" | Rejected. `done` is the state a delivered deploy writes after every stage completed. A plan would be indistinguishable from a delivery, and the canonical `adapter-deployment` requirement already requires a run that deployed nothing to be journalled as a plan. |
+| `planned` for a ready plan, `blocked` for a plan the delivery rule blocks | **Chosen.** The lane already has `planned` — change 36 gave the rehearsal that state — and the state then names what the run did. |
+| A new state `prepared` | Rejected. New vocabulary for a plan the lane already names `planned`; it adds a word, not a truth. |
+| Stop journalling the plan | Rejected. The journal is the product's only record that a plan was computed and for which revision; dropping the row loses evidence, and the admin delivery timeline would lose the plan from the operator's history. |
+| A separate `DeployPlanRun` type next to `DeployVerdict` | Rejected. Two types for one lane's journal vocabulary is two vocabularies. One type with the plan's own arm keeps the deploy journal's states in one place, and mirrors the release lane, where change 37 gave `ReleaseRun` both the plan's arms and the apply's arms. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge deploy plan /tmp/dep-probe/proj` on the tree before the change printed `summary: deploy plan ready for target `home` (kind `local`) at revision `0faabe2b0603`` and wrote the registry row `('deploy', 'dep-probe', 'done', 'deploy plan `dep-probe-home-b6630d40797e` target=`home` adapter=`local` ready=true')`, while `.forge/deploy` did not exist afterwards and no adapter ran. The state was Forge's own word, at `src/cli/release.rs`. |
+| The one rule | PASS | `src/deploy/model.rs`: `DeployVerdict` gains the plan's `Blocked` arm with its `label()` and `journal_state()`, and `verdict_for_plan(ready)` is the plan's one rule. The unit test `a_plan_is_never_a_completed_deployment` covers it: a ready plan is `Planned`, a blocked plan is `Blocked`, and neither journals `done`. The unit test `the_verdict_publishes_a_label_and_a_journal_state` pins the new arm's label `blocked` and journal state `blocked`. |
+| A ready plan is a plan | PASS | `a_ready_plan_is_planned_and_journals_a_planned_row` asserts the exit code is 0, that the summary says `deploy plan ready`, that the registry row's state is `planned` with `verdict=planned` and `ready=true` in its detail, and that no `.forge/deploy` directory exists afterwards. |
+| A blocked plan stays blocked | PASS | `a_blocked_plan_stays_blocked` runs the plan without the Gate evidence, asserts the summary says `deploy plan not ready`, and that the registry row's state is `blocked` with `verdict=blocked` and `ready=false` in its detail. |
+| The apply lane is unchanged | PASS | `a_delivered_deploy_still_journals_a_done_row` runs a confirmed apply and asserts the exit code is 0 and that the registry row's state is `done` with `verdict=delivered`. `a_rehearsal_still_journals_a_planned_row` runs a confirmed dry-run apply and asserts the exit code is 0 and that the row's state is `planned` with `verdict=planned`. The existing `deploy_dry_run_verdict_truth_contract` cases pass unchanged. |
+| The contract test fails without the change | PASS | With `src/cli/release.rs` reverted, the ready plan's row reads `done` instead of `planned` and no detail carries `verdict=`; the two apply cases still pass. |
+| The untouched surfaces | PASS | `git diff` shows no change to the plan's rendered output, the plan's JSON view, the deploy state file, the deploy contract version, the apply lane's states, the apply lane's exit codes, or the report's `verdict` field. `verdict_for_report` still returns only `Delivered`, `Planned` and `Failed`, so a report never carries the plan's arm; the two exhaustive matches on the report's verdict spell the plan's arm out with a comment that says it is unreachable, and it behaves as the failure arm. |
+| The downstream readers | PASS | `src/api/admin/history.rs` renders every `deploy` operation row with its state in the delivery timeline, `src/api/admin/history.rs:514` answers the admin deploy-status route from the same rows, and `src/cli/release.rs:566` takes the deploy-status aggregate from the latest row's state. All three project the state verbatim, so the fix reaches the browser and the CLI without touching them: a plan now reads `planned` everywhere it used to read `done`. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 236 `test result:` lines sum to **4243 passed; 0 failed; 1 ignored**. The pre-change baseline was 235 lines and 4238 passed, so this change adds exactly the 5 tests it declares (1 unit case for the rule and 4 contract cases) and one new test binary. The deploy unit tests are 53 passed, `deploy_contract` 21 passed, `deploy_cross_surface` 5 passed and the new `deploy_plan_verdict_truth_contract` 4 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T12:24:20Z"` on revision `0acadcf8bfced4791faef7f623a50bb5ae645e3e` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 160 passed, 0 failed (160 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-deploy-plan-verdict-truth/`: the new capability `deploy-plan-verdict-truth` was promoted with one requirement and four scenarios, the `adapter-deployment` "Observed health and recovery" requirement was modified with all four canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now names the plan lane. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline. The only warning in a touched file is the pre-existing `needless_lifetimes` on `refuse_missing_target_fields` at `src/deploy/model.rs:245`, which this change does not touch. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/deploy/model.rs` 919, `src/deploy/engine/stages.rs` 744, `src/cli/release.rs` 657, `src/cli/publish.rs` 742, `tests/deploy_plan_verdict_truth_contract.rs` 311. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the verdict's plan arm and the rule in the model, the plan's journal row in the CLI, the exhaustive-match arms in the engine and the apply CLI, the unit test and the contract test. |
+
+Implementation/archive commit: `9b9e09c` (`feat: the deploy journal names what the plan did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

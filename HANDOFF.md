@@ -9504,3 +9504,151 @@ unchanged.
 
 Implementation/archive commit: `2e83c78` (`feat: the publish report names what the run did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+### `analytics-inspect-verdict-truth` implemented and archived (2026-10-24)
+
+`forge analytics inspect --dry-run` reported every provider as
+`available` and recorded a completed inspection in the registry
+journal.
+
+```rust
+// src/analytics/projections.rs, before
+if options.dry_run {
+    return Ok(HealthObservation {
+        ...
+        status: STATUS_AVAILABLE.to_string(),
+        source: "dry-run".to_string(),
+        evidence: vec![format!(
+            "would invoke adapter for project_ref=`{}`",
+            entry.project_ref
+        )],
+        note: "dry-run: adapter was not invoked".to_string(),
+    });
+}
+```
+
+The status said `available` in the same struct that said
+`dry-run: adapter was not invoked`. Reproduced on the tree before the
+change:
+
+```
+  plane=content provider=unified-content project_ref=slug status=available source=dry-run observed_at=2026-10-24T05:47:30Z note=dry-run: adapter was not invoked
+```
+
+and the append-only row the same run wrote:
+
+```
+('analytics', 'ana-probe', 'done', 'inspect: project=ana-probe enabled=true observations=2 healthy=true dry_run=true')
+```
+
+One document, two answers: the observation said `available`, the note
+said the adapter was never invoked, and the journal said the
+inspection was done and healthy.
+
+**The report's own summary contradicted its observations.** The
+`available` field is documented as "`true` when at least one provider
+is `available`", but the enabled path wrote it as a constant and the
+disabled path wrote the opposite constant:
+
+```rust
+// src/analytics/projections.rs, before
+let report = ExternalPlaneReport {
+    ...
+    available: false,
+};
+```
+
+**The health verdict could not say "planned".** `healthy()` accepted
+the dry run's `available` status, and the CLI turned that boolean into
+the journal state:
+
+```rust
+// src/cli/analytics.rs, before
+let state = if report.healthy() { "done" } else { "rejected" };
+```
+
+A boolean has two values, so a plan had to be `done` or `rejected`.
+Neither was true: the run inspected nothing.
+
+There is now one rule, in the one place the report is built:
+
+```rust
+// src/analytics/model.rs
+pub enum AnalyticsVerdict {
+    /// Every provider was inspected and none failed.
+    Delivered,
+    /// No adapter was invoked. The report is a plan.
+    Planned,
+    /// A provider was inspected and did not report a healthy state.
+    Failed,
+}
+
+pub fn verdict_for_observations(observations: &[HealthObservation]) -> AnalyticsVerdict {
+    if observations.iter().any(|obs| obs.status == STATUS_PLANNED) {
+        return AnalyticsVerdict::Planned;
+    }
+    if observations
+        .iter()
+        .any(|obs| !HEALTHY_STATUSES.contains(&obs.status.as_str()))
+    {
+        return AnalyticsVerdict::Failed;
+    }
+    AnalyticsVerdict::Delivered
+}
+```
+
+The report is built through one constructor, so no caller can hand out
+a report whose summary contradicts its evidence:
+
+```rust
+// src/analytics/model.rs
+pub fn from_observations(
+    contract: String,
+    project_id: String,
+    enabled: bool,
+    default_window_days: u32,
+    observations: Vec<HealthObservation>,
+) -> Self {
+    Self {
+        contract,
+        project_id,
+        enabled,
+        default_window_days,
+        available: available_for_observations(&observations),
+        verdict: verdict_for_observations(&observations),
+        observations,
+    }
+}
+```
+
+`healthy` is true only for `delivered`, the availability is read from
+the observations, and the journal row follows the one verdict. The same
+run after the change:
+
+```
+  plane=content provider=unified-content project_ref=slug status=planned source=dry-run observed_at=2026-10-24T06:13:08Z note=dry-run: adapter was not invoked
+('analytics', 'ana-probe', 'planned', 'inspect: project=ana-probe enabled=true observations=2 verdict=planned healthy=false dry_run=true')
+```
+
+The adapter invocation, the evidence, the redaction, the metrics lane,
+the assurance browser and the analytics contract version are unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own run of `forge analytics inspect /tmp/ana-probe/proj --dry-run` on the tree before the change printed `status=available source=dry-run note=dry-run: adapter was not invoked` for every provider, and the same run's registry row read `('analytics', 'ana-probe', 'done', 'inspect: project=ana-probe enabled=true observations=2 healthy=true dry_run=true')`. The status was hard-coded at `src/analytics/projections.rs` in the dry-run branch of `observe_one`; the report's `available` field was a per-path constant; `src/cli/analytics.rs` wrote the journal state from `report.healthy()`. |
+| The one rule | PASS | `src/analytics/model.rs`: `AnalyticsVerdict` with `Delivered`, `Planned` and `Failed`, a `label()` and a `journal_state()`, the one rule `verdict_for_observations`, and `ExternalPlaneReport::from_observations`, which derives both the verdict and the availability from the observations. Both report constructions in `src/analytics/projections.rs` go through that constructor, so no caller can build a report whose summary contradicts its evidence. |
+| A plan is a plan | PASS | `a_dry_run_is_planned_and_journals_a_planned_row` asserts the human output carries `status=planned` and no `status=available`, that every JSON observation's status is `planned`, that the report's `verdict` is `planned` and its `available` is `false`, that the exit code is 0, and that the registry's `analytics` row has state `planned` with a detail carrying `verdict=planned healthy=false`. The unit test `inspect_dry_run_reports_planned_without_invoking_adapter` asserts the same rule on the report itself. |
+| A delivery is a delivery | PASS | `a_healthy_inspection_is_delivered_and_journals_a_done_row` stages a working adapter fixture: the observation's status is `available`, the verdict is `delivered`, the report's `available` is `true`, and the journal row's state is `done` with `verdict=delivered healthy=true`. The unit test `inspect_healthy_adapter_is_delivered_and_healthy` asserts the same rule on the report. |
+| A failed provider is a failure | PASS | `a_failing_provider_is_failed_and_journals_a_failed_row` stages an adapter that exits non-zero: the observation's status is `unavailable`, the verdict is `failed`, the report is not healthy, the exit code stays 0 (a provider that is not healthy is a reportable outcome, not a command failure), and the journal row's state is `failed` with `verdict=failed healthy=false`. The unit test `inspect_failing_adapter_is_failed_and_not_healthy` asserts the same rule. |
+| A disabled block is unchanged | PASS | `a_disabled_block_is_delivered_and_journals_a_done_row` asserts the observations are `disabled`, the verdict is `delivered`, the report is healthy and the journal row's state is `done`: an opted-out plane has nothing to plan, so the inspection delivered the manifest's evidence. The unit test `inspect_disabled_block_is_delivered_and_healthy` asserts the same rule. |
+| The report's availability agrees with its evidence | PASS | `available_for_observations` is true only when an observation reports `available` or every observation is `disabled`; the contract test asserts `available` is `true` for the healthy inspection, `false` for the dry run and `false` for the failed provider. Before the change the field was a constant that contradicted the observations in both directions. |
+| The untouched surfaces | PASS | `git diff` shows no change to the adapter invocation, the observation's evidence, the notes, the redaction rule, the metrics lane, the assurance browser or `ANALYTICS_CONTRACT_VERSION`. The report keeps every existing field and gains only `verdict`. The analytics statuses are read only inside `src/analytics/`, and the metrics lane inspects with `dry_run: false`, so it never sees a `planned` observation. |
+| The two tests that enshrined the false claim | rewritten, recorded | `src/analytics/projections_tests.rs`'s `inspect_dry_run_reports_available_without_invoking_adapter` asserted that a dry run reports `available` and is healthy; it is now `inspect_dry_run_reports_planned_without_invoking_adapter`. `tests/analytics_contract.rs`'s `inspect_accepts_well_formed_block` asserted that the dry run's stdout contains `available`; it now asserts `planned` and refuses `status=available`. Both asserted the claim this change removes, and the package's risk table named only the first one. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the `232` `test result:` lines sum to **4220 passed; 0 failed; 1 ignored**. The pre-change baseline, measured the same way, was 231 lines and 4211 passed, so this change adds exactly the 9 tests it declares (4 unit cases and 5 contract cases) and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T06:48:39Z"` on revision `c713179432b54283f9d2575c887dcf0760f95abc` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 156 passed, 0 failed (156 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-analytics-inspect-verdict-truth/`: the new capability `analytics-inspect-verdict-truth` was promoted with one requirement and five scenarios, the `external-planes-analytics` "External system identity and health" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the report carries a verdict. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all eight touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/analytics/constants.rs` 126, `src/analytics/model.rs` 354, `src/analytics/projections.rs` 868, `src/analytics/mod.rs` 96, `src/analytics/projections_tests.rs` 655, `src/cli/analytics.rs` 90, `tests/analytics_contract.rs` 580, `tests/analytics_inspect_verdict_truth_contract.rs` 360. |
+| The worker | the owning agent finished the change | The implementation was written by a worker subagent, which wrote the five source files, the unit tests and the contract test and then stopped reporting. The owning agent re-ran every check on the final tree, corrected the analytics module's persistence paragraph, which named the journal states without the `rejected` state a refused request still writes, wrote the evidence above and produced the Gate run. The change in the tree is the change the worker had written, plus that correction. |
+
+Implementation/archive commit: `fd13b0c` (`feat: the analytics inspection names what it did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

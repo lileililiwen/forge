@@ -22,7 +22,7 @@ pub(super) mod tests {
         build_deployments_section, build_documentation_section, build_features_section,
         build_policies_section, build_projects_section, build_repositories_section,
         build_section_view, build_servers_section, build_settings_section, build_specs_section,
-        controls_for, fleet_block_entries, parse_section, validate_entries,
+        controls_for, fleet_block_entries, parse_section, policy_verdict, validate_entries,
     };
     use crate::registry::{ProjectRecord, Registry};
     use std::collections::BTreeMap;
@@ -634,6 +634,93 @@ portal:
                 PortalStatus::Unknown | PortalStatus::Unavailable | PortalStatus::Warn
             ),
             "rollup was {rollup:?}"
+        );
+    }
+
+    #[test]
+    fn a_policy_that_was_never_evaluated_is_not_a_pass() {
+        // The one rule: no observed verdict is `unknown`, never `ok`.
+        let (status, evidence) = policy_verdict(true, None);
+        assert_eq!(status, PortalStatus::Unknown);
+        assert!(
+            evidence
+                .iter()
+                .any(|line| line.contains("unverified is not a pass")),
+            "{evidence:?}"
+        );
+        assert!(
+            evidence.iter().any(|line| line.contains("forge doctor")),
+            "{evidence:?}"
+        );
+    }
+
+    #[test]
+    fn a_recorded_policy_verdict_is_reported() {
+        for (recorded, expected) in [
+            ("ok", PortalStatus::Ok),
+            ("healthy", PortalStatus::Ok),
+            ("warn", PortalStatus::Warn),
+            ("fail", PortalStatus::Fail),
+        ] {
+            let (status, evidence) = policy_verdict(true, Some(recorded));
+            assert_eq!(status, expected, "{recorded}");
+            assert!(
+                evidence.iter().any(|line| line.contains("policy verdict=")),
+                "{recorded}: {evidence:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unreadable_project_is_unavailable() {
+        let (status, evidence) = policy_verdict(false, None);
+        assert_eq!(status, PortalStatus::Unavailable);
+        assert!(
+            evidence
+                .iter()
+                .any(|line| line.contains("could not be read")),
+            "{evidence:?}"
+        );
+    }
+
+    #[test]
+    fn the_policies_section_reports_unknown_for_a_project_with_no_verdict() {
+        // The end of the rule: a registered project with a runtime and
+        // no recorded policy verdict is `unknown`, and the entry says
+        // what the portal looked at.
+        let record = ProjectRecord {
+            id: "p-policies".to_string(),
+            name: "Policies".to_string(),
+            path: "/nonexistent/p-policies".to_string(),
+            git_remote: None,
+            mirror_remotes: Vec::new(),
+            stack: None,
+            profile: "rust-web".to_string(),
+            maturity: Some("L1".to_string()),
+            target_maturity: None,
+            schema_version: 1,
+            platform_version: "0.1.0".to_string(),
+            features: BTreeMap::new(),
+            deployment_target: None,
+            runtime: Some("rust".to_string()),
+            last_commit: None,
+            quality_status: None,
+            agent_status: None,
+            docs_status: None,
+            kit_id: None,
+            kit_version: None,
+            observed_at: "2026-10-24T00:00:00Z".to_string(),
+            available: true,
+        };
+        let entries = build_policies_section(std::slice::from_ref(&record));
+        assert_eq!(entries[0].status, PortalStatus::Unknown);
+        assert!(
+            entries[0]
+                .evidence
+                .iter()
+                .any(|line| line.contains("unverified is not a pass")),
+            "{:?}",
+            entries[0].evidence
         );
     }
 

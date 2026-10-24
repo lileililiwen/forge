@@ -579,23 +579,58 @@ pub(super) fn build_policies_section(records: &[ProjectRecord]) -> Vec<PortalEnt
     records
         .iter()
         .map(|r| {
-            let status = match r.quality_status.as_deref() {
-                Some("ok") | Some("healthy") | None if r.runtime.is_some() => PortalStatus::Ok,
-                Some("warn") => PortalStatus::Warn,
-                Some("fail") => PortalStatus::Fail,
-                _ => PortalStatus::Unknown,
-            };
+            let (status, mut evidence) = policy_verdict(r.available, r.quality_status.as_deref());
+            if r.available {
+                // The artifacts are the doctor's own list, so the portal
+                // and the doctor agree on what a policy artifact is.
+                let (_, artifacts) = crate::doctor::probes::detect_driftwatch(Path::new(&r.path));
+                evidence.extend(artifacts);
+            }
             PortalEntry {
                 id: format!("{r_id}:policies", r_id = r.id),
                 label: format!("{} driftwatch policies", r.name),
                 status,
                 source: "policy".to_string(),
                 observed_at: r.observed_at.clone(),
-                evidence: Vec::new(),
+                evidence,
                 attributes: BTreeMap::new(),
             }
         })
         .collect()
+}
+
+/// The one rule that judges a project's policies in the portal.
+///
+/// A policy verdict is a judgement Forge has to observe. The portal
+/// reads the project directory and the registry and never runs the
+/// policy adapter, so it states a verdict only when one was recorded.
+/// The absence of a verdict is `unknown`, never a pass: an unevaluated
+/// policy is not a healthy policy.
+pub(super) fn policy_verdict(
+    available: bool,
+    recorded: Option<&str>,
+) -> (PortalStatus, Vec<String>) {
+    if !available {
+        return (
+            PortalStatus::Unavailable,
+            vec![
+                "the project directory could not be read; the policy plane was not observed"
+                    .to_string(),
+            ],
+        );
+    }
+    match recorded {
+        Some("ok") | Some("healthy") => (PortalStatus::Ok, vec!["policy verdict=ok".to_string()]),
+        Some("warn") => (PortalStatus::Warn, vec!["policy verdict=warn".to_string()]),
+        Some("fail") => (PortalStatus::Fail, vec!["policy verdict=fail".to_string()]),
+        _ => (
+            PortalStatus::Unknown,
+            vec![
+                "no policy verdict was observed; unverified is not a pass".to_string(),
+                "run `forge doctor` to evaluate the policy plane".to_string(),
+            ],
+        ),
+    }
 }
 
 pub(super) fn build_specs_section(records: &[ProjectRecord]) -> Vec<PortalEntry> {

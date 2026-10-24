@@ -1,11 +1,11 @@
 # control-plane-portal Specification
 
 ## Purpose
-Read-only control-plane views over the same Core contracts as CLI and MCP: the twelve §36 sections rendered as project or fleet dashboards and single-section views with worst-status rollup, journaling portal reads without mutating any project.
+Read-only control-plane views over the same Core contracts as CLI and MCP: the twelve §36 sections rendered as project or fleet dashboards and single-section views with worst-status rollup, journaling portal reads without mutating any project. Every section states a status only from an observation it made: a section that observed no verdict reports `unknown` and never `ok`, and an entry names what the portal looked at.
 ## Requirements
 ### Requirement: Shared project and lifecycle views
 
-Forge SHALL provide the planned portal sections using shared API resources, including project identity, maturity, quality, agent, deployment and documentation status.
+Forge SHALL provide the planned portal sections using shared API resources, including project identity, maturity, quality, agent, deployment and documentation status. A portal section SHALL state a status only from an observation it made: a section that observed no verdict SHALL report `unknown` and never `ok`, a section that could not observe its source SHALL report `unavailable`, and every entry's evidence SHALL name what the portal looked at.
 
 #### Scenario: Shared project and lifecycle views success
 
@@ -21,6 +21,11 @@ Forge SHALL provide the planned portal sections using shared API resources, incl
 
 - **WHEN** a status observation is stale or unknown
 - **THEN** the view labels that state and retains its observation timestamp
+
+#### Scenario: A section that observed no verdict is not a pass
+
+- **WHEN** a portal section has no observed verdict for a project
+- **THEN** the section reports `unknown` rather than `ok`, and its entries name what the portal looked at
 
 ### Requirement: Accessible controlled operations
 

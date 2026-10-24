@@ -852,7 +852,12 @@ pub(super) fn declaration_vocabulary_finding(dir: &Path) -> Option<Finding> {
     }
 }
 
-pub(super) fn detect_driftwatch(dir: &Path) -> (bool, Vec<String>) {
+/// Detect a project's DriftWatch policy artifacts.
+///
+/// The one list of policy artifacts. It is `pub(crate)` so the
+/// control-plane portal reads the same names the doctor reads: the two
+/// must agree on what a policy artifact is.
+pub(crate) fn detect_driftwatch(dir: &Path) -> (bool, Vec<String>) {
     let mut evidence = Vec::new();
     for file in [
         "driftwatch.yaml",

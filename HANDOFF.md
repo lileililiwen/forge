@@ -9804,3 +9804,148 @@ makes their absence visible instead of false.
 
 Implementation/archive commit: `67d3c7e` (`feat: the metrics report states only what Forge measured`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+### `deploy-dry-run-verdict-truth` implemented and archived (2026-10-24)
+
+`forge deploy apply --dry-run` reported that the deploy happened.
+
+Reproduced on the tree before the change, with a fixture adapter that
+rehearses and answers `apply_status: delivered`:
+
+```
+$ forge deploy apply /tmp/dep-probe/proj --confirm --dry-run
+...
+stages:
+  - apply target=`home` delivered: fixture adapter applied the artifact
+  - observe target=`home` running: docker service app is running
+summary: deploy applied to target `home` and observed as `running`
+```
+
+and the append-only row the same run wrote:
+
+```
+('deploy', 'dep-probe', 'done', 'deploy `dep-probe-home-b6630d40797e` target=`home` adapter=`local` stages=apply=delivered,observe=running healthy=true dry_run=true')
+```
+
+Nothing was deployed. The rehearsal wrote no deploy state at all —
+`.forge/deploy` did not exist after the run — yet the summary says
+"deploy applied to target `home`", the row says the deploy was `done`,
+and it says `healthy=true`. The row even carries `dry_run=true`: one
+line that knows it was a rehearsal and claims a completed, healthy
+deployment in the same breath.
+
+**The report's note is Forge's own claim, and it is false.**
+
+```rust
+// src/deploy/engine/stages.rs, before
+let note = if healthy {
+    format!(
+        "deploy applied to target `{}` and observed as `{}`",
+        plan.target.name, observation.status
+    )
+} else { ... };
+```
+
+**The health flag is Forge's own claim, and it is unsupported.** The
+stages were healthy because the adapter *rehearsed* successfully; a
+rehearsal is not evidence that anything is running.
+
+```rust
+// src/deploy/engine/stages.rs, before
+let healthy = stages.iter().all(|s| {
+    s.status == STATUS_DELIVERED
+        || s.status == STATUS_SKIPPED
+        || s.status == STATUS_DISABLED
+        || s.status == STATUS_RUNNING
+});
+```
+
+**The journal state is Forge's own claim, and it is false.** A boolean
+has two values, so a rehearsal had to be `done` or `partial`:
+
+```rust
+// src/cli/publish.rs, before
+let state_label = if report.healthy() { "done" } else { "partial" };
+let _ = registry.record_operation("deploy", &project_id, state_label, &detail);
+```
+
+There is now one rule, in the one place the report is built:
+
+```rust
+// src/deploy/model.rs
+pub enum DeployVerdict {
+    /// The deploy ran and every stage completed.
+    Delivered,
+    /// No deploy was attempted. The report is a rehearsal.
+    Planned,
+    /// A stage did not complete.
+    Failed,
+}
+
+pub fn verdict_for_report(dry_run: bool, healthy: bool) -> DeployVerdict {
+    if dry_run {
+        return DeployVerdict::Planned;
+    }
+    if healthy {
+        DeployVerdict::Delivered
+    } else {
+        DeployVerdict::Failed
+    }
+}
+```
+
+The report carries the verdict, its health is derived from it, the note
+follows it, the journal row follows it and the exit code follows it:
+
+```rust
+// src/deploy/engine/stages.rs
+let verdict = verdict_for_report(request.dry_run, healthy);
+let healthy = verdict == DeployVerdict::Delivered;
+let note = match verdict {
+    DeployVerdict::Planned => format!(
+        "dry-run: {} stage(s) rehearsed; nothing was deployed",
+        stages.len()
+    ),
+    DeployVerdict::Delivered => format!(
+        "deploy applied to target `{}` and observed as `{}`",
+        plan.target.name, observation.status
+    ),
+    DeployVerdict::Failed => format!(
+        "deploy did not complete cleanly: apply={} observe={}",
+        apply_outcome.status, observe_outcome.status
+    ),
+};
+```
+
+The same rehearsal after the change:
+
+```
+summary: dry-run: 2 stage(s) rehearsed; nothing was deployed
+('deploy', 'dep-probe', 'planned', 'deploy `dep-probe-home-b6630d40797e` target=`home` adapter=`local` stages=apply=delivered,observe=running verdict=planned healthy=false dry_run=true')
+```
+
+The exit code is 0 in both runs: a rehearsal is a successful
+rehearsal. The adapter's own stage statuses and notes are untouched —
+the canonical contract records the envelope exactly as the adapter
+names it. The deploy state file, the ship-gate refusal, the adapter
+invocation, the redaction and the deploy contract version are
+unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own run of `forge deploy apply /tmp/dep-probe/proj --confirm --dry-run` on the tree before the change printed `summary: deploy applied to target `home` and observed as `running`` and wrote the registry row `('deploy', 'dep-probe', 'done', '... stages=apply=delivered,observe=running healthy=true dry_run=true')`, while `ls /tmp/dep-probe/proj/.forge/deploy` reported that no deploy state existed at all. The summary, the health flag and the journal state were Forge's own words, at `src/deploy/engine/stages.rs` and `src/cli/publish.rs`. |
+| The one rule | PASS | `src/deploy/model.rs`: `DeployVerdict` with `Delivered`, `Planned` and `Failed`, a `label()` and a `journal_state()`, and the one rule `verdict_for_report(dry_run, healthy)`. The engine computes the stage health exactly as before, then the verdict, then the report's `healthy` as `verdict == DeployVerdict::Delivered`, and the report carries the verdict. The observe lane reads the same rule. |
+| A rehearsal is a plan | PASS | `a_rehearsal_is_planned_and_journals_a_planned_row` asserts the exit code is 0, that the summary says "nothing was deployed" and does not say "deploy applied to target", that the JSON report's `verdict` is `planned`, its `healthy` is `false` and its `dry_run` is `true`, that the registry row's state is `planned` with `verdict=planned` and `healthy=false` in its detail, and that no `.forge/deploy` directory exists afterwards. The unit test `a_rehearsal_is_a_plan_and_never_a_delivery` covers the rule itself: a rehearsal is a plan even when every stage completed and even when a stage failed. |
+| A delivery is a delivery | PASS | `a_completed_deploy_is_delivered_and_journals_a_done_row` stages the Gate evidence the shared delivery rule needs, runs the apply with the working adapter fixture and asserts the exit code is 0, that the summary says "deploy applied to target", that the report's `verdict` is `delivered` and its `healthy` is `true`, that the registry row's state is `done` with `verdict=delivered`, and that the deploy state file exists. |
+| A failure is a failure | PASS | `a_failed_deploy_is_failed_and_journals_a_failed_row` runs the apply with the failing adapter fixture and asserts the exit code is 1, that the report reaches stdout with "deploy did not complete cleanly", that the registry row's state is `failed` and that its detail carries `verdict=failed`. The unit test `a_complete_run_is_a_delivery_and_a_broken_run_is_a_failure` covers the rule's two non-rehearsal branches, and `the_verdict_publishes_a_label_and_a_journal_state` pins the labels and the journal states. |
+| One rule, every writer | PASS | The CLI's journal state is `report.verdict.journal_state()`, the journal detail is `journal_report(&report)` and now names `verdict={}` next to `healthy={}`, and the exit code matches on the verdict: `Delivered` and `Planned` exit 0, `Failed` exits 1 with the report on stdout. `journal_report` lost its `healthy` parameter, so no caller can supply its own health any more. |
+| The API's deploy view | PASS | `src/api/admin/deploy_views.rs`: the report view carries `"verdict": report.verdict.label()` next to `"dry_run"` and `"healthy"`. The unit tests `the_report_view_carries_the_verdict` and `the_report_view_carries_a_delivery` assert that a planned report reaches the browser as `verdict: "planned"`, `healthy: false`, `dry_run: true`, and a delivered one as `verdict: "delivered"`, `healthy: true`, `dry_run: false`. |
+| The untouched surfaces | PASS | `git diff` shows no change to the adapter's stage statuses or stage notes, the deploy state file, the ship-gate refusal, the adapter invocation and its argv, the evidence redaction, the path-free scrubbing of the API view, the observe lane's own semantics, or `DEPLOY_CONTRACT_VERSION`. The report gains one field, `verdict`; nothing is removed or renamed. The existing `dry_run_apply_never_persists_state` test still passes unchanged: it asserts the adapter's own `delivered` stage status is in the output, which is the adapter's envelope, not Forge's claim. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the `234` `test result:` lines sum to **4231 passed; 0 failed; 1 ignored**. The pre-change baseline, measured the same way, was 233 lines and 4223 passed, so this change adds exactly the 8 tests it declares (3 unit cases for the rule, 2 unit cases for the API view and 3 contract cases) and one new test binary. The deploy unit tests are 52 passed, `deploy_contract` 21 passed, `deploy_cross_surface` 5 passed and the new `deploy_dry_run_verdict_truth_contract` 3 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T09:06:14Z"` on revision `6aeea72dd50aab25b1d1bcbc636288f9f369888f` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 158 passed, 0 failed (158 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-deploy-dry-run-verdict-truth/`: the new capability `deploy-dry-run-verdict-truth` was promoted with one requirement and five scenarios, the `adapter-deployment` "Observed health and recovery" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the deploy report carries a verdict. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file; the `src/deploy/model.rs:245` lifetime warning is pre-existing, on `refuse_missing_target_fields`, which this change does not touch. `rustfmt --edition 2021 --check` is clean on all six touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/deploy/model.rs` 872, `src/deploy/engine/stages.rs` 728, `src/cli/publish.rs` 734, `src/api/admin/deploy_views.rs` 203, `tests/deploy_dry_run_verdict_truth_contract.rs` 339. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. That worker read the package and the code and then ended without writing anything, so the owning agent wrote the change itself: the verdict in the model, the note and the health in the engine, the journal state and the exit code in the CLI, the view in the API, the unit tests and the contract test. The three stage-level tests were first written into `src/deploy/engine/stages_tests.rs`, which pushed that file past the 1000 physical line limit; they moved to `src/deploy/model.rs`, next to the rule they cover, and the contract test carries the end-to-end coverage. The API's deploy view is covered by a unit test rather than through the admin route, because the admin route runs a real deploy and has no rehearsal path. |
+
+Implementation/archive commit: `b8aa834` (`feat: the deploy report names what the run did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

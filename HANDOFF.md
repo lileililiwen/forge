@@ -9307,3 +9307,107 @@ file are unchanged; `healthy` still means "no stage failed".
 
 Implementation/archive commit: `3b4b2b1` (`feat: a release dry run writes nothing and says so`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+### `mirror-plan-verdict-truth` implemented and archived (2026-10-24)
+
+`forge mirror --dry-run` reported a delivery it did not make.
+
+```rust
+// src/distribution/engine.rs, before
+let report = MirrorReport {
+    ...
+    note: "plan only; no push was attempted".to_string(),
+    healthy: true,
+};
+```
+
+The note and the `healthy` field are in the same struct and they
+disagree. `plan_mirror` hard-codes `healthy: true`, and
+`MirrorReport::healthy_check` returns `true` for any dry run before it
+looks at a single outcome. A boolean has two values, and the code used
+`true` for both "every remote received the ref" and "I did not try".
+
+**The same configuration got two different verdicts.** A mirror
+declared on a provider that is planned but not supported (`gitlab`,
+`codeberg`) produces an `unavailable` outcome in both the plan and the
+apply. The apply read it as a failure — `healthy_check` accepts only
+`delivered`, `skipped` and `disabled` — and the plan ignored it and
+reported healthy.
+
+**And the journal recorded a completed operation.** `cmd_mirror`
+journaled the plan with `state_label = if report.healthy() { "done" }
+else { "partial" }`, so the append-only evidence said a mirror
+operation finished, with `healthy=true dry_run=true` in its detail, for
+a run that pushed nothing.
+
+That also left the two mirror surfaces in conflict: the release lane's
+mirror stage reports a plan as `disabled` (the release dry-run change),
+while the standalone mirror command reported the same plan as healthy
+and journaled it as `done`.
+
+There is now one rule, in the one place the report is built:
+
+```rust
+// src/distribution/model.rs
+pub enum MirrorVerdict {
+    /// Every enabled remote reached the requested ref.
+    Delivered,
+    /// A write was attempted and at least one enabled remote did
+    /// not reach the requested ref.
+    Partial,
+    /// No write was attempted. The report is a plan.
+    Planned,
+}
+
+pub fn verdict_for_outcomes(
+    dry_run: bool,
+    outcomes: &[MirrorRemoteOutcome],
+) -> MirrorVerdict {
+    if dry_run {
+        return MirrorVerdict::Planned;
+    }
+    if outcomes.is_empty() {
+        return MirrorVerdict::Partial;
+    }
+    let complete = outcomes
+        .iter()
+        .all(|o| matches!(o.status.as_str(), "delivered" | "skipped" | "disabled"));
+    if complete {
+        MirrorVerdict::Delivered
+    } else {
+        MirrorVerdict::Partial
+    }
+}
+```
+
+`healthy` is true only for `delivered`, the report carries the
+verdict, the human renderer names it, the journal records a plan as
+`planned`, and the exit code follows the verdict: a plan is a
+successful plan and exits 0, a partial delivery still exits 1 with the
+per-remote evidence on stdout.
+
+The per-remote outcomes, the state file, the distribution contract
+version, the MCP method and the release lane's mirror stage are
+unchanged.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own reading of the code: `plan_mirror` built the report with `note: "plan only; no push was attempted"` and `healthy: true` in the same struct literal; `healthy_check` returned `true` for any dry run before it looked at an outcome; `cmd_mirror` journaled the plan as `done`. The plan and the apply of the same `gitlab` configuration both produced an `unavailable` outcome, and only the apply called it unhealthy. |
+| The one rule | PASS | `src/distribution/model.rs`: `MirrorVerdict` with `Delivered`, `Partial` and `Planned` and a `label()`, and `verdict_for_outcomes(dry_run, outcomes)`. `MirrorReport::healthy_check` became `verdict_check`, which is the rule applied to the report's own evidence. `plan_mirror` and `apply_mirror` are the only two places a `MirrorReport` is built, and both set the verdict and derive `healthy` from it. |
+| A plan's verdict | PASS | `dry_run_mirror_is_planned_and_journals_a_planned_row` asserts the JSON report's `verdict` is `planned`, `dry_run` is `true`, `healthy` is `false` and the note contains `plan only`. The unit test `plan_report_is_planned_and_never_healthy` asserts `report.verdict == MirrorVerdict::Planned` and `!report.healthy()`. The unit test `verdict_rule_names_a_plan_a_partial_and_a_delivery` covers the rule's three answers. |
+| A plan's journal row and exit code | PASS | The same contract test reads the `mirror` row of the registry's `operations` table and asserts its state is `planned` and its detail carries `verdict=planned` and `healthy=false`; the command's exit code is `0`. The human render of the same run carries `verdict: planned` and `summary: plan only`. |
+| A delivery's verdict | PASS | `a_delivered_mirror_is_delivered` (a real bare repo for the primary and for the mirror) asserts `verdict` is `delivered`, `healthy` is `true`, the exit code is `0` and the journal row's state is `done`. |
+| A partial delivery's verdict | PASS | `a_partial_mirror_is_partial` (the primary is a real bare repo, the mirror remote is absent) asserts `verdict` is `partial`, `healthy` is `false`, the exit code is `1` and the journal row's state is `partial`. |
+| The plan and the apply agree | PASS | `an_unsupported_provider_is_unavailable_in_both_the_plan_and_the_apply` asserts the plan's `gitlab` outcome is `unavailable` with the verdict `planned` and `healthy` false, and the apply's `gitlab` outcome is `unavailable` with the verdict `partial`, `healthy` false and exit code `1`. The apply's `github` outcome is `delivered`, so the primary was written and the planned provider was not. |
+| The untouched evidence | PASS | `git diff` touches no outcome construction, no state-file write and no `DISTRIBUTION_CONTRACT_VERSION`; the report keeps every existing field and gains only `verdict`. `tests/distribution_contract.rs` and `tests/distribution_cross_surface.rs` stay green (12 + 4 passed). |
+| The other readers | PASS | `src/mcp/methods.rs` serialises the whole report and never branches on `healthy`, so it needed no change and carries the verdict. The release lane's mirror stage reads the report's `healthy` only on the apply path, where the value is unchanged, and reports a plan as `disabled` with the plan's evidence. |
+| The new tests | PASS | `cargo test --test mirror_plan_verdict_truth_contract` → `test result: ok. 4 passed; 0 failed`. The four cases: `dry_run_mirror_is_planned_and_journals_a_planned_row`, `an_unsupported_provider_is_unavailable_in_both_the_plan_and_the_apply`, `a_delivered_mirror_is_delivered`, `a_partial_mirror_is_partial`. `cargo test -p forge --lib distribution::` → `20 passed; 0 failed`, including the two new unit cases. `cargo test --test distribution_contract --test distribution_cross_surface` → `12 passed` and `4 passed`; `cargo test --test release_contract --test release_cross_surface` → `10 passed` and `4 passed`. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 230 `test result:` lines sum to **4207 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 229 lines and 4201 passed, so this change adds exactly the 6 tests it declares (2 unit cases, 4 contract cases) and no new test binary. |
+| A pre-existing flake in the checker contract | recorded, unrelated | One earlier run of the suite on this tree failed `tests/checker_contract.rs::format_json_does_not_alter_checker_stdout` with `left: {"schema":"forge-checker/0.1.0",2026-10-24T02:38:12Z","alerts":[]}` and `right: {"schema":"forge-checker/0.1.0",2026-10-24T02:38:13Z","alerts":[]}`. The test compares the human and the JSON run of the same command after stripping the `"generated_at":"` key prefix but not its value, so it fails whenever the two runs straddle a second boundary. It is a pre-existing timing flake in a test this change does not touch, it passed on the re-run (`cargo test --test checker_contract` → `14 passed; 0 failed`) and it passed in the worker's own suite run. The remedy for a future occurrence is to compare the two documents without the `generated_at` value. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T03:59:51Z"` on revision `be7adb960c0f33809ca15ba119dbd5335ec6a585` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. Two earlier Gate runs on the same tree did not pass, and neither failure is attributable to this change: the `security` check went to `REVIEW_REQUIRED` when the advisory database fetch exceeded its 60000 ms deadline, and the `tests` check exceeded its 600000 ms deadline. Both were the host's load, not the change: another workspace (`/home/paul/code/metiscope` and `/home/paul/code/alltools-platform/rust`) drove the 12-core host to a load average above 30, and the same `cargo audit` measured 2.757 s once the advisory database was current and over 150 s under load. The remedy is the one this repository already uses and which the earlier changes recorded: resolve the advisory database's fetch to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and set `CARGO_HTTP_PROXY=http://127.0.0.1:1` so the unreachable crates.io index update fails fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed, and the audited content is the same advisory database the fetch would have updated. `github.com` and `crates.io` remain unreachable from this host and the firewall drops the packets instead of rejecting them. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 154 passed, 0 failed (154 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-mirror-plan-verdict-truth/`: the new capability `mirror-plan-verdict-truth` was promoted with one requirement and five scenarios, the `repository-distribution` "Partial failure and credentials" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that the report carries a verdict. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 warnings, the same count as the pre-change baseline, and no warning points at a touched file. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/distribution/model.rs` 304, `src/distribution/engine.rs` 679, `src/distribution/engine_tests.rs` 593, `src/cli/gitops.rs` 332, `tests/mirror_plan_verdict_truth_contract.rs` 379. |
+| The worker | the owning agent reviewed the change | The implementation was written by a worker subagent and reviewed by the owning agent, who re-ran every check on the final tree, added the evidence above and produced the Gate run. The change in the tree is the change the worker had written. The Gate run is the owning agent's, because the worker does not own the Gate. |
+
+Implementation/archive commit: `56276c8` (`feat: the mirror report names what the run did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

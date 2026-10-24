@@ -9212,3 +9212,98 @@ Implementation/archive commit: `c93e42e` (`feat: the publish
 summary names the address it published`). This HANDOFF-only update is
 the second commit. Nothing was pushed. No active OpenSpec change
 remains, so this file has no `current_spec` pointer.
+
+### `release-dry-run-evidence-truth` implemented and archived (2026-10-24)
+
+`forge release apply --dry-run` says that nothing happened. The release
+engine wrote anyway. The owning agent's own run of the release engine
+on its fixture, before this change:
+
+```
+NOTE=dry-run: no side effects were attempted
+STAGE=tag STATUS=delivered NOTE=tag v1.0.0 delivered for release rel-scratch-1.0.0-aef2a7e9d820
+TAGS=v1.0.0
+```
+
+Three facts in one document. The note says no side effect was
+attempted. A stage outcome in the same report says a tag was
+delivered. And the tag is in the repository.
+
+Only three of the eight stages were gated on `--confirm`:
+
+| stage | dry-run behaviour before this change |
+|---|---|
+| commit | commits the changelog — ungated |
+| tag | creates a real annotated git tag — ungated |
+| push | disabled (`--confirm` gate) |
+| mirror | plan only, but recorded as **`delivered`** |
+| package | disabled (`--confirm` gate) |
+| container | disabled (`--confirm` gate) |
+| docs | translates and writes files — ungated |
+| notes | renders the notes file |
+
+The mirror stage was the second half of the same defect. A plan-only
+release recorded the mirror stage as a delivery, because a plan is
+always healthy — `plan_mirror` hard-codes `healthy: true` — so the
+stage that pushed nothing was the one stage that claimed it pushed.
+
+This breaks the rule the repair programme is built on: Forge states
+something its own gathered evidence does not support. A dry run's
+whole value is that it is safe.
+
+There is now one rule, in the one place every stage reads it. A
+release stage may write only when the release is confirmed and the
+run is not a dry run:
+
+```rust
+// src/release/model.rs
+impl ReleaseRequest {
+    /// Whether a release stage may write to the host, the
+    /// repository or a provider.
+    ///
+    /// A stage writes only when the release is confirmed and the
+    /// run is not a dry run. A dry run states that no side effect
+    /// was attempted, so a stage that writes would make the
+    /// release report false.
+    pub fn may_write(&self) -> bool {
+        self.confirm && !self.dry_run
+    }
+}
+```
+
+Every write-capable stage consults it. A stage that may not write
+records a status that is not a delivery together with a note that
+names the reason it did not write. The dry-run note names the
+planned stages, and the registry journal records a dry run as
+`planned` rather than `done`.
+
+A confirmed, non-dry release is unchanged: `forge release apply
+--confirm` still commits, tags, pushes and mirrors exactly as before.
+The dry run wins over a confirmation, because the dry run is the
+stronger promise the report makes. The release report's fields, the
+stage status vocabulary, the release contract version and the state
+file are unchanged; `healthy` still means "no stage failed".
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own run of `apply_release` with `confirm: false, dry_run: true` on the release fixture, before the change: `NOTE=dry-run: no side effects were attempted`; `STAGE=tag STATUS=delivered NOTE=tag v1.0.0 delivered for release rel-scratch-1.0.0-aef2a7e9d820`; `TAGS=v1.0.0`. The note says no side effect was attempted, a stage outcome in the same report says a tag was delivered, and the tag was in the repository. |
+| The one gate | PASS | `src/release/model.rs`: `ReleaseRequest::may_write()` returns `self.confirm && !self.dry_run`, and `ReleaseRequest::write_refusal(stage)` names the reason — "`<stage> stage is a dry run; no side effect was attempted`" or "`<stage> stage requires --confirm; treating as disabled`". Every write-capable stage reads the one decision: the commit and tag stages in `src/release/engine/apply.rs`, and the push, mirror, package, container, docs and notes stages in `src/release/engine/stages.rs`. No stage keeps a private check. |
+| A dry run writes nothing | PASS | `apply_dry_run_writes_no_tag_and_no_commit` (engine): the fixture's tag list is empty and `rev-parse HEAD` is unchanged. `dry_run_apply_writes_no_tag_and_records_a_planned_journal_row` (CLI): the project's `git tag --list` is empty and `rev-parse HEAD` is the fixture's first commit. The fixture's changelog carries an unreleased entry, so the commit stage had something to commit if it were allowed to write. |
+| No stage claims a delivery | PASS | Both dry-run tests assert `status != "delivered"` for every entry of `stage_outcomes`; the engine test asserts `outcome.status != STATUS_DELIVERED` for every outcome. |
+| The dry-run note | PASS | `apply_dry_run_writes_no_tag_and_no_commit` asserts the note contains `no side effects were attempted`; the CLI test asserts the same over the JSON document. The note is now `dry-run: no side effects were attempted; N stage(s) planned`. |
+| A confirmed release still writes | PASS | `apply_confirmed_release_still_creates_the_tag` (engine): the fixture's tag list is exactly `["v1.0.0"]` and the tag stage's status is `delivered`. `confirmed_apply_still_delivers_the_tag` (CLI): `git tag --list` is `v1.0.0` and the JSON report's tag stage status is `delivered`. |
+| The plan-only mirror stage | PASS | `dry_run_reports_the_mirror_plan_without_claiming_a_delivery` (CLI): a project whose manifest declares `distribution: {primary: github, mirrors: [gitee]}` produces a mirror stage whose status is `disabled`, whose note contains `mirror plan only` and `no side effect was attempted`, and whose evidence still names the planned `github` primary and the `gitee` mirror. Before the change the same stage was recorded as `delivered`. |
+| The journal | PASS | `cmd_release_apply` records a dry run as `planned` rather than `done`, so the append-only evidence does not claim that a release was applied. `dry_run_apply_writes_no_tag_and_records_a_planned_journal_row` reads the row back from the registry and asserts the state is `planned`. `forge release prepare` is unchanged: it records `done`/`blocked` because the preparation itself completed. |
+| The untouched contract | PASS | `git diff` shows no change to `ReleaseReport`'s fields, to the stage status constants (`delivered`, `skipped`, `disabled`, `failed`, `conflict`, `diverged`) or to `RELEASE_CONTRACT_VERSION`. The diff touches only the gate, the per-stage refusal, the dry-run note and the journal state. The admin API route (`src/api/admin/release.rs`) always applies with `confirm: true, dry_run: false`, so it is unaffected; there is no MCP release surface. |
+| The release state file | PASS | `apply_persists_release_state_for_retry` still passes in `cargo test -p forge --lib release::engine::` (23 passed): the state path is a file. A `disabled` stage is never matched by the retry's `already_delivered` check, which only matches `delivered` and `skipped`, so a dry run cannot make a later apply skip a stage. |
+| The new tests | PASS | `cargo test --test release_dry_run_truth_contract` → `test result: ok. 4 passed; 0 failed`. The four cases: `dry_run_apply_writes_no_tag_and_records_a_planned_journal_row`, `dry_run_apply_with_confirm_writes_no_tag`, `confirmed_apply_still_delivers_the_tag`, `dry_run_reports_the_mirror_plan_without_claiming_a_delivery`. `cargo test -p forge --lib release::engine::` → `23 passed; 0 failed`, including the three new engine cases `apply_dry_run_writes_no_tag_and_no_commit`, `apply_dry_run_with_confirm_still_writes_nothing` and `apply_confirmed_release_still_creates_the_tag`. The existing `cargo test --test release_contract --test release_cross_surface` → `10 passed` and `4 passed`, both unchanged. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 229 `test result:` lines sum to **4201 passed; 0 failed; 1 ignored**. The pre-change baseline, measured with the same script, was 228 lines and 4194 passed, so this change adds exactly the 7 tests it declares and no new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T01:45:37Z"` on revision `5e3f8be25017f2f48fa20826bae82701557563f7` (the parent commit — the implementation is uncommitted while the Gate runs), with `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` all in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. |
+| Two earlier Gate runs on the same tree | environmental, recorded | Two Gate runs on the same tree did not pass, and neither failure is attributable to this change. (a) At `2026-10-24T00:54:59Z` the `tests` check exited 101 with its captured output stopping mid-line, while another workspace (`/home/paul/code/alltools-platform/rust`) was running its own cargo build on the same 14 GB host; the identical command on the identical tree passes — `bash scripts/check-tests.sh` with the Gate's own environment exited 0 twice with 4201 passed / 0 failed. (b) At `2026-10-24T01:24:42Z` the `security` check went to `REVIEW_REQUIRED` because the `project-runtime` adapter exceeded its 60000 ms deadline while fetching the advisory database; `cargo audit` measured 1m56s on that run because the cached advisory database still had to be materialised from the local mirror, and 2.757 s on the next run once it was current. The remedy is the one this repository already uses: resolve the advisory database's fetch to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and set `CARGO_HTTP_PROXY=http://127.0.0.1:1` so the unreachable crates.io index update fails fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed, and the audited content is the same advisory database the fetch would have updated. `github.com` and `crates.io` remain unreachable from this host and the firewall drops the packets instead of rejecting them. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 153 passed, 0 failed (153 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-release-dry-run-evidence-truth/`: the new capability `release-dry-run-evidence-truth` was promoted with one requirement and five scenarios, the `release-publishing` "Resumable multi-destination publication" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states the dry-run rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 warnings, the same count as the pre-change baseline, and no warning in a touched file. `rustfmt --edition 2021 --check` is clean on all six touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/release/model.rs` 547, `src/release/engine/apply.rs` 502, `src/release/engine/stages.rs` 686, `src/release/engine/engine_tests.rs` 997, `src/cli/release.rs` 638, `tests/release_dry_run_truth_contract.rs` 362. |
+| The worker | the owning agent finished the change | The implementation was written by a worker subagent, which wrote the gate, the per-stage refusals, the journal state and its tests into the worktree and then lost its session during the full-suite run. The owning agent reviewed the whole diff, re-ran every check on the final tree, and added the fourth contract case (the plan-only mirror stage) that the worker had not written. The change in the tree is the change the worker had written, plus that case. The Gate run recorded above is the owning agent's, because the worker does not own the Gate. |
+| The machine layout | unchanged | The evidence was produced with the same layout as the previous changes: the SSD cargo home (`$HOME/.cargo`), the SSD sccache cache (`$HOME/.cache/sccache`) and the target directory inside the repository (`/home/paul/code/forge/target`). No `/mnt` path was used for a build. |
+
+Implementation/archive commit: `3b4b2b1` (`feat: a release dry run writes nothing and says so`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

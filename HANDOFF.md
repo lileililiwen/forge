@@ -9652,3 +9652,155 @@ the assurance browser and the analytics contract version are unchanged.
 
 Implementation/archive commit: `fd13b0c` (`feat: the analytics inspection names what it did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+### `analytics-metrics-evidence-truth` implemented and archived (2026-10-24)
+
+`forge analytics metrics` reported eight measurements it never made.
+
+Reproduced on the tree before the change:
+
+```json
+{ "metric_id": "quality-healthy",
+  "current": 0,
+  "note": "",
+  "snapshots": [ { "note": "",
+                   "observed_at": "2026-10-24T06:57:07.364642943+00:00",
+                   "source": "doctor",
+                   "value": 0,
+                   "window": "instant" } ],
+  "state": "present",
+  "windows": ["instant"] }
+```
+
+The snapshot reads as "the doctor ran at 06:57:07 and found zero
+healthy findings". The doctor never ran. Forge gathered no findings,
+no agent session, no queued spec and no deployment state, and the
+report stated eight measurements with a source and a timestamp for
+each.
+
+**The zeros were manufactured by a default.** Both callers invented
+the summary they handed the aggregator:
+
+```rust
+// src/cli/functions_13.rs, before
+let doctor = DoctorSummary::default();
+let report = aggregate_project_metrics(&registry, Some(doctor), &options)?;
+```
+
+```rust
+// src/api/admin/assurance/analytics.rs, before
+match crate::analytics::aggregate_project_metrics(
+    &registry,
+    Some(crate::analytics::DoctorSummary::default()),
+    &options,
+)
+```
+
+and the aggregator trusted it:
+
+```rust
+// src/analytics/projections.rs, before
+let doctor = doctor_summary.unwrap_or_default();
+aggregates.push(count_metric(
+    METRIC_QUALITY_HEALTHY,
+    WINDOW_INSTANT,
+    "doctor",
+    now_str.clone(),
+    doctor.healthy,
+));
+```
+
+**The completion flag then certified the fabrication.** `complete` is
+true when every aggregate is available, and the fabricated metrics
+were always available, so a report full of invented zeros was a
+*complete* report.
+
+**The canonical contract already forbade this.** The
+`external-planes-analytics` capability says: "WHEN a provider fails
+or returns an incompatible payload THEN its metrics are unavailable
+and the summary does not fabricate zeros". The implementation
+fabricated zeros on the path where nothing failed at all.
+
+There is now one rule, in the one place the aggregate is built:
+
+```rust
+// src/analytics/projections.rs
+match doctor_summary {
+    Some(doctor) => {
+        aggregates.push(count_metric(
+            METRIC_QUALITY_HEALTHY,
+            WINDOW_INSTANT,
+            "doctor",
+            now_str.clone(),
+            doctor.healthy,
+        ));
+        // ... the other seven, exactly as before
+    }
+    None => {
+        for metric_id in DOCTOR_SOURCED_METRICS {
+            aggregates.push(unavailable_metric(metric_id, DOCTOR_NOT_GATHERED));
+        }
+    }
+}
+```
+
+`unavailable_metric` is the shape the repository-star metrics already
+use when no provider answered: the state `unavailable`, no snapshot,
+no current value, no window, and the note.
+
+**The fabricated summary cannot be built again.** `DoctorSummary` lost
+its `Default` derive, so the all-zero summary no longer exists in the
+type system.
+
+The same report after the change:
+
+```
+complete = False
+projects                 state=present      current=1 snapshots=1 note=
+quality-healthy          state=unavailable  current=None snapshots=0 note=no doctor summary was gathered for this run; this metric was not measured
+quality-warnings         state=unavailable  current=None snapshots=0 note=...
+quality-failures         state=unavailable  current=None snapshots=0 note=...
+agents-running           state=unavailable  current=None snapshots=0 note=...
+specs-queued             state=unavailable  current=None snapshots=0 note=...
+deployment-running       state=unavailable  current=None snapshots=0 note=...
+deployment-offline       state=unavailable  current=None snapshots=0 note=...
+deployment-pending       state=unavailable  current=None snapshots=0 note=...
+repository-stars         state=unavailable  current=None snapshots=0 note=no repository analytics observations
+repository-stars-growth  state=unavailable  current=None snapshots=0 note=no repository analytics observations
+```
+
+and the journal row the same run wrote:
+
+```
+('analytics', 'partial', 'metrics: scope=ana-probe default_window=7d complete=false aggregates=11 unavailable=10')
+```
+
+The registry count is still measured. The repository-star metrics, the
+provider observation path, the summary file's shape, the exit code and
+the analytics contract version are unchanged.
+
+No surface can gather a doctor summary today: the doctor runs the
+policy adapter as a per-project probe, and the assurance browser may
+not probe. The local-state counters (agents, specs, deployments) have
+readable sources; a later change may gather them honestly. This change
+makes their absence visible instead of false.
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The owning agent's own run of `forge analytics metrics /tmp/ana-probe/proj --format json` on the tree before the change printed `quality-healthy` as `"state": "present"`, `"current": 0` with one snapshot `{"source": "doctor", "value": 0, "observed_at": "2026-10-24T06:57:07Z", "window": "instant"}`, and the report's `complete` was `true`. The zeros came from `DoctorSummary::default()` at `src/cli/functions_13.rs` and `src/api/admin/assurance/analytics.rs`, and the aggregator's `unwrap_or_default()` in `src/analytics/projections.rs` turned them into readings with a source and a timestamp. |
+| The one rule | PASS | `src/analytics/projections.rs`: the aggregate branches once on the summary it was given. `Some(doctor)` keeps the same eight `count_metric` calls with the same sources (`doctor`, `agent-sessions`, `spec-registry`, `deploy-state`), the same windows and the same values; `None` pushes the eight metrics through `unavailable_metric`, which gives them the state `unavailable`, no snapshot, no current value, no window and the note `no doctor summary was gathered for this run; this metric was not measured`. The `unwrap_or_default()` fabrication is gone. |
+| The fabricated summary cannot return | PASS | `src/analytics/model.rs`: `DoctorSummary` derives `Debug, Clone, PartialEq, Eq, Serialize, Deserialize` and no longer derives `Default`, so `DoctorSummary::default()` no longer compiles. The doc on the type says why: an all-zero summary is not a reading. |
+| A metric nobody measured is a gap, not a zero | PASS | `a_metrics_run_reports_the_unmeasured_doctor_metrics_as_unavailable` asserts, for all eight doctor-sourced metrics, the state `unavailable`, a null `current`, an empty `snapshots` array, an empty `windows` array and a note that names the missing evidence. The unit test `metrics_without_a_doctor_summary_report_unavailable_metrics` asserts the same rule on the aggregate itself. |
+| The report never invents a reading | PASS | `assert_no_invented_reading` walks every snapshot in the report and asserts that none of them claims the `doctor`, `agent-sessions`, `spec-registry` or `deploy-state` source, and that every snapshot that is there carries an observation timestamp. The contract test uses it for both surfaces. |
+| The metrics that were measured are still measured | PASS | The same contract test asserts that `projects` is `present` with the real registry count and the `registry` source, and that `repository-stars` is `present` with the value the adapter fixture answered (`42`) and the `github-analytics` source. The unit test `metrics_aggregate_counters_present_with_windows` keeps the gathered-summary case: a real `DoctorSummary` still produces the real counts. |
+| The completion flag follows the evidence | PASS | The contract test asserts `complete == false` while a metric is unmeasured, and the journal row's state is `partial` with `unavailable=8` in its detail and `complete=false`. The CLI's detail now names the unavailable count. |
+| One rule, every surface | PASS | `the_assurance_browser_reports_the_same_gap` drives the assurance browser's `GET /v1/admin/projects/{id}/analytics/metrics` in process, asserts the same eight gaps, asserts `projects` is still `present`, asserts `complete == false`, and asserts the route wrote no journal row and no summary file. The browser's route passes `None` where it used to pass `Some(DoctorSummary::default())`. |
+| The untouched surfaces | PASS | `git diff` shows no change to the repository-star metrics, the provider observation path, the summary file's shape, the exit code, `ANALYTICS_CONTRACT_VERSION` or the inspection lane. The only change to `tests/analytics_contract.rs` is the wording of its declared R2 success in the file header: the doctor-sourced metrics are `unavailable` with a note unless a doctor summary was gathered. No assertion in that file changed. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the `233` `test result:` lines sum to **4223 passed; 0 failed; 1 ignored**. The pre-change baseline, measured the same way, was 232 lines and 4220 passed, so this change adds exactly the 3 tests it declares (1 unit case and 2 contract cases) and one new test binary. The analytics unit tests are 31 passed, `analytics_contract` 17 passed, `analytics_cross_surface` 6 passed, `web_assurance_browser_contract` 12 passed and the new `analytics_metrics_evidence_truth_contract` 2 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-24T07:54:39Z"` on revision `5cf841a0c8a1c45618afe0f7fc8f5a07e655451c` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 459 of 459 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 157 passed, 0 failed (157 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-24-analytics-metrics-evidence-truth/`: the new capability `analytics-metrics-evidence-truth` was promoted with one requirement and five scenarios, the `external-planes-analytics` "Timestamped project metrics" requirement was modified with all three canonical scenarios kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states that every metric in the aggregate is reported only when Forge measured it. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all seven touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/analytics/projections.rs` 915, `src/analytics/model.rs` 364, `src/cli/functions_13.rs` 988, `src/api/admin/assurance/analytics.rs` 76, `src/analytics/projections_tests.rs` 716, `tests/analytics_contract.rs` 582, `tests/analytics_metrics_evidence_truth_contract.rs` 359. `src/cli/functions_13.rs` is close to the limit and will need splitting before it takes another change. |
+| The worker | the owning agent finished the change | The implementation was written by a worker subagent, which wrote the five source files, the unit tests and the contract test and then stopped reporting. The owning agent re-ran every check on the final tree, simplified the constant that lists the doctor-sourced metrics — it carried a source column the gathered branch names in full, so the column was dead weight that could drift — updated the design document to match, wrote the evidence above and produced the Gate run. The change in the tree is the change the worker had written, plus that simplification. |
+
+Implementation/archive commit: `67d3c7e` (`feat: the metrics report states only what Forge measured`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

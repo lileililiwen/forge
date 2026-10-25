@@ -1,7 +1,7 @@
 # site-studio-preview-refinement Specification
 
 ## Purpose
-A versioned site specification with a bounded live preview and scoped refinement.
+A versioned site specification with a bounded live preview and scoped refinement. A refinement request is validated, recorded and journalled as a recorded request, never as a performed refinement.
 ## Requirements
 ### Requirement: Versioned site specification
 
@@ -107,7 +107,10 @@ process survives.
 ### Requirement: Scoped refinement
 
 Forge SHALL validate and journal a refinement request against the
-current `app_revision` and the project's registered file scope.
+current `app_revision` and the project's registered file scope. The
+`studio.refine` row SHALL record that the request was recorded and
+SHALL NOT claim that the refinement was performed, because this path
+runs none.
 
 #### Scenario: Refinement accepted
 
@@ -131,6 +134,12 @@ current `app_revision` and the project's registered file scope.
   registered project root or contains a secret-shaped string
 - **THEN** Forge refuses with `studio-project-scope` or
   `studio-invalid-spec` and writes nothing
+
+#### Scenario: A recorded refinement is not a performed refinement
+
+- **WHEN** a refinement request is accepted
+- **THEN** the `studio.refine` row's state names the recorded request
+  and never claims that the refinement was performed
 
 ### Requirement: Port allocator refusal never terminates an unrelated listener
 

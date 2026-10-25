@@ -13,6 +13,9 @@
 //!   `<project>/.forge/studio/session.json` and the journal rows the
 //!   existing `operations` table records for `studio.spec.save`,
 //!   `studio.preview.start`, `studio.preview.stop`, and `studio.refine`.
+//!   One rule names what a row records — the action the Core performed —
+//!   so a recorded refinement request is never journalled as a performed
+//!   refinement.
 //! - [`preview`] owns the bounded preview lifecycle: port reservation,
 //!   profile-runner spawn through `crate::process::spawn_with_timeout`,
 //!   bounded stdout/stderr capture (1 MiB / 2 KiB), kill-on-startup-
@@ -48,7 +51,7 @@ pub use spec::{
 };
 pub use state::{
     load_session, record_journal, record_refinement, save_spec, session_path, PreviewRecord,
-    SessionPreviewState, StudioSession, STUDIO_SESSION_CONTRACT,
+    SessionPreviewState, StudioAction, StudioSession, STUDIO_SESSION_CONTRACT,
 };
 
 use std::path::Path;

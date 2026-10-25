@@ -47,8 +47,8 @@ use serde::{Deserialize, Serialize};
 
 use super::spec::SUPPORTED_PROFILES;
 use super::state::{
-    load_session, persist_session, record_journal, SessionPreviewState, StudioJournalKind,
-    StudioSession,
+    load_session, persist_session, record_journal, SessionPreviewState, StudioAction,
+    StudioJournalKind, StudioSession,
 };
 use crate::core::ForgeError;
 use crate::policy::redact_credentials;
@@ -306,7 +306,7 @@ impl PreviewSession {
             registry,
             StudioJournalKind::PreviewStart,
             &self.project_id,
-            state.label(),
+            StudioAction::PreviewObserved(state).journal_state(),
             &detail,
         )?;
         Ok(SessionPreviewState {
@@ -336,7 +336,7 @@ impl PreviewSession {
             registry,
             StudioJournalKind::PreviewStart,
             &self.project_id,
-            PreviewState::Failed.label(),
+            StudioAction::PreviewObserved(PreviewState::Failed).journal_state(),
             &detail,
         )
     }
@@ -363,7 +363,7 @@ impl PreviewSession {
             registry,
             StudioJournalKind::PreviewStop,
             &self.project_id,
-            PreviewState::Stopped.label(),
+            StudioAction::PreviewObserved(PreviewState::Stopped).journal_state(),
             &detail,
         )?;
         Ok(SessionPreviewState {
@@ -873,7 +873,7 @@ pub fn stop_preview(
                 registry,
                 StudioJournalKind::PreviewStop,
                 &session.project_id,
-                PreviewState::Stopped.label(),
+                StudioAction::PreviewObserved(PreviewState::Stopped).journal_state(),
                 &detail,
             )?;
             SessionPreviewState {

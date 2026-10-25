@@ -11,6 +11,11 @@
 //! All operations are bounded: validation is read-only,
 //! persistence is atomic, and the journal row records the
 //! exact spec/revision + the bounded and redacted detail.
+//!
+//! One rule names what a journal row records: the action the Core
+//! performed. A saved spec is `done`, a recorded refinement request is
+//! `recorded` (no refinement runs on that path), and a preview row
+//! names the observed preview state.
 
 use std::path::{Path, PathBuf};
 
@@ -124,6 +129,35 @@ impl StudioJournalKind {
             StudioJournalKind::PreviewStart => "studio.preview.start",
             StudioJournalKind::PreviewStop => "studio.preview.stop",
             StudioJournalKind::Refine => "studio.refine",
+        }
+    }
+}
+
+/// What the Studio Core did, and therefore what its journal row
+/// records. A row names the action the Core performed; it never claims
+/// an action the Core did not perform.
+///
+/// This is the one rule for the Studio's journal states. Every writer
+/// reads it, so a row's state is never a string a writer invented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StudioAction {
+    /// The Core saved the validated spec.
+    SpecSaved,
+    /// The Core recorded a refinement request. No refinement ran: the
+    /// agent-adapter runtime hook is a follow-up, so the row names the
+    /// recorded request and never a completed refinement.
+    RefinementRecorded,
+    /// The Core observed the preview reach a state.
+    PreviewObserved(PreviewState),
+}
+
+impl StudioAction {
+    /// The journal state this action records.
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            StudioAction::SpecSaved => "done",
+            StudioAction::RefinementRecorded => "recorded",
+            StudioAction::PreviewObserved(state) => state.label(),
         }
     }
 }
@@ -323,7 +357,7 @@ pub fn save_spec(
         registry,
         StudioJournalKind::SpecSave,
         project_id,
-        "done",
+        StudioAction::SpecSaved.journal_state(),
         &detail,
     )?;
     Ok(session)
@@ -408,7 +442,7 @@ pub fn record_refinement(
         registry,
         StudioJournalKind::Refine,
         &session.project_id,
-        "done",
+        StudioAction::RefinementRecorded.journal_state(),
         &detail,
     )?;
     session.app_revision = next_app_rev;

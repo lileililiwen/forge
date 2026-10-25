@@ -10976,3 +10976,157 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `6987f8f` (`feat: the next-idea row states only what the server recorded`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 44: `agent-transition-verdict-truth`
+
+The agent lane journalled `done` for transitions the runtime refused.
+
+### The defect
+
+`forge agent` and the `run_agent` MCP tool write one journal row per
+session transition. Every row said `state=done`, including the rows
+whose own detail said the session ended `unsupported`.
+
+Reproduced on the tree before the change, in a project whose provider
+has no backing runtime in this build:
+
+```
+$ forge --registry /tmp/agent-probe/registry.db agent run-spec /tmp/agent-probe --session s1
+{
+  "transition": {
+    "state": "unsupported",
+    "note": "transition `start` is unsupported on provider `codex`; session `s1` was `idle` and is recorded as `unsupported`",
+    "registry_detail": "agent `agent-probe` run_spec session `s1` -> `unsupported` (verdict `done`)"
+  }
+}
+```
+
+and the journal rows it wrote:
+
+```
+('agent', 'agent-probe', 'done', 'agent `agent-probe` run_spec session `s1` -> `unsupported` (verdict `done`)')
+('agent', 'agent-probe', 'done', 'agent `agent-probe` session `s1` provider `codex` spec `` -> `unsupported`')
+```
+
+Each row contradicted itself: the state said the operation completed
+and the detail said the runtime refused it.
+
+Two writes produced the false `done`:
+
+```rust
+// src/cli/agent.rs, before — the run-spec writer
+let verdict = outcome.verdict.clone().unwrap_or_else(|| "done".to_string());
+let _ = registry.record_operation("agent", &project_id, &verdict, &detail);
+```
+
+```rust
+// src/cli/agent.rs, before — the transition writers
+let _ = registry.record_operation("agent", project_id, "done", &detail);
+```
+
+The first invents a verdict: the run-spec outcome carries
+`verdict: None` when no supervisor ran, and the JSON envelope omits the
+`verdict` key entirely, so the `done` existed only in the journal row.
+The second claims a completion for every transition.
+
+The canonical capability already forbids this: *"SHALL never claim a
+state the runtime did not report"*, and the run-spec verdict `done` is
+reserved for *"the supervisor exits clean with verification passed"*.
+
+### The rule
+
+**One rule decides the journal state: a run-spec records the
+supervisor's verdict when the supervisor reported one, a transition the
+runtime refused or lost is recorded as the state it reported, and a
+transition the runtime carried out is recorded as `done`. A refused
+transition is never `done`.**
+
+```rust
+// src/agent/model.rs
+impl AgentTransitionOutcome {
+    pub fn journal_state(&self) -> String {
+        match &self.verdict {
+            Some(verdict) => verdict.clone(),
+            None => match self.state {
+                // The runtime refused the transition or lost the
+                // session: the row names the state it reported.
+                SessionState::Unsupported | SessionState::Disconnected => {
+                    self.state.label().to_string()
+                }
+                // The runtime carried out the transition.
+                _ => "done".to_string(),
+            },
+        }
+    }
+}
+```
+
+The agent module owns the session states and the verdict vocabulary, so
+this is the one place that decides what a row may claim. The CLI and
+the MCP tool both read it. The run-spec detail names the verdict it saw
+or says it saw none.
+
+After the change:
+
+```
+('agent', 'agent-probe', 'unsupported', 'agent `agent-probe` run_spec session `s1` -> `unsupported` (verdict `none reported`)')
+('agent', 'agent-probe', 'unsupported', 'agent `agent-probe` session `s1` provider `codex` spec `` -> `unsupported`')
+```
+
+### The options, decided
+
+| Option for the journal state of a refused transition | Verdict |
+|---|---|
+| Keep `done` | Rejected. The row contradicts itself and claims a completion the runtime refused, against the canonical "SHALL never claim a state the runtime did not report". |
+| Keep `done` and add "unsupported" to the detail | Rejected. The state is what a reader counts and filters on; a refusal behind a `done` state is still a completed operation on the record. |
+| Name the reported state for every transition, including a successful one | Rejected for the successful case: the repository's own cross-surface test reads a completed delegated transition as `done`, and the state the runtime reported is already named in the row's detail. Naming it twice in two vocabularies would blur the operation's completion with the session's state. The refused case is different and is what this change repairs. |
+| Write the reported state when the runtime refused or lost the session, and keep `done` for a transition the runtime carried out | **Chosen.** The refused row names the state the runtime reported, so the row agrees with its own detail; the carried-out row keeps the vocabulary the repository already reads. |
+| Write a separate state word such as `blocked` | Rejected. `blocked` is the registry's word for a rule that refused the action; the runtime refused the *transition* and named the state `unsupported`. A second vocabulary for the same fact is a second copy of the rule. |
+| Let each writer decide | Rejected. Two writers already disagreed with the runtime; the decision belongs to the module that owns the states and the verdicts. |
+| Invent a `unverified` verdict for the bundled path | Rejected. `unverified` is the verdict the supervisor path produces when its outcome document cannot be parsed — a real observation of a failed verification. The bundled path observed no verification attempt at all; the state it reported is `unsupported`. |
+| Refuse the run-spec for a provider with no backing runtime | Rejected. The canonical requirement says every requested operation "SHALL remain exposed and answerable for that provider": the honest answer is the `unsupported` state with its reason and next step, which the command already gives. |
+| Rewrite the rows written before this change | Rejected. Nothing can know what an old row described. The rule applies to new rows. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge agent run-spec /tmp/agent-probe --session s1` wrote `('agent', 'agent-probe', 'done', 'agent \`agent-probe\` run_spec session \`s1\` -> \`unsupported\` (verdict \`done\`)')` and the start transition wrote `('agent', 'agent-probe', 'done', '... -> \`unsupported\`')`. The defaults were in `src/cli/agent.rs` and `src/mcp/methods.rs`. |
+| The one rule | PASS | `src/agent/model.rs`: `AgentTransitionOutcome::journal_state()` is the only decision, and the CLI and the MCP tool both call it. |
+| A refused transition | PASS | `a_refused_transition_is_journalled_as_refused` asserts the row's state is `unsupported` and its detail names `-> \`unsupported\``. |
+| A run-spec with no verdict | PASS | `a_run_spec_with_no_verdict_names_that_it_saw_none` asserts the row's state is `unsupported`, the detail says `(verdict \`none reported\`)` and never `(verdict \`done\`)`, and the envelope carries no `verdict` key at all. |
+| A verified supervisor run | PASS | `a_verified_supervisor_run_still_journals_done` drives the supervisor stub and asserts the row is still `done` with `(verdict \`done\`)`. |
+| The MCP tool | PASS | `the_mcp_tool_reads_the_same_rule` drives `run_agent` over stdio and asserts the row is `unsupported`. |
+| The contract test fails without the change | PASS | With the three touched source files reverted, three of the four cases fail: the refused transition, the run-spec with no verdict and the MCP tool all read `done` while their own detail says `unsupported`. The fourth case (the verified supervisor run) passes on both trees. |
+| The untouched surfaces | PASS | `git diff` shows no change to the session record, the supervisor classification (`classify_sisyphusfy_output` still yields `done`, `partial` and `unverified`), the command's envelope, the other lanes' journal states or the portal's activity view. The repository's own cross-surface test that reads a completed delegated transition as `done` still passes. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0 on the re-run; the 242 `test result:` lines sum to **4274 passed; 0 failed; 1 ignored**. The pre-change baseline was 241 lines and 4270 passed, so this change adds exactly the 4 tests it declares and one new test binary. The existing agent tests are 11 passed and 8 passed. |
+| One pre-existing flake | recorded, not this change's | The first full-suite run failed on `tests/mcp_contract.rs::mcp_repeated_isolated_round_trip_is_stable`: the two round trips of the project catalog differed only in the catalog's `observed_at` (`2026-10-25T05:30:39Z` against `2026-10-25T05:30:40Z`) because the two runs straddled a second boundary. The test passes on re-run — 25 consecutive runs of that test alone passed and the full suite re-run exited 0. It is the same class as the recorded `tests/checker_contract.rs` `generated_at` flake. Remediation path, when that test is next touched: compare the two results with the observation timestamp removed, because the timestamp is the time of the observation, not state. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T05:55:11Z"` on revision `d29038ad67b2a19ef3efbb928772d91666853c06` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 460 of 460 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 166 passed, 0 failed (166 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-agent-transition-verdict-truth/`: the new capability `agent-transition-verdict-truth` was promoted with one requirement and four scenarios, the `agent-runtime-workflows` "Truthful transition mapping" and "Independent verification for spec execution" requirements were modified with every canonical scenario kept and one scenario added each, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states the general rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all four touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/agent/model.rs` 267, `src/cli/agent.rs` 389, `src/mcp/methods.rs` 896, `tests/agent_transition_verdict_truth_contract.rs` 329. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code, change 35's worker wrote everything then stopped, and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself. The hunt that found the defect was run by an `explore` subagent, which returned a ranked candidate list; the owning agent chose this candidate, reproduced it, and wrote the rule, the writers and the tests. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The planner lane journals a resolved plan as `done`
+  (`src/cli/intent.rs`): the third resolution writer, and it does not
+  read the `ResolveRun` rule that change 42 promoted. The same shape
+  as change 42 in a lane that change 42 did not touch.
+- The planner's apply lane marks a resolved step `verified`
+  (`src/planner/apply.rs`) although only a resolve happened.
+- The publish lane composes a container identity when the provider
+  reported none (`src/cli/publish.rs`, `src/api/handlers_core.rs`):
+  medium confidence, because the composed name is the contract's
+  canonical Compose name.
+- The studio refine route journals `done` although only the request
+  was recorded (`src/studio/state.rs`).
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+
+Implementation/archive commit: `3090953` (`feat: the agent journal state names the outcome the runtime reported`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

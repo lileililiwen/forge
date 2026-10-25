@@ -11489,3 +11489,153 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `3ed22c7` (`feat: the studio journal row names the action it recorded`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 47: `api-agent-transition-verdict-truth`
+
+The HTTP agent route journalled a refused transition as a completed one.
+
+### The defect
+
+**The route's row contradicted its own detail.**
+
+The same refused transition, driven through the command and through the
+route against one registry:
+
+```
+# the command
+$ forge --registry /tmp/api-agent/registry.db agent start /tmp/api-agent/proj \
+    --session s1 --provider codex
+# the row: ('agent', 'api-agent', 'unsupported', '... start -> `unsupported`')
+
+# the HTTP route
+$ POST /v1/projects/api-agent/agents  {"session":"s1","transition":"start","provider":"codex"}
+202 Accepted
+{"agent":{"transition":{"state":"unsupported", ...}}, ...}
+# the row: ('api', 'api-agent', 'done', 'api agent `api-agent` session `s1` start -> `unsupported`')
+```
+
+The route's row said `done` — a completed action — for a transition the
+runtime refused, and its own detail said `-> unsupported` in the same
+row.
+
+The state was a literal in the route:
+
+```rust
+// src/api/handlers_changes.rs, before
+let detail = format!(
+    "api agent `{id}` session `{session_id}` {transition} -> `{}`",
+    outcome.state.label()
+);
+let _ = registry.record_operation("api", id, "done", &detail);
+```
+
+Change 44 had already put the rule in one place and promoted it:
+
+```rust
+// src/agent/model.rs
+impl AgentTransitionOutcome {
+    pub fn journal_state(&self) -> String { ... }
+}
+```
+
+The command and the MCP tool read it. The HTTP route did not, and the
+promoted requirement only named those two surfaces — "The command and
+the MCP tool SHALL read the same rule" — so the route was free to keep
+writing `done`.
+
+### The rule
+
+Every surface that records an agent transition reads the one rule. No
+writer keeps a state of its own.
+
+```rust
+// src/api/handlers_changes.rs, after
+let _ = registry.record_operation("api", id, &outcome.journal_state(), &detail);
+```
+
+The rows after the change:
+
+```
+('agent', 'api-agent', 'unsupported', '... start -> `unsupported`')
+('api', 'api-agent', 'unsupported', 'api agent `api-agent` session `s1` start -> `unsupported`')
+('api.agent', 'api-agent', 'done', 'api.agent completed')
+```
+
+The third row is the request's lifecycle, not the transition's verdict.
+The route's body validation runs before the lifecycle helper reserves
+the operation, so a request the route refuses (`400`) writes no
+operation row at all. The requirement now names both rows, so a reader
+never has to guess which is which.
+
+### The options, decided
+
+| Option for the route's row's state | Verdict |
+|---|---|
+| Keep `done` | Rejected. The runtime refused the transition, and the row's own detail says so. A row that claims a completion the runtime refused is the defect. |
+| Use `outcome.state.label()` directly | Rejected. The rule knows more: it reports the supervisor's verdict when one was reported. A second decision in the route would drift from the rule again. |
+| Read `outcome.journal_state()` | **Chosen.** The route joins the rule; the state is the state the runtime reported, and a supervised transition keeps its verdict. |
+| Leave the route alone and widen the requirement only | Rejected. A requirement that says a thing the code does not do is the same defect in another place. |
+
+| Option for the requirement | Verdict |
+|---|---|
+| Add a new capability for the API surface | Rejected. The rule is not new; only a writer was missing. A new capability would own a rule that already has an owner. |
+| Modify the promoted requirement to name every surface | **Chosen.** The requirement said "the command and the MCP tool"; the code now does what the widened requirement says. |
+| Leave the requirement as it is | Rejected. It would keep naming two surfaces while three read the rule, and would keep saying the route is free to write `done`. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The route's row above: `('api', 'api-agent', 'done', '... start -> `unsupported`')`. The state was the literal `"done"` in `src/api/handlers_changes.rs`. |
+| The contract test fails without the change | PASS | The new test was run against the unfixed route first: `the_http_route_journals_the_state_the_runtime_reported` failed with `left: "done", right: "unsupported"`, and `the_route_and_the_command_agree_on_the_state_they_record` failed with `left: "unsupported", right: "done"` — the two surfaces disagreed. With the fix, all three cases pass. |
+| The route journals the state the runtime reported | PASS | `the_http_route_journals_the_state_the_runtime_reported`: the route's row is `unsupported`, never `done`, and its detail still names `-> `unsupported``. |
+| The route and the command agree | PASS | `the_route_and_the_command_agree_on_the_state_they_record`: the command's row and the route's row for the same refused transition carry the same state. |
+| The two rows are two facts | PASS | `the_route_writes_a_transition_row_and_an_operation_row`: the transition's row is `unsupported` and names the transition; the operation's row is `done` and says `api.agent completed`. |
+| One rule, no second decision | PASS | `src/api/handlers_changes.rs` calls `outcome.journal_state()`; the file contains no other state literal for a transition row, and `src/agent/model.rs` is unchanged. |
+| The untouched surfaces | PASS | `git diff` changes one line of `src/api/handlers_changes.rs` and touches no other source file. The route's `202` envelope, the transition body, the session record and the operation row are unchanged. The existing agent suites pass unchanged: `agent_contract` 11 passed, `agent_transition_verdict_truth_contract` 4 passed, `supervised_agent_cross_surface` 8 passed, `api_cross_surface` 6 passed, `router_table_driven_contract` 6 passed, `web_agent_identity_readonly_contract` 10 passed. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 246 `test result:` lines sum to **4287 passed; 0 failed; 1 ignored**. The pre-change baseline was 245 lines and 4284 passed, so this change adds exactly the 3 tests it declares and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T11:06:08Z"` on revision `a934708e873458073489d08bf83356e291b4c204` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 167 passed, 0 failed (167 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-api-agent-transition-verdict-truth/`: the `agent-transition-verdict-truth` requirement was modified with all four canonical scenario names kept and two scenarios added, its purpose now names every surface, and the archive's trailing blank lines were stripped from the canonical spec by hand. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. Two `needless_borrow` warnings the new test first carried were fixed before the archive. `rustfmt --edition 2021 --check` is clean on both touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/api/handlers_changes.rs` 668, `tests/api_agent_transition_verdict_truth_contract.rs` 252. |
+| The worker | the owning agent wrote the change | The worker subagents in this programme have been unreliable, so the owning agent wrote this change. An `explore` subagent found the candidate and the owning agent verified it in the code, reproduced it with the new contract test, and wrote the fix. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The publish lane synthesises a container identity when the provider
+  reported none, for a **failed or queued** response as well
+  (`src/cli/publish.rs`, `src/api/handlers_core.rs`,
+  `src/api/admin/publish.rs`): the canonical scenario authorises the
+  synthesis for a **successful** response only — "WHEN a provider
+  returns a successful response without a `container_identity` field" —
+  and the code composes the identity for a failure too, so a row claims
+  a container for a deployment that never happened. The fleet lane
+  (`src/cli/fleet.rs`) never composes one, so its rows are not
+  byte-equivalent with the manual lane's.
+- The component module doc still names the journal vocabulary
+  `done`/`blocked`/`rejected` (`src/component/mod.rs`), while since
+  change 42 the component resolver also writes `planned`. A doc-only
+  truthfulness change.
+- The component qualify lane hand-writes its state
+  (`src/cli/component.rs`): `if outcome.promoted { "done" } else { "blocked" }`.
+  The claim is honest today, but there is no rule behind it, the same
+  hole change 46 closed in the Studio lane.
+- The API's own lifecycle journal helper hardcodes `done` for every
+  route (`src/api/lifecycle_exec/mod.rs`), while the CLI equivalent
+  writes `rejected` for a stale plan. Honest today — the helper means
+  "the request was handled" — but it is the last place in the API with
+  no rule of its own.
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+- No supported profile declares a component id as a capability, so the
+  planner's component step cannot be produced by the deterministic
+  resolver. The profile capability sets and the component catalog have
+  no overlap; a change that bridges them would make the component lane
+  reachable from the planner.
+
+Implementation/archive commit: `ba55186` (`feat: the api agent route journals the state the runtime reported`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

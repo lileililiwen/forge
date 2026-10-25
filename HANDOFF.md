@@ -11800,3 +11800,153 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `c89a5dc` (`feat: the publish lane names only a container that was deployed`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 49: `fleet-publish-summary-verdict-truth`
+
+The fleet publish summary counted a plan as a success, and counted a
+delivery as nothing.
+
+### The defect
+
+**A dry run was reported as a successful publish.**
+
+```
+$ forge --registry /tmp/fleet/registry.db publish fleet \
+    --inventory /tmp/fleet/inventory.json --provider probe --dry-run
+publish alpha: provider=probe
+fleet publish: 1/1 publishable succeeded, 0 held back, 0 skipped (1 in inventory:...)
+```
+
+The run was a dry run: it contacted nobody, deployed nothing, and the
+lane's own per-project row said `verdict: planned` with `healthy:
+false`. The summary said "succeeded" anyway. The JSON document said the
+same in numbers:
+
+```json
+"fleet": {"publishable": 1, "success": 1, "failed": 0,
+          "projects": [{"project": "alpha", "healthy": false, "verdict": "planned"}]}
+```
+
+The summary contradicted the rows it summarised.
+
+The counters were a binary, not the verdict, and the code's own comment
+said what the code did not do:
+
+```rust
+// src/cli/fleet.rs, before
+// A plan is not a failure: the fleet counts it
+// as neither, and it never trips `--fail-fast`.
+if verdict == PublishVerdict::Failed {
+    failure_count += 1;
+    ...
+} else {
+    success_count += 1;
+}
+```
+
+The same binary sat in the other two fleet lanes, and the parallel lane
+had the other half of the same bug: no `else` branch at all, so a
+delivery there was counted as nothing.
+
+### The rule
+
+The fleet summary counts the verdict: a delivery is a success, a plan
+is a plan, a failure is a failure.
+
+```rust
+// src/cli/fleet.rs, after
+#[derive(Debug, Default, Clone, Copy)]
+struct FleetCounters {
+    success: usize,
+    planned: usize,
+    failed: usize,
+}
+
+impl FleetCounters {
+    fn record(&mut self, verdict: PublishVerdict) {
+        match verdict {
+            PublishVerdict::Delivered => self.success += 1,
+            PublishVerdict::Planned => self.planned += 1,
+            PublishVerdict::Failed => self.failed += 1,
+        }
+    }
+
+    fn record_failure(&mut self) {
+        self.failed += 1;
+    }
+}
+```
+
+All three fleet lanes read it, and the summary names the plans:
+
+```
+fleet publish: 0/1 publishable succeeded, 1 planned, 0 held back, 0 skipped (…)
+```
+
+### The options, decided
+
+| Option for the counters | Verdict |
+|---|---|
+| Keep the binary and only fix the plan case | Rejected. The parallel lane has the other half of the same bug: a delivery there is counted as nothing. One rule, both sides. |
+| Count the verdict in every lane | **Chosen.** The verdict already exists for every run; the summary reads it and counts what it says. |
+| Leave the parallel lane alone | Rejected. Its summary says "0/2 publishable succeeded" for two deliveries. The same rule, the same fix. |
+| Drop the plan counter and report only successes and failures | Rejected. Then a plan is invisible: the summary would say "0/1 succeeded" with no explanation. The plan is a fact about the run and the summary should name it. |
+
+| Option for the summary's shape | Verdict |
+|---|---|
+| Rename `success` to `delivered` | Rejected. The key is the fleet summary's own contract; renaming it breaks a reader for no gain. The verdict's own word stays in the per-project rows. |
+| Keep `success` and add `planned` | **Chosen.** The key keeps its name, its value becomes honest, and the plans get a counter of their own. |
+| Add the failure count to the human line | Rejected here. The failure count is in the JSON document and in the error the command returns; the human line names the plans, which is what this change is about. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The line above: "1/1 publishable succeeded" for a dry run whose own row said `verdict: planned`. |
+| The contract test fails without the change | PASS | With the counter put back to the binary (`Delivered | Planned => self.success += 1`), `a_planned_fleet_publish_is_not_counted_as_a_success` fails with `left: 1, right: 0` on the summary's `success` counter, while the summary's own project row says `verdict: planned`. The other two cases pass on both trees, as they should. |
+| A plan is never counted as a success | PASS | `a_planned_fleet_publish_is_not_counted_as_a_success`: the summary counts `success: 0`, `planned: 1`, `failed: 0`, and the project row agrees with `verdict: planned`. |
+| The summary names the planned runs | PASS | The same case reads the human line: "0/1 publishable succeeded" and "1 planned". |
+| A delivery is counted as a success | PASS | `a_delivered_fleet_publish_is_counted_as_a_success`: the summary counts `success: 1`, `planned: 0`, `failed: 0`, and the human line reads "1/1 publishable succeeded". |
+| A failure is counted as a failure | PASS | `a_failed_fleet_publish_is_counted_as_a_failure`: the summary counts `success: 0`, `failed: 1`, and the command still fails. |
+| The untouched surfaces | PASS | `git diff` touches no line outside `src/cli/fleet.rs`. The per-project rows, the journal rows, the fail-fast behaviour and the exit status are unchanged: the existing suites pass unchanged — `publish_fleet_dry_run_verdict_truth_contract` 3 passed, `fleet_live_rollout_contract` 9 passed, `publish_observability_contract` 8 passed. The upgrade fleet lane already counted each status separately and is untouched. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 248 `test result:` lines sum to **4293 passed; 0 failed; 1 ignored**. The pre-change baseline was 247 lines and 4290 passed, so this change adds exactly the 3 tests it declares and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T12:45:41Z"` on revision `0b8b275c6ac04ff5caffd2fb63f70817a9c389dd` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 167 passed, 0 failed (167 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-fleet-publish-summary-verdict-truth/`: the `publish-fleet-dry-run-verdict-truth` requirement was modified with all four canonical scenario names kept and two scenarios added, its purpose now states that the summary counts the verdict, and the archive's trailing blank lines were stripped from the canonical spec by hand. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. Three `collapsible_if` warnings the first cut carried were fixed before the archive. `rustfmt --edition 2021 --check` is clean on both touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/cli/fleet.rs` 890, `tests/fleet_publish_summary_verdict_truth_contract.rs` 281. |
+| The worker | the owning agent wrote the change | The worker subagents in this programme have been unreliable, so the owning agent wrote this change. The `explore` subagent's hunt was still running when the owning agent found this candidate by reading the fleet lane; the owning agent verified it, reproduced it, and wrote the rule, the three lanes and the tests. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The component module doc still names the journal vocabulary
+  `done`/`blocked`/`rejected` (`src/component/mod.rs`), while since
+  change 42 the component resolver also writes `planned`. A doc-only
+  truthfulness change.
+- The component qualify lane hand-writes its state
+  (`src/cli/component.rs`): `if outcome.promoted { "done" } else { "blocked" }`.
+  The claim is honest today, but there is no rule behind it, the same
+  hole change 46 closed in the Studio lane.
+- The API's own lifecycle journal helper hardcodes `done` for every
+  route (`src/api/lifecycle_exec/mod.rs`), while the CLI equivalent
+  writes `rejected` for a stale plan. Honest today — the helper means
+  "the request was handled" — but it is the last place in the API with
+  no rule of its own.
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+- No supported profile declares a component id as a capability, so the
+  planner's component step cannot be produced by the deterministic
+  resolver. The profile capability sets and the component catalog have
+  no overlap; a change that bridges them would make the component lane
+  reachable from the planner.
+- The publish lane's completion vocabulary is two words (`done`,
+  `succeeded`) because the publish and delivery lanes each read one.
+  A change that made the provider contract's terminal `status`
+  vocabulary explicit would let the rule name one word instead of a
+  set.
+
+Implementation/archive commit: `0c45a5d` (`feat: the fleet summary counts what the runs did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

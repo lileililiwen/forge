@@ -11130,3 +11130,184 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `3090953` (`feat: the agent journal state names the outcome the runtime reported`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 45: `planner-plan-verdict-truth`
+
+The planner claimed two things its own evidence did not support.
+
+### The defect
+
+**A resolved plan was journalled as a completed resolution.**
+
+```
+$ forge --registry /tmp/plan-probe/registry.db intent resolve --action create_project --profile rust-web
+$ sqlite3 /tmp/plan-probe/registry.db "SELECT kind, project_id, state, detail FROM operations"
+('planner', 'rust-web-1ae2bc11-a90ac786', 'done', 'resolve: deterministic assembly plan for create_project: 3 step(s), 0 unresolved, profile rust-web@0.1.0')
+```
+
+`forge intent resolve` resolves an intent into a plan and writes the
+plan's receipt. It applies nothing: `forge intent apply` is a separate
+command with its own confirm gate. The row said `done`, the state the
+registry uses for a completed action, for a plan that was never applied.
+
+The state came from a private copy of the rule, in a third lane:
+
+```rust
+// src/cli/intent.rs, before
+let _ = registry.record_operation(
+    "planner",
+    &plan.plan_id,
+    "done",
+    &format!("resolve: {}", plan.note),
+);
+```
+
+Change 42 had already put that rule in the shared Core and promoted it:
+
+```rust
+// src/core/resolve.rs
+pub fn for_steps(step_count: usize) -> Self {
+    if step_count == 0 {
+        ResolveRun::Rejected
+    } else {
+        ResolveRun::Planned
+    }
+}
+```
+
+The promoted capability `resolve-plan-verdict-truth` says every journal
+row for a resolution "SHALL follow that one rule rather than a private
+copy of it", and named the component resolver and the UI pattern
+resolver. The intent planner was a third resolution writer and never
+joined them.
+
+**A resolved component was reported as verified.**
+
+```rust
+// src/planner/apply.rs, before
+PlanStepKind::InstallComponent => {
+    match resolve_components(&request) {
+        Ok(_) => applied.push(AppliedStep {
+            kind: step.kind,
+            target: step.target.clone(),
+            status: "verified".to_string(),
+            note: format!(
+                "component {}@{} resolved for {}; promotion is the operator's \
+                 call and the planner did not auto-qualify it",
+                step.target, step.version, plan.profile
+            ),
+        }),
+```
+
+The step resolves a component in the catalog. It installs nothing, it
+qualifies nothing, and its own note says so — while the status next to
+it says `verified`, a quality level the planner never awarded.
+
+### The rule
+
+The planner names the action it performed: a resolve is a planned run,
+and a resolved component is a resolved component.
+
+The resolve lane reads the shared rule, so there is one copy of it:
+
+```rust
+// src/cli/intent.rs, after
+let run = ResolveRun::for_steps(plan.steps.len());
+let note = format!("resolve: verdict={} {}", run.label(), plan.note);
+if let Ok(registry) = open_registry(db_path) {
+    let _ = registry.record_operation("planner", &plan.plan_id, run.journal_state(), &note);
+}
+```
+
+The row after the change:
+
+```
+('planner', 'rust-web-1ae2bc11-a90ac786', 'planned', 'resolve: verdict=planned deterministic assembly plan for create_project: 3 step(s), 0 unresolved, profile rust-web@0.1.0')
+```
+
+The command's output names the run too, because the promoted rule says
+the output names it: the JSON envelope carries the note the row carries,
+and the human render ends with the same line. The plan and the receipt
+are unchanged.
+
+The apply lane names the action it performed:
+
+```rust
+// src/planner/apply.rs, after
+status: "resolved".to_string(),
+```
+
+The step's status now agrees with its own note. The other step kinds
+are untouched: a feature is still `applied`, a UI pattern still
+`installed`, a scheduled gate still `scheduled`.
+
+### The options, decided
+
+| Option for the resolve row's state | Verdict |
+|---|---|
+| Keep `done` | Rejected. A resolve applies nothing; `done` is the state for a completed action, and the promoted rule already says a resolution is never recorded as one. |
+| Keep `done` and add "plan" to the detail | Rejected. The state is what a reader counts and filters on; a plan behind a `done` state is still a completed resolution on the record. |
+| Read the shared `ResolveRun` rule | **Chosen.** The rule already exists in the Core; this lane becomes a third reader of it, exactly as the promoted capability says every resolution writer must be. |
+| Give the planner its own verdict type | Rejected. A second copy of one rule is where the lanes drift; the two copies already drifted once. |
+| Journal no row at all | Rejected. The plan was produced and reviewed; the transition is worth a record, and the plan's own receipt is the artifact. |
+
+| Option for the component step's status | Verdict |
+|---|---|
+| Keep `verified` | Rejected. The step resolved a component in the catalog. It installed nothing, qualified nothing, and its own note says the promotion is the operator's call. |
+| Report `resolved` | **Chosen.** The status names the action the step performed, and it agrees with the note beside it. |
+| Report `installed` | Rejected. Nothing was installed; the planner has no component installer. |
+| Report `skipped` | Rejected. The step did not skip anything: the resolve ran and succeeded. |
+| Report `applied` | Rejected. The planner applied no component; `applied` is the status of a feature install. |
+
+| Option for the resolve output | Verdict |
+|---|---|
+| Leave the output unnamed and only fix the row | Rejected. The promoted scenario says the command's output names the run too, and the other two resolver lanes already do. |
+| Add the run to the plan's own note | Rejected. The plan and its receipt are review artifacts; their bytes must not change with the journal vocabulary. |
+| Carry the note in the JSON envelope and end the human render with it | **Chosen.** One string, three places: the journal detail, the JSON `note` and the human output. The plan is untouched. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge intent resolve --action create_project --profile rust-web` wrote `('planner', 'rust-web-1ae2bc11-a90ac786', 'done', 'resolve: deterministic assembly plan for create_project: 3 step(s), 0 unresolved, profile rust-web@0.1.0')`. The private copy of the rule was the literal `"done"` in `src/cli/intent.rs`; the component step's `status: "verified"` sat beside a note that says the planner did not auto-qualify it. |
+| The one rule | PASS | `src/cli/intent.rs` reads `ResolveRun::for_steps` from `src/core/resolve.rs`; no planner code computes a resolution state of its own. The component, UI pattern and intent lanes now read the same rule. |
+| A resolve journals a planned run | PASS | `an_intent_resolve_journals_a_planned_run_and_names_it` asserts the row's state is `planned`, its detail names `verdict=planned`, the row names the plan id and the command's JSON note names the run. |
+| A resolve is never a completed resolution | PASS | `an_intent_resolve_is_never_recorded_as_a_completed_resolution` asserts that no planner row reads `done`, that the plan receipt is the only artifact and that no feature was installed. |
+| A resolved component is not a verified install | PASS | `an_applied_component_step_reports_resolved_and_never_verified` asserts the applied step's status is `resolved`, never `verified` or `installed`, and that the note still says the planner did not auto-qualify it. |
+| One rule, every resolution writer | PASS | `every_resolution_writer_reads_the_same_rule` drives the component, UI pattern and intent resolvers against one registry and asserts three `planned` rows that each name `verdict=planned`. |
+| The contract test fails without the change | PASS | With `src/cli/intent.rs` and `src/planner/apply.rs` reverted to `HEAD`, all four cases fail: the resolve row reads `done` instead of `planned`, the completed-resolution case finds that `done` row, the applied component step reads `verified` instead of `resolved`, and the shared-rule case reads `done` for the planner lane. With the change restored, all four pass. |
+| The untouched surfaces | PASS | `git diff` changes no line of `src/planner/resolve.rs`, `src/planner/model.rs`, `src/planner/render.rs` or the other step kinds in `src/planner/apply.rs`. `tests/planner_contract.rs` (11 tests) and `tests/planner_cross_surface.rs` (7 tests) pass unchanged, including the cross-surface test that reads a completed planner apply as `done`. The web route `POST /v1/admin/projects/{id}/intent/resolve` is a preview that journals nothing and states `effect: none`; it is unchanged. |
+| The component step's reachability | recorded, not a blocker | No supported profile declares a component id as a capability, so the deterministic resolver cannot emit a component step on its own and the false `verified` was unreachable through the CLI. The claim is still in shipped code, and the contract test drives the executor through its public contract (`write_plan_receipt` plus `apply_plan`) with the component step built on a resolved plan. The gap that makes the step unreachable — a profile capability set that has no overlap with the component catalog — is not this change's business. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 243 `test result:` lines sum to **4278 passed; 0 failed; 1 ignored**. The pre-change baseline was 242 lines and 4274 passed, so this change adds exactly the 4 tests it declares and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T09:28:21Z"` on revision `5ce3748ecb1c3d4d1ae219bbe94a507ea7f4fc89` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 460 of 460 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 166 passed, 0 failed (166 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-planner-plan-verdict-truth/`: the `resolve-plan-verdict-truth` requirement was modified with every canonical scenario name kept and the third writer named, the `validated-intent-planner` "Reviewable deterministic plan" requirement was modified with its three canonical scenarios kept and two scenarios added, the archive's trailing blank lines were stripped from both canonical specs by hand, and both purposes now state the general rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/cli/intent.rs` 224, `src/core/resolve.rs` 82, `src/planner/apply.rs` 339, `src/planner/mod.rs` 53, `tests/planner_plan_verdict_truth_contract.rs` 312. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code, change 35's worker wrote everything then stopped, and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself, from the package it had already written. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The publish lane composes a container identity when the provider
+  reported none (`src/cli/publish.rs`, `src/api/handlers_core.rs`):
+  medium confidence, because the composed name is the contract's
+  canonical Compose name.
+- The studio refine route journals `done` although only the request
+  was recorded (`src/studio/state.rs`).
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+- The component module doc still names the journal vocabulary
+  `done`/`blocked`/`rejected` (`src/component/mod.rs`), while since
+  change 42 the component resolver also writes `planned`. A doc-only
+  truthfulness change.
+- No supported profile declares a component id as a capability, so the
+  planner's component step cannot be produced by the deterministic
+  resolver. The profile capability sets and the component catalog have
+  no overlap; a change that bridges them would make the component lane
+  reachable from the planner.
+
+Implementation/archive commit: `c078552` (`feat: the planner journals the run it performed`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

@@ -1,7 +1,11 @@
-//! Shared Core types: stable error codes and project identity rules.
+//! Shared Core types: stable error codes, project identity rules and
+//! the rules more than one domain reads.
 
 pub mod manifest;
 pub mod manifest_blocks;
+pub mod resolve;
+
+pub use resolve::ResolveRun;
 
 use thiserror::Error;
 

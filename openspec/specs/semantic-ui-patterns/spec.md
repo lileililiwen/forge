@@ -1,7 +1,7 @@
 # semantic-ui-patterns Specification
 
 ## Purpose
-Semantic UI pattern catalog (seventeen tested entries plus one deprecated): data, interaction, typography, spacing, responsive, state, accessibility and navigation contracts with tested per-profile adapters that install ordinary source plus receipts and refuse ownership conflicts.
+Semantic UI pattern catalog (seventeen tested entries plus one deprecated): data, interaction, typography, spacing, responsive, state, accessibility and navigation contracts with tested per-profile adapters that install ordinary source plus receipts and refuse ownership conflicts. A resolution reports the plan it produced and is never recorded as a completed installation.
 ## Requirements
 ### Requirement: Semantic UI catalog and states
 
@@ -24,7 +24,7 @@ Forge SHALL describe reusable UI patterns through data, interaction, typography,
 
 ### Requirement: Deterministic UI installation
 
-Forge SHALL install pinned compatible pattern implementations that remain editable ordinary source and preserve the host project design conventions.
+Forge SHALL install pinned compatible pattern implementations that remain editable ordinary source and preserve the host project design conventions. A resolution SHALL report the plan it produced and SHALL NOT record a completed installation, because a resolution installs nothing.
 
 #### Scenario: Deterministic UI installation success
 
@@ -40,4 +40,10 @@ Forge SHALL install pinned compatible pattern implementations that remain editab
 
 - **WHEN** Forge is removed after installation
 - **THEN** the installed pattern continues to build and operate through the project native toolchain
+
+#### Scenario: A resolved UI pattern plan is not an installation
+
+- **WHEN** a resolution produces a plan for a profile
+- **THEN** the journal records a planned resolution, the detail names
+  the run, and no pattern is recorded as installed
 

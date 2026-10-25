@@ -8,7 +8,7 @@ use forge::component::{
     render_outcome_human as render_component_outcome_human, render_qualify_human, resolve_outcome,
     ComponentQualifyEvidence, ComponentQualifyRequest, ComponentQuality,
 };
-use forge::core::ForgeError;
+use forge::core::{ForgeError, ResolveRun};
 use std::path::{Path, PathBuf};
 
 use super::commands_ops::ComponentCommands;
@@ -109,16 +109,15 @@ pub(crate) fn cmd_component(
                 component_ids: components.clone(),
             };
             let outcome = resolve_outcome(&request)?;
-            let journal_state = if outcome.plan.steps.is_empty() {
-                "rejected"
-            } else {
-                "done"
-            };
+            // One rule names the run: a resolution installs nothing, so
+            // it is a planned run and never a completed resolution.
+            let run = ResolveRun::for_steps(outcome.plan.steps.len());
             let summary = format!(
-                "{} resolved={} rejected={}",
+                "{} resolved={} rejected={} verdict={}",
                 request.profile,
                 outcome.plan.steps.len(),
-                outcome.plan.rejections.len()
+                outcome.plan.rejections.len(),
+                run.label()
             );
             let note = format!("{}; {}", summary, outcome.note);
             // Journal: component operations are catalog-global; the
@@ -126,8 +125,12 @@ pub(crate) fn cmd_component(
             // registry contract satisfied without inventing a
             // user-visible project.
             if let Ok(registry) = open_registry(db_path) {
-                let _ =
-                    registry.record_operation("component", "__component__", journal_state, &note);
+                let _ = registry.record_operation(
+                    "component",
+                    "__component__",
+                    run.journal_state(),
+                    &note,
+                );
             }
             let json = serde_json::json!({
                 "profile": outcome.profile,

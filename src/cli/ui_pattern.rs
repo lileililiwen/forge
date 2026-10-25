@@ -3,7 +3,7 @@
 //! Typed CLI handlers for semantic UI pattern discovery and installation.
 //! Bodies moved verbatim from the split of `src/main.rs`.
 
-use forge::core::ForgeError;
+use forge::core::{ForgeError, ResolveRun};
 use forge::ui_pattern::{
     inspect_ui_pattern, install_pattern, render_install_human,
     render_outcome_human as render_ui_pattern_outcome_human,
@@ -140,21 +140,24 @@ pub(crate) fn cmd_ui_pattern(
                 pattern_ids: patterns.clone(),
             };
             let outcome = resolve_ui_pattern_outcome(&request)?;
-            let journal_state = if outcome.plan.steps.is_empty() {
-                "rejected"
-            } else {
-                "done"
-            };
+            // One rule names the run: a resolution installs nothing, so
+            // it is a planned run and never a completed resolution.
+            let run = ResolveRun::for_steps(outcome.plan.steps.len());
             let summary = format!(
-                "{} resolved={} rejected={}",
+                "{} resolved={} rejected={} verdict={}",
                 request.profile,
                 outcome.plan.steps.len(),
-                outcome.plan.rejections.len()
+                outcome.plan.rejections.len(),
+                run.label()
             );
             let note = format!("{}; {}", summary, outcome.note);
             if let Ok(registry) = open_registry(db_path) {
-                let _ =
-                    registry.record_operation("ui_pattern", "__ui_pattern__", journal_state, &note);
+                let _ = registry.record_operation(
+                    "ui_pattern",
+                    "__ui_pattern__",
+                    run.journal_state(),
+                    &note,
+                );
             }
             let json = serde_json::json!({
                 "profile": outcome.profile,

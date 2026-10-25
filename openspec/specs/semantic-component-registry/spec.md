@@ -1,11 +1,11 @@
 # semantic-component-registry Specification
 
 ## Purpose
-Semantic reusable-component registry below feature granularity: meaningful units with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, under quality levels (experimental/verified/certified/deprecated) with certified preferred and deprecated refused. A promotion records only the evidence the operator supplied: an absent measurement is never a default value, and a certification is refused unless the coverage, the verification timestamp and the security review it requires were supplied.
+Semantic reusable-component registry below feature granularity: meaningful units with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, under quality levels (experimental/verified/certified/deprecated) with certified preferred and deprecated refused. A promotion records only the evidence the operator supplied: an absent measurement is never a default value, and a certification is refused unless the coverage, the verification timestamp and the security review it requires were supplied. A resolution reports the plan it produced and is never recorded as a completed installation.
 ## Requirements
 ### Requirement: Semantic reusable unit contracts
 
-Forge SHALL register meaningful components with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, linked to features, patterns and capabilities.
+Forge SHALL register meaningful components with explicit inputs/outputs, tests, versions, compatibility and deterministic installation, linked to features, patterns and capabilities. A resolution SHALL report the plan it produced and SHALL NOT record a completed resolution, because a resolution installs nothing.
 
 #### Scenario: Semantic reusable unit contracts success
 
@@ -21,6 +21,12 @@ Forge SHALL register meaningful components with explicit inputs/outputs, tests, 
 
 - **WHEN** two stacks implement the same semantic capability
 - **THEN** each preserves its own implementation while exposing the shared contract
+
+#### Scenario: A resolved component plan is not an installation
+
+- **WHEN** a resolution produces a plan for a profile
+- **THEN** the journal records a planned resolution, the detail names
+  the run, and the plan is not recorded as a completed installation
 
 ### Requirement: Quality classification and selection
 

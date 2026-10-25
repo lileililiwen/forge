@@ -12,7 +12,9 @@ deploy whose stage did not complete. The registry journal row of a
 deploy plan SHALL record that run, and a plan SHALL NOT record a
 completed deployment, because a plan deploys nothing. Every journal row
 of the deploy lane SHALL name the run in its detail, so a reader never
-has to guess what the state means.
+has to guess what the state means. The API route that computes a deploy
+plan SHALL read the same rule for the row it writes, and SHALL NOT
+record a completed operation for a plan.
 
 #### Scenario: A plan is not a completed deployment
 
@@ -39,3 +41,9 @@ has to guess what the state means.
 - **WHEN** a confirmed deploy applies the artifact and every stage
   completes
 - **THEN** the journal row records a completed deploy, exactly as before
+
+#### Scenario: The API deploy route reads the same rule
+
+- **WHEN** the API computes a deploy plan or a deploy apply
+- **THEN** its operation row records the run the deploy rule names, and
+  a plan is never recorded as a completed deployment

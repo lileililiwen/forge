@@ -31,6 +31,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use super::operation::OperationOutcome;
 use super::{ApiRequest, ApiResponse};
 use crate::core::{validate_project_id, ForgeError};
 use crate::doctor::{
@@ -600,7 +601,7 @@ pub fn apply(db_path: &Path, id: &str, body: &Value, request: &ApiRequest) -> Ap
         let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
             reason: err.to_string(),
         })?;
-        Ok((value, _op_id, id.to_string()))
+        Ok((value, _op_id, id.to_string(), OperationOutcome::Completed))
     }) {
         Ok((outcome, op_id, _project_id)) => ApiResponse::json(
             202,

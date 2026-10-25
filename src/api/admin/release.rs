@@ -2,6 +2,7 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
+use super::super::operation::OperationOutcome;
 use super::super::{ApiConfig, ApiRequest, ApiResponse, API_CONTRACT_VERSION};
 use crate::core::manifest::Manifest;
 use crate::policy::DriftWatchConfig;
@@ -218,7 +219,7 @@ pub(super) fn release_write(
                         &adapters,
                     )?;
                     let view = scrub_json(release_report_view(&report), &secrets);
-                    Ok((view, op_id, id.to_string()))
+                    Ok((view, op_id, id.to_string(), OperationOutcome::Completed))
                 },
             ) {
                 Ok((view, op_id, _pid)) => {

@@ -466,6 +466,7 @@ fn run_management_new(
                 }),
                 op_id,
                 generated.record.id,
+                super::operation::OperationOutcome::Completed,
             ))
         },
     )?;
@@ -502,6 +503,7 @@ fn run_management_import(
                 }),
                 op_id,
                 record.id,
+                super::operation::OperationOutcome::Completed,
             ))
         },
     )?;
@@ -535,6 +537,7 @@ fn run_management_register(
                 }),
                 op_id,
                 record.id,
+                super::operation::OperationOutcome::Completed,
             ))
         },
     )?;

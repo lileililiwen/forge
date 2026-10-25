@@ -113,6 +113,12 @@ mod lifecycle_exec;
 /// browser addresses a project by validated id and never sends a path.
 mod maintain;
 pub mod model;
+/// The one rule for the state of an API operation row
+/// (`api-operation-verdict-truth`): a completed operation did the work, a
+/// planned operation only planned, a blocked operation was refused and a
+/// failed operation did not finish. The shared operation boundary reads
+/// it; no route writes an operation state of its own.
+mod operation;
 /// Session-gated portfolio controls and cross-project evidence views
 /// (`forge-web-portfolio-controls/0.1.0`) backing `/v1/admin/portfolio*`.
 /// Forge-owned metadata writes reuse registry Core only; imported,

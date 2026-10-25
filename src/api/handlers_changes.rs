@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 
 use super::contract::{API_CONTRACT_VERSION, API_SYNTHETIC_PROJECT};
 use super::model::{ApiRequest, ApiResponse};
+use super::operation::OperationOutcome;
 use super::router::bad_request;
 use super::server::run_with_operation;
 
@@ -158,7 +159,7 @@ pub(super) fn handle_create_project(
                 crate::generate::GENERATOR_VERSION
             );
             let _ = registry.record_operation("api", &project_id, "done", &detail);
-            Ok((value, op_id, project_id))
+            Ok((value, op_id, project_id, OperationOutcome::Completed))
         },
     ) {
         Ok(value) => value,
@@ -197,7 +198,7 @@ pub(in crate::api) fn handle_add_feature(
             let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         },
     ) {
         Ok(value) => value,
@@ -250,14 +251,16 @@ pub(super) fn handle_upgrade(
                 let value = serde_json::to_value(&plan).map_err(|err| ForgeError::Registry {
                     reason: err.to_string(),
                 })?;
-                return Ok((value, op_id, id.to_string()));
+                // A plan changes nothing, so it is never recorded as a
+                // completed upgrade.
+                return Ok((value, op_id, id.to_string(), OperationOutcome::Planned));
             }
             let mut registry = Registry::open(db_path)?;
             let outcome: UpgradeOutcome = apply_upgrade(&mut registry, id, feature)?;
             let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         }) {
             Ok(value) => value,
             Err(response) => return response,
@@ -327,7 +330,7 @@ pub(in crate::api) fn handle_generate_spec(
             let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         },
     ) {
         Ok(value) => value,
@@ -406,7 +409,7 @@ pub(in crate::api) fn handle_remove_feature(
             let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         },
     ) {
         Ok(value) => value,
@@ -446,7 +449,7 @@ pub(in crate::api) fn handle_upgrade_feature(
             let value = serde_json::to_value(&outcome).map_err(|err| ForgeError::Registry {
                 reason: err.to_string(),
             })?;
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         },
     ) {
         Ok(value) => value,
@@ -528,7 +531,7 @@ pub(in crate::api) fn handle_apply_spec(
                 })?);
             }
             let value = Value::Array(outcomes);
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         },
     ) {
         Ok(value) => value,
@@ -652,7 +655,7 @@ pub(super) fn handle_agent_transition(
                 },
                 "files_written": files,
             });
-            Ok((value, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), OperationOutcome::Completed))
         }) {
             Ok(value) => value,
             Err(response) => return response,

@@ -17,6 +17,7 @@ use super::contract::{API_CONTRACT_VERSION, HANDLER_TIMEOUT, READ_TIMEOUT};
 use super::model::{
     ApiConfig, ApiError, ApiRequest, ApiResponse, CatalogQueryParams, ShutdownSignal,
 };
+use super::operation::OperationOutcome;
 use super::router::{bad_request, handle};
 
 /// `GET /v1/interest/audit`
@@ -389,7 +390,8 @@ pub(in crate::api) fn percent_decode(raw: &str) -> String {
 }
 
 /// Reservation helper. Reserves a pending operation,
-/// invokes the closure, then finalizes the operation with/// `done` or `failed`. Returns the closure's value plus
+/// invokes the closure, then finalizes the operation with the
+/// outcome the closure earned. Returns the closure's value plus
 /// the operation id.
 ///
 /// The closure receives the reserved `op_id` and a
@@ -399,6 +401,11 @@ pub(in crate::api) fn percent_decode(raw: &str) -> String {
 /// because [`Registry::open`] consumes the path and the
 /// original handle is borrowed for the duration of the
 /// reservation.
+///
+/// The closure states what the request earned
+/// ([`OperationOutcome`]), and the one rule names the row's
+/// state and its detail. A request that only planned is
+/// never recorded as a completed operation.
 pub(in crate::api) fn run_with_operation<T, F>(
     db_path: &Path,
     kind: &str,
@@ -407,7 +414,7 @@ pub(in crate::api) fn run_with_operation<T, F>(
     f: F,
 ) -> Result<(T, i64, String), ApiResponse>
 where
-    F: FnOnce(i64, &Registry) -> Result<(T, i64, String), ForgeError>,
+    F: FnOnce(i64, &Registry) -> Result<(T, i64, String, OperationOutcome), ForgeError>,
 {
     let registry = match Registry::open(db_path) {
         Ok(reg) => reg,
@@ -455,13 +462,15 @@ where
         ReservationOutcome::Reused { op_id } => {
             // Replay path: return the existing operation
             // without re-running the closure.
-            return Err(pending_or_done_response(&registry, op_id, kind, project_id));
+            return Err(replay_response(&registry, op_id, kind, project_id));
         }
     };
     match f(op_id, &registry) {
-        Ok((value, op_id, project_id)) => {
-            let detail = format!("{kind} completed");
-            let _ = registry.finalize_operation(op_id, "done", &detail);
+        Ok((value, op_id, project_id, outcome)) => {
+            // The one rule: the row's state names what the operation did
+            // and the detail names the run.
+            let detail = outcome.detail(kind);
+            let _ = registry.finalize_operation(op_id, outcome.journal_state(), &detail);
             Ok((value, op_id, project_id))
         }
         Err(err) => {
@@ -472,12 +481,12 @@ where
     }
 }
 
-fn pending_or_done_response(
-    registry: &Registry,
-    op_id: i64,
-    kind: &str,
-    project_id: &str,
-) -> ApiResponse {
+/// The replay envelope for an idempotent retry.
+///
+/// A pending operation is answered with `202` and a finished one — a
+/// completed, planned, blocked or failed run — with `200` and the row
+/// the rule recorded.
+fn replay_response(registry: &Registry, op_id: i64, kind: &str, project_id: &str) -> ApiResponse {
     // Try to fetch the existing entry; if we can, return
     // its current state with `200 OK` so the retry sees
     // the same operation identity the boundary scenario

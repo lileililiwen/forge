@@ -847,8 +847,14 @@ fn deploy_write(config: &ApiConfig, db_path: &Path, request: &ApiRequest, id: &s
                         &deploy_request,
                         &adapters,
                     )?;
+                    // The deploy rule judges the run and the operation rule
+                    // names the row's state: a run that did not finish is
+                    // never recorded as a completed operation.
+                    let outcome = super::super::operation::OperationOutcome::from_deploy_verdict(
+                        report.verdict,
+                    );
                     let view = scrub_json(report_view(&report), &secrets);
-                    Ok((view, op_id, id.to_string()))
+                    Ok((view, op_id, id.to_string(), outcome))
                 },
             ) {
                 Ok((view, op_id, _pid)) => {

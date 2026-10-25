@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use super::contract::API_CONTRACT_VERSION;
 use super::model::{ApiRequest, ApiResponse};
+use super::operation::OperationOutcome;
 use super::router::bad_request;
 use super::server::{parse_interest_stale_after_days, percent_decode, run_with_operation};
 
@@ -67,16 +68,23 @@ pub(super) fn handle_apply_deployment(
     let (value, _op_id, _pid) =
         match run_with_operation(db_path, "api.deploy", id, request, |op_id, _registry| {
             let adapter = crate::deploy::DeployAdapterConfig::from_env();
-            let report = if dry_run {
+            // The deploy rule judges the run and the operation rule names
+            // the row's state: a plan deploys nothing, so it is never
+            // recorded as a completed deployment.
+            let (value, outcome) = if dry_run {
                 let plan = crate::deploy::engine::prepare_deploy(
                     &project_dir,
                     &manifest,
                     &config,
                     &deploy_request,
                 )?;
-                serde_json::to_value(&plan).map_err(|err| ForgeError::Registry {
+                let outcome = OperationOutcome::from_deploy_verdict(
+                    crate::deploy::verdict_for_plan(plan.ready),
+                );
+                let value = serde_json::to_value(&plan).map_err(|err| ForgeError::Registry {
                     reason: err.to_string(),
-                })?
+                })?;
+                (value, outcome)
             } else {
                 let report = crate::deploy::engine::apply_deploy(
                     &project_dir,
@@ -85,11 +93,13 @@ pub(super) fn handle_apply_deployment(
                     &deploy_request,
                     &adapter,
                 )?;
-                serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
+                let outcome = OperationOutcome::from_deploy_verdict(report.verdict);
+                let value = serde_json::to_value(&report).map_err(|err| ForgeError::Registry {
                     reason: err.to_string(),
-                })?
+                })?;
+                (value, outcome)
             };
-            Ok((report, op_id, id.to_string()))
+            Ok((value, op_id, id.to_string(), outcome))
         }) {
             Ok(value) => value,
             Err(response) => return response,

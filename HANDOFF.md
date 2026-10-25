@@ -11311,3 +11311,181 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `c078552` (`feat: the planner journals the run it performed`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 46: `studio-journal-verdict-truth`
+
+The Studio lane journalled a request as a performed refinement.
+
+### The defect
+
+**A recorded refinement was journalled as a completed action.**
+
+```
+$ forge --registry /tmp/studio-probe/registry.db studio refine studio-probe \
+    --expected-revision r1 --request "make the hero bigger"
+$ sqlite3 /tmp/studio-probe/registry.db \
+    "SELECT kind, project_id, state, detail FROM operations WHERE kind = 'studio.refine'"
+('studio.refine', 'studio-probe', 'done', 'app_revision=r2 request=make the hero bigger selected_files=(none)')
+```
+
+The row said `done` — a completed action — although no refinement ran.
+The Core's own doc comment says so:
+
+```rust
+// src/studio/state.rs, before
+/// Record a refinement request. The journal row is the only
+/// durable artefact in this cycle: the agent-adapter runtime
+/// hook is a follow-up (see `tasks.md` §5.3).
+```
+
+and so does the CLI's own help for the command:
+
+```
+/// Submit a refinement request. Validates the request,
+/// journals a `studio.refine` row, and bumps `app_revision`.
+/// Read-only at the file level — no editor patch is applied
+/// in this cycle (the agent-adapter hook is a follow-up).
+```
+
+So the row contradicted the code and the help that describe it: the
+request was validated, recorded and journalled, and nothing else
+happened.
+
+The state was a literal in the Core:
+
+```rust
+// src/studio/state.rs, before
+record_journal(
+    registry,
+    StudioJournalKind::Refine,
+    &session.project_id,
+    "done",
+    &detail,
+)?;
+```
+
+The Studio lane had no rule at all: every writer handed
+`record_journal` a state string it invented. One writer was wrong and
+nothing said so; a second writer would have been free to write
+anything.
+
+### The rule
+
+One rule names what a Studio journal row records: the action the Studio
+Core performed.
+
+```rust
+// src/studio/state.rs, after
+pub enum StudioAction {
+    SpecSaved,
+    RefinementRecorded,
+    PreviewObserved(PreviewState),
+}
+
+impl StudioAction {
+    pub fn journal_state(self) -> &'static str {
+        match self {
+            StudioAction::SpecSaved => "done",
+            StudioAction::RefinementRecorded => "recorded",
+            StudioAction::PreviewObserved(state) => state.label(),
+        }
+    }
+}
+```
+
+Every writer reads it: the spec-save writer, the refinement writer and
+the four preview writers. The rows after the change:
+
+```
+('studio.spec.save', 'studio-probe', 'done', 'spec_revision=r1 app_revision=r1 app_schema_major=1 profile=react-web')
+('studio.refine', 'studio-probe', 'recorded', 'app_revision=r2 request=make the hero bigger selected_files=(none)')
+```
+
+The three surfaces — the `forge studio refine` CLI,
+`POST /v1/projects/{id}/studio/refine` and
+`POST /v1/admin/projects/{id}/studio/refine-admin` — all call
+`record_refinement`, so the one rule reaches all of them.
+
+### The options, decided
+
+| Option for the refinement row's state | Verdict |
+|---|---|
+| Keep `done` | Rejected. The refinement never ran; the Core's own doc comment and the CLI's own help say so. A row that claims a completion the Core never performed is the defect this programme keeps repairing. |
+| Use `rejected` | Rejected. Nothing was refused. The request was accepted, validated and recorded; `rejected` would be a false failure. |
+| Use `blocked` | Rejected. `blocked` is the registry's word for a rule that refused the action. Nothing refused this request. |
+| Use `pending` or `queued` | Rejected. Nothing promises to run the request later. The agent-adapter runtime hook is a follow-up, not a queued job, and a row that says "queued" would be a promise the Core cannot keep. |
+| Use `applied` | Rejected. No file was patched. The CLI's help says the path is read-only at the file level. |
+| Use `recorded` | **Chosen.** It names exactly what happened: the request was validated and recorded, and nothing else. |
+| Give every Studio writer its own state string | Rejected. That is the defect: one writer was free to write `done` for a request it never performed. |
+
+| Option for where the rule lives | Verdict |
+|---|---|
+| A literal in the refinement writer | Rejected. A literal is a copy of the rule, and the copy is what drifted. |
+| A rule in the Studio Core, read by every writer | **Chosen.** The Core owns the Studio's actions; the row's state comes from the action it performed, and no writer carries a hand-written state string. |
+| A rule in the registry | Rejected. The registry stores the row; it does not know what the Studio did. The vocabulary is the Studio's, so the rule belongs to the Studio. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The row above: `('studio.refine', 'studio-probe', 'done', ...)`. The state was the literal `"done"` in `src/studio/state.rs`. |
+| The one rule | PASS | `StudioAction::journal_state()` in `src/studio/state.rs` is the only decision, and all six Studio writers call it: the spec-save writer, the refinement writer and the four preview writers. |
+| A recorded refinement is not a performed refinement | PASS | `a_recorded_refinement_journals_a_recorded_request`: the row's state is `recorded`, never `done`, and its detail still carries the new `app_revision`, the request and the selected file list. |
+| The transport records the same row | PASS | `the_cli_refine_transport_records_the_same_row` drives `forge studio refine` through the CLI and asserts the row is `recorded`. |
+| A saved spec is still a completed save | PASS | `a_saved_spec_still_journals_a_completed_save`: the `studio.spec.save` row is still `done`. |
+| A preview row still names the observed state | PASS | `a_preview_row_still_names_the_observed_state` drives `start_preview` and `stop_preview` with the in-process `FakeRunner` and asserts the rows are `ready` and `stopped`. |
+| A refusal still writes no row | PASS | `a_refused_refinement_writes_no_row`: a stale revision is refused with `studio-revision-conflict` and no `studio.refine` row exists. |
+| The contract test fails without the change | PASS | With the refinement writer's state put back to the literal `"done"` and the rule left in place, two of the six cases fail: `a_recorded_refinement_journals_a_recorded_request` and `the_cli_refine_transport_records_the_same_row` both read `done` where they expect `recorded`. The other four cases pass on both trees, as they should. |
+| The untouched surfaces | PASS | `git diff` changes no line of `src/studio/spec.rs`, `src/cli/feature.rs`, `src/api/handlers_studio.rs` or `src/api/lifecycle_exec/studio.rs`. The session record, the `app_revision` bump, the refusals and the three transports' envelopes are unchanged. The existing Studio suites pass unchanged: `studio_cli_contract` 13 passed, `studio_api_contract` 7 passed, `studio_preview_contract` 2 passed. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 245 `test result:` lines sum to **4284 passed; 0 failed; 1 ignored**. The pre-change baseline was 243 lines and 4278 passed, so this change adds exactly the 6 tests it declares and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T10:24:00Z"` on revision `043f3014f7807430dd77b5566776932e29e09e80` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 167 passed, 0 failed (167 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-studio-journal-verdict-truth/`: the new capability `studio-journal-verdict-truth` was promoted with one requirement and four scenarios, the `site-studio-preview-refinement` "Scoped refinement" requirement was modified with all three canonical scenario names kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, both purposes now state the general rule, and the archive's trailing blank lines were stripped from the canonical specs by hand. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all four touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/studio/state.rs` 665, `src/studio/preview.rs` 970, `src/studio/mod.rs` 120, `tests/studio_journal_verdict_truth_contract.rs` 298. |
+| The worker | the owning agent wrote the change | The worker subagents in this programme have been unreliable, so the owning agent wrote this change. An `explore` subagent did the defect hunt and returned a ranked candidate list; the owning agent chose this candidate, reproduced it, and wrote the rule, the writers and the tests. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The API agent route journals a hardcoded `done`
+  (`src/api/handlers_changes.rs`): the shared rule
+  `AgentTransitionOutcome::journal_state()` that change 44 promoted is
+  read by the CLI and the MCP tool, but the HTTP route
+  `POST /v1/projects/{id}/agents` still writes the literal `"done"`,
+  while its own detail says `-> unsupported`. The same shape as change
+  44 in the one surface change 44 did not cover. Found by the
+  `explore` subagent and verified by the owning agent.
+- The publish lane composes a container identity when the provider
+  reported none (`src/cli/publish.rs`, `src/api/handlers_core.rs`,
+  `src/api/admin/publish.rs`): the canonical spec authorises the
+  synthesis for a **successful** response only, and the code composes
+  it for a failed or queued response too. The fleet lane
+  (`src/cli/fleet.rs`) never composes one, so its rows are not
+  byte-equivalent with the manual lane's.
+- The studio refine route journals `done` although only the request
+  was recorded (`src/studio/state.rs`) — **closed by this change**.
+- The component module doc still names the journal vocabulary
+  `done`/`blocked`/`rejected` (`src/component/mod.rs`), while since
+  change 42 the component resolver also writes `planned`. A doc-only
+  truthfulness change.
+- The component qualify lane hand-writes its state
+  (`src/cli/component.rs`): `if outcome.promoted { "done" } else { "blocked" }`.
+  The claim is honest today, but there is no rule behind it, the same
+  hole this change closed in the Studio lane.
+- The API's own lifecycle journal helper hardcodes `done` for every
+  route (`src/api/lifecycle_exec/mod.rs`), while the CLI equivalent
+  writes `rejected` for a stale plan. Honest today, but it is the last
+  place in the API with no rule at all.
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+- No supported profile declares a component id as a capability, so the
+  planner's component step cannot be produced by the deterministic
+  resolver. The profile capability sets and the component catalog have
+  no overlap; a change that bridges them would make the component lane
+  reachable from the planner.
+
+Implementation/archive commit: `3ed22c7` (`feat: the studio journal row names the action it recorded`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

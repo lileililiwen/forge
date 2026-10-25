@@ -269,10 +269,15 @@ pub(super) fn publish_write(
                         .revision
                         .clone()
                         .unwrap_or_else(|| target.revision.clone());
-                    let container_identity =
-                        response.container_identity.clone().unwrap_or_else(|| {
-                            publish_providers::compose_project_name(id, &phase_revision)
-                        });
+                    // One rule, every surface: the identity a response
+                    // proves is the provider's own, or the canonical one
+                    // for a response that published. A response that
+                    // published nothing carries none.
+                    let container_identity = publish_providers::proven_container_identity(
+                        &response,
+                        id,
+                        &phase_revision,
+                    );
                     let healthy = response.status == "done" && response.health == "healthy";
                     let journal_detail = format!(
                         "provider={} revision={} health={} build={} run={}",
@@ -288,7 +293,7 @@ pub(super) fn publish_write(
                         &response.status,
                         PublishPhaseEvidence::new()
                             .revision(&phase_revision)
-                            .container_identity(&container_identity)
+                            .container_identity_opt(container_identity.as_deref())
                             .build_status_opt(response.build_status.as_deref())
                             .run_status_opt(response.run_status.as_deref()),
                         Some(&journal_detail),

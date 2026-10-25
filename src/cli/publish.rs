@@ -413,15 +413,20 @@ fn publish_via_provider_dir(
             .revision
             .clone()
             .unwrap_or_else(|| revision.clone());
-        let container_identity = response.container_identity.clone().unwrap_or_else(|| {
-            forge::publish::providers::compose_project_name(project_id, &phase_revision)
-        });
+        // One rule, every surface: the identity a response proves is
+        // the provider's own, or the canonical one for a response that
+        // published. A response that published nothing carries none.
+        let container_identity = forge::publish::providers::proven_container_identity(
+            &response,
+            project_id,
+            &phase_revision,
+        );
         registry.record_publish_phase(
             project_id,
             &response.status,
             PublishPhaseEvidence::new()
                 .revision(&phase_revision)
-                .container_identity(&container_identity)
+                .container_identity_opt(container_identity.as_deref())
                 .build_status_opt(response.build_status.as_deref())
                 .run_status_opt(response.run_status.as_deref()),
             Some(&format!(
@@ -612,15 +617,20 @@ pub(super) fn cmd_publish_provider(
             .revision
             .clone()
             .unwrap_or_else(|| revision.clone());
-        let container_identity = response.container_identity.clone().unwrap_or_else(|| {
-            forge::publish::providers::compose_project_name(&project_id, &phase_revision)
-        });
+        // One rule, every surface: the identity a response proves is
+        // the provider's own, or the canonical one for a response that
+        // published. A response that published nothing carries none.
+        let container_identity = forge::publish::providers::proven_container_identity(
+            &response,
+            &project_id,
+            &phase_revision,
+        );
         registry.record_publish_phase(
             &project_id,
             &response.status,
             PublishPhaseEvidence::new()
                 .revision(&phase_revision)
-                .container_identity(&container_identity)
+                .container_identity_opt(container_identity.as_deref())
                 .build_status_opt(response.build_status.as_deref())
                 .run_status_opt(response.run_status.as_deref()),
             Some(&format!(

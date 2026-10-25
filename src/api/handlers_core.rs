@@ -592,15 +592,20 @@ pub(super) fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiRes
         .revision
         .clone()
         .unwrap_or_else(|| provider_request.revision.clone());
-    let container_identity = response.container_identity.clone().unwrap_or_else(|| {
-        crate::publish::providers::compose_project_name(&project_id, &phase_revision)
-    });
+    // One rule, every surface: the identity a response proves is the
+    // provider's own, or the canonical one for a response that
+    // published. A response that published nothing carries none.
+    let container_identity = crate::publish::providers::proven_container_identity(
+        &response,
+        &project_id,
+        &phase_revision,
+    );
     let _ = registry.update_operation_phase(
         op_id,
         Some(&phase_revision),
         response.build_status.as_deref(),
         response.run_status.as_deref(),
-        Some(&container_identity),
+        container_identity.as_deref(),
     );
     let detail = format!(
         "provider={} revision={} health={} build={:?} run={:?}",

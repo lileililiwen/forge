@@ -1,7 +1,7 @@
 # forge-publish-observability-revision-containers Specification
 
 ## Purpose
-Phase-visible publish lifecycle events and revision-bound container identity, so an in-flight publish is observable and a container is attributable to the revision that produced it. Every projected entry names the phase evidence it carries and names a value the journal row does not carry `unknown`, so no entry reads as a verified success by silence.
+Phase-visible publish lifecycle events and revision-bound container identity, so an in-flight publish is observable and a container is attributable to the revision that produced it. Every projected entry names the phase evidence it carries and names a value the journal row does not carry `unknown`, so no entry reads as a verified success by silence. Forge composes the container identity only for a response that published, so no row names a container for a deployment that never happened.
 ## Requirements
 ### Requirement: Phase-visible publish lifecycle
 
@@ -74,7 +74,10 @@ silence.
 
 The published revision SHALL be visible in the Docker / Compose
 runtime identity so an operator inspecting `docker ps` can identify
-the exact commit a running container represents.
+the exact commit a running container represents. Forge SHALL compose
+that identity only for a response that published: a response that
+published nothing and reports no `container_identity` of its own
+SHALL carry no identity at all.
 
 #### Scenario: Canonical compose identity uses the 12-character SHA prefix
 
@@ -92,6 +95,14 @@ the exact commit a running container represents.
   `forge-<project>-<sha12>` identity computed from the recorded
   revision so legacy providers are not silently absent from
   observability
+
+#### Scenario: A response that published nothing carries no container
+
+- **WHEN** a provider returns a response that did not complete the
+  publish and reports no `container_identity` field
+- **THEN** Forge persists the row without a container identity, the
+  response carries none, and the status projection renders it as
+  `unknown`
 
 #### Scenario: Status projection surfaces revision and identity
 
@@ -129,4 +140,3 @@ phase the runtime is currently executing.
 - **WHEN** the provider emits `phase=run status=started detail=...`
 - **THEN** Forge forwards the bounded detail and updates the journal
   `run_status` when the corresponding terminal event arrives
-

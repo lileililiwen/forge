@@ -94,7 +94,8 @@ pub(crate) fn cmd_agent(
                 spec_id,
                 outcome.state.label()
             );
-            let _ = registry.record_operation("agent", &project_id, "done", &detail);
+            let _ =
+                registry.record_operation("agent", &project_id, &outcome.journal_state(), &detail);
             agent_outcome_output(&outcome, &files, &detail, format)
         }
         AgentCommands::Pause { target, session } => {
@@ -163,7 +164,8 @@ pub(crate) fn cmd_agent(
                 session,
                 outcome.state.label()
             );
-            let _ = registry.record_operation("agent", &project_id, "done", &detail);
+            let _ =
+                registry.record_operation("agent", &project_id, &outcome.journal_state(), &detail);
             agent_outcome_output(&outcome, &files, &detail, format)
         }
         AgentCommands::Status { target, session } => {
@@ -234,14 +236,15 @@ pub(crate) fn cmd_agent(
             let verdict = outcome
                 .verdict
                 .clone()
-                .unwrap_or_else(|| "done".to_string());
+                .unwrap_or_else(|| "none reported".to_string());
             let detail = format!(
                 "agent `{}` run_spec session `{}` -> `{}` (verdict `{verdict}`)",
                 project_id,
                 session,
                 outcome.state.label()
             );
-            let _ = registry.record_operation("agent", &project_id, &verdict, &detail);
+            let _ =
+                registry.record_operation("agent", &project_id, &outcome.journal_state(), &detail);
             agent_outcome_output(&outcome, &files, &detail, format)
         }
     }
@@ -269,7 +272,7 @@ fn run_agent_transition(
         transition.label(),
         outcome.state.label()
     );
-    let _ = registry.record_operation("agent", project_id, "done", &detail);
+    let _ = registry.record_operation("agent", project_id, &outcome.journal_state(), &detail);
     agent_outcome_output(&outcome, &files, &detail, format)
 }
 

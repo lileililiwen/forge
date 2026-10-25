@@ -221,6 +221,29 @@ pub struct AgentTransitionOutcome {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,
 }
+
+impl AgentTransitionOutcome {
+    /// The journal state this outcome records.
+    ///
+    /// A row must never claim a completion the runtime did not report:
+    /// a run-spec records the supervisor's verdict when the supervisor
+    /// reported one, and a transition the runtime refused or lost is
+    /// journalled as the state it reported, never as `done`.
+    pub fn journal_state(&self) -> String {
+        match &self.verdict {
+            Some(verdict) => verdict.clone(),
+            None => match self.state {
+                // The runtime refused the transition or lost the
+                // session: the row names the state it reported.
+                SessionState::Unsupported | SessionState::Disconnected => {
+                    self.state.label().to_string()
+                }
+                // The runtime carried out the transition.
+                _ => "done".to_string(),
+            },
+        }
+    }
+}
 /// Where the truth about a session actually lives for a
 /// supervised provider. The session record stays a Forge-owned
 /// pointer — it never copies runtime state — but names the

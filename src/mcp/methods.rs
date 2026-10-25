@@ -605,7 +605,7 @@ fn mcp_run_agent(db_path: &Path, args: &Map<String, Value>) -> Result<Value, Mcp
         transition,
         outcome.state.label()
     );
-    let _ = registry.record_operation("mcp", &project_id, "done", &detail);
+    let _ = registry.record_operation("mcp", &project_id, &outcome.journal_state(), &detail);
     Ok(serde_json::json!({
         "transition": agent_outcome_envelope(&outcome),
         "files_written": files,
@@ -626,7 +626,7 @@ fn mcp_run_agent_run_spec(
     let verdict = outcome
         .verdict
         .clone()
-        .unwrap_or_else(|| "done".to_string());
+        .unwrap_or_else(|| "none reported".to_string());
     let detail = format!(
         "mcp run_agent `{}` run_spec session `{}` -> `{}` (verdict `{}`)",
         project_id,
@@ -634,7 +634,7 @@ fn mcp_run_agent_run_spec(
         outcome.state.label(),
         verdict
     );
-    let _ = registry.record_operation("mcp", project_id, &verdict, &detail);
+    let _ = registry.record_operation("mcp", project_id, &outcome.journal_state(), &detail);
     Ok(serde_json::json!({
         "transition": agent_outcome_envelope(&outcome),
         "files_written": files,

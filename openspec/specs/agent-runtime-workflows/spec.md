@@ -1,7 +1,7 @@
 # agent-runtime-workflows Specification
 
 ## Purpose
-Managed agent sessions over the existing PTY agent manager: start, pause, takeover, resume, restart and new-session operations plus spec execution, test, commit and confirm-gated push through shared Core contracts, without replacing the agent runtime. The test operation runs the project's declared test command through the shared native command runner, so it keeps its shell semantics and gains the runner's wall-clock bound and process-group kill.
+Managed agent sessions over the existing PTY agent manager: start, pause, takeover, resume, restart and new-session operations plus spec execution, test, commit and confirm-gated push through shared Core contracts, without replacing the agent runtime. The test operation runs the project's declared test command through the shared native command runner, so it keeps its shell semantics and gains the runner's wall-clock bound and process-group kill. Every journalled transition names the outcome the runtime reported, so a refused transition is never recorded as a completed action.
 ## Requirements
 ### Requirement: Managed agent sessions
 
@@ -72,7 +72,9 @@ backing runtime rather than synthesizing it.
 Forge SHALL expose only transitions the backing runtime genuinely supports;
 unsupported requests SHALL report the operator's real control path (attach
 guidance or the runtime's own pause primitive) and SHALL never claim a
-state the runtime did not report.
+state the runtime did not report. The journal row for a transition SHALL
+record a refused or lost transition as the state the runtime reported and
+SHALL NOT record it as a completed action.
 
 #### Scenario: Unknown session handle
 
@@ -87,11 +89,19 @@ state the runtime did not report.
 - **THEN** the result is unverified, never done, and the raw failure is
   bounded and redacted
 
+#### Scenario: A refused transition is journalled as refused
+
+- **WHEN** a transition ends in a state the runtime reported as
+  unsupported or disconnected
+- **THEN** the journal row records that state, never a completed action
+
 ### Requirement: Independent verification for spec execution
 
 When spec execution is delegated to an iteration supervisor, Forge SHALL
 base its run-spec verdict on the supervisor's independent verification
-outcome, not on agent completion claims.
+outcome, not on agent completion claims. A run-spec with no supervisor
+verdict SHALL be journalled as the state the runtime reported and SHALL
+NOT carry a `done` verdict.
 
 #### Scenario: Verified loop
 
@@ -104,6 +114,12 @@ outcome, not on agent completion claims.
 - **WHEN** the supervisor reports a retryable or blocked iteration
 - **THEN** the verdict is partial with the supervisor's named reason and the
   spec binding intact
+
+#### Scenario: A run-spec with no reported verdict
+
+- **WHEN** a run-spec completes without a supervisor reporting a verdict
+- **THEN** the journal row records the state the runtime reported and the
+  detail names that no verdict was reported
 
 ### Requirement: No unobserved activity claim
 

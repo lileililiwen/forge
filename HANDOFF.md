@@ -11639,3 +11639,164 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `ba55186` (`feat: the api agent route journals the state the runtime reported`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 48: `publish-container-identity-evidence`
+
+The publish lane invented a container for a deployment that never
+happened.
+
+### The defect
+
+**A failed publish carried a container identity.**
+
+```
+$ forge --registry /tmp/pub/registry.db publish --folder /tmp/pub/demo \
+    --provider legacy --revision 0123456789abcdef0123456789abcdef01234567
+# the provider reported: status=failed, health=unhealthy, no container_identity
+$ sqlite3 /tmp/pub/registry.db \
+    "SELECT state, container_identity FROM operations WHERE kind = 'publish'"
+failed|forge-demo-0123456789ab
+```
+
+The row said `failed` and named a container for it. Nothing was
+deployed; the identity was composed by Forge from the revision alone.
+
+The composition was unconditional, in four places:
+
+```rust
+// src/cli/publish.rs, before
+let container_identity = response.container_identity.clone().unwrap_or_else(|| {
+    forge::publish::providers::compose_project_name(project_id, &phase_revision)
+});
+```
+
+The canonical capability already draws the line, and it draws it the
+other way from the code:
+
+> **Scenario: Provider without container_identity synthesizes it from
+> revision** — **WHEN** a provider returns a **successful** response
+> without a `container_identity` field — **THEN** Forge persists the row
+> with the canonical `forge-<project>-<sha12>` identity computed from the
+> recorded revision so legacy providers are not silently absent from
+> observability.
+
+The provider contract's own field says the same:
+
+```rust
+// src/publish/providers/model.rs
+/// Bounded container / Compose project identity the provider
+/// actually deployed ... absent when the provider cannot prove the
+/// identity.
+pub container_identity: Option<String>,
+```
+
+And one lane already read the rule, in its own words:
+
+```rust
+// src/cli/fleet.rs
+// The container identity is the provider's own.
+// The lane never composes one: a run that published nothing has no container.
+```
+
+So the rule was written down twice and implemented in one lane. The
+manual lanes were the ones that claimed a container nobody reported.
+
+### The rule
+
+One rule names the container identity a response proves: the provider's
+own identity is the truth, the canonical identity is composed only for
+a response that published, and a response that published nothing
+carries no identity at all.
+
+```rust
+// src/publish/providers/mod.rs, after
+pub const PUBLISH_COMPLETED_STATUSES: [&str; 2] = ["done", "succeeded"];
+
+pub fn proven_container_identity(
+    response: &PublishProviderResponse,
+    project_id: &str,
+    recorded_revision: &str,
+) -> Option<String> {
+    if let Some(identity) = response.container_identity.as_deref() {
+        return Some(identity.to_string());
+    }
+    if !PUBLISH_COMPLETED_STATUSES.contains(&response.status.as_str()) {
+        return None;
+    }
+    Some(compose_project_name(project_id, recorded_revision))
+}
+```
+
+The rule lives in the provider contract, which already owns "the
+runtime identity the contract guarantees", and every publish surface
+reads it: both CLI publish lanes, the operator route and the admin
+route.
+
+### The options, decided
+
+| Option for a response that published nothing | Verdict |
+|---|---|
+| Keep composing the canonical identity | Rejected. The row then names a container for a deployment that never happened, and contradicts its own state. |
+| Never compose, in any lane | Rejected. The canonical capability authorises the synthesis for a successful response so a legacy provider is not silently absent from observability. The existing contract test pins that. |
+| Compose only for a response that published | **Chosen.** It is what the canonical scenario says, what the provider contract's field doc says, and what the fleet lane already does. |
+| Compose only when the phase evidence says `run_status=succeeded` | Rejected. It would ignore the provider's own terminal status and change the existing legacy-provider contract, whose provider reports no phase evidence at all yet published. |
+| Drop the row's identity column for a failure | Rejected. The row still carries the revision and the phase evidence; only the identity is absent, and the projection renders it as `unknown`. |
+
+| Option for where the rule lives | Verdict |
+|---|---|
+| A helper per lane | Rejected. Four copies of one rule is how the lanes drifted apart in the first place. |
+| One function in the provider contract, read by every lane | **Chosen.** The provider contract owns the runtime identity, so the rule belongs there and every surface reads it. |
+| A rule in the registry | Rejected. The registry stores the row; it does not know what the provider published. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | The row above: `failed|forge-demo-0123456789ab`. The composition was the `unwrap_or_else` in `src/cli/publish.rs`. |
+| The contract test fails without the change | PASS | With the rule's completion check removed (so it composes for every response again), `a_response_that_published_nothing_carries_no_container` fails with `left: Some("forge-demo-0123456789ab"), right: None`; the other two cases pass on both trees, as they should. |
+| A response that published nothing carries no container | PASS | `a_response_that_published_nothing_carries_no_container`: the row's state is `failed`, its `container_identity` is `None`, and the status projection renders `unknown`. |
+| A successful response keeps the canonical identity | PASS | `a_successful_response_keeps_the_canonical_identity`: the row carries `forge-demo-0123456789ab` and the projection surfaces it. |
+| The provider's own identity is always kept | PASS | `the_providers_own_identity_is_always_kept`: a failed response that reports `forge-fixture-0123456789ab` keeps exactly that identity. |
+| One rule, every publish surface | PASS | The four publish surfaces call `proven_container_identity`; the file `src/publish/providers/mod.rs` owns the decision. No other place composes an identity: `compose_project_name` appears only in the rule, in the fleet lane's refusal to compose, and in the contract's own tests. |
+| The untouched surfaces | PASS | `git diff` touches no line of `src/cli/fleet.rs`, `src/delivery/`, `src/registry/phase.rs` or the provider contract's auto-generated modules. The existing publish suites pass unchanged: `publish_observability_contract` 8 passed, `publish_contract` 11 passed, `sibling_cwd_publish_contract` 12 passed, `forge_web_project_publish_contract` 9 passed, `publish_fleet_dry_run_verdict_truth_contract` 3 passed, `forge_web_publish_fleet_contract` 7 passed. The canonical legacy-provider case — a provider that published, reported no identity and no phase evidence — still gets `forge-demo-0123456789ab`, as the canonical scenario requires. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 247 `test result:` lines sum to **4290 passed; 0 failed; 1 ignored**. The pre-change baseline was 246 lines and 4287 passed, so this change adds exactly the 3 tests it declares and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T11:53:02Z"` on revision `a07c3a28f5229d3d36c0a4f1bad6438cffee605e` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 167 passed, 0 failed (167 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-publish-container-identity-evidence/`: the `forge-publish-observability-revision-containers` requirement was modified with all three canonical scenario names kept and one scenario added, its purpose now states the composition limit, and the archive's trailing blank lines were stripped from the canonical spec by hand. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/publish/providers/mod.rs` 59, `src/cli/publish.rs` 752, `src/api/handlers_core.rs` 930, `src/api/admin/publish.rs` 572, `tests/publish_container_identity_evidence_contract.rs` 301. |
+| The worker | the owning agent wrote the change | The worker subagents in this programme have been unreliable, so the owning agent wrote this change. The candidate came from the `explore` subagent's ranked list; the owning agent verified it against the canonical scenario, reproduced it, and wrote the rule, the four call sites and the tests. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The component module doc still names the journal vocabulary
+  `done`/`blocked`/`rejected` (`src/component/mod.rs`), while since
+  change 42 the component resolver also writes `planned`. A doc-only
+  truthfulness change.
+- The component qualify lane hand-writes its state
+  (`src/cli/component.rs`): `if outcome.promoted { "done" } else { "blocked" }`.
+  The claim is honest today, but there is no rule behind it, the same
+  hole change 46 closed in the Studio lane.
+- The API's own lifecycle journal helper hardcodes `done` for every
+  route (`src/api/lifecycle_exec/mod.rs`), while the CLI equivalent
+  writes `rejected` for a stale plan. Honest today — the helper means
+  "the request was handled" — but it is the last place in the API with
+  no rule of its own.
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+- No supported profile declares a component id as a capability, so the
+  planner's component step cannot be produced by the deterministic
+  resolver. The profile capability sets and the component catalog have
+  no overlap; a change that bridges them would make the component lane
+  reachable from the planner.
+- The publish lane's completion vocabulary is two words (`done`,
+  `succeeded`) because the publish and delivery lanes each read one.
+  A change that made the provider contract's terminal `status`
+  vocabulary explicit would let the rule name one word instead of a
+  set.
+
+Implementation/archive commit: `c89a5dc` (`feat: the publish lane names only a container that was deployed`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

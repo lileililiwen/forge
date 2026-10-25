@@ -150,8 +150,7 @@ pub(super) fn cmd_publish_fleet(
 
     let mut summaries: Vec<serde_json::Value> = Vec::new();
     let mut first_failure: Option<ForgeError> = None;
-    let mut success_count = 0usize;
-    let mut failure_count = 0usize;
+    let mut counters = FleetCounters::default();
 
     // The external `--provider` branch always stays sequential: it
     // shells through `cmd_publish_provider` (which re-opens the
@@ -409,7 +408,7 @@ pub(super) fn cmd_publish_fleet(
         for (entry, prog) in eligible.iter().zip(progress.iter_mut()) {
             let project_id = entry.id.clone();
             if prog.skipped {
-                failure_count += 1;
+                counters.record_failure();
                 let detail = format!(
                     "fleet publish for `{project_id}` skipped: fail-fast stopped scheduling"
                 );
@@ -468,15 +467,14 @@ pub(super) fn cmd_publish_fleet(
             ) {
                 queue_op_ids.push((project_id.clone(), op_id));
             }
-            if verdict == PublishVerdict::Failed {
-                failure_count += 1;
-                if fail_fast && first_failure.is_none() {
-                    first_failure = prog.fail_error.take().or_else(|| {
-                        Some(ForgeError::PublishDeployFailed {
-                            reason: format!("fleet publish failed at `{project_id}`"),
-                        })
-                    });
-                }
+            // One rule, every lane: the summary counts the verdict.
+            counters.record(verdict);
+            if verdict == PublishVerdict::Failed && fail_fast && first_failure.is_none() {
+                first_failure = prog.fail_error.take().or_else(|| {
+                    Some(ForgeError::PublishDeployFailed {
+                        reason: format!("fleet publish failed at `{project_id}`"),
+                    })
+                });
             }
         }
     }
@@ -505,7 +503,7 @@ pub(super) fn cmd_publish_fleet(
             // classification step above already surfaced the gap so the
             // operator can remediate.
             if !source_path.is_dir() {
-                failure_count += 1;
+                counters.record_failure();
                 let detail = format!(
                     "fleet publish: project `{project_id}` source `{}` is not a directory",
                     source_path.display()
@@ -610,24 +608,19 @@ pub(super) fn cmd_publish_fleet(
                             queue_op_ids.push((project_id.clone(), op_id));
                         }
                         // A plan is not a failure: the fleet counts it
-                        // as neither, and it never trips `--fail-fast`.
-                        if verdict == PublishVerdict::Failed {
-                            failure_count += 1;
-                            if fail_fast && first_failure.is_none() {
-                                first_failure = Some(ForgeError::PublishDeployFailed {
-                                    reason: format!(
-                                        "fleet provider publish failed at `{project_id}`"
-                                    ),
-                                });
-                                break;
-                            }
-                        } else {
-                            success_count += 1;
+                        // as a plan, and it never trips `--fail-fast`.
+                        counters.record(verdict);
+                        if verdict == PublishVerdict::Failed && fail_fast && first_failure.is_none()
+                        {
+                            first_failure = Some(ForgeError::PublishDeployFailed {
+                                reason: format!("fleet provider publish failed at `{project_id}`"),
+                            });
+                            break;
                         }
                     }
                     Ok(Output::Human(text)) | Ok(Output::Raw(text)) => {
                         println!("{text}");
-                        success_count += 1;
+                        counters.success += 1;
                         if let Ok(op_id) = core_registry.record_queue_operation(
                             "publish",
                             &project_id,
@@ -639,7 +632,7 @@ pub(super) fn cmd_publish_fleet(
                         }
                     }
                     Err(error) => {
-                        failure_count += 1;
+                        counters.record_failure();
                         let detail = format!("fleet provider={provider_id} failed: {error}");
                         render_output(as_output(
                             format,
@@ -712,20 +705,17 @@ pub(super) fn cmd_publish_fleet(
                     ) {
                         queue_op_ids.push((project_id.clone(), op_id));
                     }
-                    if verdict == PublishVerdict::Failed {
-                        failure_count += 1;
-                        if fail_fast && first_failure.is_none() {
-                            first_failure = Some(ForgeError::PublishDeployFailed {
-                                reason: format!("fleet publish failed at `{project_id}`"),
-                            });
-                            break;
-                        }
-                    } else {
-                        success_count += 1;
+                    // One rule, every lane: the summary counts the verdict.
+                    counters.record(verdict);
+                    if verdict == PublishVerdict::Failed && fail_fast && first_failure.is_none() {
+                        first_failure = Some(ForgeError::PublishDeployFailed {
+                            reason: format!("fleet publish failed at `{project_id}`"),
+                        });
+                        break;
                     }
                 }
                 Err(err) => {
-                    failure_count += 1;
+                    counters.record_failure();
                     let detail = format!("fleet publish failed: {err}");
                     let summary = serde_json::json!({
                         "project": project_id,
@@ -765,18 +755,20 @@ pub(super) fn cmd_publish_fleet(
             "publishable": eligible.len(),
             "held_back": held_back.len(),
             "skipped": skipped.len(),
-            "success": success_count,
-            "failed": failure_count,
+            "success": counters.success,
+            "planned": counters.planned,
+            "failed": counters.failed,
             "projects": summaries,
             "skipped_entries": skipped_summary,
             "held_back_entries": held_back_summary,
         },
     });
     let human = format!(
-        "fleet publish: {}/{} publishable succeeded, {} held back, {} skipped \
+        "fleet publish: {}/{} publishable succeeded, {} planned, {} held back, {} skipped \
          ({} in {source_label}){}",
-        success_count,
+        counters.success,
         eligible.len(),
+        counters.planned,
         held_back.len(),
         skipped.len(),
         snapshot.declared_count(),
@@ -793,14 +785,46 @@ pub(super) fn cmd_publish_fleet(
     render_output(as_output(format, human, summary.clone()));
     if let Some(err) = first_failure {
         Err(err)
-    } else if failure_count > 0 {
+    } else if counters.failed > 0 {
         Err(ForgeError::PublishDeployFailed {
             reason: format!(
-                "fleet publish finished with {failure_count} failure(s); see per-project reports"
+                "fleet publish finished with {} failure(s); see per-project reports",
+                counters.failed
             ),
         })
     } else {
         Ok(Output::Human(String::new()))
+    }
+}
+
+/// The fleet summary's counters: what the runs did.
+///
+/// The counters come from the run's verdict, never from a binary: a
+/// delivery is a success, a plan is a plan and a failure is a failure.
+/// A plan is never counted as a success.
+#[derive(Debug, Default, Clone, Copy)]
+struct FleetCounters {
+    /// Runs that delivered.
+    success: usize,
+    /// Runs that were plans.
+    planned: usize,
+    /// Runs that failed.
+    failed: usize,
+}
+
+impl FleetCounters {
+    /// Count one run's verdict.
+    fn record(&mut self, verdict: PublishVerdict) {
+        match verdict {
+            PublishVerdict::Delivered => self.success += 1,
+            PublishVerdict::Planned => self.planned += 1,
+            PublishVerdict::Failed => self.failed += 1,
+        }
+    }
+
+    /// Count a run that failed before any verdict was reached.
+    fn record_failure(&mut self) {
+        self.failed += 1;
     }
 }
 

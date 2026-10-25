@@ -636,7 +636,10 @@ pub(super) fn handle_agent_transition(
                 "api agent `{id}` session `{session_id}` {transition} -> `{}`",
                 outcome.state.label()
             );
-            let _ = registry.record_operation("api", id, "done", &detail);
+            // One rule, every surface: the route records the state the
+            // runtime reported, the same way the command and the MCP
+            // tool record it.
+            let _ = registry.record_operation("api", id, &outcome.journal_state(), &detail);
             let value = serde_json::json!({
                 "transition": {
                     "session_id": outcome.session.session_id,

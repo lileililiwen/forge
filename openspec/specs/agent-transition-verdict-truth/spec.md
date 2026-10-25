@@ -1,7 +1,7 @@
 # agent-transition-verdict-truth Specification
 
 ## Purpose
-One rule decides the agent journal state: a run-spec records the supervisor's verdict when the supervisor reported one, a transition the runtime refused or lost is recorded as the state the runtime reported, and a transition the runtime carried out is recorded as done. A refused transition is never done.
+One rule decides the agent journal state: a run-spec records the supervisor's verdict when the supervisor reported one, a transition the runtime refused or lost is recorded as the state the runtime reported, and a transition the runtime carried out is recorded as done. A refused transition is never done. Every surface that records an agent transition reads it: the command, the MCP tool and the HTTP route.
 ## Requirements
 ### Requirement: The agent journal state names the reported outcome
 
@@ -10,7 +10,8 @@ runtime reported. A run-spec verdict SHALL be the verdict the supervisor
 reported. A transition the runtime refused or lost SHALL be journalled as
 the state the runtime reported and SHALL NOT be journalled as a completed
 action, and the row's detail SHALL name the verdict it saw or say that it
-saw none. The command and the MCP tool SHALL read the same rule.
+saw none. Every surface that records an agent transition — the command,
+the MCP tool and the HTTP route — SHALL read the same rule.
 
 #### Scenario: A refused transition is never done
 
@@ -34,5 +35,20 @@ saw none. The command and the MCP tool SHALL read the same rule.
 
 #### Scenario: One rule, every agent writer
 
-- **WHEN** the command and the MCP tool record an agent transition
-- **THEN** both read the one rule for the state the row records
+- **WHEN** the command, the MCP tool and the HTTP route record an agent
+  transition
+- **THEN** all read the one rule for the state the row records
+
+#### Scenario: The HTTP route names the reported state
+
+- **WHEN** the HTTP route records an agent transition
+- **THEN** the row that records the transition's outcome carries the
+  state the runtime reported and never a completed action the runtime
+  refused
+
+#### Scenario: The route's operation row is the request's lifecycle
+
+- **WHEN** the HTTP route records an agent transition
+- **THEN** the operation row the route's own lifecycle helper writes
+  records that the request was handled, and the transition's row
+  records the transition's state

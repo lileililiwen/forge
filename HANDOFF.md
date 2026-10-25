@@ -11950,3 +11950,195 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `0c45a5d` (`feat: the fleet summary counts what the runs did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 50: `api-operation-verdict-truth`
+
+The shared HTTP operation boundary recorded every successful request as a
+completed operation.
+
+### The defect
+
+**A dry run was journalled as a completed deployment and a completed
+upgrade.**
+
+```
+sqlite> SELECT kind, state, detail FROM operations;
+api.deploy|done|api.deploy completed
+api.upgrade|done|api.upgrade completed
+```
+
+The boundary did not know what the request did. It knew the closure
+returned `Ok`, so it wrote `done`:
+
+```rust
+// src/api/server.rs, before
+match f(op_id, &registry) {
+    Ok((value, op_id, project_id)) => {
+        let detail = format!("{kind} completed");
+        let _ = registry.finalize_operation(op_id, "done", &detail);
+```
+
+Two project routes run a plan when the request asks for one. The deploy
+route (`POST /v1/projects/{id}/deployments` with `{"dry_run": true}`)
+computes a `DeployPlan`; the upgrade route (`POST /v1/projects/{id}/upgrade`
+with `{"dry_run": true}`) computes an `UpgradePlan` — the engine's own
+words: *"Plan a single-project upgrade without changing anything."*
+Neither applied anything, and both wrote a row that said the operation
+completed.
+
+The repository already had the rule that says what those rows should say.
+The deploy model's verdict names the state:
+
+```rust
+// src/deploy/model.rs
+pub fn journal_state(self) -> &'static str {
+    match self {
+        DeployVerdict::Delivered => "done",
+        DeployVerdict::Planned => "planned",
+        DeployVerdict::Failed => "failed",
+        DeployVerdict::Blocked => "blocked",
+    }
+}
+```
+
+and the command's plan lane already reads it:
+
+```rust
+// src/cli/release.rs
+let verdict = forge::deploy::verdict_for_plan(plan.ready);
+registry.record_operation("deploy", &project_id, verdict.journal_state(), &detail);
+```
+
+So the CLI recorded `planned` for the same plan the API recorded as
+`done`, and the promoted capability `deploy-plan-verdict-truth` already
+said which one is right: *"a plan SHALL NOT record a completed
+deployment, because a plan deploys nothing."*
+
+The API boundary never read that rule. It had no rule of its own.
+
+### The rule
+
+**An operation row's state names what the operation did: a completed
+operation did the work, a planned operation only planned, a blocked
+operation was refused before it changed anything, a failed operation did
+not finish.**
+
+One rule, one place, `src/api/operation.rs`:
+
+```rust
+pub enum OperationOutcome {
+    Completed,
+    Planned,
+    Blocked,
+    Failed,
+}
+```
+
+The closure now states what the request earned, and the boundary reads
+the rule for the row's state and its detail:
+
+```rust
+// src/api/server.rs, after
+Ok((value, op_id, project_id, outcome)) => {
+    let detail = outcome.detail(kind);
+    let _ = registry.finalize_operation(op_id, outcome.journal_state(), &detail);
+```
+
+The deploy route reads the deploy rule it already had — `verdict_for_plan`
+for a plan, the report's own verdict for an apply — and the upgrade route
+states the one thing it knows: it planned. The eleven routes that really
+do the work state the completed operation they earn. The replay helper
+was renamed `replay_response`, because its old name
+(`pending_or_done_response`) would have stated something false.
+
+### The options, decided
+
+| Option for how the closure states the outcome | Verdict |
+|---|---|
+| The closure returns the outcome in its tuple | **Chosen.** Every route states what it earned, and the boundary cannot guess. The compiler names every writer that has to answer. |
+| A second helper for the plan routes | Rejected. Two entry points into one rule: a route author picks the wrong one and nothing says so. The defect was a route that did not know it had to state anything. |
+| A `plan: bool` parameter on the boundary | Rejected. The flag carries the same information as the outcome and can be passed wrong by accident, with no compiler help. |
+| The boundary derives the outcome from the returned value | Rejected. The boundary would have to know every route's value type; a new route type would silently fall back to the wrong arm. |
+| A hand-written state string at each call site | Rejected. That is the rule class this programme exists to remove. |
+
+| Option for the rule's home | Verdict |
+|---|---|
+| A new module `src/api/operation.rs` | **Chosen.** One rule, one file, next to the boundary that writes the row. |
+| Inside `src/api/server.rs` | Rejected. `server.rs` is the transport; the rule is the vocabulary every route answers in. |
+| Inside the deploy model | Rejected. The rule is not the deploy model's: it names an API operation row, and the upgrade route has no deploy verdict at all. |
+
+| Option for the rule's arms | Verdict |
+|---|---|
+| `Completed` and `Planned` only | Rejected. A blocked plan and a failed report are two more things the row can honestly say, and the deploy model already names both. |
+| `Completed`, `Planned`, `Blocked` and `Failed` | **Chosen.** The four states are the ones the journal already uses, and each one has a fact behind it. |
+
+| Option for the deploy route's failed report | Verdict |
+|---|---|
+| Record the report's verdict, so a failed deploy records `failed` | **Chosen.** The promoted capability already says the journal state follows the report's verdict, for the CLI and the API. |
+| Record `done` for every apply that returned `Ok` | Rejected. `apply_deploy` returns `Ok` with a failed verdict; the row would claim a delivery the report denies. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced before the change | With the source changes stashed and the new contract test in place, four of its six cases fail: the planned deployment (`left: "done"`, `right: "planned"`, `detail=api.deploy completed`), the blocked plan (`right: "blocked"`), the planned upgrade (`right: "planned"`, `detail=api.upgrade completed`) and the failed run (`right: "failed"`). `test result: FAILED. 2 passed; 4 failed`. |
+| A plan is never a completed operation | PASS | `a_dry_run_deployment_journals_a_planned_operation`: the body is the plan (`deploy.ready == true`), the row's state is `planned` and its detail is `api.deploy planned`. |
+| A blocked plan stays blocked | PASS | `a_blocked_deploy_plan_journals_a_blocked_operation`: without the Gate evidence the shared delivery rule refuses the revision, the body says `deploy.ready == false`, and the row's state is `blocked`. |
+| A planned upgrade is not a completed upgrade | PASS | `a_dry_run_upgrade_journals_a_planned_operation`: the body is the plan and the row's state is `planned`. |
+| An applied request keeps its completed operation | PASS | `an_applied_request_still_journals_a_completed_operation`: the `api.add_feature` row is `done` with the detail `api.add_feature completed`. |
+| A run that did not finish is not a completed operation | PASS | `a_failed_deploy_run_is_not_a_completed_operation`: the report's own verdict is `failed` and the row's state is `failed`, not `done`. |
+| A delivered deploy keeps its completed operation | PASS | `a_delivered_deploy_run_journals_a_completed_operation`: the report's verdict is `delivered` and the row's state is `done`. |
+| The untouched surfaces | PASS | The CLI lanes, the deploy verdict rule, the registry journal, the boundary's failure path and every HTTP envelope are unchanged. The existing suites pass unchanged: `api_agent_transition_verdict_truth_contract` 3 passed, `forge_web_project_deployment_contract` unchanged, `api_cross_surface` unchanged, `deploy_plan_verdict_truth_contract` 4 passed. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 248 `test result:` lines sum to **4299 passed; 0 failed; 1 ignored**. The pre-change baseline was 247 lines and 4293 passed, so this change adds exactly the 6 tests it declares and one new test binary. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T14:05:17Z"` on revision `a75b9b2477efdf5e057f4384b468692c19b89d36` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 168 passed, 0 failed (168 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs`: the `api-operation-verdict-truth` capability was added and the `deploy-plan-verdict-truth` requirement was modified with all four canonical scenario names kept and one scenario added, the added capability's purpose was written by hand, and the archive's trailing blank lines were stripped from the canonical specs by hand. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on every touched Rust file, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/api/operation.rs` 60, `src/api/mod.rs` 165, `src/api/server.rs` 869, `src/api/handlers_portfolio.rs` 909, `src/api/handlers_changes.rs` 671, `src/api/project_management.rs` 572, `src/api/workbench.rs` 829, `src/api/admin/deploy.rs` 898, `src/api/admin/release.rs` 386, `tests/api_operation_verdict_truth_contract.rs` 429. |
+| The worker | the owning agent wrote the change | The worker subagents in this programme have been unreliable, so the owning agent wrote this change: the package, the rule, the fifteen routes and the tests. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The project-scoped deploy and upgrade routes reserve an operation but do
+  not return its id, so the caller cannot fetch the recorded outcome,
+  while the admin deploy route does return `operation_id`. The
+  `core-http-api` capability says an authorized deployment request
+  hands the caller an operation id; the project route does not.
+- The API's own lifecycle journal helper hardcodes `done` for every
+  route (`src/api/lifecycle_exec/mod.rs`), while the CLI equivalent
+  writes `rejected` for a stale plan. Honest today — the helper means
+  "the request was handled" — but it is the last place in the API with
+  no rule of its own.
+- The admin publish route's health rule
+  (`response.status == "done" && response.health == "healthy"`,
+  `src/api/admin/publish.rs`) disagrees with the publish lane's
+  completion vocabulary (`done` and `succeeded`), so a provider that
+  reports `succeeded` and `healthy` is published by the identity rule
+  and not healthy by the health rule.
+- The fleet exec lane's fail-fast test
+  (`!matches!(outcome, FleetEntryOutcome::Published { healthy: true, .. })`,
+  `src/cli/fleet_exec.rs`) can never pass, because `Published` is never
+  produced. Fail-fast therefore stops after the first outcome even on
+  success, and the unclaimed tail slots are filled with `Failed` and
+  journalled as a failure that never happened.
+- The component module doc still names the journal vocabulary
+  `done`/`blocked`/`rejected` (`src/component/mod.rs`), while since
+  change 42 the component resolver also writes `planned`. A doc-only
+  truthfulness change.
+- The component qualify lane hand-writes its state
+  (`src/cli/component.rs`): `if outcome.promoted { "done" } else { "blocked" }`.
+  The claim is honest today, but there is no rule behind it, the same
+  hole change 46 closed in the Studio lane.
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). The deployment counters wait for a change that reuses the
+  deploy status projection's freshness rule.
+- No supported profile declares a component id as a capability, so the
+  planner's component step cannot be produced by the deterministic
+  resolver.
+- The publish lane's completion vocabulary is two words (`done`,
+  `succeeded`) because the publish and delivery lanes each read one.
+
+Implementation/archive commit: `a80561a` (`feat: the api operation row names what the request did`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

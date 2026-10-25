@@ -10725,3 +10725,135 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `dd3a110` (`feat: a component promotion records only the evidence it was given`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 42: `resolve-plan-verdict-truth`
+
+Two resolver lanes journalled a pure plan as a completed action.
+
+### The defect
+
+`forge component resolve` and `forge ui-pattern resolve` read a
+catalog, pick the strongest compatible candidates for a profile and
+return a **plan**. They install nothing. The plan's steps carry an
+`action` of `install` because the step describes what an installation
+*would* do, and the component lane has no install command at all:
+
+```rust
+// src/cli/commands_ops.rs
+pub(crate) enum ComponentCommands {
+    List,
+    Inspect { id: String },
+    Resolve { profile: String, components: Vec<String> },
+    Qualify { ... },
+}
+```
+
+Both lanes wrote the journal row `done`, the state the registry uses
+for a completed action. Reproduced on the tree before the change:
+
+```
+$ forge --registry /tmp/res-probe/registry.db component resolve --profile rust-web --component paginated-query
+(1, 'component', '__component__', 'done', ..., "rust-web resolved=1 rejected=0; resolved 1 component(s) for profile 'rust-web'")
+
+$ forge --registry /tmp/uip-probe/registry.db ui-pattern resolve --profile react-web --pattern billing
+(1, 'ui_pattern', '__ui_pattern__', 'done', ..., "react-web resolved=1 rejected=0; resolved 1 ui pattern(s) for profile 'react-web'")
+```
+
+A reader of the journal — the portal's activity view, an operator
+asking what Forge did — reads two completed resolutions. Two plans were
+printed.
+
+**Two copies of the rule.** Each lane chose the state by itself:
+
+```rust
+// src/cli/component.rs, before
+let journal_state = if outcome.plan.steps.is_empty() {
+    "rejected"
+} else {
+    "done"
+};
+```
+
+```rust
+// src/cli/ui_pattern.rs, before
+let journal_state = if outcome.plan.steps.is_empty() {
+    "rejected"
+} else {
+    "done"
+};
+```
+
+A copy is where two lanes drift. The release lane was repaired this way
+in change 37 and the deploy lane in change 38: a plan is a plan, and
+the journal names it as one.
+
+### The rule
+
+One rule names what a resolution did: **a resolution that produced a
+plan is a planned run, and a request the resolver could not satisfy is
+a rejected run. A resolution is never a completed resolution.**
+
+- **The rule is in the shared Core** (`src/core/resolve.rs`): one
+  `ResolveRun` type with the journal state, the label and the decision
+  (`for_steps`). The component registry and the UI pattern catalog are
+  separate domains with separate types, but "a plan is a plan" is one
+  rule about both, so it lives where two domains can read it.
+- **Both lanes read it** (`src/cli/component.rs`,
+  `src/cli/ui_pattern.rs`): the journal state comes from the rule, not
+  from a lane-local word.
+- **The row names the run.** The detail carries `verdict=planned` or
+  `verdict=rejected`, and the note is shared by the journal detail, the
+  human output and the JSON document, so all three say the same thing:
+
+```
+rust-web resolved=1 rejected=0 verdict=planned; resolved 1 component(s) for profile 'rust-web'
+```
+
+After the change:
+
+```
+('component', '__component__', 'planned', "rust-web resolved=1 rejected=0 verdict=planned; resolved 1 component(s) for profile 'rust-web'")
+('ui_pattern', '__ui_pattern__', 'planned', "react-web resolved=1 rejected=0 verdict=planned; resolved 1 ui pattern(s) for profile 'react-web'")
+```
+
+### The options, decided
+
+| Option for a resolution that produced a plan | Verdict |
+|---|---|
+| Keep `done` | Rejected. A resolution installs nothing; `done` is the state for a completed action. The plan's steps name an action the resolver never performed. |
+| Keep `done` and add a note saying it was only a plan | Rejected. The state is what a reader counts and filters on; a plan behind a `done` state is still a completed resolution on the record. |
+| Journal `planned` and name the run in the detail | **Chosen.** The same vocabulary the release and deploy lanes use since changes 37 and 38, and the detail names the run so a reader never has to guess. |
+| Give the two lanes their own verdict types | Rejected. Two copies of one rule are where the lanes drift; the two lanes already had two copies and both were wrong in the same way. |
+| Put the rule in the registry | Rejected. The registry stores the journal; it does not judge what a resolution did. The rule belongs to the domain, and the two domains share the Core. |
+| Put the rule in the component module and import it into the UI pattern lane | Rejected. The UI pattern catalog would depend on the component registry for a word; the two are peers, and the shared Core is where a shared rule belongs. |
+| Add a verdict field to the plan structs | Rejected. The plan is the resolver's answer, and the verdict is the transport's reading of it. The release and deploy plans carry no verdict field either; the verdict lives in the journal detail and the note. |
+| Rewrite the journal rows written before this change | Rejected. Nothing can know what an old row described. The rule applies to new rows. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `forge component resolve --profile rust-web --component paginated-query` wrote `('component', '__component__', 'done', ...)` and `forge ui-pattern resolve --profile react-web --pattern billing` wrote `('ui_pattern', '__ui_pattern__', 'done', ...)`. The two copies of the rule were in `src/cli/component.rs` and `src/cli/ui_pattern.rs`. |
+| The one rule | PASS | `src/core/resolve.rs`: `ResolveRun` carries the journal state, the label and the decision (`for_steps`), and both lanes call it. The unit tests `a_plan_is_never_a_completed_resolution`, `a_resolution_that_satisfied_nothing_is_rejected` and `every_run_names_itself_in_the_detail` cover the rule. |
+| A component resolution | PASS | `a_component_resolution_is_planned_and_journals_a_planned_row` asserts the plan's step, `verdict=planned` in the output, the journal row `planned` and that the run wrote nothing but its journal row. |
+| A UI pattern resolution | PASS | `a_ui_pattern_resolution_is_planned_and_journals_a_planned_row` asserts the same for the UI pattern lane. |
+| A resolution that satisfied nothing | PASS | `a_resolution_that_satisfied_nothing_is_rejected` asserts the rejection still carries its reason and the row says `rejected` with `verdict=rejected`. |
+| One rule, two lanes | PASS | `both_lanes_read_the_same_rule` runs both lanes and a refusal and asserts the same vocabulary in all three rows. |
+| The contract test fails without the change | PASS | With the three touched source files reverted to the tree before the change, all four cases fail: the rows read `done` and neither the output nor the detail names a run. |
+| The untouched surfaces | PASS | `git diff` shows no change to the resolvers, the catalogs, the plan structs, the evidence summary, the `forge ui-pattern install` path (still `done`: an install is a completed action), the qualify lanes, the release and deploy lanes, the registry schema or the portal's activity view. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 240 `test result:` lines sum to **4267 passed; 0 failed; 1 ignored**. The pre-change baseline was 239 lines and 4260 passed, so this change adds exactly the 7 tests it declares (3 unit cases for the rule and 4 contract cases) and one new test binary. The Core unit tests are 18 passed, the component contract test 15 passed and the UI pattern contract test 33 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T03:34:06Z"` on revision `545b5a22a2015f2a5abd70e0d7c71fc73311613c` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 460 of 460 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 164 passed, 0 failed (164 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-resolve-plan-verdict-truth/`: the new capability `resolve-plan-verdict-truth` was promoted with one requirement and three scenarios, the `semantic-component-registry` "Semantic reusable unit contracts" requirement was modified with all three canonical scenarios kept and one scenario added, the `semantic-ui-patterns` "Deterministic UI installation" requirement was modified the same way, the archive's `TBD` Purpose was replaced by hand with the real one, and both modified capabilities' purposes now state the general rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all five touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/core/resolve.rs` 82, `src/core/mod.rs` 698, `src/cli/component.rs` 236, `src/cli/ui_pattern.rs` 218, `tests/resolve_plan_verdict_truth_contract.rs` 282. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code, change 35's worker wrote everything then stopped, and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the shared rule, the two lanes, the unit tests and the contract test. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- `delivery.next-idea` hardcodes "publish landed"
+  (`src/api/lifecycle_exec/delivery.rs`). The idea lane states a delivery
+  it did not observe.
+
+Implementation/archive commit: `8753dfd` (`feat: a resolution names the plan it produced`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

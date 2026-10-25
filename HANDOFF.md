@@ -10857,3 +10857,122 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `8753dfd` (`feat: a resolution names the plan it produced`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+
+## Change 43: `delivery-next-idea-evidence-truth`
+
+The next-idea route journalled a publish it never observed.
+
+### The defect
+
+`POST /v1/admin/projects/{id}/delivery/next-idea` records the loop
+transition after a delivery publish. When the caller sent no note, the
+route wrote this into the journal:
+
+```rust
+// src/api/lifecycle_exec/delivery.rs, before
+let detail = if note.is_empty() {
+    "delivery.next-idea: publish landed; next loop proposed".to_string()
+} else {
+    format!("delivery.next-idea: {note}")
+};
+```
+
+Reproduced on the tree before the change:
+
+```
+$ POST /v1/admin/projects/p1/delivery/next-idea '{"confirm":true}'
+200 OK
+$ sqlite3 registry.db "SELECT kind, state, detail FROM operations WHERE kind='delivery.next-idea'"
+delivery.next-idea|done|delivery.next-idea: publish landed; next loop proposed
+```
+
+The route read nothing. It looked at no publish, no publication, no
+journal row and no delivery state. "Publish landed" was a string in the
+source, not an observation.
+
+The evidence lives elsewhere: a project publish keeps its own row (kind
+`publish` or `publish.github`), and a delivery publish keeps its own
+publication attempt. The next-idea row is the *transition* record.
+Restating a publish inside it, without having read one, is the
+programme's rule class exactly: Forge states something its own gathered
+evidence does not support.
+
+### The rule
+
+**The next-idea row states the transition it recorded. It never claims
+a publish landed, and a caller's note is recorded as the caller's
+report.**
+
+```rust
+// src/api/lifecycle_exec/delivery.rs, after
+// The route states what it did: it recorded the next-idea transition.
+// It read no publish, so it claims none. A caller's note is the
+// caller's report, kept in the row marked as such.
+let detail = if note.is_empty() {
+    "delivery.next-idea: transition=proposed".to_string()
+} else {
+    format!("delivery.next-idea: transition=proposed reported={note}")
+};
+```
+
+The detail follows the sibling routes' shape (`kind subject key=value`),
+so the row reads like the rest of the lifecycle journal.
+
+The row's kind, project id and state do not change: the route did record
+the transition, so the row's state is still `done`.
+
+This is the pattern the lane already uses. The sibling reconcile route
+records an operator-observed outcome "as the operator's explicit
+statement rather than something Forge observed", and change 41 records
+the operator's promotion reason as the operator's reason.
+
+After the change:
+
+```
+delivery.next-idea|done|delivery.next-idea: transition=proposed
+```
+
+### The options, decided
+
+| Option for the row's detail | Verdict |
+|---|---|
+| Keep the default "publish landed" | Rejected. The route read nothing; the words were a string in the source. The operations table would carry a publish claim no surface ever made. |
+| Keep the claim and add the caller's note when there is one | Rejected. The claim is the defect, not its position in the string. |
+| Make the route observe the publish (a journal row, a publication attempt) | Rejected. The publish lanes already write their own evidence; reading it here would put a second copy of the publish verdict vocabulary in the lifecycle lane, and the row it reads could be weeks old — a stale `done` row would read as a fresh publish. |
+| Make the route refuse when it observed no publish | Rejected. The route has no observation to judge, so a refusal would be a guess too; and the canonical requirement asks for the row when the publish succeeds, which is the caller's moment to call the route. |
+| State the transition and record the caller's note as the caller's report | **Chosen.** The route states what it did, keeps the caller's information, and marks whose statement it is. The publish's evidence stays in the publish lanes' own rows. |
+| Drop the note entirely | Rejected. The note is the operator's context; dropping it loses information the caller supplied. |
+| Rewrite the rows written before this change | Rejected. Nothing can know what an old row described. The rule applies to new rows. |
+
+### Evidence
+
+| Check | Result | Evidence |
+|---|---|---|
+| The reproduced defect | reproduced, before the change | `POST /v1/admin/projects/p1/delivery/next-idea '{"confirm":true}'` wrote `delivery.next-idea\|done\|delivery.next-idea: publish landed; next loop proposed`. The default was in `src/api/lifecycle_exec/delivery.rs`. |
+| The rule | PASS | `src/api/lifecycle_exec/delivery.rs`: the detail states `transition=proposed` and keeps the caller's note as `reported=<note>`. |
+| A row with no note | PASS | `a_next_idea_row_claims_no_publish` asserts the row's detail is exactly `delivery.next-idea: transition=proposed`, that it does not contain "publish landed", and that the response still answers `200` with the operation id. |
+| A row with a note | PASS | `a_callers_note_is_recorded_as_the_callers_report` asserts the detail is exactly `delivery.next-idea: transition=proposed reported=publish landed`. |
+| The refusals | PASS | `the_refusals_are_unchanged` asserts the unconfirmed request is refused with `409`, the over-long note with `400` and the credential-shaped note with `400`, and that none of them journals a row. |
+| The contract test fails without the change | PASS | With the route reverted to the tree before the change, two of the three cases fail: the row without a note reads `delivery.next-idea: publish landed; next loop proposed` and the row with a note reads `delivery.next-idea: publish landed`, with the caller's report stated as the server's own finding. The third case (the unchanged refusals) passes on both trees. |
+| The untouched surfaces | PASS | `git diff` shows no change to the response body, the request contract (`confirm`, the note's 2000-character limit, the credential-shaped refusal), the row's kind, project id and state, the lifecycle journal helper, the other lifecycle routes (`graduation.import`, `intent.apply`, `remediate.apply`), the publish lanes, the delivery publish and reconcile routes, the frontend or the registry journal. |
+| Repository test suite | PASS | `bash scripts/check-tests.sh` — the repository Gate's own `tests` command, and the same suite CI's `test` job runs — exited 0; the 241 `test result:` lines sum to **4270 passed; 0 failed; 1 ignored**. The pre-change baseline was 240 lines and 4267 passed, so this change adds exactly the 3 tests it declares and one new test binary. The lifecycle contract test is 9 passed. |
+| Repository Gate | PASS, 8/8 | The owning agent's run on the final tree: exit 0; `.forge/gate/forge/evidence.json` records `"aggregate": "passed"` at `"observed_at": "2026-10-25T04:26:52Z"` on revision `17e7644fe3bd8b2ce225cd089311ed7420674291` (the parent commit — the implementation is uncommitted while the Gate runs), with all eight required checks — `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `security`, `source-file-size` and `tests` — in state `pass`. The `source-file-size` check evaluated 460 of 460 candidate files under the 1,000-line limit. The rehearsal before it (`forge gate --dry-run`) resolved the same 8 required checks, `unbound required checks: none`, `exemption budget: cap=2 declared=0 headroom=2 required=8 verdict=within`. The advisory database's fetch was resolved to the local mirror of the same cached database (`/home/paul/.cache/advisory-db-mirror.git`, commit `640bf5a9`) through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_0=url.file:///home/paul/.cache/advisory-db-mirror.git.insteadOf` / `GIT_CONFIG_VALUE_0=https://github.com/RustSec/advisory-db.git`, and `CARGO_HTTP_PROXY=http://127.0.0.1:1` made the unreachable crates.io index update fail fast instead of waiting for the TCP timeout. Both settings applied to that one Gate process only: no file in this repository and no global cargo or git configuration was changed. |
+| OpenSpec, change names, whitespace | PASS | `openspec validate --all --strict --no-interactive` → `Totals: 165 passed, 0 failed (165 items)`; `node scripts/check-openspec-change-names.mjs` → `PASS`; `git diff --check` and `git diff --cached --check` → no finding. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-25-delivery-next-idea-evidence-truth/`: the new capability `delivery-next-idea-evidence-truth` was promoted with one requirement and three scenarios, the `web-lifecycle-execution` "Delivery next-idea transition journals the loop" requirement was modified with its canonical scenario kept and one scenario added, the archive's `TBD` Purpose was replaced by hand with the real one, and the modified capability's purpose now states the general rule. `openspec list` reports no active changes. |
+| Lint and formatting | PASS | `cargo clippy --workspace --all-targets --all-features` exited 0 with 39 lines starting with `warning`, the same count as the pre-change baseline, and no warning names a touched file. `rustfmt --edition 2021 --check` is clean on all three touched Rust files, and `cargo fmt --all` was never run. No pre-existing rustfmt-dirty file was touched. Every touched file stays under the 1000 physical line limit: `src/api/lifecycle_exec/delivery.rs` 109, `tests/delivery_next_idea_evidence_truth_contract.rs` 233, `tests/web_lifecycle_execution_contract.rs` 565. |
+| The worker | the owning agent wrote the change | The implementation was meant to be written by a worker subagent. The worker sessions in this programme have been unreliable — change 34's worker stopped reporting after writing code, change 35's worker wrote everything then stopped, and change 36's worker read the package and ended without writing anything — so the owning agent wrote this change itself: the route, the contract test and the lifecycle test's detail assertions. |
+
+### Next candidates
+
+Not re-litigated; recorded so the next change starts from them.
+
+- The explore agent's list is exhausted: `component resolve`,
+  `ui-pattern resolve` (change 42) and `delivery.next-idea` (change 43)
+  were its last three findings. The next change needs a fresh hunt.
+- The analytics local-state counters (the change 35 follow-up) have no
+  honest source: `agents-running` (the state is `active`), `specs-queued`
+  (no lifecycle state) and `deployment-offline` (a disconnected target is
+  `unknown`). No gatherer was invented. The deployment counters wait for
+  a change that reuses the deploy status projection's freshness rule.
+
+Implementation/archive commit: `6987f8f` (`feat: the next-idea row states only what the server recorded`).
+This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.

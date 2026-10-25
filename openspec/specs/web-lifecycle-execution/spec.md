@@ -2,7 +2,8 @@
 
 ## Purpose
 Run the idea-to-maintain project lifecycle from the web workbench through the
-same typed in-process Core operations as the CLI: graduation preview/import,
+same typed in-process Core operations as the CLI, with every journalled
+transition stating only what the server recorded: graduation preview/import,
 per-project intent resolve/apply, remediate plan/apply, the delivery next-idea
 transition and studio refine all execute over session-gated admin routes with
 digest-bound confirmation, stale-plan refusal and journal evidence — never a
@@ -81,12 +82,18 @@ Every lifecycle confirm (idea, scaffold `new`, spec save, refine, gate dry-run p
 
 ### Requirement: Delivery next-idea transition journals the loop
 
-Delivery publish success SHALL record a `delivery.next-idea` journal row and render it in `#delivery-next-idea` with the `&step=idea` link plus the maintain refresh shortcut.
+Delivery publish success SHALL record a `delivery.next-idea` journal row and render it in `#delivery-next-idea` with the `&step=idea` link plus the maintain refresh shortcut. The row SHALL state the transition the server recorded and SHALL NOT claim a publish the server did not observe; a caller's note SHALL be recorded as the caller's report.
 
 #### Scenario: Publish lands the next idea
 
 - **WHEN** `POST .../publish` (or delivery publish) succeeds
-- **THEN** the server records kind `delivery.next-idea` and `#delivery-next-idea` announces it via `role=status` naming the journal operation.
+- **THEN** the server records kind `delivery.next-idea` and `#delivery-next-idea` announces it via `role=status` naming the journal operation
+
+#### Scenario: The next-idea row claims no unobserved publish
+
+- **WHEN** the next-idea transition is journalled
+- **THEN** the row names the transition the server recorded, and a
+  caller's note is kept in it marked as the caller's report
 
 ### Requirement: Studio refine confirm shows the revision bump
 

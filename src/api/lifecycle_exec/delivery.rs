@@ -83,10 +83,14 @@ pub fn delivery_next_idea(
                     }),
                 );
             }
+            // The route states what it did: it recorded the next-idea
+            // transition. It read no publish, so it claims none. A
+            // caller's note is the caller's report, kept in the row
+            // marked as such.
             let detail = if note.is_empty() {
-                "delivery.next-idea: publish landed; next loop proposed".to_string()
+                "delivery.next-idea: transition=proposed".to_string()
             } else {
-                format!("delivery.next-idea: {note}")
+                format!("delivery.next-idea: transition=proposed reported={note}")
             };
             record_journal(db_path, "delivery.next-idea", id, &detail);
             let op_id = latest_op_id(db_path, "delivery.next-idea", id);

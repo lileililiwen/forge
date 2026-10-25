@@ -505,6 +505,20 @@ fn next_idea_transition_journals_and_delivery_catalog_is_web() {
     let response = handle(&config, &db, &req, Utc::now());
     assert_eq!(response.status, 200);
     assert!(journal_kinds(&db, "p1").contains(&"delivery.next-idea".to_string()));
+    // The row states the transition the server recorded and keeps the
+    // caller's report marked as the caller's.
+    let detail = Registry::open(&db)
+        .unwrap()
+        .journal_entries()
+        .unwrap()
+        .iter()
+        .find(|e| e.kind == "delivery.next-idea" && e.project_id == "p1")
+        .and_then(|e| e.detail.clone())
+        .expect("the transition row carries its detail");
+    assert_eq!(
+        detail, "delivery.next-idea: transition=proposed reported=publish landed",
+        "{detail}"
+    );
     // Catalog rows for the new web surface are `web` with routes.
     let rows = command_catalog::rows();
     for id in [

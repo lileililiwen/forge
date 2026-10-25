@@ -7,9 +7,9 @@
 //! run a resolution describes, and a plan is never a completed
 //! resolution.
 //!
-//! Both resolver lanes — the semantic component registry and the
-//! semantic UI pattern catalog — read this one rule, so the two
-//! cannot drift apart.
+//! Every resolver lane — the semantic component registry, the semantic
+//! UI pattern catalog and the intent planner — reads this one rule, so
+//! the lanes cannot drift apart.
 
 /// What a resolution run did.
 ///

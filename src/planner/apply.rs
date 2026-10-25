@@ -204,7 +204,11 @@ pub fn apply_plan(
                     Ok(_) => applied.push(AppliedStep {
                         kind: step.kind,
                         target: step.target.clone(),
-                        status: "verified".to_string(),
+                        // The step resolved the component in the
+                        // catalog. It installed nothing and qualified
+                        // nothing, so it does not report a verified
+                        // component.
+                        status: "resolved".to_string(),
                         note: format!(
                             "component {}@{} resolved for {}; promotion is the operator's \
                              call and the planner did not auto-qualify it",

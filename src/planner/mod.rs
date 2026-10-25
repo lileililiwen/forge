@@ -32,9 +32,10 @@
 //! than masked by an AI substitution (R2 boundary).
 //!
 //! Operations journal under the registry's `operations` table with
-//! the `planner` kind and a `done` / `rejected` / `partial` verdict
-//! so a future portal or API surface can read the planner history
-//! through the same core contract the CLI uses.
+//! the `planner` kind and a `planned` / `done` / `rejected` / `partial`
+//! verdict so a future portal or API surface can read the planner
+//! history through the same core contract the CLI uses. A resolve
+//! journals `planned`, because it produces a plan and applies nothing.
 
 pub mod apply;
 pub mod contract;

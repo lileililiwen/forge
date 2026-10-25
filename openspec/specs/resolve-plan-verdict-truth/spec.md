@@ -1,7 +1,7 @@
 # resolve-plan-verdict-truth Specification
 
 ## Purpose
-One rule names what a resolution did: a resolution that produced a plan is a planned run, a request the resolver could not satisfy is a rejected run, and a resolution is never recorded as a completed action because it installs nothing.
+One rule names what a resolution did, and every resolution writer reads it: a resolution that produced a plan is a planned run, a request the resolver could not satisfy is a rejected run, and a resolution is never recorded as a completed action because it installs nothing.
 ## Requirements
 ### Requirement: A resolution names the plan it produced
 
@@ -10,8 +10,8 @@ a plan is a planned run, and a request the resolver could not satisfy is
 a rejected run. A resolution SHALL NOT be recorded as a completed
 resolution, because it installs nothing. Every journal row for a
 resolution SHALL follow that one rule rather than a private copy of it,
-and the row's detail SHALL name the run. The component resolver and the
-UI pattern resolver SHALL read the same rule.
+and the row's detail SHALL name the run. The component resolver, the UI
+pattern resolver and the intent planner SHALL read the same rule.
 
 #### Scenario: A resolution that produced a plan is planned
 
@@ -28,6 +28,6 @@ UI pattern resolver SHALL read the same rule.
 
 #### Scenario: One rule, every resolution writer
 
-- **WHEN** the component resolver and the UI pattern resolver record a
-  resolution
-- **THEN** both read the one rule for the run they describe
+- **WHEN** the component resolver, the UI pattern resolver and the
+  intent planner record a resolution
+- **THEN** all three read the one rule for the run they describe

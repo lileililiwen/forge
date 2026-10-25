@@ -3,7 +3,7 @@
 //! Typed CLI handlers for structured intent validation and assembly plans.
 //! Bodies moved verbatim from the split of `src/main.rs`.
 
-use forge::core::ForgeError;
+use forge::core::{ForgeError, ResolveRun};
 use forge::planner::{
     apply_plan as apply_planner_plan, intent_hash, plans_dir, render_apply_human,
     render_intent_validation_human, render_plan_human, resolve_plan as resolve_planner_plan,
@@ -135,25 +135,29 @@ pub(crate) fn cmd_intent(
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let plan = resolve_planner_plan(&validated, None)?;
             let receipt_path = write_plan_receipt(&work_dir, &plan)?;
+            // One rule names the run: a resolve produced a plan and
+            // applied nothing, so it is a planned run and never a
+            // completed resolution. The rule is the shared one, so
+            // this lane cannot drift from the other resolvers.
+            let run = ResolveRun::for_steps(plan.steps.len());
+            let note = format!("resolve: verdict={} {}", run.label(), plan.note);
             let outcome = IntentResolveOutcome {
-                note: plan.note.clone(),
+                note: note.clone(),
                 plan: plan.clone(),
                 receipt_path: receipt_path.display().to_string(),
             };
             if let Ok(registry) = open_registry(db_path) {
-                let _ = registry.record_operation(
-                    "planner",
-                    &plan.plan_id,
-                    "done",
-                    &format!("resolve: {}", plan.note),
-                );
+                let _ =
+                    registry.record_operation("planner", &plan.plan_id, run.journal_state(), &note);
             }
             let json = serde_json::json!({
                 "contract": PLANNER_CONTRACT_VERSION,
+                "note": note.clone(),
                 "plan": plan,
                 "receipt_path": outcome.receipt_path,
             });
-            Ok(as_output(format, render_plan_human(&outcome.plan), json))
+            let human = format!("{}\n  {}", render_plan_human(&outcome.plan), note);
+            Ok(as_output(format, human, json))
         }
         IntentCommands::Apply {
             plan_id,

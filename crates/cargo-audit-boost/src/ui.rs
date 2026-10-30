@@ -100,7 +100,7 @@ pub fn draw_ui(
             Constraint::Min(10),
             Constraint::Length(1),
         ])
-        .split(f.size());
+        .split(f.area());
 
     // 1. Header Widget
     let total_crates = state.crates.len();
@@ -198,7 +198,7 @@ pub fn draw_ui(
     f.render_widget(header, chunks[0]);
 
     // Split Main area: Gantt (70%) and Details (30%) if screen width >= 90
-    let main_layout = if f.size().width >= 90 {
+    let main_layout = if f.area().width >= 90 {
         Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])

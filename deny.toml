@@ -24,6 +24,17 @@ ignore = [
   # unmaintained status is a maintenance risk, not a known vulnerability. No
   # maintained drop-in exists without a yaml-library migration.
   { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml unmaintained; transitive via serde_yaml for trusted config/spec YAML parsing only, no known vulnerability, no maintained drop-in without a yaml-lib migration" },
+  # RUSTSEC-2026-0387: timing variability in crypto-bigint operations intended
+  # to be constant-time. The crate is reached transitively by
+  # `openidconnect 4.0.1 -> elliptic-curve 0.13.8 -> crypto-bigint 0.5.5` for
+  # ECDSA ID-token signature verification. Forge only verifies signatures with
+  # the provider's public keys; no private key enters the process and no
+  # signing operation is reachable, so the secret-dependent timing path this
+  # advisory describes cannot be exercised. No fixed release exists upstream
+  # (openidconnect 4.0.1 is the latest). Review trigger: an openidconnect
+  # release on elliptic-curve 0.14 / crypto-bigint >= 0.7.6; re-check this
+  # exception when openidconnect is upgraded.
+  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing variability via openidconnect -> elliptic-curve -> p256/p384; Forge performs public-key signature verification only, no private-key or signing path is reachable, and no fixed openidconnect release exists; review when openidconnect moves to elliptic-curve 0.14 / crypto-bigint >= 0.7.6" },
 ]
 
 [licenses]

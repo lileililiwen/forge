@@ -172,7 +172,7 @@ fn draw_ui(f: &mut Frame, ctx: &mut UiContext) {
             Constraint::Length(12), // Selected Job Logs
             Constraint::Length(1),  // Key Info Footer
         ])
-        .split(f.size());
+        .split(f.area());
 
     // 1. Header Summary Panel
     let progress_ratio = if ctx.total_jobs > 0 {
@@ -327,7 +327,7 @@ fn draw_ui(f: &mut Frame, ctx: &mut UiContext) {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray)),
     )
-    .highlight_style(
+    .row_highlight_style(
         Style::default()
             .bg(Color::Rgb(50, 50, 50))
             .add_modifier(Modifier::BOLD),

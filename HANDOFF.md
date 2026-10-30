@@ -2,6 +2,44 @@
 
 ## Latest delivery
 
+### `repository-truth-refresh` implemented and archived (2026-10-30)
+
+Four status documents disagreed with the repository they describe: they stated
+118/94, 129/103, 155/113 and 167/121 archived changes and canonical specs, while
+the directories held 225 and 172. This was the second recorded drift of the same
+literals, so refreshing them again would only queue a third.
+
+`scripts/check-spec-governance.mjs` now computes both counts from
+`openspec/changes/archive` and `openspec/specs` and checks every stated claim in
+`README.md`, `ROADMAP.md`, `docs/requirements-coverage.md` and
+`openspec/config.yaml`. A deliberate `999` made it fail naming the file, line,
+stated number and computed number; the real counts returned it to pass. The
+archive moved the count to 226 in the same commit.
+
+`.project.json` now states observable facts: `visibility: "public"` (the GitHub
+repository is public), `evidence_status: "verified"` (the declared command and
+the full Gate run every cycle), and `gate_runtime: "forge"` (the bundled
+engine). `ROADMAP.md` records the proposed `native-project-profile` follow-up
+instead of forcing a decision about `forge doctor .` and `forge register .`,
+which still refuse the governance profile `rust-product`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Count drift | Fixed | Before: 118/94, 129/103, 155/113, 167/121. Before archive: 225/172; after archive: 226/172. |
+| Count rule | PASS | `node scripts/check-spec-governance.mjs` computes both counts and checks all four files; it passed at 225 and at 226. |
+| Count rule catches drift | PASS | `999 archived OpenSpec changes` in README made the check fail with `README.md:7: archived-change count 999 does not match the 225 directories under openspec/changes/archive`; restoring returned `PASS`. |
+| `.project.json` truth | PASS | `visibility: "public"`, `evidence_status: "verified"`, `gate_runtime: "forge"`; the file parses as JSON. |
+| Proposed follow-up | Recorded | `ROADMAP.md` names `native-project-profile` and the two decisions it must resolve. |
+| Repository test suite | PASS, both test-bearing Gate checks | The full Gate ran `declared-verification` and `tests` and both passed; `scripts/check-tests.sh` includes the Python and identity-provider steps. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 with aggregate `passed` at `2026-10-30T14:21:42Z` on revision `582c3828`. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. Archived without `--skip-specs` as `2026-10-30-repository-truth-refresh/`. |
+
+Not delivered: the Doctor/registry native-profile decision, recorded as a
+proposed package rather than half-implemented. Nothing was pushed.
+
+Implementation/archive commit: `836973b` (`docs: derive and check the repository
+counts`). This HANDOFF-only update is the second commit.
+
 ### `gate-declaration-reconciliation` implemented and archived (2026-10-30)
 
 Forge's own Gate declarations disagreed with each other. `forge.yaml` declared
@@ -12485,4 +12523,3 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `a80561a` (`feat: the api operation row names what the request did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
-current_spec: repository-truth-refresh

@@ -121,6 +121,43 @@ move that check into the engine once the declaration model settles.
 Implementation/archive commit: `3dfa825` (`fix: declare the gate floor the plan
 actually runs`). This HANDOFF-only update is the second commit.
 
+### `dependency-advisory-remediation` implemented and archived (2026-10-30)
+
+`cargo audit` reported one vulnerability and five warnings, and the repository's
+own Gate had been blocked by the same advisory for four consecutive changes. A
+`security` check that every cycle records and moves past is no longer a signal.
+
+Three advisories had a direct fix: `tokio 1.53.2 -> 1.54.1` for the `AsyncFd`
+unsoundness, and `ratatui 0.26 -> 0.30.2` in both TUI crates, which removes
+`lru 0.12.5` and `paste`. The fourth, `crypto-bigint` via
+`openidconnect -> elliptic-curve -> p256/p384`, has no fixed release; Forge only
+verifies public-key signatures, so the secret-dependent path is unreachable and
+is recorded as a reviewed exception in both `deny.toml` and `.cargo/audit.toml`,
+with the upstream trigger that ends it.
+
+`cargo deny check` also failed on a path-only wildcard: the `driftwatchdog`
+dependency declared no version. It now carries `version = "0.1.11"`. A policy
+contract test keeps the two files in agreement and refuses a lockfile that
+reinstates `paste 1.0.15`, `lru 0.12.5` or `tokio 1.53.2`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Advisory set | 1 vulnerability + 5 warnings -> 0 vulnerabilities + 1 allowed warning | `cargo audit` now exits 0; only the already-excepted `unsafe-libyaml` warning remains. |
+| `tokio` | PASS | `cargo update -p tokio --precise 1.54.1`; `cargo tree -i tokio` names `1.54.1`. |
+| `ratatui` / `lru` / `paste` | PASS | Both crates declare `ratatui = "0.30"`; `cargo tree -i lru` and `-i paste` report no package. Source changes limited to `Frame::size()` -> `Frame::area()` and `highlight_style` -> `row_highlight_style`. |
+| `cargo deny check` | PASS | `cargo-deny 0.20.2`: `advisories ok, bans ok, licenses ok, sources ok`. |
+| Policy parity test | PASS, 5 tests / 0 failed | `cargo test --test dependency_policy_contract`; both files name `RUSTSEC-2023-0071` and `RUSTSEC-2026-0387`, every ignore has a reason, and the lockfile is checked. |
+| MSRV | PASS | `cargo +1.88.0 check --workspace --all-targets` exited 0; `ratatui 0.30.2` declares `rust-version = 1.88.0`. |
+| Repository test suite | PASS, 4366 tests / 0 failed | `scripts/check-tests.sh` exited 0 across 252 suites, with the Python and identity-provider steps. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 at `2026-10-30T13:35:45Z`; `security` passed with the allowed `unsafe-libyaml` warning only. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. |
+
+Not delivered: no `openidconnect` replacement. The exception is a reviewed
+decision with a named upstream trigger, not a permanent suppression.
+
+Implementation/archive commit: `23b3fd5` (`fix: remediate dependency advisories
+and green the gate`).
+
 ### `ci-green-recovery` implemented and archived (2026-10-30)
 
 Forge's CI had not been green since the 2026-10-15 push, and fifty commits had

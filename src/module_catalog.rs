@@ -136,6 +136,15 @@ pub fn source_root() -> Result<PathBuf, ForgeError> {
             return Ok(parent.to_path_buf());
         }
     }
+    // A build cache may symlink or relocate the target directory, so the
+    // executable's ancestors no longer reach the checkout that built it. The
+    // compile-time manifest directory is that checkout; use it when it still
+    // exists. A portable binary moved to another host falls through to the
+    // refusal below, unchanged.
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if checkout.join("Cargo.toml").is_file() && checkout.join("modules").is_dir() {
+        return Ok(checkout.to_path_buf());
+    }
     Err(ForgeError::ModuleCatalogUnavailable {
         path: exe.display().to_string(),
     })
@@ -153,4 +162,16 @@ pub fn resolve(id: &str) -> Result<ModuleEntry, ForgeError> {
         .into_iter()
         .find(|module| module.id == id)
         .ok_or_else(|| ForgeError::ModuleNotFound { id: id.to_string() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_root_finds_the_compile_time_checkout() {
+        let root = source_root().expect("the checkout that built this binary resolves");
+        assert!(root.join("Cargo.toml").is_file(), "{}", root.display());
+        assert!(root.join("modules").is_dir(), "{}", root.display());
+    }
 }

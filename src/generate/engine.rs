@@ -476,6 +476,26 @@ pub fn render_files(request: &CreationRequest) -> Result<Vec<(String, String)>, 
     )
 }
 
+/// Binary files a request renders: the committed shared-layer feed.
+///
+/// `forge new` stages these alongside the text files. A caller that renders
+/// text only and forgets them produces a project whose `NuGet.config` points
+/// at a feed that does not exist, which a host with a warm package cache can
+/// hide. Readiness fixtures must append both.
+pub fn render_feed_files(request: &CreationRequest) -> Result<Vec<(String, Vec<u8>)>, ForgeError> {
+    let _ = check_request(&request.profile, &request.id, &request.features)?;
+    let descriptor = inspect_profile(&request.profile)?;
+    let kit = KitContext::resolve(
+        request,
+        &descriptor,
+        crate::standard::DETERMINISTIC_TIMESTAMP,
+    )?;
+    kit.as_ref()
+        .map(|kit| crate::kit::assets::read_verified_feed_assets(&kit.descriptor))
+        .transpose()
+        .map(|files| files.unwrap_or_default())
+}
+
 fn ensure_relative_inside(rel: &str) -> Result<(), ForgeError> {
     let path = Path::new(rel);
     if path.is_absolute() {

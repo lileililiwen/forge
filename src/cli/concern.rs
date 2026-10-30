@@ -35,7 +35,11 @@ fn checker_path(
         (CHECKER_RELATIVE_PATH, INSTALLED_CHECKER_RELATIVE_PATH)
     };
     let source = source_root.join(source_relative);
-    if executable.starts_with(source_root) && source.is_file() {
+    // A build cache may relocate the executable outside the checkout, so the
+    // prefix test below would miss the source resource. When the checkout that
+    // built the binary still carries it, use it. A portable binary on another
+    // host has no source resource and falls through to the installed path.
+    if source.is_file() {
         return Ok(source);
     }
 
@@ -129,6 +133,21 @@ mod tests {
         std::fs::create_dir_all(script.parent().unwrap()).unwrap();
         std::fs::write(&script, "# checker\n").unwrap();
         let executable = source.path().join("target/debug/forge");
+
+        assert_eq!(
+            checker_path(&executable, source.path(), false).unwrap(),
+            script
+        );
+    }
+
+    #[test]
+    fn checker_path_uses_the_source_resource_when_the_executable_is_relocated() {
+        let source = tempfile::tempdir().unwrap();
+        let script = source.path().join(CHECKER_RELATIVE_PATH);
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "# checker\n").unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let executable = cache.path().join("debug/forge");
 
         assert_eq!(
             checker_path(&executable, source.path(), false).unwrap(),

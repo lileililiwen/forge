@@ -42,6 +42,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.400
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install the OpenSpec validator
+        run: npm install --global @fission-ai/openspec@1.6.0
       - name: Run quality gate
         env:
           CI: true

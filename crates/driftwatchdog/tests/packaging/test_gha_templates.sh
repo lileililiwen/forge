@@ -105,22 +105,36 @@ test_gha_templates() {
         trap 'rm -rf "$check_dir"' EXIT INT TERM
         if ! python3 - "$template" "$check_dir" <<'PY'
 import os, re, sys
+
 src_path, out_dir = sys.argv[1], sys.argv[2]
-src = open(src_path).read()
-# Match every `run: |` / `run: >-` block (literal scalar or
-# folded scalar) including an optional leading `-` and a
-# trailing key. Capture the indented body.
-pattern = re.compile(
-    r"^[ \t-]*run:[ \t]*\n([ \t]+.+(?:\n\1[ \t]+.*|\n[ \t]*)*)",
-    re.MULTILINE,
-)
+lines = open(src_path).read().splitlines()
+run_re = re.compile(r"^([ \t-]*)run:[ \t]*(?:[|>][-+]?)[ \t]*$")
 idx = 0
-for m in pattern.finditer(src):
-    body = m.group(1)
-    # Unindent: drop the common leading whitespace.
-    lines = body.splitlines()
-    indent = min((len(l) - len(l.lstrip(" \t"))) for l in lines if l.strip())
-    body = "\n".join(l[indent:] if len(l) >= indent else l for l in lines) + "\n"
+i = 0
+while i < len(lines):
+    match = run_re.match(lines[i])
+    if not match:
+        i += 1
+        continue
+    key_indent = len(match.group(1))
+    i += 1
+    raw = []
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            raw.append("")
+            i += 1
+            continue
+        indent = len(line) - len(line.lstrip(" \t"))
+        if indent <= key_indent:
+            break
+        raw.append(line)
+        i += 1
+    body_lines = [line for line in raw if line.strip()]
+    if not body_lines:
+        continue
+    indent = min(len(line) - len(line.lstrip(" \t")) for line in body_lines)
+    body = "\n".join(line[indent:] if line.strip() else "" for line in raw) + "\n"
     out = os.path.join(out_dir, f"step-{idx}.sh")
     open(out, "w").write(body)
     idx += 1

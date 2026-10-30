@@ -25,7 +25,10 @@ fn bundle_root() -> Result<PathBuf, String> {
     })?;
     let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let source = source_root.join("scripts/governance/runtime-templates");
-    if executable.starts_with(&source_root) && valid_bundle(&source) {
+    // A build cache may relocate the executable outside the checkout. Prefer
+    // the bundle the checkout carries; a portable binary on another host has
+    // no source bundle and falls through to its installed prefix.
+    if valid_bundle(&source) {
         return Ok(source);
     }
     let prefix = executable

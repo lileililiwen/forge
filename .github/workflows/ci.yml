@@ -233,7 +233,9 @@ jobs:
           mkdir -p /tmp/opencode/forge-install
           scripts/install.sh --archive "$ARCHIVE" --prefix /tmp/opencode/forge-install
           scripts/smoke.sh --bin /tmp/opencode/forge-install/bin/forge
-          tar -tzf "$ARCHIVE" | grep -v '^forge-[^/]*/[^/]*$' && { echo "artifact blocked: archive carries unexpected paths" >&2; exit 1; } || true
+          # The archive carries root files (binary, licence, readme, changelog)
+          # plus the pinned share/forge tree. Any other shape is unexpected.
+          tar -tzf "$ARCHIVE" | grep -v -E '^forge-[^/]*/([^/]*|share/|share/forge(/.*)?)$' && { echo "artifact blocked: archive carries unexpected paths" >&2; exit 1; } || true
           tar -tzf "$ARCHIVE" | grep '^/' && { echo "artifact blocked: archive carries absolute host paths" >&2; exit 1; } || echo "artifact: no absolute host paths"
       - name: Upload archive and digest as workflow artifacts
         uses: actions/upload-artifact@v4

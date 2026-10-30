@@ -2,6 +2,70 @@
 
 ## Latest delivery
 
+### `forge-build-image` implemented and archived (2026-10-30)
+
+`forge build` ran the profile's build command and reported a target, but it
+produced no artifact Forge could name. The deploy lane's artifact is a
+container file the project already owns, and nothing recorded which image came
+out of which revision — the `target-addressed-build` entry said so in as many
+words. Every PaaS the landscape report surveyed answers this with a build
+contract rather than a builder: Buildpacks, Railpack and the commercial
+platforms built on them detect a source tree, build an image and can emit an
+SBOM.
+
+`forge build --image` consumes that contract. It resolves the project's Git
+revision, derives `forge-<project-id>:<sha12>` unless `--tag` names one, and
+invokes one operator-installed adapter under `forge-image-builder/0.1.0` with
+one JSON document on stdin. The adapter is resolved from `--builder-bin`, then
+`$FORGE_IMAGE_BUILDER_BIN`, then `forge-image-builder` on `PATH`; Forge never
+installs, downloads or vendors a builder.
+
+Forge refuses every claim it cannot check. The returned image must be the tag
+Forge asked for; the digest must be `sha256:` and 64 lower-case hex; the
+builder must be named; the SBOM path must be relative, use plain components,
+resolve inside the project, name a file and be at most 8 MiB; evidence is
+bounded and redacted. Forge hashes the SBOM itself rather than accepting a
+hash the adapter supplies. A `status: failed` response, a non-zero exit or a
+timeout is `build-failed`; a malformed or unprovable response is
+`build-invalid`; neither writes a record.
+
+A successful build writes `.forge/build/<project-id>/<sha12>.json` through a
+staged file and an atomic rename. The record carries the revision, tag,
+builder and version, digest, SBOM path/hash/bytes and evidence, with no
+absolute path. It is its own evidence: it is not Gate evidence and it does not
+feed the deploy lane.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 4341 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 4341 passed, 0 failed, 1 ignored, 3 filtered out across 246 suites in 358.63s. |
+| Focused suites | PASS, 52 tests / 0 failed | `cargo test -p forge --lib image::` → 11 passed; `native::` → 11 (two new stdin cases); `build::` → 8; `command_catalog` → 7; `cargo test --test build_image_contract` → 10; `--test cli_contract` → 5. |
+| Repository Gate | FAIL, 7/8 — the same pre-existing advisory | `forge gate --dry-run` resolved all 8 required checks with none unbound. The first full run failed `source-file-size` on `src/main.rs` at 1001 lines; the build arguments moved into `BuildArgs` in `src/cli/gitops.rs` and `src/main.rs` came back to 964. The second full `forge gate --timeout-secs 1800` run reported aggregate `blocked`: only `security` failed on RUSTSEC-2026-0387, and `tests`, `source-file-size` (465 candidates at the 1000-line maximum) and the other six passed. `.forge/gate/forge/evidence.json` records `"aggregate": "blocked"` at `2026-10-30T11:16:35Z` on revision `7e9dff6`; the advisory's remediation path is the one recorded in the two previous entries, and this change touches neither `Cargo.toml` nor `Cargo.lock`. |
+| Real image build | PASS | A fixture project with a recording adapter: `forge build … --image --builder-bin …` printed `tag: forge-image-manual:fad25ef115a6`, `builder: railpack`, `digest: sha256:bbbb…`, `sbom: sbom.json (48 bytes, sha256:4e9bb7b6…)`. `.forge/build/image-manual/fad25ef115a6.json` carries `contract: forge-build-image/0.1.0`, the revision, tag, builder and version, digest, Forge's SBOM hash and byte count, and no absolute path. |
+| Real refusal | PASS | With `FORGE_IMAGE_BUILDER_BIN` unset and no `forge-image-builder` on `PATH`, `forge build … --image` exited 1 with `error[build-invalid]: build invalid: the image builder `forge-image-builder` could not start: No such file or directory (os error 2); install it or set `FORGE_IMAGE_BUILDER_BIN`; Forge never installs a builder`, and wrote no record. |
+| Reference adapters | PASS for syntax, NOT exercised | `python3 -m py_compile adapters/image/forge-image-builder-{railpack,pack}` exits 0 and both are executable. Neither has been run against a real Railpack or `pack` installation on this host; the contract document states that and the adoption prerequisite. |
+| OpenSpec and whitespace | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 171 passed, 0 failed (171 items)`; `cargo test --test spec_purpose_contract` reported 2 passed after the promoted spec's Purpose was written; `git diff --check` reported no findings. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-30-forge-build-image/`. |
+
+Two behaviour changes a reviewer must know about. `forge build --image` is a
+new path; `--tag` or `--builder-bin` without `--image` is refused, and
+`--image` with `--os`, `--arch` or `--rid` is refused because the image
+platform belongs to the builder. And the build arguments moved out of the
+`Commands` enum into `BuildArgs`, so the CLI's help text is grouped the same
+way but the command surface is otherwise unchanged; every existing `forge
+build` test still passes.
+
+Not delivered, and stated plainly: the build record does not feed the deploy
+lane, and no Gate check consumes it. Two reference adapters ship but neither
+was exercised against a real builder; they report a failed build when the
+builder fails or when the local image store reports no digest, because Forge
+will not record a build without one. No SBOM is generated by Forge, no image
+is pushed to a registry, and nothing is signed or attested. `forge build`
+without `--image` is untouched.
+
+Implementation/archive commit: `a7209ff` (`feat: delegate image builds to a
+validated adapter`). This HANDOFF-only update is the second commit. Nothing was
+pushed. No active OpenSpec change remains, so this file has no `current_spec`
+pointer.
+
 ### `delivery-rollback` implemented and archived (2026-10-30)
 
 The delivery lane could move a project forward and never back. Every promotion

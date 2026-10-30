@@ -2,6 +2,51 @@
 
 ## Latest delivery
 
+### `ci-green-recovery` implemented and archived (2026-10-30)
+
+Forge's CI had not been green since the 2026-10-15 push, and fifty commits had
+landed without it. Three failures were structural: `governance` refused because
+the `openspec` CLI was installed nowhere; `surfaces` ran `forge check .` on a
+fresh checkout although the checker contract requires a registered project;
+and `gate` ran with the default 600 s bound while the plan grants `tests` and
+`declared-verification` 600 s each, without installing the `cargo-audit` binary
+its `security` check invokes. Two more were drift: the workspace was not
+rustfmt-clean and `clippy -D warnings` exited 101.
+
+Every job is repaired at the layer that owns the failure. The governance job
+installs `@fission-ai/openspec@1.6.0` when the validator is absent. The surfaces
+job generates and registers a scratch `rust-web` project under `$RUNNER_TEMP`
+and runs the checker on it, so the checker surface is exercised without
+inventing a native-profile decision or mutating this repository. The gate job
+installs `cargo-audit@0.22.2` and passes `--timeout-secs 2400`. The workspace is
+formatted, and every clippy warning is fixed except two structural
+`too_many_arguments` allows on `draw_ui` and `cmd_build`.
+
+One test was fixed rather than retried: `format_json_does_not_alter_checker_stdout`
+compared two complete documents including a wall-clock `generated_at`, so a run
+that crossed a second boundary failed. It now normalizes that one value and
+compares the rest byte for byte.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Remote CI baseline | 5 jobs failed on the last pushed run | `gh run view 38742111197`: `governance`, `surfaces`, `readiness`, `gate`, `contract-parity` failed; `fmt`, `clippy`, `test`, `native-scaffold`, `msrv`, `deny` and `artifact` passed. 50 commits have landed since that run. |
+| Formatting | PASS | `cargo fmt --all -- --check` exited 0; 14 files were reformatted, including the imported `crates/cargo-audit-boost` and `crates/cargo-sonar` sources. |
+| Lints | PASS | `cargo clippy --workspace --all-targets --all-features -- -D warnings` exited 0 (previously 101 with 21 warnings). |
+| Repository test suite | PASS, 4361 tests / 0 failed | `bash scripts/check-tests.sh` exited 0; 251 suites reported `ok`, the Rust total was 4361 passed, and the script's Python checks and `modules/identity-providers` workspace ran after it. |
+| Flaky checker parity | PASS, 5 consecutive runs | `cargo test --test checker_contract` reported 14 passed on five runs after the timestamp normalization. |
+| Checker surface | PASS | `forge new /tmp/opencode/forge-surfaces --profile rust-web`, `forge register`, then `forge check forge-surfaces --format json` parsed to a document with `alerts`. |
+| Repository Gate | FAIL, 7/8 — pre-existing advisory | `forge gate . --timeout-secs 1800` exited 1 with aggregate `blocked` at `2026-10-30T12:57:12Z` on revision `2a07a56e9f8a`. `build`, `declared-verification`, `placeholder-threshold`, `product-code-boundary`, `repository`, `source-file-size` (465/465) and `tests` passed; only `security` failed on RUSTSEC-2026-0387 (`crypto-bigint` 0.5.5). This change touches neither `Cargo.toml` nor `Cargo.lock`; remediation is `dependency-advisory-remediation`. |
+| OpenSpec and whitespace | PASS | `node scripts/check-openspec-change-names.mjs` reported `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 172 passed, 0 failed (172 items)`; `git diff --check` reported no findings. Archived without `--skip-specs` as `openspec/changes/archive/2026-10-30-ci-green-recovery/`, which added four requirements to `artifact-and-ci-baseline`. |
+
+Not delivered, and stated plainly: the dependency advisory is not ignored and
+not upgraded, because the only fixed path is an upstream `openidconnect`
+release; that is the next change. CI has not been re-run on a runner — this
+change makes the job graph capable of passing and reproduces each repaired path
+locally. Nothing was pushed.
+
+Implementation/archive commit: `13ffdf1` (`fix: restore the CI baseline and
+clean the workspace`). This HANDOFF-only update is the second commit.
+
 ### `image-provenance-verify` implemented and archived (2026-10-30)
 
 `forge build --image` wrote a provenance record and nothing read it. A record
@@ -12397,3 +12442,4 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `a80561a` (`feat: the api operation row names what the request did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
+current_spec: dependency-advisory-remediation

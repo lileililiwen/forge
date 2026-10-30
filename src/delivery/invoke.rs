@@ -31,6 +31,16 @@ pub fn delivery_queue_id(verb: DeliveryVerb, project_id: &str, revision: &str) -
     format!("delivery-{env}-{project_id}-{prefix}")
 }
 
+/// The provider operation a delivery verb sends.
+pub fn operation_for(verb: DeliveryVerb) -> ProviderOperation {
+    match verb {
+        DeliveryVerb::Preflight => ProviderOperation::Preflight,
+        DeliveryVerb::Stage | DeliveryVerb::Promote | DeliveryVerb::Hermora => {
+            ProviderOperation::Publish
+        }
+    }
+}
+
 /// Build one provider request for the delivery verb.
 pub fn build_request(
     verb: DeliveryVerb,
@@ -40,15 +50,9 @@ pub fn build_request(
     folder: &Path,
     operation_id: &str,
 ) -> PublishProviderRequest {
-    let operation = match verb {
-        DeliveryVerb::Preflight => ProviderOperation::Preflight,
-        DeliveryVerb::Stage | DeliveryVerb::Promote | DeliveryVerb::Hermora => {
-            ProviderOperation::Publish
-        }
-    };
     PublishProviderRequest {
         contract: providers::PUBLISH_PROVIDER_CONTRACT.to_string(),
-        operation,
+        operation: operation_for(verb),
         provider: provider.id.clone(),
         project_id: project_id.to_string(),
         revision: revision.to_string(),

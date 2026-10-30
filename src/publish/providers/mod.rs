@@ -19,12 +19,14 @@
 //!   A response that published nothing carries no identity, so no row
 //!   names a container for a deployment that never happened.
 
+pub mod capabilities;
 pub mod contract;
 pub mod engine;
 pub mod engine_tests;
 pub mod model;
 
 // Re-export all types
+pub use capabilities::*;
 pub use contract::*;
 pub use engine::*;
 pub use model::*;

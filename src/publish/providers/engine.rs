@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use super::capabilities::{validate_capabilities, CapabilityDeclaration};
 use super::contract::{
     CONTAINER_IDENTITY_MAX, METADATA_PROPOSE_CONTRACT, PHASE_BUILD, PHASE_COMPLETE, PHASE_RUN,
     PHASE_STATUS_FAILED, PHASE_STATUS_NOT_STARTED, PHASE_STATUS_SUCCEEDED, PHASE_STATUS_UNKNOWN,
@@ -17,7 +18,8 @@ use super::contract::{
 };
 use super::model::{
     MetadataProposeRequest, MetadataProposeResponse, ProgressEventDecision, ProviderConfig,
-    ProviderContractError, ProviderEntry, PublishProviderRequest, PublishProviderResponse,
+    ProviderContractError, ProviderEntry, ProviderOperation, PublishProviderRequest,
+    PublishProviderResponse,
 };
 
 /// Validate a queue_id string. Accepts ASCII alphanumeric characters
@@ -148,6 +150,9 @@ pub fn validate_response(response: &PublishProviderResponse) -> Result<(), Provi
     }
     if let Some(container_identity) = response.container_identity.as_deref() {
         validate_container_identity(container_identity)?;
+    }
+    if let Some(capabilities) = response.capabilities.as_deref() {
+        validate_capabilities(capabilities)?;
     }
     let rendered =
         serde_json::to_string(response).map_err(|_| ProviderContractError::SecretLeak)?;
@@ -451,6 +456,64 @@ pub fn invoke_provider(
         });
     }
     Ok(response)
+}
+
+/// Ask one provider what it can do.
+///
+/// The probe is optional by construction: a provider that refuses the
+/// operation, exits non-zero, or answers nothing readable is *unknown*,
+/// not broken. Only a provider response that parsed as a provider
+/// response and then carried a malformed declaration is refused, because
+/// that is a claim Forge cannot check.
+pub fn probe_capabilities(
+    entry: &ProviderEntry,
+    project_id: &str,
+    revision: &str,
+    folder: &Path,
+    operation_id: &str,
+) -> Result<CapabilityDeclaration, ForgeError> {
+    let request = PublishProviderRequest {
+        contract: PUBLISH_PROVIDER_CONTRACT.to_string(),
+        operation: ProviderOperation::Capabilities,
+        provider: entry.id.clone(),
+        project_id: project_id.to_string(),
+        revision: revision.to_string(),
+        operation_id: operation_id.to_string(),
+        folder: Some(folder.display().to_string()),
+        dry_run: false,
+        queue_id: None,
+    };
+    let input = serde_json::to_vec(&request).map_err(|error| ForgeError::PublishInvalid {
+        reason: format!("cannot encode capability probe request: {error}"),
+    })?;
+    let (stdout, status) = match run_provider_process(entry, &input, folder, |_| {}) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(CapabilityDeclaration::unknown(
+                "the provider did not answer the capabilities probe",
+            ))
+        }
+    };
+    if !status.success() {
+        return Ok(CapabilityDeclaration::unknown(
+            "the provider answered the capabilities probe with a non-zero exit",
+        ));
+    }
+    let response: PublishProviderResponse = match serde_json::from_slice(&stdout) {
+        Ok(response) => response,
+        Err(_) => {
+            return Ok(CapabilityDeclaration::unknown(
+                "the provider returned no readable capabilities response",
+            ))
+        }
+    };
+    validate_response(&response).map_err(|error| ForgeError::PublishInvalid {
+        reason: format!(
+            "publish provider `{}` declared capabilities Forge cannot read: {error}",
+            entry.id
+        ),
+    })?;
+    Ok(CapabilityDeclaration::from_response(&response))
 }
 
 /// Validate a metadata propose response: the contract must match

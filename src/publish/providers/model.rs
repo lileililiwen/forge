@@ -67,8 +67,16 @@ pub struct PublishProviderResponse {
     /// provider cannot prove the identity).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub container_identity: Option<String>,
+    /// The operations the provider declares it serves, as its answer
+    /// to the `capabilities` operation. The field is additive: a
+    /// provider that answers nothing, or answers without it, made no
+    /// readable claim and is read as unknown. An absent field and an
+    /// empty list are different claims — absent is unknown, empty is
+    /// a declaration of nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderOperation {
     Capabilities,
@@ -76,6 +84,35 @@ pub enum ProviderOperation {
     Publish,
     Verify,
     Rollback,
+}
+impl ProviderOperation {
+    /// Every operation the contract declares, in declaration order.
+    pub const ALL: [ProviderOperation; 5] = [
+        ProviderOperation::Capabilities,
+        ProviderOperation::Preflight,
+        ProviderOperation::Publish,
+        ProviderOperation::Verify,
+        ProviderOperation::Rollback,
+    ];
+
+    /// The contract spelling of the operation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProviderOperation::Capabilities => "capabilities",
+            ProviderOperation::Preflight => "preflight",
+            ProviderOperation::Publish => "publish",
+            ProviderOperation::Verify => "verify",
+            ProviderOperation::Rollback => "rollback",
+        }
+    }
+
+    /// Read a contract spelling. An unrecognised name is `None`, so a
+    /// newer provider's operation is ignored rather than misread.
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|operation| operation.as_str() == value)
+    }
 }
 /// Outcome of validating a single progress event line emitted by a
 /// publish provider on its stderr stream.
@@ -160,6 +197,12 @@ pub enum ProviderContractError {
     RunStatusShape(String),
     #[error("provider container_identity `{0}` must not be empty and must be <= 256 characters")]
     ContainerIdentityShape(String),
+    #[error("provider capability `{0}` is not a valid operation name")]
+    CapabilityShape(String),
+    #[error("provider capability `{0}` is declared more than once")]
+    CapabilityDuplicate(String),
+    #[error("provider declares {0} capabilities; the maximum is {1}")]
+    CapabilityCount(usize, usize),
     #[error("provider progress event `{0}` is missing or invalid")]
     ProgressShape(&'static str),
     #[error("provider progress event claims a different operation_id than the active request")]

@@ -67,6 +67,7 @@ pub(super) mod tests {
             build_status: None,
             run_status: None,
             container_identity: None,
+            capabilities: None,
         };
         assert_eq!(
             validate_response(&response),
@@ -100,6 +101,7 @@ pub(super) mod tests {
             build_status: None,
             run_status: None,
             container_identity: None,
+            capabilities: None,
         }
     }
 
@@ -261,18 +263,6 @@ pub(super) mod tests {
             }))
             .unwrap();
             assert_eq!(request.operation.as_str(), op);
-        }
-    }
-
-    impl ProviderOperation {
-        fn as_str(&self) -> &'static str {
-            match self {
-                ProviderOperation::Capabilities => "capabilities",
-                ProviderOperation::Preflight => "preflight",
-                ProviderOperation::Publish => "publish",
-                ProviderOperation::Verify => "verify",
-                ProviderOperation::Rollback => "rollback",
-            }
         }
     }
 

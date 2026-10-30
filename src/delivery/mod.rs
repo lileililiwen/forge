@@ -18,6 +18,7 @@
 //! the contract requirements and `openspec/changes/project-to-
 //! production-workflow/design.md` for the implementation decisions.
 
+pub mod capabilities;
 pub mod cli;
 pub mod handlers;
 pub mod hermora;

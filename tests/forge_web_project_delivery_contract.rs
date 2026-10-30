@@ -25,9 +25,9 @@ use std::process::Command;
 use std::sync::Mutex;
 
 use chrono::Utc;
-use forge::api::{ApiConfig, ApiRequest, command_catalog, handle};
+use forge::api::{command_catalog, handle, ApiConfig, ApiRequest};
 use forge::registry::{OperationEntry, Registry};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tempfile::tempdir;
 
 /// `FORGE_HERMORA_BIN` and `FORGE_PUBLISH_PROVIDER_CONFIG` are process-global
@@ -299,12 +299,20 @@ fn delivery_rows(db: &Path, project: &str) -> Vec<OperationEntry> {
     rows
 }
 
+/// Provider operations the delivery lane invoked. The `capabilities`
+/// probe is counted separately: it is not a delivery operation, and a
+/// verb replay probes without reserving or invoking anything.
 fn provider_calls(log: &Path) -> usize {
+    let text = fs::read_to_string(log).unwrap_or_default();
+    let total = text
+        .matches("\"contract\":\"forge-publish-provider/0.1.0\"")
+        .count();
+    total.saturating_sub(provider_probes(log))
+}
+
+fn provider_probes(log: &Path) -> usize {
     fs::read_to_string(log)
-        .map(|text| {
-            text.matches("\"contract\":\"forge-publish-provider/0.1.0\"")
-                .count()
-        })
+        .map(|text| text.matches("\"operation\":\"capabilities\"").count())
         .unwrap_or(0)
 }
 
@@ -787,6 +795,11 @@ fn confirmed_staged_run_reaches_connected_and_reuses_idempotent_rows() {
     assert_eq!(replay.status, 202, "stage replay: {replay:?}");
     assert_eq!(body_json(&replay)["operation_id"], stage_op);
     assert_eq!(provider_calls(&fx.provider_log), 2);
+    assert_eq!(
+        provider_probes(&fx.provider_log),
+        3,
+        "preflight, stage and the stage replay each probe the declaration"
+    );
 
     let promote = confirmed(
         &fx.config,
@@ -824,6 +837,11 @@ fn confirmed_staged_run_reaches_connected_and_reuses_idempotent_rows() {
     assert_path_free(&hermora, fx._dir.path(), &fx.hermora);
 
     assert_eq!(provider_calls(&fx.provider_log), 3);
+    assert_eq!(
+        provider_probes(&fx.provider_log),
+        4,
+        "promote probes before it publishes"
+    );
     assert_eq!(hermora_calls(&fx.hermora_log), 1);
     let rows = delivery_rows(&fx.db, "delivery-web");
     assert_eq!(rows.len(), 4, "one row per verb: {rows:?}");
@@ -857,6 +875,7 @@ fn provider_failure_is_a_typed_unavailable_and_journals_failed() {
     );
     assert_path_free(&preflight, fx._dir.path(), &fx.hermora);
     assert_eq!(provider_calls(&fx.provider_log), 1);
+    assert_eq!(provider_probes(&fx.provider_log), 1);
     let rows = delivery_rows(&fx.db, "delivery-web");
     assert_eq!(rows.len(), 1, "failure journals one row");
     assert_eq!(rows[0].state, "failed");
@@ -897,11 +916,14 @@ fn unhealthy_stage_blocks_promotion_without_a_second_provider_call() {
     assert_eq!(promote.status, 409, "unhealthy stage blocks promote");
     assert_eq!(body_json(&promote)["error"]["code"], "delivery-conflict");
     assert_eq!(provider_calls(&fx.provider_log), 2);
-    assert!(
-        delivery_rows(&fx.db, "delivery-web")
-            .iter()
-            .all(|row| row.kind != "delivery.promote")
+    assert_eq!(
+        provider_probes(&fx.provider_log),
+        2,
+        "promote is refused before it resolves or probes the provider"
     );
+    assert!(delivery_rows(&fx.db, "delivery-web")
+        .iter()
+        .all(|row| row.kind != "delivery.promote"));
 }
 
 #[test]
@@ -950,14 +972,12 @@ fn missing_hermora_adapter_preserves_the_healthy_deployment() {
     assert_eq!(hermora.status, 503, "missing adapter unavailable");
     assert_eq!(body_json(&hermora)["error"]["code"], "delivery-unavailable");
     let rows = delivery_rows(&fx.db, "delivery-web");
-    assert!(
-        rows.iter()
-            .any(|row| row.kind == "delivery.promote" && row.state == "done")
-    );
-    assert!(
-        rows.iter()
-            .any(|row| row.kind == "delivery.hermora" && row.state == "failed")
-    );
+    assert!(rows
+        .iter()
+        .any(|row| row.kind == "delivery.promote" && row.state == "done"));
+    assert!(rows
+        .iter()
+        .any(|row| row.kind == "delivery.hermora" && row.state == "failed"));
 }
 
 #[test]

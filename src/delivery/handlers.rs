@@ -170,6 +170,13 @@ pub fn run_preflight(
         });
     }
     let provider = resolve_provider(&project_dir)?;
+    let declaration = super::capabilities::gate(
+        &provider,
+        project_id,
+        &revision,
+        &project_dir,
+        DeliveryVerb::Preflight,
+    )?;
     let key = idempotency_key(DeliveryVerb::Preflight, project_id, &revision)?;
     let hash = request_hash(&revision, None, "preflight");
     let reservation =
@@ -201,7 +208,7 @@ pub fn run_preflight(
             return Err(err);
         }
     };
-    let detail = encode_provider_detail(&response);
+    let detail = encode_provider_detail(&response, &declaration);
     let state = if response.status == "succeeded" {
         "done"
     } else {
@@ -233,6 +240,13 @@ pub fn run_stage(
     let (project_dir, revision) = resolve_project(registry, project_id)?;
     let provider = resolve_provider(&project_dir)?;
     verify_preflight_for_revision(registry, project_id, confirm_operation_id, &revision)?;
+    let declaration = super::capabilities::gate(
+        &provider,
+        project_id,
+        &revision,
+        &project_dir,
+        DeliveryVerb::Stage,
+    )?;
 
     let key = idempotency_key(DeliveryVerb::Stage, project_id, &revision)?;
     let hash = request_hash(
@@ -269,7 +283,7 @@ pub fn run_stage(
             return Err(err);
         }
     };
-    let detail = encode_provider_detail(&response);
+    let detail = encode_provider_detail(&response, &declaration);
     let state = if response.status == "succeeded" {
         "done"
     } else {
@@ -318,6 +332,13 @@ pub fn run_promote(
     }
     verify_stage_healthy_for_revision(registry, project_id, &registered_revision)?;
     let provider = resolve_provider(&project_dir)?;
+    let declaration = super::capabilities::gate(
+        &provider,
+        project_id,
+        &registered_revision,
+        &project_dir,
+        DeliveryVerb::Promote,
+    )?;
 
     let key = idempotency_key(DeliveryVerb::Promote, project_id, &registered_revision)?;
     let hash = request_hash(
@@ -354,7 +375,7 @@ pub fn run_promote(
             return Err(err);
         }
     };
-    let detail = encode_provider_detail(&response);
+    let detail = encode_provider_detail(&response, &declaration);
     let state = if response.status == "succeeded" {
         "done"
     } else {
@@ -632,7 +653,10 @@ fn verify_promote_for_revision(
     Ok(())
 }
 
-fn encode_provider_detail(response: &crate::publish::providers::PublishProviderResponse) -> String {
+fn encode_provider_detail(
+    response: &crate::publish::providers::PublishProviderResponse,
+    capabilities: &crate::publish::providers::CapabilityDeclaration,
+) -> String {
     let mut evidence = response.evidence.clone();
     if evidence.len() > super::projection::EVIDENCE_LIMIT {
         evidence.truncate(super::projection::EVIDENCE_LIMIT);
@@ -646,6 +670,7 @@ fn encode_provider_detail(response: &crate::publish::providers::PublishProviderR
         "recovery": recovery,
         "provider_status": response.status,
         "provider_health": response.health,
+        "provider_capabilities": capabilities.detail(),
     }))
     .unwrap_or_else(|_| "{}".to_string())
 }

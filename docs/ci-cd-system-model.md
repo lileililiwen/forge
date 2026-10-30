@@ -212,6 +212,8 @@ stateDiagram-v2
 
 In [`src/delivery/handlers.rs`](../src/delivery/handlers.rs), `run_preflight` checks that Git `HEAD` matches the registered revision and consumes persisted Forge Gate evidence before provider resolution or operation reservation. Only non-dry-run `passed` evidence fresh for that revision allows provider preflight. Forge does not run Gate implicitly; missing, stale or non-passing evidence tells the operator to run `forge gate`, and a changed commit requires `forge register` first. This protects local delivery preflight. Hosted observations are now imported into Forge's separate history, but they do not satisfy the local delivery precondition.
 
+Before any verb is reserved, Forge asks the provider which operations it declares (`capabilities`) and refuses a verb the provider did not declare. A provider that makes no readable claim is treated as unknown: `preflight` and `publish` are served, newer operations are not attempted. See [`docs/adapter-contracts/publish-provider.md`](adapter-contracts/publish-provider.md#capabilities).
+
 ## 8. Interfaces and ownership seams
 
 | Seam | Current contract/behavior | Owner | Known boundary |
@@ -221,7 +223,7 @@ In [`src/delivery/handlers.rs`](../src/delivery/handlers.rs), `run_preflight` ch
 | Gate → workbench | Authenticated status and explicit re-run routes; workbench projects the same evidence | Forge | README documents this API boundary; the HTTP caller must still be authorized for the managed project |
 | Generated workflow → Forge binary | Exact version and checksum sidecar from GitHub Release; read-only workflow permissions | Forge pack + GitHub | Current template target is Linux x86_64; published release availability is a separate prerequisite |
 | Release engine → external release target | Project configuration and adapter contracts; prepare is read/evaluate, apply performs explicit stages | Forge + configured adapters | Source alone does not establish that a real external target is configured or currently healthy |
-| Delivery engine → provider | `forge-publish-provider/0.1.0`; typed preflight/stage/promote requests, operation journal, revision checks | Forge coordinates; provider owns external execution | Preflight requires fresh local Gate evidence; hosted history is not accepted as that local approval |
+| Delivery engine → provider | `forge-publish-provider/0.1.0`; typed preflight/stage/promote requests, operation journal, revision checks; each verb probes the provider's declared `capabilities` and refuses a verb the provider did not declare, before reserving the operation | Forge coordinates; provider owns external execution | Preflight requires fresh local Gate evidence; hosted history is not accepted as that local approval |
 | GitHub → Forge workbench | Generated baseline workflows upload a signed Gate observation through GitHub OIDC; admin UI reads the stored history | GitHub owns the run; Forge verifies and stores the observation | Hosted history does not replace local Gate evidence or prove branch protection |
 
 ## 9. How smooth is the system today?

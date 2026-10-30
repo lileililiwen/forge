@@ -86,13 +86,13 @@ pub(super) mod tests {
         assert_eq!(rehearsal.execution_mode, "dry-run");
         assert_eq!(rehearsal.plan_version, 1);
         assert_eq!(rehearsal.profile, "rust-product");
-        assert_eq!(rehearsal.rule_pack_version, "workspace-governance@1");
-        assert_eq!(rehearsal.manifest_digest, "sha256:53102e32f760136b");
+        assert_eq!(rehearsal.rule_pack_version, "forge-baseline/1.0.0");
+        assert_eq!(rehearsal.manifest_digest, "sha256:2c456f0e82a570fb");
         assert_eq!(rehearsal.default_timeout_ms, 60000);
         assert_eq!(rehearsal.source_size_max_lines, Some(1000));
         assert_eq!(rehearsal.blocking_policy.review_required_blocks, Some(true));
-        assert_eq!(rehearsal.required_check_count(), 9);
-        assert_eq!(rehearsal.planned_checks.len(), 9);
+        assert_eq!(rehearsal.required_check_count(), 8);
+        assert_eq!(rehearsal.planned_checks.len(), 8);
         let by_id: std::collections::BTreeMap<
             &str,
             &crate::gate::rehearsal::RehearsalPlannedCheck,
@@ -107,15 +107,15 @@ pub(super) mod tests {
         assert!(by_id["source-file-size"].required);
         assert_eq!(by_id["build"].command_source, "manifest");
         assert_eq!(by_id["tests"].selected_by, "manifest");
-        assert!(rehearsal
-            .planned_checks
-            .iter()
-            .all(|check| check.timeout_ms == 60000 && !check.exempt));
+        assert_eq!(by_id["tests"].timeout_ms, 600000);
+        assert_eq!(by_id["declared-verification"].timeout_ms, 600000);
+        assert_eq!(by_id["build"].timeout_ms, 60000);
+        assert!(rehearsal.planned_checks.iter().all(|check| !check.exempt));
         assert!(rehearsal.unbound_required_checks.is_empty());
         assert_eq!(rehearsal.exemption_budget.cap, 2);
         assert_eq!(rehearsal.exemption_budget.declared, 0);
         assert_eq!(rehearsal.exemption_budget.headroom, 2);
-        assert_eq!(rehearsal.exemption_budget.required_checks, 9);
+        assert_eq!(rehearsal.exemption_budget.required_checks, 8);
         assert_eq!(rehearsal.exemption_budget.verdict, "within");
         assert_eq!(rehearsal.not_scheduled.len(), 5);
         // The prediction is undetermined and says so; it is not a verdict.
@@ -137,7 +137,6 @@ pub(super) mod tests {
         for id in [
             "build",
             "declared-verification",
-            "governance-quality",
             "placeholder-threshold",
             "product-code-boundary",
             "repository",
@@ -152,9 +151,10 @@ pub(super) mod tests {
         assert!(text.contains("command=manifest"), "{text}");
         assert!(text.contains("timeout=60000ms"), "{text}");
         assert!(text.contains("review_required_blocks=true"), "{text}");
-        assert!(text.contains("sha256:53102e32f760136b"), "{text}");
-        assert!(text.contains("workspace-governance@1"), "{text}");
-        assert!(text.contains("checks (9 planned)"), "{text}");
+        assert!(text.contains("sha256:2c456f0e82a570fb"), "{text}");
+        assert!(text.contains("forge-baseline/1.0.0"), "{text}");
+        assert!(text.contains("checks (8 planned)"), "{text}");
+        assert!(text.contains("timeout=600000ms"), "{text}");
         // The prediction may prove a block, never a pass: the wording
         // names the unknown and says the document is not an outcome.
         assert!(text.contains("undetermined-before-execution"), "{text}");
@@ -357,7 +357,7 @@ pub(super) mod tests {
         let GateOutcome::Rehearsal { rehearsal, .. } = &outcome else {
             panic!("a rehearsal document must map to the rehearsal outcome: {outcome:?}");
         };
-        assert_eq!(rehearsal.planned_checks.len(), 9);
+        assert_eq!(rehearsal.planned_checks.len(), 8);
         assert_eq!(journal_verdict(&outcome), "rehearsed");
         // Nothing was written: the outcome carries no evidence record at
         // all, and no evidence file was created.
@@ -452,7 +452,7 @@ pub(super) mod tests {
                 .as_array()
                 .unwrap()
                 .len(),
-            9
+            8
         );
         // The plan-line list is retained for consumers that only ever
         // read the preview, and it carries no raw document text.

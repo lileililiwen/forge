@@ -17,13 +17,14 @@
   "dry_run": true,
   "executed": false,
   "execution_mode": "dry-run",
+  "execution_profile": "full",
   "exempted_checks": {},
   "exemption_budget": {
     "cap": 2,
     "declared": 0,
     "headroom": 2,
     "never_exempable": [],
-    "required_checks": 9,
+    "required_checks": 8,
     "verdict": "within"
   },
   "governance_quality_codes": [
@@ -35,7 +36,7 @@
     "RULES_DRIFT_NEW",
     "SPEC_PURPOSE_PLACEHOLDER"
   ],
-  "manifest_digest": "sha256:53102e32f760136b",
+  "manifest_digest": "sha256:2c456f0e82a570fb",
   "not_scheduled": [
     "a11y",
     "browser",
@@ -61,15 +62,7 @@
       "id": "declared-verification",
       "required": true,
       "selected_by": "manifest",
-      "timeout_ms": 60000
-    },
-    {
-      "command_source": "manifest",
-      "exempt": false,
-      "id": "governance-quality",
-      "required": true,
-      "selected_by": "manifest",
-      "timeout_ms": 60000
+      "timeout_ms": 600000
     },
     {
       "command_source": "manifest",
@@ -108,7 +101,7 @@
       "exempt": false,
       "id": "source-file-size",
       "required": true,
-      "selected_by": "manifest",
+      "selected_by": "forge-baseline",
       "timeout_ms": 60000
     },
     {
@@ -117,12 +110,12 @@
       "id": "tests",
       "required": true,
       "selected_by": "manifest",
-      "timeout_ms": 60000
+      "timeout_ms": 600000
     }
   ],
   "profile": "rust-product",
   "project_command_names": [],
-  "rule_pack_version": "workspace-governance@1",
+  "rule_pack_version": "forge-baseline/1.0.0",
   "source_size_policy": {
     "exclude": [],
     "include": [],

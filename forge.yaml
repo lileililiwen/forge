@@ -4,7 +4,7 @@ project:
   name: Forge
   profile: rust-product
 verification:
-  rule_pack: workspace-governance@1
+  rule_pack: forge-baseline/1.0.0
   checks:
     - id: repository
       source: bound
@@ -20,10 +20,6 @@ verification:
       source: bound
       root: project
       path: .project.json
-    - id: governance-quality
-      source: bound
-      root: governance-workspace
-      path: forge/modules/workspace-governance/scripts/workspace_check.py
     - id: placeholder-threshold
       source: bound
       root: project

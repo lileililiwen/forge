@@ -218,22 +218,44 @@ A direct Gate target MAY omit `forge.yaml` when `.project.json` or its directory
 - **WHEN** the direct no-manifest fixture passes
 - **THEN** no registry row, provider selection, doctor/checker/release projection, admin route availability, or workbench project is created as a side effect or acceptance claim
 
-### Requirement: GDM-008 Declare Forge's nine-check implementation floor
+### Requirement: GDM-008 Declare Forge's effective check floor
 
-Forge's root schema-1 `forge.yaml` SHALL declare `verification.rule_pack: workspace-governance@1` and exactly these effective check sources: `repository`, `build`, `tests`, `security`, `declared-verification`, `governance-quality`, `placeholder-threshold`, and `product-code-boundary` as `bound`; `source-file-size` as `native`. Only filesystem-backed rows SHALL carry root/path: tests → `project` / `scripts/check-tests.sh`; declared-verification → `project` / `.project.json`; governance-quality → `governance-workspace` / `workspace-governance/scripts/workspace_check.py`; placeholder-threshold and product-code-boundary → `project` / `scripts/governance/product_code_quality.py`.
+Forge's root schema-1 `forge.yaml` SHALL declare
+`verification.rule_pack: forge-baseline/1.0.0` and exactly the check sources the
+runtime plan selects: `repository`, `build`, `tests`, `security`,
+`declared-verification`, `placeholder-threshold` and `product-code-boundary` as
+`bound`; `source-file-size` as `native`. Only filesystem-backed rows SHALL
+carry a `root`/`path` pair: tests → `project` / `scripts/check-tests.sh`;
+declared-verification → `project` / `.project.json`; placeholder-threshold and
+product-code-boundary → `project` / `scripts/governance/product_code_quality.py`.
+`governance-quality` SHALL NOT be declared unless the runtime manifest also
+selects it.
 
-#### Scenario: GDM-008-S1 Root floor names all effective checks
+#### Scenario: GDM-008-S1 Floor equals the plan
 
-- **WHEN** Forge parses its root manifest and compares the floor with the effective Driftwatchdog plan
-- **THEN** the id sets are exactly equal to the nine required ids and every row has the required authored source
+- **WHEN** Forge parses its root manifest and compares the declared ids with
+  the ids in `forge gate --dry-run --format json`
+- **THEN** the sets are exactly equal and no declared row is missing from the
+  plan
 
 #### Scenario: GDM-008-S2 Only filesystem-backed rows name paths
 
 - **WHEN** the floor is inspected
-- **THEN** exactly tests, declared-verification, governance-quality, placeholder-threshold, and product-code-boundary carry the specified paired root/path, while repository, build, security, and source-file-size carry neither
+- **THEN** exactly tests, declared-verification, placeholder-threshold and
+  product-code-boundary carry the specified paired root/path, while repository,
+  build, security and source-file-size carry neither
 
-#### Scenario: GDM-008-S3 Missing governance checkout is honest and isolated
+#### Scenario: GDM-008-S3 Governance quality is opt-in
 
-- **WHEN** Forge has no enabled stored workspace-governance selection/root or the declared governance script is absent
-- **THEN** governance-quality alone projects `absent` with `<governance-workspace>/workspace-governance/scripts/workspace_check.py`, and no parent/environment probe or runtime verdict change occurs
+- **WHEN** a project does not select `governance-quality` in its runtime
+  manifest
+- **THEN** the plan contains no governance-quality row and the floor does not
+  declare one
+
+#### Scenario: GDM-008-S4 A declared row the plan does not run is refused
+
+- **WHEN** a floor row names a check the runtime plan does not select, or the
+  plan selects a check the floor does not declare
+- **THEN** the parity contract test fails naming the row and the plan, rather
+  than reporting an empty unbound list
 

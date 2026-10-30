@@ -13,7 +13,7 @@ use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
-use forge::image::{run_image_build, ImageBuildOutcome};
+use forge::image::{run_image_build, verify_image_build, ImageBuildOutcome};
 use forge::target::request_from_flags;
 use std::path::Path;
 
@@ -66,6 +66,10 @@ pub(crate) struct BuildArgs {
     /// `forge-image-builder`).
     #[arg(long = "builder-bin", value_name = "PATH")]
     pub builder_bin: Option<String>,
+    /// Verify the image build record for the current revision instead of
+    /// building. Read-only; starts no builder.
+    #[arg(long = "verify-image")]
+    pub verify_image: bool,
 }
 
 impl BuildArgs {
@@ -78,6 +82,7 @@ impl BuildArgs {
             self.image,
             self.tag.clone(),
             self.builder_bin.clone(),
+            self.verify_image,
             format,
         )
     }
@@ -91,6 +96,7 @@ pub(crate) fn cmd_build(
     image: bool,
     tag: Option<String>,
     builder_bin: Option<String>,
+    verify_image: bool,
     format: Format,
 ) -> Result<Output, ForgeError> {
     let canonical = path
@@ -99,6 +105,23 @@ pub(crate) fn cmd_build(
             path: path.display().to_string(),
         })?;
     let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
+    if verify_image {
+        if image
+            || tag.is_some()
+            || builder_bin.is_some()
+            || os.is_some()
+            || arch.is_some()
+            || rid.is_some()
+        {
+            return Err(ForgeError::BuildInvalid {
+                reason: "`--verify-image` verifies one recorded build; it does not accept \
+                         `--image`, `--tag`, `--builder-bin`, `--os`, `--arch` or `--rid`"
+                    .to_string(),
+            });
+        }
+        let record = verify_image_build(&manifest.project.id, &canonical)?;
+        return image_verify_output(&record, format);
+    }
     if !image {
         if tag.is_some() || builder_bin.is_some() {
             return Err(ForgeError::BuildInvalid {
@@ -202,21 +225,23 @@ fn build_output(outcome: &BuildOutcome, format: Format) -> Result<Output, ForgeE
     Ok(as_output(format, human, json))
 }
 
+fn image_build_json(outcome: &ImageBuildOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "contract": outcome.contract,
+        "project_id": outcome.project_id,
+        "revision": outcome.revision,
+        "tag": outcome.tag,
+        "builder": outcome.builder,
+        "builder_version": outcome.builder_version,
+        "digest": outcome.digest,
+        "sbom": outcome.sbom,
+        "evidence": outcome.evidence,
+        "observed_at": outcome.observed_at,
+    })
+}
+
 fn image_output(outcome: &ImageBuildOutcome, format: Format) -> Result<Output, ForgeError> {
-    let json = serde_json::json!({
-        "image_build": {
-            "contract": outcome.contract,
-            "project_id": outcome.project_id,
-            "revision": outcome.revision,
-            "tag": outcome.tag,
-            "builder": outcome.builder,
-            "builder_version": outcome.builder_version,
-            "digest": outcome.digest,
-            "sbom": outcome.sbom,
-            "evidence": outcome.evidence,
-            "observed_at": outcome.observed_at,
-        }
-    });
+    let json = serde_json::json!({ "image_build": image_build_json(outcome) });
     let mut human = format!(
         "project: {}\nrevision: {}\ntag: {}\nbuilder: {}\ndigest: {}\nobserved_at: {}",
         outcome.project_id,
@@ -237,6 +262,25 @@ fn image_output(outcome: &ImageBuildOutcome, format: Format) -> Result<Output, F
     }
     if !outcome.evidence.is_empty() {
         human.push_str(&format!("\nevidence: {}", outcome.evidence.join(" | ")));
+    }
+    Ok(as_output(format, human, json))
+}
+
+fn image_verify_output(record: &ImageBuildOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "image_build": image_build_json(record),
+        "verification": {
+            "verified": true,
+            "revision": record.revision,
+            "digest": record.digest,
+        },
+    });
+    let mut human = format!(
+        "verified: yes\nproject: {}\nrevision: {}\ntag: {}\nbuilder: {}\ndigest: {}",
+        record.project_id, record.revision, record.tag, record.builder, record.digest
+    );
+    if let Some(sbom) = record.sbom.as_ref() {
+        human.push_str(&format!("\nsbom: {} (sha256:{})", sbom.path, sbom.sha256));
     }
     Ok(as_output(format, human, json))
 }

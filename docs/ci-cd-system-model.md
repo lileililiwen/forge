@@ -130,7 +130,10 @@ writes `.forge/build/<project-id>/<sha12>.json`. The adapter is resolved from
 `PATH`; Forge never installs or downloads a builder. Two reference adapters
 for Railpack and Cloud Native Buildpacks ship under `adapters/image/` and are
 documented as unexercised against a real builder. The build record is its own
-evidence: it is not Gate evidence and it does not yet feed the deploy lane. See
+evidence: it is not Gate evidence and it does not yet feed the deploy lane. A
+project can bind `forge build --verify-image` as a declared `source: bound`
+check, which re-reads the record for the Gate's revision and re-hashes its
+SBOM; Forge adds no such check to the baseline. See
 [`adapter-contracts/image-builder.md`](adapter-contracts/image-builder.md).
 
 ## 4. Flow B — generated project GitHub Actions

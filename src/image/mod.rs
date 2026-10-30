@@ -494,3 +494,82 @@ pub fn record_path(project_dir: &Path, project_id: &str, revision: &str) -> Path
         .join(project_id)
         .join(format!("{}.json", &revision[..12]))
 }
+
+/// Verify the build record for the revision at `HEAD`.
+///
+/// Read-only: it reads the record, proves its identity, re-hashes the SBOM it
+/// names and returns the record it trusted. It resolves no builder, starts no
+/// process and writes nothing. A bound Gate check can run it as its command.
+pub fn verify_image_build(project_id: &str, dir: &Path) -> Result<ImageBuildOutcome, ForgeError> {
+    let revision = git_revision(dir)?;
+    let relative = format!(".forge/build/{project_id}/{}", record_name(&revision));
+    let path = record_path(dir, project_id, &revision);
+    let bytes = std::fs::read(&path).map_err(|err| ForgeError::BuildInvalid {
+        reason: format!(
+            "no readable image build record at `{relative}` for revision `{revision}` ({err}); \
+             run `forge build --image` at this revision"
+        ),
+    })?;
+    let record: ImageBuildOutcome =
+        serde_json::from_slice(&bytes).map_err(|err| ForgeError::BuildInvalid {
+            reason: format!("the image build record `{relative}` cannot be read: {err}"),
+        })?;
+
+    let required = ContractVersion::new("forge-build-image", 0, 1, 0);
+    let declared =
+        ContractVersion::parse(&record.contract).map_err(|err| ForgeError::BuildInvalid {
+            reason: format!(
+                "the image build record `{relative}` declares `{}`, which cannot be read: {err}",
+                record.contract
+            ),
+        })?;
+    if let Some(detail) = declared.incompatibility_detail(&required) {
+        return Err(ForgeError::BuildInvalid {
+            reason: format!(
+                "the image build record `{relative}` declares `{}`, which is incompatible with \
+                 `{IMAGE_BUILD_RECORD_CONTRACT}`: {detail}",
+                record.contract
+            ),
+        });
+    }
+    if record.project_id != project_id {
+        return Err(ForgeError::BuildInvalid {
+            reason: format!(
+                "the image build record `{relative}` names project `{}`, not `{project_id}`",
+                record.project_id
+            ),
+        });
+    }
+    if record.revision != revision {
+        return Err(ForgeError::BuildInvalid {
+            reason: format!(
+                "the image build record `{relative}` names revision `{}`, not `{revision}`",
+                record.revision
+            ),
+        });
+    }
+    validate_digest(&record.digest).map_err(|reason| ForgeError::BuildInvalid {
+        reason: format!("the image build record `{relative}` carries an invalid digest: {reason}"),
+    })?;
+
+    if let Some(sbom) = record.sbom.as_ref() {
+        let observed = record_sbom(dir, &sbom.path).map_err(|reason| ForgeError::BuildInvalid {
+            reason: format!("the recorded SBOM cannot be read: {reason}"),
+        })?;
+        if observed.sha256 != sbom.sha256 || observed.bytes != sbom.bytes {
+            return Err(ForgeError::BuildFailed {
+                reason: format!(
+                    "the SBOM `{}` no longer matches the recorded build: recorded sha256:{} \
+                     ({} bytes), observed sha256:{} ({} bytes); rebuild with `forge build --image`",
+                    sbom.path, sbom.sha256, sbom.bytes, observed.sha256, observed.bytes
+                ),
+            });
+        }
+    }
+    Ok(record)
+}
+
+/// The record's file name for one revision.
+fn record_name(revision: &str) -> String {
+    format!("{}.json", &revision[..12])
+}

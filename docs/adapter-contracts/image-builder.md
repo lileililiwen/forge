@@ -98,6 +98,50 @@ The record carries no absolute path and is not Gate evidence. It does not make
 a Gate check pass, and it does not feed the deploy lane; both are later
 changes.
 
+## Verifying a record
+
+`forge build --verify-image` reads the record for the revision at `HEAD` and
+proves it is still this project's build:
+
+| Check | Failure |
+|---|---|
+| the record exists for `HEAD` | `build-invalid`, naming the recorded path and revision |
+| the record is readable and typed | `build-invalid` |
+| the contract is `forge-build-image`, major `0` | `build-invalid` |
+| the record names this project and this revision | `build-invalid` |
+| the digest is `sha256:` + 64 lower-case hex | `build-invalid` |
+| the SBOM is present and inside the project | `build-invalid` |
+| the SBOM still hashes to the recorded value | `build-failed`, with both hashes |
+
+Verification writes nothing, resolves no builder and starts no process beyond
+itself.
+
+### Binding it to a Gate check
+
+A Gate check is a process, so a project opts in with a declared bound check
+and a one-line script:
+
+```yaml
+# forge.yaml
+verification:
+  checks:
+    - id: image-provenance
+      source: bound
+      root: project
+      path: scripts/check-image-provenance.sh
+```
+
+```sh
+#!/bin/sh
+exec forge build . --verify-image
+```
+
+Forge ships neither the check nor the script in the baseline: a project that
+does not build images is never asked for one. When the check is declared, the
+Gate's verdict is the verb's exit status and its bounded output, bound to the
+same revision the Gate already checks.
+
+
 ## Resolving the adapter
 
 One order, and Forge never installs anything:

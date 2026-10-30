@@ -405,3 +405,194 @@ fn an_image_platform_is_not_selected_by_target_flags() {
     assert!(stderr.contains("build-invalid"), "{stderr}");
     assert!(stderr.contains("platform"), "{stderr}");
 }
+
+fn build_once(project: &Path, adapter: &Path) {
+    let out = run(&[
+        "build",
+        project.to_str().unwrap(),
+        "--image",
+        "--builder-bin",
+        adapter.to_str().unwrap(),
+    ]);
+    assert!(out.status.success(), "build: {}", lossy(&out.stderr));
+}
+
+#[test]
+fn a_fresh_record_verifies() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-verify");
+    let adapter = install_adapter(&tmp.path().join("adapter"));
+    build_once(&project, &adapter);
+
+    let json = run_json(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert_eq!(json["verification"]["verified"], true);
+    assert_eq!(json["verification"]["revision"], revision(&project));
+    assert_eq!(
+        json["image_build"]["tag"],
+        format!("forge-image-verify:{}", &revision(&project)[..12])
+    );
+    assert_eq!(
+        json["image_build"]["digest"],
+        format!("sha256:{}", "a".repeat(64))
+    );
+}
+
+#[test]
+fn verification_writes_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-readonly");
+    let adapter = install_adapter(&tmp.path().join("adapter"));
+    build_once(&project, &adapter);
+    let record = record_path(&project, "image-readonly");
+    let before_record = std::fs::read(&record).unwrap();
+    let before_files = file_names(&project);
+
+    let out = run(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert!(out.status.success(), "{}", lossy(&out.stderr));
+    assert_eq!(std::fs::read(&record).unwrap(), before_record);
+    assert_eq!(
+        file_names(&project),
+        before_files,
+        "verification wrote a file"
+    );
+}
+
+fn file_names(root: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path.clone());
+            }
+            names.push(path.strip_prefix(root).unwrap().display().to_string());
+        }
+    }
+    names.sort();
+    names
+}
+
+#[test]
+fn a_moved_head_is_not_verified() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-stale");
+    let adapter = install_adapter(&tmp.path().join("adapter"));
+    build_once(&project, &adapter);
+    std::fs::write(project.join("README.md"), "v2\n").unwrap();
+    let out = Command::new("git")
+        .args([
+            "-c",
+            "user.name=Forge",
+            "-c",
+            "user.email=forge@example.com",
+            "commit",
+            "-q",
+            "-am",
+            "next",
+        ])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let out = run(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert!(!out.status.success());
+    let stderr = lossy(&out.stderr);
+    assert!(stderr.contains("build-invalid"), "{stderr}");
+    assert!(
+        stderr.contains("no readable image build record"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("forge build --image"), "{stderr}");
+}
+
+#[test]
+fn an_edited_sbom_invalidates_the_record() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-sbom-edited");
+    let adapter = install_adapter(&tmp.path().join("adapter"));
+    build_once(&project, &adapter);
+    std::fs::write(
+        project.join("sbom.json"),
+        b"{\"spdxVersion\":\"SPDX-2.3\",\"edited\":true}",
+    )
+    .unwrap();
+
+    let out = run(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert!(!out.status.success());
+    let stderr = lossy(&out.stderr);
+    assert!(stderr.contains("build-failed"), "{stderr}");
+    assert!(
+        stderr.contains("no longer matches the recorded build"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_tampered_record_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-tampered");
+    let adapter = install_adapter(&tmp.path().join("adapter"));
+    build_once(&project, &adapter);
+    let record = record_path(&project, "image-tampered");
+
+    let mut value: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    value["digest"] = serde_json::json!("sha1:abc");
+    std::fs::write(&record, serde_json::to_vec(&value).unwrap()).unwrap();
+    let out = run(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert!(!out.status.success());
+    assert!(lossy(&out.stderr).contains("invalid digest"));
+
+    value["digest"] = serde_json::json!(format!("sha256:{}", "a".repeat(64)));
+    value["project_id"] = serde_json::json!("another-project");
+    std::fs::write(&record, serde_json::to_vec(&value).unwrap()).unwrap();
+    let out = run(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert!(!out.status.success());
+    assert!(lossy(&out.stderr).contains("names project `another-project`"));
+}
+
+#[test]
+fn a_missing_record_is_refused() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-no-record");
+
+    let out = run(&["build", project.to_str().unwrap(), "--verify-image"]);
+    assert!(!out.status.success());
+    let stderr = lossy(&out.stderr);
+    assert!(stderr.contains("build-invalid"), "{stderr}");
+    assert!(
+        stderr.contains(".forge/build/image-no-record/"),
+        "refusal names the record: {stderr}"
+    );
+}
+
+#[test]
+fn verification_is_exclusive_with_build_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("proj");
+    write_project(&project, "image-verify-flags");
+    let adapter = install_adapter(&tmp.path().join("adapter"));
+    let adapter_path = adapter.to_str().unwrap().to_string();
+
+    for args in [
+        vec!["--verify-image", "--image"],
+        vec!["--verify-image", "--tag", "app:test"],
+        vec!["--verify-image", "--builder-bin", adapter_path.as_str()],
+        vec!["--verify-image", "--os", "linux", "--arch", "x86_64"],
+    ] {
+        let mut full = vec!["build", project.to_str().unwrap()];
+        full.extend(args.iter().copied());
+        let out = run(&full);
+        assert!(!out.status.success(), "{args:?} must be refused");
+        let stderr = lossy(&out.stderr);
+        assert!(stderr.contains("build-invalid"), "{args:?}: {stderr}");
+        assert!(stderr.contains("--verify-image"), "{args:?}: {stderr}");
+    }
+}

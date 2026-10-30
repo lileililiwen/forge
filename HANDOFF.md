@@ -2,6 +2,65 @@
 
 ## Latest delivery
 
+### `delivery-rollback` implemented and archived (2026-10-30)
+
+The delivery lane could move a project forward and never back. Every promotion
+is recorded with the provider's own health, but nothing read that history: the
+status projection takes the latest row per verb, so it reports one revision per
+verb and cannot answer "which releases were promoted and observed healthy".
+`forge delivery status` said `healthy` about the registered revision, and an
+operator whose production was broken had to re-register an old commit, re-run
+Gate and promote again — a promotion that looked like a new release instead of
+a restoration of a known-good one.
+
+`forge delivery rollback` is now the fourth delivery verb. It takes exactly one
+selector: `--to <40-hex revision>` or `--previous`. The target must be a
+revision Forge promoted and observed healthy, decided by the same rule the
+delivery phase uses — one shared predicate, so the status page and the verb
+cannot disagree. A revision's newest promotion decides whether it is a release:
+promoted twice, once failed and once healthy, it is a release; whose newest
+promotion is degraded, it is not.
+
+The verb restores rather than releases. `revision` stays the registered
+revision being replaced, the request adds `target_revision`, and the journal
+row is keyed by `(project, current, target)` so a different target is a new
+operation rather than an idempotency conflict. It does not consult the ship
+gate: a fresh Gate run on the *broken* revision would invert the point of
+rolling back, and the healthy promotion row is the evidence. It does require
+the provider to declare `rollback`, which is the first verb the capability
+declaration added earlier today protects.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 4318 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 4318 passed, 0 failed, 1 ignored, 3 filtered out across 245 suites in 381.95s. |
+| Focused suites | PASS, 237 tests / 0 failed | `cargo test -p forge --lib delivery::` → 33 passed; `doctor::` → 74; `publish::providers` → 56; `command_catalog` → 7; the six delivery contract suites → 54; the two web surfaces that pin the catalog count → 20; `cargo test --test delivery_rollback_contract` → 10. |
+| Repository Gate | FAIL, 7/8 — the same pre-existing advisory | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run reported aggregate `blocked`: `security` failed on RUSTSEC-2026-0387 and every other check passed, including `tests`. `.forge/gate/forge/evidence.json` records `"aggregate": "blocked"` at `2026-10-30T10:20:48Z` on revision `52e1b1c`, with `source-file-size` evaluating 463 of 463 candidates at the 1000-line maximum. `Cargo.lock` and `Cargo.toml` are untouched by this change, and the advisory's remediation path is the one recorded in the previous entry. |
+| Real rollback, restored | PASS | A fixture project with two promoted revisions (`13c7fb61…` then `42d6d409…`) and a stub declaring `["preflight","publish","rollback"]`: `forge delivery rollback rollback-manual --to 13c7fb6148d5af67e30e1bbeccd955d931b90de3` printed `op_id: 9`, `phase: rolled-back`, `target_revision: 13c7fb61…`, `provider_status: succeeded`. `forge delivery status` reported contract `forge-delivery-status/0.2.0`, phase `rolled-back`, and a `rollback: op_id=9 state=done` row carrying the target. The provider request was `{"operation":"rollback","revision":"42d6d409…","target_revision":"13c7fb61…","queue_id":"delivery-rollback-rollback-manual-42d6d40909ec"}`. |
+| Real rollback, refused | PASS | `forge delivery rollback rollback-manual --to ffffffffffffffffffffffffffffffffffffffff` exited 1 with `error[delivery-conflict]: delivery conflict: delivery rollback: revision `ffffffffffffffffffffffffffffffffffffffff` has no healthy promotion for project `rollback-manual`; only a release Forge promoted and observed healthy can be restored`, and wrote no rollback row. The undeclared-capability and failed-provider cases are pinned by `rollback_is_refused_when_the_provider_does_not_declare_it` and `a_failed_rollback_does_not_claim_the_release_moved`. |
+| OpenSpec and whitespace | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 170 passed, 0 failed (170 items)`; `cargo test --test spec_purpose_contract` reported 2 passed after the promoted spec's Purpose was written; `git diff --check` reported no findings. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-30-delivery-rollback/`. |
+
+Three behaviour changes a reviewer must know about. The delivery status
+contract moves to `forge-delivery-status/0.2.0`: it adds a `rollback` verb
+report with `target_revision` and a `rolled-back` phase, and keeps every
+`0.1.0` field. The doctor reports `rolled-back` as a warning — production
+serves an earlier release and the registered revision is not the live one — not
+a pass and not a failure. The web deploy signal now counts `rolled-back` as
+deployed, so a restored project is not shown as never deployed.
+
+Not delivered, and stated plainly: no authenticated API or web route for
+rollback; the verb is `cli_only` in the command catalog with that reason. No
+automatic rollback on an unhealthy promotion, no traffic split or canary, and
+no release table — the promotion rows are the history and this change reads
+them. The publish-provider contract version stays `0.1.0`: `rollback` was
+declared and unreachable, so `target_revision` is its first definition and no
+deployed provider can depend on the old shape. Stage and promote still share
+the single `publish` operation, discriminated only by the `queue_id` prefix.
+
+Implementation/archive commit: `9e74174` (`feat: restore a promoted release
+with delivery rollback`). This HANDOFF-only update is the second commit.
+Nothing was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.
+
 ### `delivery-provider-capabilities` implemented and archived (2026-10-30)
 
 The publish-provider contract declares five operations — `capabilities`,

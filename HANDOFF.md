@@ -2,6 +2,49 @@
 
 ## Latest delivery
 
+### `gate-declaration-reconciliation` implemented and archived (2026-10-30)
+
+Forge's own Gate declarations disagreed with each other. `forge.yaml` declared
+nine checks including a `governance-quality` row at
+`forge/modules/workspace-governance/scripts/workspace_check.py`, and a rule
+pack of `workspace-governance@1`. The plan Forge actually resolved ran eight
+checks under `forge-baseline/1.0.0` and reported `unbound required checks:
+none`, so a declared check that never ran was reported as a clean plan.
+
+Two promoted specs disagreed: `gate-declaration-migration` GDM-008 required the
+nine-check floor with exact set equality, while `forge-native-gate` made
+`governance-quality` an explicit opt-in and the bundled baseline authoritative.
+The live configuration satisfied neither. The test that should have caught it
+parsed a September fixture and never compared it to the live plan.
+
+The floor is now the plan. The stale row is removed, `verification.rule_pack` is
+`forge-baseline/1.0.0`, and `tests/gate_declaration_parity.rs` reads
+`forge.yaml`, runs `forge gate --dry-run --format json` and asserts id-set
+equality, rule-pack equality, the declared source values, path resolution and an
+empty unbound list. A deliberate extra row failed the test naming `stale-check`,
+and removing it restored five passes. GDM-008's nine-check requirement was
+removed and replaced by the effective-floor requirement, and the rehearsal
+fixture was regenerated from the live runtime as an eight-check capture.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Declaration/plan drift | Fixed | Before: `forge.yaml` nine checks / `workspace-governance@1`; plan eight / `forge-baseline/1.0.0` with `unbound: none`. After: both are the same eight ids and the same rule pack. |
+| Live parity contract | PASS, 5 tests / 0 failed | `cargo test --test gate_declaration_parity` covers id equality, rule pack, declared source values, path resolution and the unbound list. |
+| Parity test catches the regression | PASS | A temporary `stale-check` row failed `the_declared_floor_equals_the_effective_plan` with the extra id in the left set; restoring the manifest returned all five to pass. |
+| Rehearsal fixture | PASS, 9 tests / 0 failed | `driftwatchdog gate --dry-run --format json` regenerated the capture; `cargo test -p forge --lib gate::rehearsal` passed with assertions for eight checks, two 600 000 ms test checks and `forge-baseline/1.0.0`. |
+| Dry run | PASS | `forge gate --dry-run --format json` reported `checks: 8`, `rule: forge-baseline/1.0.0`, `unbound: []`. |
+| Repository test suite | PASS, 4371 tests / 0 failed | `bash scripts/check-tests.sh` exited 0; 253 suites reported `ok`, the Rust total was 4371 passed, and the Python and identity-provider steps ran after it. |
+| Formatting and lints | PASS | `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features -- -D warnings` both exited 0. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 with aggregate `passed` at `2026-10-30T14:01:57Z`. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. Archived without `--skip-specs`; the spec delta reports `+1 added, -1 removed`. |
+
+Not delivered: the Gate engine does not yet refuse a floor row that the plan
+does not select by itself — the parity test is the guard. A future change can
+move that check into the engine once the declaration model settles.
+
+Implementation/archive commit: `3dfa825` (`fix: declare the gate floor the plan
+actually runs`). This HANDOFF-only update is the second commit.
+
 ### `ci-green-recovery` implemented and archived (2026-10-30)
 
 Forge's CI had not been green since the 2026-10-15 push, and fifty commits had
@@ -12442,4 +12485,4 @@ Not re-litigated; recorded so the next change starts from them.
 
 Implementation/archive commit: `a80561a` (`feat: the api operation row names what the request did`).
 This HANDOFF-only update is the second commit. Nothing was pushed. No active OpenSpec change remains, so this file has no `current_spec` pointer.
-current_spec: dependency-advisory-remediation
+current_spec: repository-truth-refresh

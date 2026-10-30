@@ -147,11 +147,57 @@ async function checkStatus(active) {
   }
 }
 
+// Rule 5: stated repository counts match the directories that hold them.
+async function checkCounts() {
+  const archived = (
+    await readdir(path.join(repo, 'openspec/changes/archive'), { withFileTypes: true })
+  ).filter((entry) => entry.isDirectory() && !entry.name.startsWith('.')).length;
+  const specs = (
+    await readdir(path.join(repo, 'openspec/specs'), { withFileTypes: true })
+  ).filter((entry) => entry.isDirectory() && !entry.name.startsWith('.')).length;
+  const files = [
+    'README.md',
+    'ROADMAP.md',
+    'docs/requirements-coverage.md',
+    'openspec/config.yaml',
+  ];
+  for (const file of files) {
+    let lines;
+    try {
+      lines = await readLines(file);
+    } catch {
+      fail(file, 0, 'count check: file is referenced but unreadable');
+      continue;
+    }
+    lines.forEach((text, i) => {
+      for (const m of text.matchAll(/(\d+)\s+archived (?:OpenSpec )?changes/g)) {
+        if (Number(m[1]) !== archived) {
+          fail(
+            file,
+            i + 1,
+            `archived-change count ${m[1]} does not match the ${archived} directories under openspec/changes/archive`,
+          );
+        }
+      }
+      for (const m of text.matchAll(/(\d+)\s+(?:promoted\s+)?canonical specs/g)) {
+        if (Number(m[1]) !== specs) {
+          fail(
+            file,
+            i + 1,
+            `canonical-spec count ${m[1]} does not match the ${specs} directories under openspec/specs`,
+          );
+        }
+      }
+    });
+  }
+}
+
 const active = await activeChanges();
 await checkPlaceholders();
 await checkPointer(active);
 await checkLinks();
 await checkStatus(active);
+await checkCounts();
 
 if (failures.length) {
   for (const f of failures.sort()) console.error(`spec-governance: ${f}`);

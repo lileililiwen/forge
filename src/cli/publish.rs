@@ -401,6 +401,7 @@ fn publish_via_provider_dir(
         folder: Some(project_dir.display().to_string()),
         dry_run,
         queue_id: None,
+        target_revision: None,
     };
     let response = if dry_run {
         serde_json::to_value(&request).map_err(|error| ForgeError::PublishInvalid {
@@ -605,6 +606,7 @@ pub(super) fn cmd_publish_provider(
         folder: Some(project_dir.display().to_string()),
         dry_run,
         queue_id: None,
+        target_revision: None,
     };
     let response = if dry_run {
         serde_json::to_value(&request).map_err(|error| ForgeError::PublishInvalid {

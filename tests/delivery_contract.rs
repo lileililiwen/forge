@@ -254,7 +254,7 @@ fn status_of_an_unpreflighted_project_is_draft() {
     let report = run_json(&db, &["delivery", "status", "delivery-draft"]);
     assert_eq!(report["phase"], "draft");
     assert!(report["preflight"]["op_id"].is_null());
-    assert_eq!(report["contract"], "forge-delivery-status/0.1.0");
+    assert_eq!(report["contract"], "forge-delivery-status/0.2.0");
 }
 
 #[test]
@@ -838,7 +838,7 @@ fn deliverable_status_returns_the_machine_envelope_when_json_is_requested() {
             "json",
         ],
     );
-    assert_eq!(report["contract"], "forge-delivery-status/0.1.0");
+    assert_eq!(report["contract"], "forge-delivery-status/0.2.0");
     assert_eq!(report["project"], "delivery-json-shape");
     assert!(report["phase"].is_string());
 }

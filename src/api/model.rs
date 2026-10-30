@@ -866,7 +866,7 @@ pub enum Route {
         id: Option<String>,
     },
     /// `GET /v1/projects/{id}/delivery` — read-only delivery status
-    /// projection (`forge-delivery-status/0.1.0`).
+    /// projection (`forge-delivery-status/0.2.0`).
     DeliveryStatus {
         id: String,
     },

@@ -30,8 +30,8 @@ use std::fmt;
 
 /// Machine contract for the read-only delivery projection and the
 /// CLI/API response shape. Pinned to the spec the OpenSpec change
-/// owns (`forge-delivery-status/0.1.0`).
-pub const DELIVERY_CONTRACT_VERSION: &str = "forge-delivery-status/0.1.0";
+/// owns (`forge-delivery-status/0.2.0`).
+pub const DELIVERY_CONTRACT_VERSION: &str = "forge-delivery-status/0.2.0";
 
 /// The four closed environment labels the workflow recognises.
 /// Stage and production are the only two runtime environments; the

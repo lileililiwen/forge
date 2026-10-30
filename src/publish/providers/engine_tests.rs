@@ -253,17 +253,53 @@ pub(super) mod tests {
     #[test]
     fn parse_request_supports_all_operations() {
         for op in ["capabilities", "preflight", "publish", "verify", "rollback"] {
-            let request = parse_request(json!({
+            let mut value = json!({
                 "contract": PUBLISH_PROVIDER_CONTRACT,
                 "operation": op,
                 "provider": "openpanel",
                 "project_id": "demo",
                 "revision": "0123456789abcdef0123456789abcdef01234567",
                 "operation_id": "delivery-1"
-            }))
-            .unwrap();
+            });
+            if op == "rollback" {
+                value["target_revision"] = json!("1111111111111111111111111111111111111111");
+            }
+            let request = parse_request(value).unwrap();
             assert_eq!(request.operation.as_str(), op);
         }
+    }
+
+    #[test]
+    fn parse_request_requires_target_revision_only_on_rollback() {
+        let request = |operation: &str, target: Option<&str>| {
+            let mut value = json!({
+                "contract": PUBLISH_PROVIDER_CONTRACT,
+                "operation": operation,
+                "provider": "openpanel",
+                "project_id": "demo",
+                "revision": "0123456789abcdef0123456789abcdef01234567",
+                "operation_id": "delivery-1"
+            });
+            if let Some(target) = target {
+                value["target_revision"] = json!(target);
+            }
+            parse_request(value)
+        };
+
+        let target = "1111111111111111111111111111111111111111";
+        assert!(request("rollback", Some(target)).is_ok());
+        assert_eq!(
+            request("rollback", None).unwrap_err(),
+            ProviderContractError::TargetRevisionMissing
+        );
+        assert_eq!(
+            request("rollback", Some("not-a-sha")).unwrap_err(),
+            ProviderContractError::TargetRevisionShape("not-a-sha".to_string())
+        );
+        assert_eq!(
+            request("publish", Some(target)).unwrap_err(),
+            ProviderContractError::TargetRevisionUnexpected
+        );
     }
 
     #[test]

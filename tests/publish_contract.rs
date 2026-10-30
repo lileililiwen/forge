@@ -821,6 +821,7 @@ fn manual_and_github_push_produce_equivalent_provider_request() {
         folder: Some(folder.to_string()),
         dry_run: false,
         queue_id: None,
+        target_revision: None,
     };
 
     let push_body = serde_json::json!({

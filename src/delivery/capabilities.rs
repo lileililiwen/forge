@@ -21,6 +21,7 @@ fn verb_name(verb: DeliveryVerb) -> &'static str {
         DeliveryVerb::Preflight => "preflight",
         DeliveryVerb::Stage => "stage",
         DeliveryVerb::Promote => "promote",
+        DeliveryVerb::Rollback => "rollback",
         DeliveryVerb::Hermora => "hermora",
     }
 }

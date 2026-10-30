@@ -24,8 +24,11 @@ use crate::registry::{OperationEntry, Registry, ReservationOutcome};
 
 use super::hermora::{self, HermoraOutcome, HermoraRequest};
 use super::invoke as provider_invoke;
-use super::projection::DeliveryReport;
-use super::state::{idempotency_key, request_hash, scrub_detail, DeliveryVerb};
+use super::projection::{healthy_release_revisions, DeliveryReport};
+use super::state::{
+    idempotency_key, request_hash, rollback_idempotency_key, scrub_detail, DeliveryVerb,
+    RollbackTarget,
+};
 use super::DeliveryEnvironment;
 
 /// Outcome of one delivery verb invocation. The CLI renders the
@@ -208,7 +211,7 @@ pub fn run_preflight(
             return Err(err);
         }
     };
-    let detail = encode_provider_detail(&response, &declaration);
+    let detail = encode_provider_detail(&response, &declaration, None);
     let state = if response.status == "succeeded" {
         "done"
     } else {
@@ -283,7 +286,7 @@ pub fn run_stage(
             return Err(err);
         }
     };
-    let detail = encode_provider_detail(&response, &declaration);
+    let detail = encode_provider_detail(&response, &declaration, None);
     let state = if response.status == "succeeded" {
         "done"
     } else {
@@ -375,7 +378,7 @@ pub fn run_promote(
             return Err(err);
         }
     };
-    let detail = encode_provider_detail(&response, &declaration);
+    let detail = encode_provider_detail(&response, &declaration, None);
     let state = if response.status == "succeeded" {
         "done"
     } else {
@@ -385,6 +388,129 @@ pub fn run_promote(
     let _ = registry.update_operation_phase(
         op_id,
         Some(&registered_revision),
+        response.build_status.as_deref(),
+        response.run_status.as_deref(),
+        response.container_identity.as_deref(),
+    );
+    let report = project(registry, project_id, now)?;
+    Ok(DeliveryOutcome {
+        op_id,
+        report,
+        provider_status: Some(response.status),
+    })
+}
+
+/// Run `forge delivery rollback <project> --to <revision> | --previous`.
+///
+/// The target must be a release this project promoted and observed
+/// healthy. The ship gate is deliberately not consulted: rollback
+/// restores an already-promoted release, and the healthy promotion row is
+/// its evidence. The provider must declare `rollback`, so the verb is
+/// refused before the operation is reserved on a provider that never
+/// claimed it.
+pub fn run_rollback(
+    registry: &Registry,
+    project_id: &str,
+    target: RollbackTarget,
+    now: DateTime<Utc>,
+) -> Result<DeliveryOutcome, ForgeError> {
+    let (project_dir, revision) = resolve_project(registry, project_id)?;
+    let rows = registry.operations_for_project(project_id, 200)?;
+    let releases = healthy_release_revisions(&rows);
+    let target_revision = match target {
+        RollbackTarget::To(candidate) => {
+            if candidate.len() != 40 || !candidate.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(ForgeError::DeliveryInvalid {
+                    reason: format!(
+                        "delivery rollback: --to `{candidate}` is not a 40-character hex SHA"
+                    ),
+                });
+            }
+            if candidate == revision {
+                return Err(ForgeError::DeliveryConflict {
+                    reason: format!(
+                        "delivery rollback: revision `{candidate}` is already the registered \
+                         revision; a rollback restores a different release"
+                    ),
+                });
+            }
+            if !releases.iter().any(|release| release == &candidate) {
+                return Err(ForgeError::DeliveryConflict {
+                    reason: format!(
+                        "delivery rollback: revision `{candidate}` has no healthy promotion for \
+                         project `{project_id}`; only a release Forge promoted and observed \
+                         healthy can be restored"
+                    ),
+                });
+            }
+            candidate
+        }
+        RollbackTarget::Previous => releases
+            .into_iter()
+            .find(|release| release != &revision)
+            .ok_or_else(|| ForgeError::DeliveryConflict {
+                reason: format!(
+                    "delivery rollback: project `{project_id}` has no earlier healthy release to \
+                     restore; the rollback target must be a revision Forge promoted and observed \
+                     healthy"
+                ),
+            })?,
+    };
+
+    let provider = resolve_provider(&project_dir)?;
+    let declaration = super::capabilities::gate(
+        &provider,
+        project_id,
+        &revision,
+        &project_dir,
+        DeliveryVerb::Rollback,
+    )?;
+
+    let key = rollback_idempotency_key(project_id, &revision, &target_revision)?;
+    let hash = request_hash(
+        &revision,
+        Some(DeliveryEnvironment::Production),
+        &target_revision,
+    );
+    let reservation =
+        registry.reserve_idempotent_operation("delivery.rollback", project_id, &key, &hash)?;
+    let op_id = match reservation {
+        ReservationOutcome::Reserved { op_id } => op_id,
+        ReservationOutcome::Reused { op_id } => {
+            let report = project(registry, project_id, now)?;
+            return Ok(DeliveryOutcome {
+                op_id,
+                report,
+                provider_status: None,
+            });
+        }
+    };
+
+    let request = provider_invoke::build_rollback_request(
+        &provider,
+        project_id,
+        &revision,
+        &target_revision,
+        &project_dir,
+        &format!("delivery-rollback-{op_id}"),
+    );
+    let response = match provider_invoke::invoke(&provider, &request, &project_dir) {
+        Ok(response) => response,
+        Err(err) => {
+            let _ = registry.finalize_operation(op_id, "failed", &scrub_detail(&err.to_string()));
+            return Err(err);
+        }
+    };
+    let detail = encode_provider_detail(&response, &declaration, Some(&target_revision));
+    let state = if response.status == "succeeded" {
+        "done"
+    } else {
+        "failed"
+    };
+    registry.finalize_operation(op_id, state, &scrub_detail(&detail))?;
+    let _ = registry.update_operation_phase(
+        op_id,
+        Some(&revision),
         response.build_status.as_deref(),
         response.run_status.as_deref(),
         response.container_identity.as_deref(),
@@ -656,6 +782,7 @@ fn verify_promote_for_revision(
 fn encode_provider_detail(
     response: &crate::publish::providers::PublishProviderResponse,
     capabilities: &crate::publish::providers::CapabilityDeclaration,
+    target_revision: Option<&str>,
 ) -> String {
     let mut evidence = response.evidence.clone();
     if evidence.len() > super::projection::EVIDENCE_LIMIT {
@@ -665,14 +792,17 @@ fn encode_provider_detail(
     if recovery.len() > super::projection::RECOVERY_LIMIT {
         recovery.truncate(super::projection::RECOVERY_LIMIT);
     }
-    serde_json::to_string(&json!({
+    let mut detail = json!({
         "evidence": evidence,
         "recovery": recovery,
         "provider_status": response.status,
         "provider_health": response.health,
         "provider_capabilities": capabilities.detail(),
-    }))
-    .unwrap_or_else(|_| "{}".to_string())
+    });
+    if let Some(target) = target_revision {
+        detail["target_revision"] = json!(target);
+    }
+    serde_json::to_string(&detail).unwrap_or_else(|_| "{}".to_string())
 }
 
 fn encode_hermora_detail(outcome: &HermoraOutcome) -> String {

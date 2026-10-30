@@ -165,6 +165,12 @@ pub struct PublishProviderRequest {
     /// the provider; providers MUST echo it verbatim when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_id: Option<String>,
+    /// The release a `rollback` request restores. Required on
+    /// `rollback` and absent on every other operation. `revision` stays
+    /// the revision the request operates on, which for a rollback is
+    /// the registered revision being replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_revision: Option<String>,
 }
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ProviderEntry {
@@ -187,6 +193,12 @@ pub enum ProviderContractError {
     QueueIdShape(String),
     #[error("provider revision `{0}` is not a 40-character hex SHA")]
     RevisionShape(String),
+    #[error("provider target_revision `{0}` is not a 40-character hex SHA")]
+    TargetRevisionShape(String),
+    #[error("a rollback request is missing target_revision")]
+    TargetRevisionMissing,
+    #[error("target_revision is only valid on a rollback request")]
+    TargetRevisionUnexpected,
     #[error(
         "provider build_status `{0}` is not one of `succeeded`/`failed`/`not_started`/`unknown`"
     )]

@@ -75,6 +75,7 @@ fn status_for_phase(phase: DeliveryPhase) -> FindingStatus {
         DeliveryPhase::Healthy | DeliveryPhase::HermoraConnected => FindingStatus::Pass,
         DeliveryPhase::StageFailed | DeliveryPhase::Degraded => FindingStatus::Fail,
         DeliveryPhase::HermoraFailed => FindingStatus::Warn,
+        DeliveryPhase::RolledBack => FindingStatus::Warn,
         DeliveryPhase::Draft
         | DeliveryPhase::Preflighted
         | DeliveryPhase::AwaitingStageConfirmation
@@ -99,6 +100,11 @@ fn detail_for_phase(phase: DeliveryPhase) -> &'static str {
         DeliveryPhase::HermoraFailed => {
             "the deployment stays healthy but the optional enrolment did not complete; run \
              forge delivery status <project> for the evidence"
+        }
+        DeliveryPhase::RolledBack => {
+            "production was rolled back to an earlier release and the registered revision is not \
+             the live one; run forge delivery status <project> for the restored revision, then \
+             fix and promote forward"
         }
         DeliveryPhase::Draft
         | DeliveryPhase::Preflighted

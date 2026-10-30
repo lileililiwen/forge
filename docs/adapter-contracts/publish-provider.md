@@ -85,6 +85,51 @@ This field is additive and the operation was already declared, so the contract
 version does not move. A provider written before it existed is **unknown**, not
 broken, and needs no change.
 
+## Rollback
+
+A rollback restores a release the project previously promoted and Forge
+observed healthy:
+
+```json
+{
+  "contract": "forge-publish-provider/0.1.0",
+  "operation": "rollback",
+  "provider": "openpanel",
+  "project_id": "example",
+  "revision": "0123456789abcdef0123456789abcdef01234567",
+  "target_revision": "89abcdef0123456789abcdef0123456789abcdef",
+  "operation_id": "delivery-rollback-7",
+  "folder": "/workspace/example",
+  "dry_run": false,
+  "queue_id": "delivery-rollback-example-0123456789ab"
+}
+```
+
+`revision` keeps its meaning: the revision the request operates on, which for a
+rollback is the registered revision being replaced. `target_revision` is the
+release being restored and is required on `rollback`, absent on every other
+operation.
+
+The provider is not asked to decide whether the target is safe to restore:
+Forge checks that the target has a `delivery.promote` row in state `done`
+whose build and run statuses are not a failure and whose explicit health is
+`healthy`, and refuses anything else before the request is built. The provider
+receives a target Forge has already proven.
+
+`rollback` requires the provider to declare it. An unknown declaration, or one
+without `rollback`, is refused with `delivery-invalid` before the operation is
+reserved.
+
+A provider-declared failure (`status` other than `succeeded`) is recorded as a
+failed rollback row and does not change the project's delivery phase: the
+release in production did not move. A transport failure surfaces as
+`delivery-unavailable`.
+
+The contract version does not move. `rollback` was declared in `0.1.0` and
+never sent, so this is the first definition of its parameter and no deployed
+provider can depend on the old shape; a provider that declares `rollback` MUST
+read `target_revision`.
+
 OpenPanel and Jenkins remain standalone projects. They can each implement this contract as an optional Forge provider and can be enabled or disabled independently.
 
 ## GitHub push intake

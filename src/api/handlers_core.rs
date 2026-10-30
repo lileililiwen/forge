@@ -580,6 +580,7 @@ pub(super) fn handle_github_push(db_path: &Path, request: &ApiRequest) -> ApiRes
         folder: Some(project_dir.display().to_string()),
         dry_run: false,
         queue_id: None,
+        target_revision: None,
     };
     let response = match invoke_provider(&provider, &provider_request, &project_dir) {
         Ok(value) => value,

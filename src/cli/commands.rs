@@ -503,6 +503,19 @@ pub(crate) enum DeliveryCommands {
         #[arg(long = "confirm-revision")]
         confirm_revision: Option<String>,
     },
+    /// Restore a release this project previously promoted and observed
+    /// healthy. Select exactly one of `--to` and `--previous`.
+    Rollback {
+        /// Registered project id.
+        project: String,
+        /// 40-character source revision SHA to restore.
+        #[arg(long = "to")]
+        to: Option<String>,
+        /// Restore the newest healthy release other than the registered
+        /// revision.
+        #[arg(long)]
+        previous: bool,
+    },
     /// Retry the optional Hermora site onboarding for a healthy
     /// deployment. Independent child operation; never republishes.
     HermoraRetry {

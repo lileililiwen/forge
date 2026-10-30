@@ -254,6 +254,7 @@ pub(super) fn publish_write(
                 folder: Some(target.project_dir.display().to_string()),
                 dry_run: false,
                 queue_id: None,
+                target_revision: None,
             };
             let secrets = [
                 target.project_dir.display().to_string(),

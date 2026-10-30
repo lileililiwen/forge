@@ -104,6 +104,15 @@ pub fn parse_request(value: Value) -> Result<PublishProviderRequest, ProviderCon
     if let Some(queue_id) = request.queue_id.as_deref() {
         validate_queue_id(queue_id)?;
     }
+    match (request.operation, request.target_revision.as_deref()) {
+        (ProviderOperation::Rollback, Some(target)) => validate_revision(target)
+            .map_err(|_| ProviderContractError::TargetRevisionShape(target.to_string()))?,
+        (ProviderOperation::Rollback, None) => {
+            return Err(ProviderContractError::TargetRevisionMissing)
+        }
+        (_, Some(_)) => return Err(ProviderContractError::TargetRevisionUnexpected),
+        (_, None) => {}
+    }
     Ok(request)
 }
 
@@ -482,6 +491,7 @@ pub fn probe_capabilities(
         folder: Some(folder.display().to_string()),
         dry_run: false,
         queue_id: None,
+        target_revision: None,
     };
     let input = serde_json::to_vec(&request).map_err(|error| ForgeError::PublishInvalid {
         reason: format!("cannot encode capability probe request: {error}"),

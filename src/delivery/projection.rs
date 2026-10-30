@@ -63,6 +63,10 @@ pub struct DeliveryVerbReport {
     /// answer reaches the operator through the phase it decides.
     #[serde(skip_serializing, skip_deserializing)]
     pub provider_health: Option<String>,
+    /// The release a `delivery.rollback` row restored. Present only on
+    /// the rollback verb, and only when the row recorded a target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_revision: Option<String>,
 }
 
 /// Hermora child operation summary. `site_id` / `environment_url`
@@ -89,6 +93,7 @@ pub struct DeliveryReport {
     pub preflight: DeliveryVerbReport,
     pub stage: DeliveryVerbReport,
     pub promote: DeliveryVerbReport,
+    pub rollback: DeliveryVerbReport,
     pub hermora: DeliveryHermoraReport,
 }
 
@@ -108,7 +113,11 @@ pub fn build_delivery_report(
         .filter(|row| {
             matches!(
                 row.kind.as_str(),
-                "delivery.preflight" | "delivery.stage" | "delivery.promote" | "delivery.hermora"
+                "delivery.preflight"
+                    | "delivery.stage"
+                    | "delivery.promote"
+                    | "delivery.rollback"
+                    | "delivery.hermora"
             )
         })
         .collect::<Vec<_>>();
@@ -122,6 +131,7 @@ pub fn build_delivery_report(
     let mut preflight = DeliveryVerbReport::default();
     let mut stage = DeliveryVerbReport::default();
     let mut promote = DeliveryVerbReport::default();
+    let mut rollback = DeliveryVerbReport::default();
     let mut hermora = DeliveryHermoraReport::default();
     let mut last_updated: Option<String> = None;
     let mut last_revision: Option<String> = None;
@@ -140,6 +150,7 @@ pub fn build_delivery_report(
             "delivery.preflight" => populate_verb(&mut preflight, row, detail),
             "delivery.stage" => populate_verb(&mut stage, row, detail),
             "delivery.promote" => populate_verb(&mut promote, row, detail),
+            "delivery.rollback" => populate_verb(&mut rollback, row, detail),
             "delivery.hermora" => populate_hermora(&mut hermora, row),
             _ => {}
         }
@@ -152,8 +163,10 @@ pub fn build_delivery_report(
     bounded_truncate(&mut stage.recovery, RECOVERY_LIMIT);
     bounded_truncate(&mut promote.evidence, EVIDENCE_LIMIT);
     bounded_truncate(&mut promote.recovery, RECOVERY_LIMIT);
+    bounded_truncate(&mut rollback.evidence, EVIDENCE_LIMIT);
+    bounded_truncate(&mut rollback.recovery, RECOVERY_LIMIT);
 
-    let phase = compute_phase(&preflight, &stage, &promote, &hermora);
+    let phase = compute_phase(&preflight, &stage, &promote, &rollback, &hermora);
     let environment = environment_for_phase(phase);
 
     Ok(DeliveryReport {
@@ -170,6 +183,7 @@ pub fn build_delivery_report(
         preflight,
         stage,
         promote,
+        rollback,
         hermora,
     })
 }
@@ -194,6 +208,7 @@ fn populate_verb(report: &mut DeliveryVerbReport, row: &OperationEntry, detail: 
     // verb decides it, exactly as it decides the state and the build
     // and run statuses.
     report.provider_health = detail.provider_health;
+    report.target_revision = detail.target_revision;
     report
         .evidence
         .extend(detail.evidence.into_iter().map(|text| DeliveryEvidence {
@@ -242,6 +257,8 @@ struct RowDetail {
     /// one. An empty health is the absence of an answer, not an answer
     /// of its own, so it yields no health.
     provider_health: Option<String>,
+    /// The release a rollback row restored, when the row recorded one.
+    target_revision: Option<String>,
 }
 
 /// Parse one operation row's `detail` block: the provider's evidence
@@ -267,10 +284,16 @@ fn parse_row_detail(row: &OperationEntry) -> RowDetail {
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .filter(|health| !health.is_empty());
+    let target_revision = parsed
+        .get("target_revision")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .filter(|revision| !revision.is_empty());
     RowDetail {
         evidence: lines("evidence"),
         recovery: lines("recovery"),
         provider_health,
+        target_revision,
     }
 }
 
@@ -280,27 +303,111 @@ fn bounded_truncate<T>(items: &mut Vec<T>, max: usize) {
     }
 }
 
+/// Whether a promotion's own evidence records a healthy release.
+///
+/// This is the same rule `compute_phase` uses to call the latest
+/// promotion `Healthy`, and rollback uses it to decide which releases may
+/// be restored. One rule, two readers, so the status page and the
+/// rollback verb cannot disagree about what "healthy" means.
+pub fn promotion_is_healthy(
+    state: Option<&str>,
+    build_status: Option<&str>,
+    run_status: Option<&str>,
+    provider_health: Option<&str>,
+) -> bool {
+    let failed = |value: Option<&str>| {
+        value
+            .map(|status| status != "succeeded" && status != "not_started" && status != "unknown")
+            .unwrap_or(false)
+    };
+    state != Some("failed")
+        && !failed(build_status)
+        && !failed(run_status)
+        && provider_health
+            .map(|health| health == "healthy")
+            .unwrap_or(true)
+}
+
+/// The revisions this project promoted and observed healthy, newest
+/// first.
+///
+/// One row per revision: the newest promotion row for a revision decides
+/// whether it is a release, because that is what production last saw. A
+/// revision promoted twice — once failed, once healthy — is a release; a
+/// revision whose newest promotion is degraded is not.
+pub fn healthy_release_revisions(rows: &[OperationEntry]) -> Vec<String> {
+    let mut newest_first = rows
+        .iter()
+        .filter(|row| row.kind == "delivery.promote")
+        .collect::<Vec<_>>();
+    newest_first.sort_by_key(|row| std::cmp::Reverse(row.op_id));
+
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut releases = Vec::new();
+    for row in newest_first {
+        let Some(revision) = row.revision.clone() else {
+            continue;
+        };
+        if !seen.insert(revision.clone()) {
+            // The revision is exhausted even when degraded: an older row
+            // for the same revision is not what production last observed.
+            continue;
+        }
+        let detail = parse_row_detail(row);
+        let healthy = row.state == "done"
+            && promotion_is_healthy(
+                Some(row.state.as_str()),
+                row.build_status.as_deref(),
+                row.run_status.as_deref(),
+                detail.provider_health.as_deref(),
+            );
+        if healthy {
+            releases.push(revision);
+        }
+    }
+    releases
+}
+
 /// Compute the closed `DeliveryPhase` from the per-verb terminal
 /// rows. The order of evaluation is the order the spec documents:
 ///
-///  1. If the latest terminal verb is a `promote` whose provider
+///  1. If the latest terminal `rollback` succeeded, the phase is
+///     `RolledBack`: production was restored to an earlier release,
+///     which outranks the promotion history the rollback replaced.
+///  2. If the latest terminal verb is a `promote` whose provider
 ///     reported a health other than `healthy`, or whose build or run
 ///     did not succeed, the phase is `Degraded`.
-///  2. If the latest terminal verb is a `promote` with healthy
+///  3. If the latest terminal verb is a `promote` with healthy
 ///     build/run, the phase is `Healthy`.
-///  3. If the latest terminal verb is a `stage` with failed health,
+///  4. If the latest terminal verb is a `stage` with failed health,
 ///     the phase is `StageFailed`.
-///  4. If the latest terminal verb is a `stage` with healthy health,
+///  5. If the latest terminal verb is a `stage` with healthy health,
 ///     the phase is `StageHealthy` and promote is the next verb.
-///  5. If the latest terminal verb is a `preflight` with healthy
+///  6. If the latest terminal verb is a `preflight` with healthy
 ///     status, the phase is `Preflighted`.
-///  6. Otherwise the phase is `Draft`.
+///  7. Otherwise the phase is `Draft`.
 fn compute_phase(
     preflight: &DeliveryVerbReport,
     stage: &DeliveryVerbReport,
     promote: &DeliveryVerbReport,
+    rollback: &DeliveryVerbReport,
     hermora: &DeliveryHermoraReport,
 ) -> DeliveryPhase {
+    if rollback.state.as_deref() == Some("done") {
+        let healthy = promotion_is_healthy(
+            Some("done"),
+            rollback.build_status.as_deref(),
+            rollback.run_status.as_deref(),
+            rollback.provider_health.as_deref(),
+        );
+        return if healthy {
+            DeliveryPhase::RolledBack
+        } else {
+            // The provider reported the restoration as unhealthy: the
+            // release moved, and what it moved to is not healthy.
+            DeliveryPhase::Degraded
+        };
+    }
     if let Some(state) = hermora.state.as_deref() {
         if state == "done" && hermora.site_id.is_some() {
             return DeliveryPhase::HermoraConnected;
@@ -310,27 +417,13 @@ fn compute_phase(
         }
     }
     if promote.op_id.is_some() {
-        let degraded = promote
-            .build_status
-            .as_deref()
-            .map(|s| s != "succeeded" && s != "not_started" && s != "unknown")
-            .unwrap_or(false)
-            || promote
-                .run_status
-                .as_deref()
-                .map(|s| s != "succeeded" && s != "not_started" && s != "unknown")
-                .unwrap_or(false)
-            || promote.state.as_deref() == Some("failed")
-            // The provider's own health for the verb. Only an explicit
-            // answer degrades the phase: a row that carries no health
-            // keeps today's verdict, because the absence of an answer
-            // is not an answer of `healthy`.
-            || promote
-                .provider_health
-                .as_deref()
-                .map(|health| health != "healthy")
-                .unwrap_or(false);
-        if degraded {
+        let healthy = promotion_is_healthy(
+            promote.state.as_deref(),
+            promote.build_status.as_deref(),
+            promote.run_status.as_deref(),
+            promote.provider_health.as_deref(),
+        );
+        if !healthy {
             return DeliveryPhase::Degraded;
         }
         return DeliveryPhase::Healthy;
@@ -364,6 +457,7 @@ fn environment_for_phase(phase: DeliveryPhase) -> Option<DeliveryEnvironment> {
         DeliveryPhase::Production
         | DeliveryPhase::Healthy
         | DeliveryPhase::Degraded
+        | DeliveryPhase::RolledBack
         | DeliveryPhase::HermoraPending
         | DeliveryPhase::HermoraConnected
         | DeliveryPhase::HermoraFailed => Some(DeliveryEnvironment::Production),
@@ -391,6 +485,7 @@ pub fn render_report_human(report: &DeliveryReport) -> String {
         ("preflight", &report.preflight),
         ("stage", &report.stage),
         ("promote", &report.promote),
+        ("rollback", &report.rollback),
     ];
     for (label, verb) in verb_labels {
         if verb.op_id.is_none() {
@@ -404,6 +499,9 @@ pub fn render_report_human(report: &DeliveryReport) -> String {
         ));
         if let Some(rev) = verb.revision.as_deref() {
             lines.push(format!("  revision: {rev}"));
+        }
+        if let Some(target) = verb.target_revision.as_deref() {
+            lines.push(format!("  target_revision: {target}"));
         }
         if let Some(build) = verb.build_status.as_deref() {
             lines.push(format!("  build_status: {build}"));
@@ -515,6 +613,134 @@ mod tests {
             .update_operation_phase(op_id, Some(SAMPLE_REV), build_status, run_status, None)
             .ok();
         op_id
+    }
+
+    /// Seed one promote row for an explicit revision and provider health.
+    fn seed_promote_for(
+        path: &std::path::Path,
+        revision: &str,
+        key_suffix: &str,
+        health: Option<&str>,
+    ) -> i64 {
+        let registry = Registry::open(path).expect("open");
+        let key = format!("delivery.promote.alpha:{key_suffix}:production");
+        let outcome = registry
+            .reserve_idempotent_operation("delivery.promote", "alpha", &key, "abc")
+            .expect("reserve");
+        let op_id = match outcome {
+            ReservationOutcome::Reserved { op_id } => op_id,
+            ReservationOutcome::Reused { op_id } => op_id,
+        };
+        let detail = match health {
+            Some(health) => format!(r#"{{"provider_health":"{health}"}}"#),
+            None => "{}".to_string(),
+        };
+        registry
+            .finalize_operation(op_id, "done", &detail)
+            .expect("finalize");
+        registry
+            .update_operation_phase(
+                op_id,
+                Some(revision),
+                Some("succeeded"),
+                Some("succeeded"),
+                None,
+            )
+            .ok();
+        op_id
+    }
+
+    /// Seed one rollback row that records `target` in its detail.
+    fn seed_rollback_row(path: &std::path::Path, target: &str, state: &str) -> i64 {
+        let registry = Registry::open(path).expect("open");
+        let key = format!("delivery.rollback.alpha:0123456789ab:{}", &target[..12]);
+        let outcome = registry
+            .reserve_idempotent_operation("delivery.rollback", "alpha", &key, "abc")
+            .expect("reserve");
+        let op_id = match outcome {
+            ReservationOutcome::Reserved { op_id } => op_id,
+            ReservationOutcome::Reused { op_id } => op_id,
+        };
+        let detail = format!(
+            r#"{{"target_revision":"{target}","provider_health":"healthy","evidence":[]}}"#
+        );
+        registry
+            .finalize_operation(op_id, state, &detail)
+            .expect("finalize");
+        registry
+            .update_operation_phase(
+                op_id,
+                Some(SAMPLE_REV),
+                Some("succeeded"),
+                Some("succeeded"),
+                None,
+            )
+            .ok();
+        op_id
+    }
+
+    #[test]
+    fn a_done_rollback_reports_rolled_back_and_names_the_target() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_for(&path, SAMPLE_REV, "0123456789ab", Some("healthy"));
+        let target = "1111111111111111111111111111111111111111";
+        seed_rollback_row(&path, target, "done");
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::RolledBack);
+        assert_eq!(report.environment, Some(DeliveryEnvironment::Production));
+        assert_eq!(report.rollback.state.as_deref(), Some("done"));
+        assert_eq!(report.rollback.target_revision.as_deref(), Some(target));
+        // The promotion history is still reported; the rollback outranks it.
+        assert_eq!(report.promote.state.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn a_failed_rollback_leaves_the_promotion_phase_alone() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        seed_promote_for(&path, SAMPLE_REV, "0123456789ab", Some("healthy"));
+        let target = "1111111111111111111111111111111111111111";
+        seed_rollback_row(&path, target, "failed");
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        assert_eq!(report.phase, DeliveryPhase::Healthy);
+        assert_eq!(report.rollback.state.as_deref(), Some("failed"));
+        assert_eq!(report.rollback.target_revision.as_deref(), Some(target));
+    }
+
+    #[test]
+    fn healthy_releases_are_newest_first_and_skip_a_degraded_newest_row() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        let first = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let second = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let degraded = "cccccccccccccccccccccccccccccccccccccccc";
+        seed_promote_for(&path, first, "aaaaaaaaaaaa", Some("healthy"));
+        seed_promote_for(&path, second, "bbbbbbbbbbbb", Some("healthy"));
+        seed_promote_for(&path, degraded, "cccccccccccc", Some("failed"));
+        // A newer healthy row for `first` wins over its older row and
+        // moves it ahead of `second`.
+        seed_promote_for(&path, first, "dddddddddddd", Some("healthy"));
+
+        let registry = Registry::open(&path).expect("open");
+        let rows = registry.operations_for_project("alpha", 200).expect("rows");
+        let releases = healthy_release_revisions(&rows);
+        assert_eq!(releases, vec![first.to_string(), second.to_string()]);
+    }
+
+    #[test]
+    fn the_rollback_verb_is_published_in_the_status_document() {
+        let (_dir, path) = temp_registry();
+        seed_project(&path, "alpha");
+        let registry = Registry::open(&path).expect("open");
+        let report = build_delivery_report(&registry, "alpha", Utc::now()).expect("report");
+        let json = serde_json::to_value(&report).expect("json");
+        assert_eq!(json["contract"], DELIVERY_CONTRACT_VERSION);
+        assert!(json["rollback"].is_object());
+        assert!(json["rollback"].get("target_revision").is_none());
+        assert_eq!(json["promote"].get("target_revision"), None);
     }
 
     #[test]

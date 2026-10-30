@@ -26,13 +26,14 @@ pub enum DeliveryPhase {
     Production,
     Healthy,
     Degraded,
+    RolledBack,
     HermoraPending,
     HermoraConnected,
     HermoraFailed,
 }
 
 impl DeliveryPhase {
-    pub const ALL: [DeliveryPhase; 13] = [
+    pub const ALL: [DeliveryPhase; 14] = [
         DeliveryPhase::Draft,
         DeliveryPhase::Preflighted,
         DeliveryPhase::AwaitingStageConfirmation,
@@ -43,6 +44,7 @@ impl DeliveryPhase {
         DeliveryPhase::Production,
         DeliveryPhase::Healthy,
         DeliveryPhase::Degraded,
+        DeliveryPhase::RolledBack,
         DeliveryPhase::HermoraPending,
         DeliveryPhase::HermoraConnected,
         DeliveryPhase::HermoraFailed,
@@ -60,6 +62,7 @@ impl DeliveryPhase {
             DeliveryPhase::Production => "production",
             DeliveryPhase::Healthy => "healthy",
             DeliveryPhase::Degraded => "degraded",
+            DeliveryPhase::RolledBack => "rolled-back",
             DeliveryPhase::HermoraPending => "hermora-pending",
             DeliveryPhase::HermoraConnected => "hermora-connected",
             DeliveryPhase::HermoraFailed => "hermora-failed",
@@ -96,7 +99,37 @@ pub enum DeliveryVerb {
     Preflight,
     Stage,
     Promote,
+    Rollback,
     Hermora,
+}
+
+/// Which release a rollback restores.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RollbackTarget {
+    /// A revision the operator named.
+    To(String),
+    /// The newest healthy release other than the registered one.
+    Previous,
+}
+
+impl RollbackTarget {
+    /// Read the CLI's two selectors. Exactly one is required.
+    pub fn from_args(to: Option<String>, previous: bool) -> Result<Self, ForgeError> {
+        match (to, previous) {
+            (Some(revision), false) => Ok(RollbackTarget::To(revision)),
+            (None, true) => Ok(RollbackTarget::Previous),
+            (Some(_), true) => Err(ForgeError::DeliveryInvalid {
+                reason: "delivery rollback: choose exactly one of `--to <revision>` and \
+                         `--previous`; both were supplied"
+                    .to_string(),
+            }),
+            (None, false) => Err(ForgeError::DeliveryInvalid {
+                reason: "delivery rollback: choose exactly one of `--to <revision>` and \
+                         `--previous`; neither was supplied"
+                    .to_string(),
+            }),
+        }
+    }
 }
 
 impl DeliveryVerb {
@@ -105,6 +138,7 @@ impl DeliveryVerb {
             DeliveryVerb::Preflight => "delivery.preflight",
             DeliveryVerb::Stage => "delivery.stage",
             DeliveryVerb::Promote => "delivery.promote",
+            DeliveryVerb::Rollback => "delivery.rollback",
             DeliveryVerb::Hermora => "delivery.hermora",
         }
     }
@@ -130,11 +164,18 @@ pub fn idempotency_key(
         });
     }
     let prefix = &revision[..12];
+    if verb == DeliveryVerb::Rollback {
+        return Err(ForgeError::DeliveryInvalid {
+            reason: "delivery rollback: a rollback is keyed by its target revision; \
+                     use the rollback idempotency key"
+                .to_string(),
+        });
+    }
     let env_suffix = match verb {
         DeliveryVerb::Preflight => "",
         DeliveryVerb::Stage => ":stage",
         DeliveryVerb::Promote => ":production",
-        DeliveryVerb::Hermora => ":production",
+        DeliveryVerb::Rollback | DeliveryVerb::Hermora => ":production",
     };
     Ok(format!(
         "{verb}.{project_id}:{prefix}{env_suffix}",
@@ -142,8 +183,39 @@ pub fn idempotency_key(
             DeliveryVerb::Preflight => "delivery.preflight",
             DeliveryVerb::Stage => "delivery.stage",
             DeliveryVerb::Promote => "delivery.promote",
+            DeliveryVerb::Rollback => "delivery.rollback",
             DeliveryVerb::Hermora => "delivery.hermora",
         },
+    ))
+}
+
+/// Compute the deterministic idempotency key for one rollback.
+///
+/// A rollback is keyed by the release it replaces **and** the release
+/// it restores. The per-verb key would collide for two rollbacks from
+/// the same broken revision to two different good ones, which are two
+/// operations, not a conflict.
+pub fn rollback_idempotency_key(
+    project_id: &str,
+    current_revision: &str,
+    target_revision: &str,
+) -> Result<String, ForgeError> {
+    if project_id.is_empty() {
+        return Err(ForgeError::DeliveryInvalid {
+            reason: "project id must not be empty".to_string(),
+        });
+    }
+    for revision in [current_revision, target_revision] {
+        if revision.len() != 40 || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(ForgeError::DeliveryInvalid {
+                reason: format!("revision `{revision}` is not a 40-character hex SHA"),
+            });
+        }
+    }
+    Ok(format!(
+        "delivery.rollback.{project_id}:{}:{target}",
+        &current_revision[..12],
+        target = &target_revision[..12],
     ))
 }
 
@@ -222,6 +294,37 @@ mod tests {
         assert_eq!(preflight, "delivery.preflight.alpha:0123456789ab");
         assert_eq!(stage, "delivery.stage.alpha:0123456789ab:stage");
         assert_eq!(promote, "delivery.promote.alpha:0123456789ab:production");
+    }
+
+    #[test]
+    fn a_rollback_key_names_both_releases_and_refuses_the_per_verb_key() {
+        let target = "1111111111111111111111111111111111111111";
+        let other = "2222222222222222222222222222222222222222";
+        let key = rollback_idempotency_key("alpha", SAMPLE_REV, target).expect("key");
+        assert_eq!(key, "delivery.rollback.alpha:0123456789ab:111111111111");
+        assert_ne!(
+            key,
+            rollback_idempotency_key("alpha", SAMPLE_REV, other).expect("other")
+        );
+        let err = idempotency_key(DeliveryVerb::Rollback, "alpha", SAMPLE_REV).unwrap_err();
+        assert!(err.to_string().contains("target revision"));
+    }
+
+    #[test]
+    fn the_rollback_selectors_are_exactly_one() {
+        let revision = SAMPLE_REV.to_string();
+        assert_eq!(
+            RollbackTarget::from_args(Some(revision.clone()), false).expect("to"),
+            RollbackTarget::To(revision)
+        );
+        assert_eq!(
+            RollbackTarget::from_args(None, true).expect("previous"),
+            RollbackTarget::Previous
+        );
+        for (to, previous) in [(Some(SAMPLE_REV.to_string()), true), (None, false)] {
+            let err = RollbackTarget::from_args(to, previous).unwrap_err();
+            assert!(err.to_string().contains("exactly one"), "{err}");
+        }
     }
 
     #[test]

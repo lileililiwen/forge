@@ -45,6 +45,11 @@ pub(crate) fn cmd_delivery(
             };
             cmd_delivery_promote(db_path, project, rev, format)
         }
+        DeliveryCommands::Rollback {
+            project,
+            to,
+            previous,
+        } => cmd_delivery_rollback(db_path, project, to.as_deref(), *previous, format),
         DeliveryCommands::HermoraRetry {
             project,
             deployment_url,
@@ -138,6 +143,39 @@ fn cmd_delivery_promote(
         .unwrap_or_default();
     let human = format!(
         "delivery promote recorded for `{project}`\nop_id: {}\nphase: {}{provider_line}",
+        outcome.op_id, outcome.report.phase
+    );
+    Ok(as_output(format, human, json))
+}
+
+fn cmd_delivery_rollback(
+    db_path: &Path,
+    project: &str,
+    to: Option<&str>,
+    previous: bool,
+    format: Format,
+) -> Result<Output, ForgeError> {
+    let target =
+        forge::delivery::state::RollbackTarget::from_args(to.map(str::to_string), previous)?;
+    let outcome = forge::delivery::cli::cmd_delivery_rollback(db_path, project, target)?;
+    let json =
+        serde_json::to_value(&outcome.report).map_err(|err| ForgeError::DeliveryInvalid {
+            reason: format!("delivery rollback: cannot encode report: {err}"),
+        })?;
+    let provider_line = outcome
+        .provider_status
+        .as_deref()
+        .map(|s| format!("\nprovider_status: {s}"))
+        .unwrap_or_default();
+    let target_line = outcome
+        .report
+        .rollback
+        .target_revision
+        .as_deref()
+        .map(|rev| format!("\ntarget_revision: {rev}"))
+        .unwrap_or_default();
+    let human = format!(
+        "delivery rollback recorded for `{project}`\nop_id: {}\nphase: {}{target_line}{provider_line}",
         outcome.op_id, outcome.report.phase
     );
     Ok(as_output(format, human, json))

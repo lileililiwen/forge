@@ -9,6 +9,7 @@ use crate::registry::Registry;
 
 use super::handlers::{self, DeliveryOutcome};
 use super::projection::DeliveryReport;
+use super::state::RollbackTarget;
 
 /// Run `forge delivery status <project>`.
 pub fn cmd_delivery_status(
@@ -54,6 +55,17 @@ pub fn cmd_delivery_promote(
     let registry = Registry::open(db_path)?;
     let now = Utc::now();
     handlers::run_promote(&registry, project, confirm_revision, now)
+}
+
+/// Run `forge delivery rollback <project> --to <revision> | --previous`.
+pub fn cmd_delivery_rollback(
+    db_path: &Path,
+    project: &str,
+    target: RollbackTarget,
+) -> Result<DeliveryOutcome, ForgeError> {
+    let registry = Registry::open(db_path)?;
+    let now = Utc::now();
+    handlers::run_rollback(&registry, project, target, now)
 }
 
 /// Run `forge delivery hermora-retry <project> --deployment-url <url>

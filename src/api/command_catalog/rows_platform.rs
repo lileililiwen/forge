@@ -120,6 +120,16 @@ impl CatalogBuilder {
             &[("deployment_url", "string", true), ("secret_ref", "string", true)],
             caps_provider,
         );
+        self.cli_only(
+            Some("delivery"),
+            "rollback",
+            "Restore a release this project previously promoted and observed healthy (`--to <revision>` or `--previous`).",
+            Delivery,
+            Project,
+            RemoteWrite,
+            "No authenticated rollback route exists yet; the verb is CLI-only so the operator names the exact target release.",
+            caps_provider,
+        );
         self.group(
             None,
             "studio",

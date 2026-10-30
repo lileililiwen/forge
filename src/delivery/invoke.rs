@@ -25,6 +25,7 @@ pub fn delivery_queue_id(verb: DeliveryVerb, project_id: &str, revision: &str) -
         DeliveryVerb::Preflight => "preflight",
         DeliveryVerb::Stage => "stage",
         DeliveryVerb::Promote => "production",
+        DeliveryVerb::Rollback => "rollback",
         DeliveryVerb::Hermora => "production",
     };
     let prefix: String = revision.chars().take(12).collect();
@@ -35,6 +36,7 @@ pub fn delivery_queue_id(verb: DeliveryVerb, project_id: &str, revision: &str) -
 pub fn operation_for(verb: DeliveryVerb) -> ProviderOperation {
     match verb {
         DeliveryVerb::Preflight => ProviderOperation::Preflight,
+        DeliveryVerb::Rollback => ProviderOperation::Rollback,
         DeliveryVerb::Stage | DeliveryVerb::Promote | DeliveryVerb::Hermora => {
             ProviderOperation::Publish
         }
@@ -60,6 +62,36 @@ pub fn build_request(
         folder: Some(folder.display().to_string()),
         dry_run: false,
         queue_id: Some(delivery_queue_id(verb, project_id, revision)),
+        target_revision: None,
+    }
+}
+
+/// Build the provider request for a rollback. `revision` is the
+/// registered revision being replaced; `target_revision` is the release
+/// being restored.
+pub fn build_rollback_request(
+    provider: &ProviderEntry,
+    project_id: &str,
+    revision: &str,
+    target_revision: &str,
+    folder: &Path,
+    operation_id: &str,
+) -> PublishProviderRequest {
+    PublishProviderRequest {
+        contract: providers::PUBLISH_PROVIDER_CONTRACT.to_string(),
+        operation: ProviderOperation::Rollback,
+        provider: provider.id.clone(),
+        project_id: project_id.to_string(),
+        revision: revision.to_string(),
+        operation_id: operation_id.to_string(),
+        folder: Some(folder.display().to_string()),
+        dry_run: false,
+        queue_id: Some(delivery_queue_id(
+            DeliveryVerb::Rollback,
+            project_id,
+            revision,
+        )),
+        target_revision: Some(target_revision.to_string()),
     }
 }
 

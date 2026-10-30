@@ -2951,11 +2951,11 @@
     const checks = (evidence.status && evidence.status.checks) || [];
     const checksHealthy = checks.length > 0 && checks.every((check) => check.state === "healthy");
     const report = evidence.deliveryReport || {};
-    const verbs = [report.preflight, report.stage, report.promote];
+    const verbs = [report.preflight, report.stage, report.promote, report.rollback];
     const verbDone = verbs.some((verb) => verb && verb.state === "done");
     const phase = String(report.phase || "");
     const pastDraft = phase !== "" && phase !== "unknown" && phase !== "draft";
-    const deployedPhase = /^(production|healthy|degraded|hermora-)/.test(phase);
+    const deployedPhase = /^(production|healthy|degraded|rolled-back|hermora-)/.test(phase);
     return {
       idea: idx >= 0,
       scaffold: idx >= 1,

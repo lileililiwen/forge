@@ -118,6 +118,21 @@ machine; they are unrelated to hosted CI execution and deployment readiness.
 Examples and exact CLI options are documented in
 [`local-runtime-entrypoints.md`](local-runtime-entrypoints.md).
 
+### Image build entry point
+
+`forge build --image` delegates a container-image build to one
+operator-installed adapter under `forge-image-builder/0.1.0`. Forge resolves
+the project's Git revision and the image tag, runs the adapter with one bounded
+document on stdin, validates the answer (the requested image, a `sha256`
+digest, a bounded builder identity, an SBOM path inside the project) and
+writes `.forge/build/<project-id>/<sha12>.json`. The adapter is resolved from
+`--builder-bin`, then `FORGE_IMAGE_BUILDER_BIN`, then `forge-image-builder` on
+`PATH`; Forge never installs or downloads a builder. Two reference adapters
+for Railpack and Cloud Native Buildpacks ship under `adapters/image/` and are
+documented as unexercised against a real builder. The build record is its own
+evidence: it is not Gate evidence and it does not yet feed the deploy lane. See
+[`adapter-contracts/image-builder.md`](adapter-contracts/image-builder.md).
+
 ## 4. Flow B — generated project GitHub Actions
 
 Current service and client packs are `baseline-service@1.6.0` and `baseline-client@1.3.0`; the defaults are declared in [`src/standard/layout.rs`](../src/standard/layout.rs). Their workflow files live under [`standards/`](../standards/). These versions use fast local hooks and full hosted Gate runs.
@@ -227,6 +242,7 @@ Before any verb is reserved, Forge asks the provider which operations it declare
 | Generated workflow → Forge binary | Exact version and checksum sidecar from GitHub Release; read-only workflow permissions | Forge pack + GitHub | Current template target is Linux x86_64; published release availability is a separate prerequisite |
 | Release engine → external release target | Project configuration and adapter contracts; prepare is read/evaluate, apply performs explicit stages | Forge + configured adapters | Source alone does not establish that a real external target is configured or currently healthy |
 | Delivery engine → provider | `forge-publish-provider/0.1.0`; typed preflight/stage/promote/rollback requests, operation journal, revision checks; each verb probes the provider's declared `capabilities` and refuses a verb the provider did not declare, before reserving the operation | Forge coordinates; provider owns external execution | Preflight requires fresh local Gate evidence; hosted history is not accepted as that local approval. Rollback restores only a release Forge promoted and observed healthy |
+| `forge build --image` → image builder | `forge-image-builder/0.1.0`; one revision-bound request and one validated response (`builder`, `image`, `sha256` digest, optional SBOM) | Forge coordinates and validates; the adapter and its builder own execution | Forge validates the tag, digest and SBOM path, hashes the SBOM itself, and writes `.forge/build/<project-id>/<sha12>.json`; the record is not Gate evidence and does not feed deploy |
 | GitHub → Forge workbench | Generated baseline workflows upload a signed Gate observation through GitHub OIDC; admin UI reads the stored history | GitHub owns the run; Forge verifies and stores the observation | Hosted history does not replace local Gate evidence or prove branch protection |
 
 ## 9. How smooth is the system today?

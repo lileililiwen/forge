@@ -2,7 +2,9 @@
 
 #[cfg(test)]
 pub(super) mod tests {
-    use crate::native::{run_native, run_native_with_timeout, split_command};
+    use crate::native::{
+        run_native, run_native_with_input, run_native_with_timeout, split_command,
+    };
     use std::fs;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -190,5 +192,35 @@ pub(super) mod tests {
             process_is_gone(pid.parse().expect("pid")),
             "the descendant {pid} is still running"
         );
+    }
+
+    #[test]
+    fn the_runner_delivers_one_bounded_document_on_stdin() {
+        let dir = TempDir::new().expect("tempdir");
+        let input = b"{\"contract\":\"example/0.1.0\"}";
+        let outcome = run_native_with_input(
+            dir.path(),
+            "sh",
+            &["-c".to_string(), "cat".to_string()],
+            &[],
+            input,
+        )
+        .expect("run");
+        assert!(outcome.success, "{:?}", outcome.start_error);
+        assert_eq!(outcome.stdout.as_bytes(), input);
+    }
+
+    #[test]
+    fn a_command_that_ignores_stdin_still_reports_its_status() {
+        let dir = TempDir::new().expect("tempdir");
+        let outcome = run_native_with_input(
+            dir.path(),
+            "sh",
+            &["-c".to_string(), "exit 0".to_string()],
+            &[],
+            b"unread",
+        )
+        .expect("run");
+        assert!(outcome.success, "{:?}", outcome.start_error);
     }
 }

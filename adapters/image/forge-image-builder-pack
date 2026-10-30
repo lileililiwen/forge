@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Reference image-builder adapter: Cloud Native Buildpacks (`pack`).
+
+This is reference material, not a claim that `pack` is installed. It maps the
+`forge-image-builder/0.1.0` contract onto `pack build` and reads the image
+digest from the local Docker image store. It deliberately returns no
+`sbom_path`: Forge supports SBOM capture, and this adapter claims one only when
+it actually produced one.
+
+A builder failure is reported as a `status: failed` response with exit 0, so
+Forge records the builder's evidence. A non-zero exit is reserved for an
+adapter that could not answer at all.
+
+Set `FORGE_IMAGE_BUILDER_BIN` to this file. Forge never installs or downloads
+`pack` or Docker.
+"""
+
+import json
+import subprocess
+import sys
+
+CONTRACT = "forge-image-builder/0.1.0"
+MAX_EVIDENCE = 10
+MAX_LINE = 800
+
+
+def evidence_of(completed):
+    lines = []
+    for stream in (completed.stdout, completed.stderr):
+        for line in (stream or "").splitlines():
+            line = line.strip()
+            if line:
+                lines.append(line[:MAX_LINE])
+    return lines[-MAX_EVIDENCE:]
+
+
+def version_of(builder):
+    try:
+        completed = subprocess.run(
+            [builder, "--version"], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    first = (completed.stdout or completed.stderr or "").strip().splitlines()
+    if not first:
+        return None
+    return first[0][:128]
+
+
+def digest_of(tag):
+    try:
+        completed = subprocess.run(
+            ["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", tag],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    value = (completed.stdout or "").strip()
+    if "@" in value:
+        value = value.split("@", 1)[1]
+    return value or None
+
+
+def emit(response):
+    json.dump(response, sys.stdout)
+    sys.stdout.write("\n")
+
+
+def main():
+    request = json.load(sys.stdin)
+    if request.get("contract") != CONTRACT:
+        emit(
+            {
+                "contract": CONTRACT,
+                "builder": "pack",
+                "status": "failed",
+                "evidence": [
+                    "the request contract is %r, expected %r"
+                    % (request.get("contract"), CONTRACT)
+                ],
+            }
+        )
+        return 0
+
+    tag = request["tag"]
+    directory = request["directory"]
+    completed = subprocess.run(
+        ["pack", "build", tag, "--path", directory],
+        capture_output=True,
+        text=True,
+        timeout=1500,
+    )
+    evidence = evidence_of(completed)
+    if completed.returncode != 0:
+        emit(
+            {
+                "contract": CONTRACT,
+                "builder": "pack",
+                "status": "failed",
+                "evidence": evidence or ["pack exited non-zero"],
+            }
+        )
+        return 0
+
+    digest = digest_of(tag)
+    if digest is None:
+        emit(
+            {
+                "contract": CONTRACT,
+                "builder": "pack",
+                "status": "failed",
+                "evidence": evidence
+                + ["the local image store reports no digest for %r" % tag],
+            }
+        )
+        return 0
+
+    emit(
+        {
+            "contract": CONTRACT,
+            "builder": "pack",
+            "builder_version": version_of("pack"),
+            "status": "built",
+            "image": tag,
+            "digest": digest,
+            "evidence": evidence or ["pack built %r" % tag],
+        }
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

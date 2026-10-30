@@ -17,7 +17,7 @@
 
 pub mod native_tests;
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -152,7 +152,29 @@ pub fn run_native_with_timeout(
     let mut command = Command::new(program);
     command.args(args).current_dir(dir);
     apply_env(&mut command, env);
-    run_bounded(&mut command, timeout)
+    run_bounded(&mut command, timeout, None)
+}
+
+/// Run a native command as an argument array with one bounded document on
+/// stdin.
+///
+/// This is the shape an adapter contract needs (one request in, one
+/// response out). Everything else is the shared runner's: the working
+/// directory, the environment, the bounded capture, the redaction and the
+/// wall-clock bound with the process-group kill. The document is small by
+/// contract; a command that exits without reading it leaves a broken pipe,
+/// which is not an error here because the exit status carries the outcome.
+pub fn run_native_with_input(
+    dir: &Path,
+    program: &str,
+    args: &[String],
+    env: &[(String, String)],
+    input: &[u8],
+) -> Result<NativeOutcome, ForgeError> {
+    let mut command = Command::new(program);
+    command.args(args).current_dir(dir);
+    apply_env(&mut command, env);
+    run_bounded(&mut command, NATIVE_COMMAND_TIMEOUT, Some(input))
 }
 
 /// Run a native command through `sh -c` in `dir`.
@@ -185,7 +207,7 @@ pub fn run_native_shell_with_timeout(
     let mut shell = Command::new("sh");
     shell.arg("-c").arg(command).current_dir(dir);
     apply_env(&mut shell, env);
-    run_bounded(&mut shell, timeout)
+    run_bounded(&mut shell, timeout, None)
 }
 
 /// Layer `env` on top of the inherited environment.
@@ -207,12 +229,26 @@ fn apply_env(command: &mut Command, env: &[(String, String)]) {
 /// keeps the capture pipes open, so the captures are given a grace
 /// period and the group is killed when they do not finish. A runner
 /// that waits for a descendant is a runner that hangs.
-fn run_bounded(command: &mut Command, timeout: Duration) -> Result<NativeOutcome, ForgeError> {
+fn run_bounded(
+    command: &mut Command,
+    timeout: Duration,
+    input: Option<&[u8]>,
+) -> Result<NativeOutcome, ForgeError> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    }
     let mut child = match spawn_in_own_group(command) {
         Ok(child) => child,
         Err(err) => return Ok(start_error_outcome(&err.to_string())),
     };
+    if let Some(bytes) = input {
+        if let Some(mut stdin) = child.stdin.take() {
+            // A command that exits without reading leaves a broken pipe.
+            // The exit status is the outcome; the write error is not.
+            let _ = stdin.write_all(bytes);
+        }
+    }
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stdout_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));

@@ -163,6 +163,11 @@ binary — see the real-run [quickstart transcript](docs/quickstart.md).
   variable. A toolchain with no target mechanism refuses the request
   instead of building for the host and reporting it as the requested
   target. A failed build exits non-zero with `error[build-failed]`.
+  `--image` delegates a container-image build to an operator-installed
+  image-builder adapter instead, records the tag, builder, `sha256` digest
+  and any SBOM under `.forge/build/<project-id>/<sha12>.json`, and refuses
+  any claim it cannot check. See
+  [the image-builder contract](docs/adapter-contracts/image-builder.md).
 
 MVP profiles are `aspnet-web`, `rust-web`, `nextjs-web`, `flutter-app`
 and `python-service`; `react-web` arrived as the v0.2

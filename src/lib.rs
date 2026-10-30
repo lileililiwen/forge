@@ -35,6 +35,7 @@ pub mod import;
 pub mod kit;
 pub mod mcp;
 pub mod module_catalog;
+pub mod image;
 pub mod native;
 pub mod planner;
 pub mod plugins;

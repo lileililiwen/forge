@@ -38,7 +38,7 @@ use cli::feature::{cmd_feature, cmd_spec, cmd_upgrade, cmd_upgrade_fleet, render
 use cli::fleet_exec::cmd_fleet;
 use cli::functions_13::{cmd_contract, cmd_gate};
 use cli::functions_9::{cmd_analytics, cmd_api, cmd_portal, cmd_portfolio, cmd_readiness, cmd_web};
-use cli::gitops::{cmd_build, cmd_commit, cmd_mcp, cmd_mirror, cmd_push, cmd_test};
+use cli::gitops::{cmd_commit, cmd_mcp, cmd_mirror, cmd_push, cmd_test};
 use cli::governance::cmd_governance;
 use cli::identity::cmd_identity;
 use cli::intent::cmd_intent;
@@ -246,20 +246,11 @@ enum Commands {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Build the named project for the host or for a target platform.
+    /// Build the named project for the host, for a target platform, or as
+    /// a container image through the configured image-builder adapter.
     Build {
-        /// Project directory (default: current directory).
-        #[arg(default_value = ".")]
-        path: PathBuf,
-        /// Target operating system (requires --arch).
-        #[arg(long, value_name = "OS")]
-        os: Option<String>,
-        /// Target architecture (requires --os).
-        #[arg(long, value_name = "ARCH")]
-        arch: Option<String>,
-        /// Target runtime identifier (dotnet toolchains only).
-        #[arg(long, value_name = "RID")]
-        rid: Option<String>,
+        #[command(flatten)]
+        args: cli::gitops::BuildArgs,
     },
     /// Stage the named paths and create a single scoped commit.
     Commit {
@@ -844,12 +835,7 @@ fn main() -> ExitCode {
         Commands::Spec { command } => cmd_spec(command, cli.format),
         Commands::Agent { command } => cmd_agent(db_path.as_path(), command, cli.format),
         Commands::Test { path } => cmd_test(path, cli.format),
-        Commands::Build {
-            path,
-            os,
-            arch,
-            rid,
-        } => cmd_build(path, os.clone(), arch.clone(), rid.clone(), cli.format),
+        Commands::Build { args } => args.run(cli.format),
         Commands::Commit {
             path,
             paths,

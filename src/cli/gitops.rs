@@ -13,6 +13,7 @@ use forge::distribution::{
     apply_mirror, distribution_config_from_manifest, plan_mirror, DistributionConfig, MirrorRequest,
 };
 use forge::gitops::{commit_paths, push_ref, run_test, CommitOutcome, PushOutcome, TestOutcome};
+use forge::image::{run_image_build, ImageBuildOutcome};
 use forge::target::request_from_flags;
 use std::path::Path;
 
@@ -38,11 +39,58 @@ pub(crate) fn cmd_test(path: &Path, format: Format) -> Result<Output, ForgeError
     test_output(&outcome, format)
 }
 
+/// `forge build`: the profile build, a target-addressed build, or a
+/// delegated image build.
+#[derive(Debug, clap::Args)]
+pub(crate) struct BuildArgs {
+    /// Project directory (default: current directory).
+    #[arg(default_value = ".")]
+    pub path: std::path::PathBuf,
+    /// Target operating system (requires --arch).
+    #[arg(long, value_name = "OS")]
+    pub os: Option<String>,
+    /// Target architecture (requires --os).
+    #[arg(long, value_name = "ARCH")]
+    pub arch: Option<String>,
+    /// Target runtime identifier (dotnet toolchains only).
+    #[arg(long, value_name = "RID")]
+    pub rid: Option<String>,
+    /// Build a container image through the configured image-builder
+    /// adapter instead of the profile's build command.
+    #[arg(long)]
+    pub image: bool,
+    /// Image reference for `--image` (default `forge-<project-id>:<sha12>`).
+    #[arg(long, value_name = "REF")]
+    pub tag: Option<String>,
+    /// Image-builder adapter binary (default $FORGE_IMAGE_BUILDER_BIN or
+    /// `forge-image-builder`).
+    #[arg(long = "builder-bin", value_name = "PATH")]
+    pub builder_bin: Option<String>,
+}
+
+impl BuildArgs {
+    pub(crate) fn run(&self, format: Format) -> Result<Output, ForgeError> {
+        cmd_build(
+            self.path.as_path(),
+            self.os.clone(),
+            self.arch.clone(),
+            self.rid.clone(),
+            self.image,
+            self.tag.clone(),
+            self.builder_bin.clone(),
+            format,
+        )
+    }
+}
+
 pub(crate) fn cmd_build(
     path: &Path,
     os: Option<String>,
     arch: Option<String>,
     rid: Option<String>,
+    image: bool,
+    tag: Option<String>,
+    builder_bin: Option<String>,
     format: Format,
 ) -> Result<Output, ForgeError> {
     let canonical = path
@@ -51,17 +99,39 @@ pub(crate) fn cmd_build(
             path: path.display().to_string(),
         })?;
     let (manifest, _) = forge::core::manifest::Manifest::load_from_dir(&canonical, None)?;
-    let descriptor = forge::profile::inspect_profile(&manifest.project.profile)?;
-    let build_command = descriptor.build_command.clone();
-    let request = request_from_flags(os.as_deref(), arch.as_deref(), rid.as_deref())?;
-    let outcome = run_build(
+    if !image {
+        if tag.is_some() || builder_bin.is_some() {
+            return Err(ForgeError::BuildInvalid {
+                reason: "`--tag` and `--builder-bin` describe an image build; pass `--image`"
+                    .to_string(),
+            });
+        }
+        let descriptor = forge::profile::inspect_profile(&manifest.project.profile)?;
+        let build_command = descriptor.build_command.clone();
+        let request = request_from_flags(os.as_deref(), arch.as_deref(), rid.as_deref())?;
+        let outcome = run_build(
+            &manifest.project.id,
+            &manifest.project.profile,
+            &build_command,
+            &canonical,
+            &request,
+        )?;
+        return build_output(&outcome, format);
+    }
+    if os.is_some() || arch.is_some() || rid.is_some() {
+        return Err(ForgeError::BuildInvalid {
+            reason: "an image build addresses its platform through the builder; `--os`, `--arch` \
+                     and `--rid` are not accepted with `--image`"
+                .to_string(),
+        });
+    }
+    let outcome = run_image_build(
         &manifest.project.id,
-        &manifest.project.profile,
-        &build_command,
         &canonical,
-        &request,
+        tag.as_deref(),
+        builder_bin.as_deref(),
     )?;
-    build_output(&outcome, format)
+    image_output(&outcome, format)
 }
 
 fn test_output(outcome: &TestOutcome, format: Format) -> Result<Output, ForgeError> {
@@ -129,6 +199,45 @@ fn build_output(outcome: &BuildOutcome, format: Format) -> Result<Output, ForgeE
             outcome.evidence.join(" | ")
         }
     );
+    Ok(as_output(format, human, json))
+}
+
+fn image_output(outcome: &ImageBuildOutcome, format: Format) -> Result<Output, ForgeError> {
+    let json = serde_json::json!({
+        "image_build": {
+            "contract": outcome.contract,
+            "project_id": outcome.project_id,
+            "revision": outcome.revision,
+            "tag": outcome.tag,
+            "builder": outcome.builder,
+            "builder_version": outcome.builder_version,
+            "digest": outcome.digest,
+            "sbom": outcome.sbom,
+            "evidence": outcome.evidence,
+            "observed_at": outcome.observed_at,
+        }
+    });
+    let mut human = format!(
+        "project: {}\nrevision: {}\ntag: {}\nbuilder: {}\ndigest: {}\nobserved_at: {}",
+        outcome.project_id,
+        outcome.revision,
+        outcome.tag,
+        outcome.builder,
+        outcome.digest,
+        outcome.observed_at
+    );
+    if let Some(version) = outcome.builder_version.as_deref() {
+        human.push_str(&format!("\nbuilder_version: {version}"));
+    }
+    if let Some(sbom) = outcome.sbom.as_ref() {
+        human.push_str(&format!(
+            "\nsbom: {} ({} bytes, sha256:{})",
+            sbom.path, sbom.bytes, sbom.sha256
+        ));
+    }
+    if !outcome.evidence.is_empty() {
+        human.push_str(&format!("\nevidence: {}", outcome.evidence.join(" | ")));
+    }
     Ok(as_output(format, human, json))
 }
 

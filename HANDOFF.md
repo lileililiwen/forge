@@ -2,6 +2,44 @@
 
 ## Latest delivery
 
+### `handoff-archive-rotation` implemented and archived (2026-10-30)
+
+`HANDOFF.md` had reached 12,525 lines and about 1 MB. Every session reads it
+before doing anything, and every completed change prepends an entry without
+removing one. The second half was a historical change log ("Change 1" through
+"Change 50") that no longer described the current tree, but it was still the
+file every agent loaded first.
+
+The historical span from `## Seven in-flight changes consolidated, then
+archived` to EOF moved byte-for-byte into `HANDOFF-ARCHIVE.md` at the
+repository root, so its relative links resolve exactly as before.
+`HANDOFF.md` keeps the newest deliveries, Purpose and Current state, and links
+to the archive. The `docs/ci-cd-system-model.md` anchor for
+`remaining-consolidation-work` follows the section to the archive.
+
+The governance check now bounds the file at 8,000 lines and requires the
+archive link when the archive exists. Appending 2,000 padding lines made it
+fail at 8,363; the real file is 6,361.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Handoff size | 12,525 -> 6,361 lines | `wc -l` before and after; `HANDOFF-ARCHIVE.md` holds 6,174 lines. |
+| History retained verbatim | PASS | The moved span from `git show HEAD:HANDOFF.md` and the archive from the same heading were byte-identical (534,162 bytes). |
+| Budget rule | PASS | `check-spec-governance` passes at 6,361; 2,000 padding lines failed with `handoff is 8363 lines; the budget is 8000`. |
+| Archive link rule | PASS | The check fails when the archive exists without a link; the pointer section links it. |
+| Anchor repointed | PASS | `docs/ci-cd-system-model.md` links `../HANDOFF-ARCHIVE.md#remaining-consolidation-work`. |
+| Repository test suite | PASS, both test-bearing Gate checks | `declared-verification` and `tests` passed in the full Gate. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 at `2026-10-30T14:38:30Z` on revision `b8b3bb0a`. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. |
+
+Counts moved to 227 archived changes / 172 canonical specs in the same commit,
+and the new count rule verified them. Not delivered: the release publication
+remains user-owned; no tag was created and nothing was pushed.
+
+Implementation/archive commit: `7cd7a64` (`docs: bound the handoff and retain
+its history`). This HANDOFF-only update is the second commit. No active
+OpenSpec change remains.
+
 ### `repository-truth-refresh` implemented and archived (2026-10-30)
 
 Four status documents disagreed with the repository they describe: they stated

@@ -246,7 +246,7 @@ fn render_recovery(recovery: &[forge::auth::RecoveryAction]) -> String {
         .map(|action| format!("\n  {}: {}", action.reason, action.instruction))
         .collect::<Vec<_>>()
         .join("");
-    format!("{lines}")
+    lines.to_string()
 }
 
 /// The directory that holds the pack descriptors.

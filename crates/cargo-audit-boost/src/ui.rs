@@ -1,10 +1,10 @@
 use crate::model::{BuildState, BuildStatus};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 use std::time::{Duration, Instant};
 
@@ -15,9 +15,11 @@ pub fn get_filtered_crates(
     show_only_bottlenecks: bool,
 ) -> Vec<String> {
     let bottlenecks = state.get_slowest_crates(3);
-    let bottleneck_names: std::collections::HashSet<String> = bottlenecks.iter().map(|(n, _)| n.clone()).collect();
-    
-    state.crate_order
+    let bottleneck_names: std::collections::HashSet<String> =
+        bottlenecks.iter().map(|(n, _)| n.clone()).collect();
+
+    state
+        .crate_order
         .iter()
         .filter(|name| {
             if let Some(c) = state.crates.get(*name) {
@@ -27,7 +29,9 @@ pub fn get_filtered_crates(
                 if show_only_bottlenecks && !bottleneck_names.contains(&c.name) {
                     return false;
                 }
-                if !search_query.is_empty() && !c.name.to_lowercase().contains(&search_query.to_lowercase()) {
+                if !search_query.is_empty()
+                    && !c.name.to_lowercase().contains(&search_query.to_lowercase())
+                {
                     return false;
                 }
                 true
@@ -63,6 +67,7 @@ fn strip_ansi_codes(input: &str) -> String {
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_ui(
     f: &mut Frame,
     state: &BuildState,
@@ -121,8 +126,12 @@ pub fn draw_ui(
         Some(false) => "FAILED".to_string(),
     };
     let status_style = match state.success {
-        None => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        Some(true) => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        None => Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+        Some(true) => Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
         Some(false) => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     };
 
@@ -137,7 +146,9 @@ pub fn draw_ui(
             }
             line2_spans.push(Span::styled(
                 format!("{} ({:.1}s)", name, dur.as_secs_f64()),
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
     }
@@ -149,7 +160,9 @@ pub fn draw_ui(
             Span::raw(" | Progress: "),
             Span::styled(
                 format!("{}/{}", completed_crates, total_crates),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" | Compiling: "),
             Span::styled(
@@ -164,7 +177,9 @@ pub fn draw_ui(
             Span::raw(" | Max Concurrency: "),
             Span::styled(
                 format!("{}", state.max_concurrency),
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" | Elapsed: "),
             Span::styled(
@@ -175,18 +190,18 @@ pub fn draw_ui(
         Line::from(line2_spans),
     ];
 
-    let header = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL).title(" Cargo Build Scan - Dashboard "));
+    let header = Paragraph::new(header_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Cargo Build Scan - Dashboard "),
+    );
     f.render_widget(header, chunks[0]);
 
     // Split Main area: Gantt (70%) and Details (30%) if screen width >= 90
     let main_layout = if f.size().width >= 90 {
         Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(70),
-                Constraint::Percentage(30),
-            ])
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(chunks[1])
     } else {
         Layout::default()
@@ -199,7 +214,8 @@ pub fn draw_ui(
     let main_height = gantt_chunk.height.saturating_sub(2) as usize; // subtract borders
     let main_width = gantt_chunk.width.saturating_sub(2) as usize; // subtract borders
 
-    let filtered_crates = get_filtered_crates(state, search_query, show_cached, show_only_bottlenecks);
+    let filtered_crates =
+        get_filtered_crates(state, search_query, show_cached, show_only_bottlenecks);
     let total_filtered = filtered_crates.len();
 
     // Adjust scroll offset
@@ -221,7 +237,11 @@ pub fn draw_ui(
             "No crates match the active filters."
         };
         let empty_msg = Paragraph::new(msg)
-            .block(Block::default().borders(Borders::ALL).title(" Compilation Timeline "))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Compilation Timeline "),
+            )
             .alignment(ratatui::layout::Alignment::Center);
         f.render_widget(empty_msg, gantt_chunk);
     } else {
@@ -238,9 +258,13 @@ pub fn draw_ui(
         let start_idx = *scroll_offset;
         let end_idx = (start_idx + main_height).min(total_filtered);
 
-        for idx in start_idx..end_idx {
+        for (idx, name) in filtered_crates
+            .iter()
+            .enumerate()
+            .take(end_idx)
+            .skip(start_idx)
+        {
             let is_selected = idx == selected_index;
-            let name = &filtered_crates[idx];
             if let Some(crate_info) = state.crates.get(name) {
                 let is_bottleneck = bottlenecks.iter().any(|(b_name, _)| b_name == name);
 
@@ -256,25 +280,44 @@ pub fn draw_ui(
                 let display_name = format!("{}{}", prefix, display_name_base);
 
                 let name_span = if is_selected {
-                    Span::styled(display_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    Span::styled(
+                        display_name,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
                 } else {
                     match crate_info.status {
-                        BuildStatus::Pending => Span::styled(display_name, Style::default().fg(Color::DarkGray)),
+                        BuildStatus::Pending => {
+                            Span::styled(display_name, Style::default().fg(Color::DarkGray))
+                        }
                         BuildStatus::Compiling => {
-                            let color = if is_bottleneck { Color::Magenta } else { Color::Yellow };
-                            Span::styled(display_name, Style::default().fg(color).add_modifier(Modifier::BOLD))
+                            let color = if is_bottleneck {
+                                Color::Magenta
+                            } else {
+                                Color::Yellow
+                            };
+                            Span::styled(
+                                display_name,
+                                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                            )
                         }
                         BuildStatus::Completed => {
                             if crate_info.cached {
                                 Span::styled(display_name, Style::default().fg(Color::DarkGray))
                             } else {
-                                let color = if is_bottleneck { Color::Magenta } else { Color::Green };
+                                let color = if is_bottleneck {
+                                    Color::Magenta
+                                } else {
+                                    Color::Green
+                                };
                                 Span::styled(display_name, Style::default().fg(color))
                             }
                         }
-                        BuildStatus::Failed => {
-                            Span::styled(display_name, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-                        }
+                        BuildStatus::Failed => Span::styled(
+                            display_name,
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        ),
                     }
                 };
 
@@ -364,13 +407,18 @@ pub fn draw_ui(
         }
 
         let title_suffix = if !search_query.is_empty() {
-            format!(" (Filtered {}/{}) ", total_filtered, state.crate_order.len())
+            format!(
+                " (Filtered {}/{}) ",
+                total_filtered,
+                state.crate_order.len()
+            )
         } else {
             String::new()
         };
 
-        let main_panel = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(format!(" Compilation Timeline (Gantt Chart){} ", title_suffix)));
+        let main_panel = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(
+            format!(" Compilation Timeline (Gantt Chart){} ", title_suffix),
+        ));
         f.render_widget(main_panel, gantt_chunk);
     }
 
@@ -384,14 +432,20 @@ pub fn draw_ui(
                 let is_bottleneck = bottlenecks.iter().any(|(b_name, _)| b_name == name);
                 let dur = crate_info.duration(now);
                 let dur_str = format!("{:.2}s", dur.as_secs_f64());
-                let crate_start_offset = crate_info
-                    .start_time
-                    .map_or(Duration::from_secs(0), |t| t.duration_since(state.start_time));
+                let crate_start_offset =
+                    crate_info.start_time.map_or(Duration::from_secs(0), |t| {
+                        t.duration_since(state.start_time)
+                    });
 
                 let mut details_lines = vec![
                     Line::from(vec![
                         Span::styled("Name: ", Style::default().fg(Color::Gray)),
-                        Span::styled(&crate_info.name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            &crate_info.name,
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("Version: ", Style::default().fg(Color::Gray)),
@@ -400,8 +454,15 @@ pub fn draw_ui(
                     Line::from(vec![
                         Span::styled("Status: ", Style::default().fg(Color::Gray)),
                         match crate_info.status {
-                            BuildStatus::Pending => Span::styled("Pending", Style::default().fg(Color::DarkGray)),
-                            BuildStatus::Compiling => Span::styled("Compiling", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                            BuildStatus::Pending => {
+                                Span::styled("Pending", Style::default().fg(Color::DarkGray))
+                            }
+                            BuildStatus::Compiling => Span::styled(
+                                "Compiling",
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
                             BuildStatus::Completed => {
                                 if crate_info.cached {
                                     Span::styled("Cached", Style::default().fg(Color::DarkGray))
@@ -409,7 +470,10 @@ pub fn draw_ui(
                                     Span::styled("Completed", Style::default().fg(Color::Green))
                                 }
                             }
-                            BuildStatus::Failed => Span::styled("Failed", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                            BuildStatus::Failed => Span::styled(
+                                "Failed",
+                                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            ),
                         },
                     ]),
                     Line::from(vec![
@@ -418,22 +482,36 @@ pub fn draw_ui(
                     ]),
                     Line::from(vec![
                         Span::styled("Start Offset: ", Style::default().fg(Color::Gray)),
-                        Span::styled(format!("{:.2}s", crate_start_offset.as_secs_f64()), Style::default().fg(Color::White)),
+                        Span::styled(
+                            format!("{:.2}s", crate_start_offset.as_secs_f64()),
+                            Style::default().fg(Color::White),
+                        ),
                     ]),
                     Line::from(vec![
                         Span::styled("Bottleneck: ", Style::default().fg(Color::Gray)),
                         if is_bottleneck {
-                            Span::styled("YES (Top 3)", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+                            Span::styled(
+                                "YES (Top 3)",
+                                Style::default()
+                                    .fg(Color::Magenta)
+                                    .add_modifier(Modifier::BOLD),
+                            )
                         } else {
                             Span::styled("NO", Style::default().fg(Color::DarkGray))
                         },
                     ]),
                     Line::from(""),
-                    Line::from(Span::styled("--- Diagnostics / Logs ---", Style::default().fg(Color::Gray))),
+                    Line::from(Span::styled(
+                        "--- Diagnostics / Logs ---",
+                        Style::default().fg(Color::Gray),
+                    )),
                 ];
 
                 if crate_info.diagnostics.is_empty() {
-                    details_lines.push(Line::from(Span::styled("No warnings or errors.", Style::default().fg(Color::DarkGray))));
+                    details_lines.push(Line::from(Span::styled(
+                        "No warnings or errors.",
+                        Style::default().fg(Color::DarkGray),
+                    )));
                 } else {
                     let mut diag_lines = Vec::new();
                     for d in &crate_info.diagnostics {
@@ -454,8 +532,11 @@ pub fn draw_ui(
                     let max_scroll = diag_lines.len().saturating_sub(visible_diag_lines);
                     let scroll = diagnostics_scroll.min(max_scroll);
 
-                    for i in scroll..(scroll + visible_diag_lines).min(diag_lines.len()) {
-                        let line_text = &diag_lines[i];
+                    for line_text in diag_lines
+                        .iter()
+                        .take((scroll + visible_diag_lines).min(diag_lines.len()))
+                        .skip(scroll)
+                    {
                         let max_line_len = right_chunk.width.saturating_sub(2) as usize;
                         let display_line = if line_text.len() > max_line_len {
                             format!("{}...", &line_text[..max_line_len.saturating_sub(3)])
@@ -463,9 +544,13 @@ pub fn draw_ui(
                             line_text.to_string()
                         };
 
-                        let line_style = if display_line.starts_with("error:") || display_line.contains("error[") {
+                        let line_style = if display_line.starts_with("error:")
+                            || display_line.contains("error[")
+                        {
                             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-                        } else if display_line.starts_with("warning:") || display_line.contains("warning[") {
+                        } else if display_line.starts_with("warning:")
+                            || display_line.contains("warning[")
+                        {
                             Style::default().fg(Color::Yellow)
                         } else if display_line.trim().starts_with("-->") {
                             Style::default().fg(Color::Cyan)
@@ -483,13 +568,19 @@ pub fn draw_ui(
                     }
                 }
 
-                let sidebar_panel = Paragraph::new(details_lines)
-                    .block(Block::default().borders(Borders::ALL).title(" Crate Details "));
+                let sidebar_panel = Paragraph::new(details_lines).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Crate Details "),
+                );
                 f.render_widget(sidebar_panel, right_chunk);
             }
         } else {
-            let empty_panel = Paragraph::new("No crates to display.")
-                .block(Block::default().borders(Borders::ALL).title(" Crate Details "));
+            let empty_panel = Paragraph::new("No crates to display.").block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Crate Details "),
+            );
             f.render_widget(empty_panel, right_chunk);
         }
     }
@@ -498,21 +589,38 @@ pub fn draw_ui(
     let mut footer_spans = vec![
         Span::styled(" Q ", Style::default().bg(Color::White).fg(Color::Black)),
         Span::raw(" Quit | "),
-        Span::styled(" Up/Down ", Style::default().bg(Color::White).fg(Color::Black)),
+        Span::styled(
+            " Up/Down ",
+            Style::default().bg(Color::White).fg(Color::Black),
+        ),
         Span::raw(" Select | "),
-        Span::styled(" / or S ", Style::default().bg(Color::White).fg(Color::Black)),
+        Span::styled(
+            " / or S ",
+            Style::default().bg(Color::White).fg(Color::Black),
+        ),
         Span::raw(" Search | "),
         Span::styled(" C ", Style::default().bg(Color::White).fg(Color::Black)),
-        Span::raw(format!(" Cached ({}) | ", if show_cached { "ON" } else { "OFF" })),
+        Span::raw(format!(
+            " Cached ({}) | ",
+            if show_cached { "ON" } else { "OFF" }
+        )),
         Span::styled(" B ", Style::default().bg(Color::White).fg(Color::Black)),
-        Span::raw(format!(" Bottlenecks ({})", if show_only_bottlenecks { "ON" } else { "OFF" })),
+        Span::raw(format!(
+            " Bottlenecks ({})",
+            if show_only_bottlenecks { "ON" } else { "OFF" }
+        )),
     ];
 
     if search_mode {
         footer_spans = vec![
             Span::styled(" ESC ", Style::default().bg(Color::White).fg(Color::Black)),
             Span::raw(" Exit Search | "),
-            Span::styled(" SEARCH: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " SEARCH: ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(search_query),
             Span::styled("█", Style::default().fg(Color::Green)),
         ];

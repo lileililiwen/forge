@@ -25,21 +25,11 @@ fn adapter_path() -> PathBuf {
 }
 
 /// What the recording programs answer.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Answers {
     ssh_exit: i32,
     scp_exit: i32,
     ssh_stdout: String,
-}
-
-impl Default for Answers {
-    fn default() -> Self {
-        Answers {
-            ssh_exit: 0,
-            scp_exit: 0,
-            ssh_stdout: String::new(),
-        }
-    }
 }
 
 /// The result of one adapter invocation.
@@ -231,7 +221,10 @@ fn the_apply_transfers_the_artifact_in_three_commands() {
 fn the_adapter_refuses_a_kind_it_does_not_serve() {
     let recorder = Recorder::new();
     let mut args = apply_args();
-    let kind = args.iter().position(|word| *word == "--kind").expect("the kind flag");
+    let kind = args
+        .iter()
+        .position(|word| *word == "--kind")
+        .expect("the kind flag");
     args[kind + 1] = "docker-compose";
     let outcome = recorder.run(
         &args,

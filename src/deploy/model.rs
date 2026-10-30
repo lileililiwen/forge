@@ -242,10 +242,10 @@ fn stated_target_fields<'a>(
 /// sits next to the kind check, so a target is validated against
 /// its kind in one place, and the requirement itself lives in the
 /// registry rather than here.
-fn refuse_missing_target_fields<'a>(
+fn refuse_missing_target_fields(
     name: &str,
     kind: &str,
-    stated: Vec<(&'static str, Option<&'a str>)>,
+    stated: Vec<(&'static str, Option<&str>)>,
 ) -> Result<(), ForgeError> {
     let missing: Vec<&'static str> = required_target_fields(kind)
         .iter()

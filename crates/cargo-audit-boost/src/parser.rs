@@ -20,7 +20,7 @@ pub fn parse_package_id(package_id: &str) -> (String, String) {
             let version = after_hash.to_string();
             let name = before_hash
                 .split('/')
-                .last()
+                .next_back()
                 .unwrap_or(before_hash)
                 .to_string();
             (name, version)
@@ -38,7 +38,10 @@ pub async fn run_cargo(
     // We want to force cargo to output JSON messages on stdout.
     // Also, we append `--message-format=json` to the user's arguments if not present.
     let mut cmd_args = cargo_args.to_vec();
-    if !cmd_args.iter().any(|arg| arg.starts_with("--message-format")) {
+    if !cmd_args
+        .iter()
+        .any(|arg| arg.starts_with("--message-format"))
+    {
         cmd_args.push("--message-format=json".to_string());
     }
 
@@ -65,31 +68,36 @@ pub async fn run_cargo(
                         "compiler-artifact" => {
                             if let Some(pkg_id) = val.get("package_id").and_then(|p| p.as_str()) {
                                 let (name, version) = parse_package_id(pkg_id);
-                                let cached = val.get("fresh").and_then(|f| f.as_bool()).unwrap_or(false);
+                                let cached =
+                                    val.get("fresh").and_then(|f| f.as_bool()).unwrap_or(false);
                                 state.mark_completed(&name, &version, now, cached);
                             }
                         }
                         "compiler-message" => {
-                            if let Some(pkg_id) = val.get("package_id").and_then(|p| p.as_str()) {
-                                if let Some(msg) = val.get("message") {
-                                    let (name, version) = parse_package_id(pkg_id);
-                                    let level = msg.get("level").and_then(|l| l.as_str()).unwrap_or("");
-                                    if level == "error" {
-                                        state.mark_failed(&name, &version, now);
-                                    }
+                            if let Some(pkg_id) = val.get("package_id").and_then(|p| p.as_str())
+                                && let Some(msg) = val.get("message")
+                            {
+                                let (name, version) = parse_package_id(pkg_id);
+                                let level = msg.get("level").and_then(|l| l.as_str()).unwrap_or("");
+                                if level == "error" {
+                                    state.mark_failed(&name, &version, now);
+                                }
 
-                                    // Extract diagnostic message
-                                    let diagnostic = if let Some(rendered) = msg.get("rendered").and_then(|r| r.as_str()) {
-                                        rendered.to_string()
-                                    } else if let Some(message_text) = msg.get("message").and_then(|m| m.as_str()) {
-                                        message_text.to_string()
-                                    } else {
-                                        String::new()
-                                    };
+                                // Extract diagnostic message
+                                let diagnostic = if let Some(rendered) =
+                                    msg.get("rendered").and_then(|r| r.as_str())
+                                {
+                                    rendered.to_string()
+                                } else if let Some(message_text) =
+                                    msg.get("message").and_then(|m| m.as_str())
+                                {
+                                    message_text.to_string()
+                                } else {
+                                    String::new()
+                                };
 
-                                    if !diagnostic.is_empty() {
-                                        state.add_diagnostic(&name, &version, diagnostic);
-                                    }
+                                if !diagnostic.is_empty() {
+                                    state.add_diagnostic(&name, &version, diagnostic);
                                 }
                             }
                         }
@@ -173,7 +181,11 @@ mod tests {
     fn test_diagnostics_collection() {
         let mut state = BuildState::new();
         state.add_diagnostic("serde", "1.0.228", "warning: unused import".to_string());
-        state.add_diagnostic("serde", "1.0.228", "warning: field is never read".to_string());
+        state.add_diagnostic(
+            "serde",
+            "1.0.228",
+            "warning: field is never read".to_string(),
+        );
 
         let info = state.crates.get("serde").unwrap();
         assert_eq!(info.diagnostics.len(), 2);

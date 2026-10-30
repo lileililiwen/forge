@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 pub async fn run_demo_simulation(state: Arc<Mutex<BuildState>>) -> Result<()> {
     // Phase 1: Start low-level foundational crates

@@ -1,7 +1,7 @@
-mod model;
 mod analyzer;
-mod exporter;
 mod demo;
+mod exporter;
+mod model;
 
 use clap::Parser;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,11 @@ enum CargoCli {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "🛡️ Zero-config code quality & technical debt dashboard for Rust")]
+#[command(
+    author,
+    version,
+    about = "🛡️ Zero-config code quality & technical debt dashboard for Rust"
+)]
 struct SonarArgs {
     /// Run in simulation mode with a mock project dataset to test the visual dashboard
     #[arg(long)]
@@ -63,7 +67,7 @@ async fn main() {
             std::process::exit(1);
         }
         println!("✨ Simulation complete in {:.2?}!", start_time.elapsed());
-        
+
         if !args.no_open {
             open_report_in_browser(&output_path);
         }
@@ -74,7 +78,10 @@ async fn main() {
     let cargo_toml = project_path.join("Cargo.toml");
 
     if !cargo_toml.exists() {
-        eprintln!("❌ Error: No Cargo.toml found in {}.", project_path.display());
+        eprintln!(
+            "❌ Error: No Cargo.toml found in {}.",
+            project_path.display()
+        );
         eprintln!("Please run cargo-sonar in the root of a Rust project or use --project-dir.");
         std::process::exit(1);
     }
@@ -88,12 +95,8 @@ async fn main() {
     let geiger_fut = analyzer::run_geiger(&project_path);
     let tarpaulin_fut = analyzer::run_tarpaulin(&project_path);
 
-    let (clippy_res, deny_res, geiger_res, tarpaulin_res) = tokio::join!(
-        clippy_fut,
-        deny_fut,
-        geiger_fut,
-        tarpaulin_fut
-    );
+    let (clippy_res, deny_res, geiger_res, tarpaulin_res) =
+        tokio::join!(clippy_fut, deny_fut, geiger_fut, tarpaulin_fut);
 
     let clippy_issues = clippy_res.unwrap_or_else(|e| {
         eprintln!("⚠️ Clippy failed: {}", e);
@@ -133,8 +136,14 @@ async fn main() {
         std::process::exit(1);
     }
 
-    println!("🎉 Sonar check completed successfully in {:.2?}!", start_time.elapsed());
-    println!("📊 Overall Grade: {} (Score: {:.1}/100.0)", report.summary.health_grade, report.summary.overall_score);
+    println!(
+        "🎉 Sonar check completed successfully in {:.2?}!",
+        start_time.elapsed()
+    );
+    println!(
+        "📊 Overall Grade: {} (Score: {:.1}/100.0)",
+        report.summary.health_grade, report.summary.overall_score
+    );
 
     if !args.no_open {
         open_report_in_browser(&output_path);
@@ -144,22 +153,23 @@ async fn main() {
 /// Helper to parse the package name from Cargo.toml
 fn get_project_name(path: &Path) -> String {
     let cargo_toml_path = path.join("Cargo.toml");
-    if cargo_toml_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&cargo_toml_path) {
-            let mut in_package = false;
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed == "[package]" {
-                    in_package = true;
-                } else if trimmed.starts_with('[') {
-                    in_package = false;
-                }
-                if in_package && trimmed.starts_with("name") {
-                    if let Some(eq_idx) = trimmed.find('=') {
-                        let name_val = trimmed[eq_idx + 1..].trim();
-                        return name_val.trim_matches('"').trim_matches('\'').to_string();
-                    }
-                }
+    if cargo_toml_path.exists()
+        && let Ok(content) = std::fs::read_to_string(&cargo_toml_path)
+    {
+        let mut in_package = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "[package]" {
+                in_package = true;
+            } else if trimmed.starts_with('[') {
+                in_package = false;
+            }
+            if in_package
+                && trimmed.starts_with("name")
+                && let Some(eq_idx) = trimmed.find('=')
+            {
+                let name_val = trimmed[eq_idx + 1..].trim();
+                return name_val.trim_matches('"').trim_matches('\'').to_string();
             }
         }
     }
@@ -192,7 +202,10 @@ fn open_report_in_browser(output_path: &Path) {
         println!("🌐 Opening dashboard in browser...");
         if let Err(e) = webbrowser::open(report_html.to_str().unwrap_or("")) {
             eprintln!("⚠️ Failed to launch browser: {}", e);
-            println!("Please view the report manually at: file://{}", report_html.canonicalize().unwrap_or(report_html).display());
+            println!(
+                "Please view the report manually at: file://{}",
+                report_html.canonicalize().unwrap_or(report_html).display()
+            );
         }
     }
 }

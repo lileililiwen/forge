@@ -138,7 +138,9 @@ jobs:
           node scripts/check-spec-governance.mjs
       - name: Strict OpenSpec validation
         run: |
-          command -v openspec >/dev/null 2>&1 || { echo "governance blocked: openspec CLI is unavailable" >&2; exit 1; }
+          command -v openspec >/dev/null 2>&1 || {
+            npm install --global @fission-ai/openspec@1.6.0
+          }
           openspec validate --all --strict --no-interactive
       - name: Whitespace check
         run: git diff --check
@@ -187,7 +189,9 @@ jobs:
       - name: Read-only surfaces (doctor, checker, fleet, providers)
         run: |
           ./target/debug/forge doctor .
-          ./target/debug/forge check . --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
+          ./target/debug/forge new "$RUNNER_TEMP/forge-surfaces" --profile rust-web
+          ./target/debug/forge register "$RUNNER_TEMP/forge-surfaces"
+          ./target/debug/forge check forge-surfaces --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
           ./target/debug/forge fleet list
           ./target/debug/forge provider matrix
 
@@ -202,9 +206,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build Forge
         run: cargo build
+      - name: Install the declared security checker
+        run: cargo install cargo-audit --locked --version 0.22.2
       - name: Real Forge gate verdict
         run: |
-          ./target/debug/forge gate .
+          ./target/debug/forge gate . --timeout-secs 2400
           ./target/debug/forge gate status .
 
   artifact:

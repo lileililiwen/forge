@@ -164,11 +164,17 @@ pub(crate) fn cmd_use(
     let id = match product {
         Some(p) => p.trim(),
         None => {
-            return emit_error(format, "`forge use` requires a product id; try `forge help`.");
+            return emit_error(
+                format,
+                "`forge use` requires a product id; try `forge help`.",
+            );
         }
     };
     if id.is_empty() {
-        return emit_error(format, "`forge use` requires a product id; try `forge help`.");
+        return emit_error(
+            format,
+            "`forge use` requires a product id; try `forge help`.",
+        );
     }
 
     // Known catalog product: route by kind.

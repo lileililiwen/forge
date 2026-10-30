@@ -228,14 +228,25 @@ fn format_json_does_not_alter_checker_stdout() {
         &["--format", "json", "check", &proj.display().to_string()],
     );
     assert!(human.status.success() && json.status.success());
-    let (mut a, mut b) = (human.stdout.clone(), json.stdout.clone());
-    a.pop(); // trailing newline from println
-    b.pop();
     assert_eq!(
-        String::from_utf8_lossy(&a).replace("\"generated_at\":\"", ""),
-        String::from_utf8_lossy(&b).replace("\"generated_at\":\"", ""),
+        normalize_generated_at(&String::from_utf8_lossy(&human.stdout)),
+        normalize_generated_at(&String::from_utf8_lossy(&json.stdout)),
         "--format json must not alter the emitted document"
     );
+}
+
+/// Replace the `generated_at` value so two runs that straddle a second still
+/// compare the rest of the document byte for byte.
+fn normalize_generated_at(text: &str) -> String {
+    const MARKER: &str = "\"generated_at\":\"";
+    let mut out = text.to_string();
+    if let Some(start) = out.find(MARKER) {
+        let value_start = start + MARKER.len();
+        if let Some(length) = out[value_start..].find('"') {
+            out.replace_range(value_start..value_start + length, "normalized");
+        }
+    }
+    out
 }
 
 #[test]

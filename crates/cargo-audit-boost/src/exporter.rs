@@ -44,7 +44,7 @@ pub fn export_build_scan(state: &BuildState) -> Result<()> {
     let total_secs = total_duration.as_secs_f64().max(0.001);
     let raw_bottlenecks = state.get_slowest_crates(3);
     let bottleneck_names: Vec<String> = raw_bottlenecks.iter().map(|(n, _)| n.clone()).collect();
-    
+
     let mut export_crates = Vec::new();
     for name in &state.crate_order {
         if let Some(c) = state.crates.get(name) {
@@ -54,7 +54,7 @@ pub fn export_build_scan(state: &BuildState) -> Result<()> {
                 .as_secs_f64();
             let duration = c.duration(now).as_secs_f64();
             let is_b = bottleneck_names.contains(&c.name);
-            
+
             let status_str = match c.status {
                 BuildStatus::Pending => "Pending",
                 BuildStatus::Compiling => "Compiling",
@@ -91,21 +91,18 @@ pub fn export_build_scan(state: &BuildState) -> Result<()> {
 
     // Ensure target/build-scan directory exists
     let scan_dir = Path::new("target").join("build-scan");
-    fs::create_dir_all(&scan_dir)
-        .context("Failed to create target/build-scan directory")?;
+    fs::create_dir_all(&scan_dir).context("Failed to create target/build-scan directory")?;
 
     // Export JSON
-    let json_content = serde_json::to_string_pretty(&report)
-        .context("Failed to serialize report to JSON")?;
+    let json_content =
+        serde_json::to_string_pretty(&report).context("Failed to serialize report to JSON")?;
     let json_path = scan_dir.join("report.json");
-    fs::write(&json_path, json_content)
-        .context("Failed to write report.json")?;
+    fs::write(&json_path, json_content).context("Failed to write report.json")?;
 
     // Export HTML
     let html_content = generate_html(&report);
     let html_path = scan_dir.join("report.html");
-    fs::write(&html_path, html_content)
-        .context("Failed to write report.html")?;
+    fs::write(&html_path, html_content).context("Failed to write report.html")?;
 
     println!("\n\x1b[32m✔\x1b[0m Build Scan Report exported successfully:");
     println!("  JSON: \x1b[36m{}\x1b[0m", json_path.to_string_lossy());
@@ -127,10 +124,12 @@ fn generate_html(report: &ExportReport) -> String {
         let t = i as f64 * step_secs;
         let mut count = 0;
         for c in &report.crates {
-            if c.status == "Compiling" || c.status == "Completed" || c.status == "Failed" {
-                if !c.cached && t >= c.start_offset_secs && t <= (c.start_offset_secs + c.duration_secs) {
-                    count += 1;
-                }
+            if (c.status == "Compiling" || c.status == "Completed" || c.status == "Failed")
+                && !c.cached
+                && t >= c.start_offset_secs
+                && t <= (c.start_offset_secs + c.duration_secs)
+            {
+                count += 1;
             }
         }
         if count > max_observed_concurrency {
@@ -163,7 +162,11 @@ fn generate_html(report: &ExportReport) -> String {
         }
         area_points.push_str(&format!("L {:.1} {:.1} ", x, y));
     }
-    area_points.push_str(&format!("L {:.1} {:.1} Z", margin_left + chart_width, margin_top + chart_height));
+    area_points.push_str(&format!(
+        "L {:.1} {:.1} Z",
+        margin_left + chart_width,
+        margin_top + chart_height
+    ));
 
     // SVG grid lines and Y axis labels
     let mut grid_html = String::new();
@@ -296,7 +299,8 @@ fn generate_html(report: &ExportReport) -> String {
 
     let mut bottlenecks_html = String::new();
     if report.bottlenecks.is_empty() {
-        bottlenecks_html.push_str("<div class='no-bottlenecks'>No compilation metrics recorded.</div>");
+        bottlenecks_html
+            .push_str("<div class='no-bottlenecks'>No compilation metrics recorded.</div>");
     } else {
         for (name, dur) in &report.bottlenecks {
             bottlenecks_html.push_str(&format!(
@@ -1074,4 +1078,3 @@ fn strip_ansi_codes(input: &str) -> String {
     }
     result
 }
-

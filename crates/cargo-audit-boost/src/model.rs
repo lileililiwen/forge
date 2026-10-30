@@ -128,7 +128,7 @@ impl BuildState {
             .map(|c| (c.name.clone(), c.duration(now)))
             .collect();
 
-        list.sort_by(|a, b| b.1.cmp(&a.1));
+        list.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         list.truncate(top_n);
         list
     }

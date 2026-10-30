@@ -238,7 +238,7 @@ impl AuthSetupRunner {
         let operation_id = format!(
             "{}-{}",
             operation.as_str(),
-            &digest_seed(&request.project_id)
+            digest_seed(&request.project_id)
         );
         let provider_request = ProviderRequest {
             contract: CONTRACT_ID.to_string(),

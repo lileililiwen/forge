@@ -37,10 +37,9 @@ pub fn github_slug(remote: &str) -> Option<String> {
         value = stripped;
     } else if let Some(stripped) = value.strip_prefix("ssh://git@github.com/") {
         value = stripped;
-    } else if let Some(stripped) = value.strip_prefix("https://github.com/") {
-        value = stripped;
     } else {
-        return None;
+        let stripped = value.strip_prefix("https://github.com/")?;
+        value = stripped;
     }
     let slug = value
         .strip_suffix(".git")

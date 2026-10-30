@@ -26,7 +26,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     // Default to "check" if no arguments are provided
     let cargo_args = if args.cargo_args.is_empty() {
         vec!["check".to_string()]
@@ -77,7 +77,13 @@ async fn main() -> Result<()> {
         // Clamp selected_index
         {
             let state_guard = state.lock().await;
-            let filtered_len = ui::get_filtered_crates(&state_guard, &search_query, show_cached, show_only_bottlenecks).len();
+            let filtered_len = ui::get_filtered_crates(
+                &state_guard,
+                &search_query,
+                show_cached,
+                show_only_bottlenecks,
+            )
+            .len();
             if filtered_len > 0 {
                 selected_index = selected_index.min(filtered_len - 1);
             } else {
@@ -108,61 +114,69 @@ async fn main() -> Result<()> {
             .checked_sub(last_tick.elapsed())
             .unwrap_or(Duration::from_secs(0));
 
-        if crossterm::event::poll(timeout)? {
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                // Respond to key presses (Press or Repeat)
-                if key.kind == crossterm::event::KeyEventKind::Press || key.kind == crossterm::event::KeyEventKind::Repeat {
-                    if search_mode {
-                        match key.code {
-                            crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Enter => {
-                                search_mode = false;
-                            }
-                            crossterm::event::KeyCode::Backspace => {
-                                search_query.pop();
-                                selected_index = 0;
-                                diagnostics_scroll = 0;
-                            }
-                            crossterm::event::KeyCode::Char(c) => {
-                                search_query.push(c);
-                                selected_index = 0;
-                                diagnostics_scroll = 0;
-                            }
-                            _ => {}
+        if crossterm::event::poll(timeout)?
+            && let crossterm::event::Event::Key(key) = crossterm::event::read()?
+        {
+            // Respond to key presses (Press or Repeat)
+            if key.kind == crossterm::event::KeyEventKind::Press
+                || key.kind == crossterm::event::KeyEventKind::Repeat
+            {
+                if search_mode {
+                    match key.code {
+                        crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Enter => {
+                            search_mode = false;
                         }
-                    } else {
-                        match key.code {
-                            crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Char('Q') | crossterm::event::KeyCode::Esc => {
-                                should_quit = true;
-                            }
-                            crossterm::event::KeyCode::Up => {
-                                selected_index = selected_index.saturating_sub(1);
-                                diagnostics_scroll = 0;
-                            }
-                            crossterm::event::KeyCode::Down => {
-                                selected_index = selected_index.saturating_add(1);
-                                diagnostics_scroll = 0;
-                            }
-                            crossterm::event::KeyCode::Char('/') | crossterm::event::KeyCode::Char('s') | crossterm::event::KeyCode::Char('S') => {
-                                search_mode = true;
-                            }
-                            crossterm::event::KeyCode::Char('c') | crossterm::event::KeyCode::Char('C') => {
-                                show_cached = !show_cached;
-                                selected_index = 0;
-                                diagnostics_scroll = 0;
-                            }
-                            crossterm::event::KeyCode::Char('b') | crossterm::event::KeyCode::Char('B') => {
-                                show_only_bottlenecks = !show_only_bottlenecks;
-                                selected_index = 0;
-                                diagnostics_scroll = 0;
-                            }
-                            crossterm::event::KeyCode::PageUp => {
-                                diagnostics_scroll = diagnostics_scroll.saturating_sub(1);
-                            }
-                            crossterm::event::KeyCode::PageDown => {
-                                diagnostics_scroll = diagnostics_scroll.saturating_add(1);
-                            }
-                            _ => {}
+                        crossterm::event::KeyCode::Backspace => {
+                            search_query.pop();
+                            selected_index = 0;
+                            diagnostics_scroll = 0;
                         }
+                        crossterm::event::KeyCode::Char(c) => {
+                            search_query.push(c);
+                            selected_index = 0;
+                            diagnostics_scroll = 0;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match key.code {
+                        crossterm::event::KeyCode::Char('q')
+                        | crossterm::event::KeyCode::Char('Q')
+                        | crossterm::event::KeyCode::Esc => {
+                            should_quit = true;
+                        }
+                        crossterm::event::KeyCode::Up => {
+                            selected_index = selected_index.saturating_sub(1);
+                            diagnostics_scroll = 0;
+                        }
+                        crossterm::event::KeyCode::Down => {
+                            selected_index = selected_index.saturating_add(1);
+                            diagnostics_scroll = 0;
+                        }
+                        crossterm::event::KeyCode::Char('/')
+                        | crossterm::event::KeyCode::Char('s')
+                        | crossterm::event::KeyCode::Char('S') => {
+                            search_mode = true;
+                        }
+                        crossterm::event::KeyCode::Char('c')
+                        | crossterm::event::KeyCode::Char('C') => {
+                            show_cached = !show_cached;
+                            selected_index = 0;
+                            diagnostics_scroll = 0;
+                        }
+                        crossterm::event::KeyCode::Char('b')
+                        | crossterm::event::KeyCode::Char('B') => {
+                            show_only_bottlenecks = !show_only_bottlenecks;
+                            selected_index = 0;
+                            diagnostics_scroll = 0;
+                        }
+                        crossterm::event::KeyCode::PageUp => {
+                            diagnostics_scroll = diagnostics_scroll.saturating_sub(1);
+                        }
+                        crossterm::event::KeyCode::PageDown => {
+                            diagnostics_scroll = diagnostics_scroll.saturating_add(1);
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -174,7 +188,7 @@ async fn main() -> Result<()> {
 
         // Auto-quit if cargo is finished and we are not in a TTY (e.g. CI/CD or script runner)
         use std::io::IsTerminal;
-        if cargo_handle.is_finished() && io::stdout().is_terminal() == false {
+        if cargo_handle.is_finished() && !io::stdout().is_terminal() {
             should_quit = true;
         }
     }
@@ -191,11 +205,11 @@ async fn main() -> Result<()> {
     // Print final result to stdout
     let final_state = state.lock().await;
     let build_duration = Instant::now().duration_since(final_state.start_time);
-    
+
     println!("\n=== Cargo Build Scan Summary ===");
     println!("Total Elapsed Time: {:.2}s", build_duration.as_secs_f32());
     println!("Total Crates Audited: {}", final_state.crates.len());
-    
+
     if let Some(success) = final_state.success {
         if success {
             println!("Compilation Status: \x1b[32mSuccess\x1b[0m");

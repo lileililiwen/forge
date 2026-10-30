@@ -668,7 +668,7 @@ impl Registry {
                 manifest.schema,
                 PLATFORM_VERSION,
                 serde_json::to_string(&manifest.features).unwrap_or_else(|_| "{}".to_string()),
-                deployment_target(&manifest),
+                deployment_target(manifest),
                 runtime,
                 last_commit,
                 manifest.kit.as_ref().map(|k| k.id.clone()),

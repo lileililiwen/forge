@@ -610,7 +610,7 @@ pub fn validate_envelope(doc: &serde_json::Value) -> Result<(), String> {
     }
     let family = contract.split('/').next().unwrap_or("");
     let version = contract.split('/').nth(1).unwrap_or("");
-    let support = family_support(&family)?.ok_or_else(|| format!("unknown family '{family}'"))?;
+    let support = family_support(family)?.ok_or_else(|| format!("unknown family '{family}'"))?;
     if support.status != "supported" {
         return Err(format!(
             "unsupported family '{family}': {}",

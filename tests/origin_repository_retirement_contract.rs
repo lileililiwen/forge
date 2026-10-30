@@ -25,9 +25,8 @@ fn active_source_metadata_points_at_forge_owned_paths() {
     ] {
         let manifest = read(path);
         assert!(
-            manifest.contains(&format!(
-                "repository = \"https://github.com/lileililiwen/forge\""
-            )),
+            manifest
+                .contains(&"repository = \"https://github.com/lileililiwen/forge\"".to_string()),
             "{path} must identify the Forge source repository"
         );
         assert!(

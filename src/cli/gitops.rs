@@ -88,6 +88,7 @@ impl BuildArgs {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cmd_build(
     path: &Path,
     os: Option<String>,

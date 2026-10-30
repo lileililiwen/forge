@@ -455,12 +455,10 @@ fn project_api_preflight_refuses_without_gate_evidence() {
     stop_api(&mut child);
     assert_eq!(status, 409);
     assert_eq!(json["error"]["code"], "delivery-conflict");
-    assert!(
-        json["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("forge gate")
-    );
+    assert!(json["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("forge gate"));
     let report = run_json(&db, &["delivery", "status", "delivery-cross-gate-required"]);
     assert!(report["preflight"]["op_id"].is_null());
 }

@@ -35,8 +35,8 @@ fn repo_root() -> PathBuf {
 /// Every canonical capability specification, sorted by capability name.
 fn capability_specs() -> Vec<PathBuf> {
     let root = repo_root().join("openspec").join("specs");
-    let entries = fs::read_dir(&root)
-        .unwrap_or_else(|err| panic!("cannot read {}: {err}", root.display()));
+    let entries =
+        fs::read_dir(&root).unwrap_or_else(|err| panic!("cannot read {}: {err}", root.display()));
     let mut specs: Vec<PathBuf> = entries
         .map(|entry| entry.expect("read a specs directory entry").path())
         .filter(|path| path.is_dir())
@@ -64,9 +64,7 @@ fn purpose_body(spec: &Path) -> Option<String> {
     // The purpose runs until the next section heading. A capability that
     // states no requirements after its purpose would still carry a body,
     // so the split is on the heading rather than on the requirements.
-    let end = after_purpose
-        .find("\n## ")
-        .unwrap_or(after_purpose.len());
+    let end = after_purpose.find("\n## ").unwrap_or(after_purpose.len());
     Some(after_purpose[..end].trim().to_string())
 }
 

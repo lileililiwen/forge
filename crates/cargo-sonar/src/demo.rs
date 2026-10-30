@@ -1,6 +1,6 @@
 use crate::model::{
-    ClippyIssue, CodeLocation, CoverageMetric, IssueLevel, SecurityIssue,
-    SecurityIssueCategory, SonarReport, UnsafeMetric,
+    ClippyIssue, CodeLocation, CoverageMetric, IssueLevel, SecurityIssue, SecurityIssueCategory,
+    SonarReport, UnsafeMetric,
 };
 
 pub fn generate_demo_report() -> SonarReport {
@@ -19,7 +19,8 @@ pub fn generate_demo_report() -> SonarReport {
         ClippyIssue {
             level: IssueLevel::Warning,
             lint_name: "clippy::needless_borrow".to_string(),
-            message: "this expression borrows a reference (&str) that is already a reference".to_string(),
+            message: "this expression borrows a reference (&str) that is already a reference"
+                .to_string(),
             location: CodeLocation {
                 file: "src/db/pool.rs".to_string(),
                 line: 118,
@@ -41,7 +42,8 @@ pub fn generate_demo_report() -> SonarReport {
         ClippyIssue {
             level: IssueLevel::Note,
             lint_name: "clippy::todo".to_string(),
-            message: "todo loop: implement token rotation strategy before production deployment".to_string(),
+            message: "todo loop: implement token rotation strategy before production deployment"
+                .to_string(),
             location: CodeLocation {
                 file: "src/auth.rs".to_string(),
                 line: 154,

@@ -2,6 +2,62 @@
 
 ## Latest delivery
 
+### `image-provenance-verify` implemented and archived (2026-10-30)
+
+`forge build --image` wrote a provenance record and nothing read it. A record
+left from an earlier revision, a record copied from another project, and an
+SBOM edited after the build all looked exactly like a fresh one, so the record
+was write-only evidence: no Gate run, release or operator could ask whether the
+image this revision produced is still the image the record claims.
+
+`forge build --verify-image` is the reader. It resolves the revision at `HEAD`,
+reads `.forge/build/<project-id>/<sha12>.json`, and proves the record's
+contract (`forge-build-image`, major `0`), project, revision and `sha256`
+digest. It then re-applies the build's SBOM path rule, reads the file and
+compares its SHA-256 and byte length with the recorded values. It starts no
+builder, writes no file and touches no registry.
+
+A moved `HEAD` is an identity failure rather than a cross-revision hash
+comparison: the record is looked up by the current revision, so the refusal
+names the missing path and the revision and tells the operator to build at
+this revision. An SBOM whose bytes changed is `build-failed` and names both
+hashes; a deleted or escaping SBOM is `build-invalid`.
+
+Because a Gate check is a process, the record is now bindable. A project
+declares a bound `image-provenance` check and writes a one-line script that
+runs `forge build . --verify-image`; the Gate's verdict is the verb's exit
+status and bounded output, bound to the same revision the Gate always checks.
+Forge adds nothing to the baseline, so a project that does not build images is
+never asked for one.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 4348 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 4348 passed, 0 failed, 1 ignored, 3 filtered out across 246 suites in 378.58s. |
+| Focused suites | PASS, 41 tests / 0 failed | `cargo test -p forge --lib image::` → 11 passed; `cargo test --test build_image_contract` → 17 (seven new verification cases); `--test cli_contract` → 5; `build::` → 8. |
+| Repository Gate | FAIL, 7/8 — the same pre-existing advisory | `forge gate --dry-run` resolved all 8 required checks with none unbound. The full `forge gate --timeout-secs 1800` run reported aggregate `blocked`: only `security` failed on RUSTSEC-2026-0387, and `tests`, `source-file-size` and the other six passed. `.forge/gate/forge/evidence.json` records `"aggregate": "blocked"` at `2026-10-30T12:01:19Z` on revision `60c9341`; the advisory's remediation path is the one recorded in the previous three entries, and this change touches neither `Cargo.toml` nor `Cargo.lock`. |
+| Real build-then-verify | PASS | For the record built in the previous change's fixture, `forge build … --verify-image` printed `verified: yes`, the revision, tag, builder, digest and SBOM hash. |
+| Real stale and drifted verify | PASS | After a commit moved `HEAD` to `01d9530d…`, verify exited 1 with `error[build-invalid]: … no readable image build record at `.forge/build/image-manual/01d9530d433a.json` for revision `01d9530d433a5a6b1350c953dd4cebad2ee52ace` … run `forge build --image` at this revision`. After rebuilding and editing the SBOM, it exited 1 with `error[build-failed]: … the SBOM `sbom.json` no longer matches the recorded build: recorded sha256:4e9bb7b6… (48 bytes), observed sha256:58bc4076… (42 bytes); rebuild with `forge build --image``. |
+| Verification is read-only | PASS | `verification_writes_nothing` compares the record bytes and the project's whole file list before and after the verb; both are unchanged. |
+| OpenSpec and whitespace | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 172 passed, 0 failed (172 items)`; `cargo test --test spec_purpose_contract` reported 2 passed after the promoted spec's Purpose was written; `git diff --check` reported no findings. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-30-image-provenance-verify/`. |
+
+One behaviour change a reviewer must know about: `--verify-image` is a new
+exclusive flag. It refuses `--image`, `--tag`, `--builder-bin`, `--os`,
+`--arch` and `--rid` before reading anything, and the JSON document carries the
+record under `image_build` plus `verification: {verified, revision, digest}`.
+`forge build` without the flag, `--image` and the profile build are unchanged.
+
+Not delivered, and stated plainly: no Gate check id, no baseline or pack
+change, and no Gate engine change. The opt-in is a project's declaration and a
+one-line script, documented in
+`docs/adapter-contracts/image-builder.md`. Verification does not query a
+registry, re-pull the image, or verify a signature: the record and the local
+SBOM are the evidence. A drifted record is refused, never repaired.
+
+Implementation/archive commit: `59cf8fd` (`feat: verify an image build record
+against the revision`). This HANDOFF-only update is the second commit. Nothing
+was pushed. No active OpenSpec change remains, so this file has no
+`current_spec` pointer.
+
 ### `forge-build-image` implemented and archived (2026-10-30)
 
 `forge build` ran the profile's build command and reported a target, but it

@@ -121,6 +121,11 @@ cp "$FORGE_TEST_ASSETS/$name" "$output"
                 .env("FORGE_TEST_ASSETS", &self.assets);
             if include_actions_path {
                 cmd.env("GITHUB_PATH", &self.github_path);
+            } else {
+                // GitHub Actions exports GITHUB_PATH to every step; clear it or
+                // the "missing actions environment" case inherits the runner's
+                // real path file and succeeds.
+                cmd.env_remove("GITHUB_PATH");
             }
             cmd.output().unwrap()
         }

@@ -2,6 +2,52 @@
 
 ## Latest delivery
 
+### `publish-green-recovery` implemented and archived (2026-10-30)
+
+The first real CI run against the pushed tree (`41074528336`) exposed failures
+that local checks could not see, because each depended on a prerequisite the
+developer host happened to have.
+
+- `driftwatchdog`'s `gha_templates` packaging test compiled a regex with a
+  backreference to its own open group. Python 3.12 rejected it; the branch only
+  runs when `shellcheck` exists, and the local host has no shellcheck.
+- The `aspnet-web` readiness fixture rendered text but not the committed
+  `packages/platform-feed/*.nupkg`. A warm global NuGet cache hid it locally;
+  the runner failed `NU1301`.
+- The artifact job allowed one path level under the archive root, but the
+  package ships `share/forge/{contracts,runtime-templates,governance}`.
+- `platform-dotnet-quality` called `openspec` without installing it (exit 127).
+- Three resolvers assumed `current_exe()` lived under the checkout. A build
+  cache that symlinks `target/` broke the module catalog, the concern checker
+  and the runtime-template bundle.
+
+Each now has a regression guard: a line-based `run:` extractor that yields five
+`sh -n`-clean scripts, a readiness test that asserts a non-empty
+`packages/platform-feed/*.nupkg`, a documented archive-shape predicate, a pinned
+validator install, and compile-time-checkout fallbacks with their own tests.
+The readiness test moved into `readiness_tests.rs` so `mod.rs` stays under the
+1,000-line baseline.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Packaging extractor | PASS | 5 scripts extracted from the current template; all `sh -n` clean. |
+| Readiness feed | PASS | `cargo test -p forge --lib readiness::` 10 passed; `forge readiness check --profile aspnet-web` passed. |
+| Artifact shape | PASS | Synthetic listing accepts root files + `share/forge/**`; `evil/../x` still fails. |
+| Dotnet quality | PASS | Workflow installs Node 24 + `@fission-ai/openspec@1.6.0`; YAML parses. |
+| Relocated executable | PASS | `module_catalog` test, `governance_concern_cli` 7 passed, `runtime_template_cli` 8 passed; `forge module list` returns the in-tree modules. |
+| Source size | PASS | `src/readiness/mod.rs` 1,007 -> 854; tests moved out. |
+| Repository test suite | PASS, 4361 tests / 0 failed | `cargo test --workspace --no-fail-fast ...` exited 0 across 250 suites; the Gate's all-targets script passed too. |
+| Formatting and lints | PASS | `cargo fmt --check` and clippy `-D warnings` exited 0. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 at `2026-10-30T22:25:30Z`. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. |
+
+Not delivered here: the tag and release publication, which follow this push.
+Counts moved to 228 archived changes / 172 canonical specs.
+
+Implementation/archive commit: `d98e957` (`fix: restore the CI jobs and
+readiness fixtures`). This HANDOFF-only update is the second commit. No active
+OpenSpec change remains.
+
 ### `handoff-archive-rotation` implemented and archived (2026-10-30)
 
 `HANDOFF.md` had reached 12,525 lines and about 1 MB. Every session reads it

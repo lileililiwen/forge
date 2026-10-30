@@ -2,6 +2,82 @@
 
 ## Latest delivery
 
+### `delivery-provider-capabilities` implemented and archived (2026-10-30)
+
+The publish-provider contract declares five operations — `capabilities`,
+`preflight`, `publish`, `verify` and `rollback` — and Forge could construct
+two. `ProviderOperation::Capabilities`, `::Verify` and `::Rollback` were
+declared in `src/publish/providers/model.rs`, documented in
+`docs/adapter-contracts/publish-provider.md`, and never sent. The response
+type had no field in which a provider could declare a capability set, so even
+a provider that wanted to answer could not.
+
+The consequence was visible at the worst moment. `forge delivery stage`
+resolved the provider, verified the preflight confirmation, reserved a journal
+row and then ran `publish`. A provider that never implemented `publish` failed
+there — after the row existed — with whatever error its own binary produced,
+instead of being refused for a verb it never claimed.
+
+`capabilities` is now reachable, and it gates the verbs that follow. Before a
+delivery verb reserves its operation, Forge probes the provider, reads a
+bounded `capabilities` list from the additive response field, refuses a verb
+the provider did not declare, and records the declaration on the verb's
+journal row as `provider_capabilities`. The probe carries no `queue_id`,
+reserves nothing and changes no phase.
+
+Three readings are possible and only two are a claim:
+
+| The provider | Reading | The verbs it may receive |
+|---|---|---|
+| answers a valid list | declared | the listed operations, literally |
+| answers no field, exits non-zero, or answers no provider response | unknown | `preflight` and `publish` only |
+| answers a provider response with a malformed list | refused | none — the verb fails as an invalid provider response |
+
+`preflight` is never gated. `stage` and `promote` both send `publish`, so both
+require `publish` in the declaration; `verify` and `rollback` already require
+their own entry, which is the guard the next change needs. An empty list is a
+declaration of nothing and refuses stage. Unknown names inside a valid list are
+ignored, so a newer provider is readable by this Forge.
+
+Each verb probes for itself rather than reading the previous verb's row. A
+provider can narrow its declaration between stage and promote, and the
+`caps-narrowing` fixture proves the later verb is refused rather than trusted
+from a stale row. The cost is one extra provider process per delivery verb,
+bounded by the same timeout every provider call already has.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Repository test suite | PASS, 4301 tests / 0 failed | `cargo test --workspace --all-targets -- --skip rust_scaffold_builds_and_tests_with_native_toolchain --skip rust_scaffold_builds_with_native_toolchain_without_forge --skip declaration_is_inert_for_native_builds_present_and_absent --test-threads=1` exited 0 and reported 4301 passed, 0 failed, 1 ignored, 3 filtered out across 244 suites in 425.30s. |
+| Focused suites | PASS, 122 tests / 0 failed | `cargo test -p forge --lib publish::providers` → 55 passed; `cargo test -p forge --lib delivery::` → 27 passed; `cargo test --test delivery_provider_capabilities_contract` → 6 passed; `cargo test --test delivery_contract --test delivery_cross_surface --test delivery_provider_health_truth_contract` → 35 passed; `cargo test --test forge_web_project_delivery_contract` → 12 passed. |
+| Repository Gate | FAIL, 7/8 — one pre-existing advisory | `forge gate --dry-run` resolved all 8 required checks with none unbound. The first full `forge gate --timeout-secs 1800` run reported aggregate `blocked`: `tests` failed with exit 101 during the cold run whose `build` check was still compiling, and `security` failed on RUSTSEC-2026-0387. The second run, with a warm build, reported `tests` pass — and `bash scripts/check-tests.sh` run directly exited 0 — while `security` still failed, so the aggregate stayed `blocked`. `.forge/gate/forge/evidence.json` records `"aggregate": "blocked"` at `2026-10-30T08:55:31Z` on revision `295a692`, with `security` in state `fail` and every other check `pass`. `source-file-size` evaluated 463 of 463 candidates at the 1000-line maximum. |
+| The Gate failure, attributed | PRE-EXISTING, not this change | `cargo audit` reports RUSTSEC-2026-0387 (`crypto-bigint` 0.5.5, published 2026-10-23, timing variability in operations intended to be constant-time). The dependency is transitive: `openidconnect` 4.0.1 → `elliptic-curve` 0.13.8 → `crypto-bigint` 0.5.5. This change touches neither `Cargo.toml` nor `Cargo.lock`; 4.0.1 is the latest `openidconnect`, and `cargo update` for all three crates locks 0 packages, so no compatible patched release exists. Remediation path: an upstream `openidconnect` release on `elliptic-curve` 0.14 / `crypto-bigint` ≥ 0.7.6, or a separate security-policy change that justifies an `.cargo/audit.toml` ignore with the reasoning that file already records for RUSTSEC-2023-0071. The change adds no new failure. |
+| Real delivery, refused | PASS | A fixture project whose stub provider declares `["preflight"]` only: `forge delivery preflight caps-manual` recorded op 2 and `phase: awaiting-stage-confirmation`. `forge delivery stage caps-manual --confirm-operation-id 2` exited 1 with: "error[delivery-invalid]: delivery invalid: delivery stage: publish provider `openpanel` does not declare the `publish` capability (declared: preflight); refused before the requested verb ran". The stub's last request was `"operation":"capabilities"`, no `delivery.stage` row existed, and `delivery status` still reported `awaiting-stage-confirmation`. |
+| Real delivery, served | PASS | A second fixture whose stub declares `["preflight","publish"]`: preflight recorded op 4, stage recorded op 5, `delivery status` advanced to `awaiting-production-approval`, and the stage row's detail carried `{"operations": ["preflight", "publish"], "state": "declared"}`. |
+| OpenSpec and whitespace | PASS | `node scripts/check-openspec-change-names.mjs` reports `PASS`; `openspec validate --all --strict --no-interactive` reported `Totals: 169 passed, 0 failed (169 items)`; `cargo test --test spec_purpose_contract` reported 2 passed after the promoted spec's Purpose was written; `git diff --check` reported no findings. Archived without `--skip-specs` at `openspec/changes/archive/2026-10-30-delivery-provider-capabilities/`, and the archive's `TBD` Purpose was replaced with the real one before the commit. |
+
+Two behaviour changes a reviewer must know about. Every delivery verb that
+reaches the provider now spends one extra provider process on the probe, and a
+stage replay probes again because the gate sits before the idempotent
+reservation — the replay still reuses its row and invokes no delivery
+operation. And a provider that answers a malformed capability list is now
+refused at preflight where it would previously have been served; a provider
+that answers nothing, which is every provider written before this change, is
+unchanged.
+
+Not delivered, and stated plainly: `verify` and `rollback` are still declared
+and unreachable. This change is the declaration they will be gated by, not the
+verbs themselves. There is no CLI command for the declaration; it is recorded
+on the verb it gated and is not cached beyond that row. The stage/promote wire
+operation is still the single `publish` word discriminated by the `queue_id`
+prefix, so a provider still cannot tell the two apart except by that prefix;
+splitting them is a contract decision this change deliberately did not take.
+The contract version stays `forge-publish-provider/0.1.0`, the response field
+is additive, and no provider is required to implement the probe.
+
+Implementation/archive commit: `7ee7d61` (`feat: a provider declares what it
+can do`). This HANDOFF-only update is the second commit. Nothing was pushed. No
+active OpenSpec change remains, so this file has no `current_spec` pointer.
+
 ### `spec-purpose-completion` implemented and archived (2026-10-20)
 
 The OpenSpec archive writes a placeholder into every capability it creates:

@@ -146,7 +146,9 @@ PY
             return 1
         fi
         rc=0
-        shellcheck -S error "$check_dir"/*.sh 2>&1 || rc=$?
+        # The extracted files have no shebang: GitHub Actions runs `run:`
+        # blocks with bash on the Linux runner, so name the shell explicitly.
+        shellcheck -s bash -S error "$check_dir"/*.sh 2>&1 || rc=$?
         if [ "$rc" -ne 0 ]; then
             printf 'shellcheck reported errors in embedded run blocks\n' >&2
             return 1

@@ -192,12 +192,34 @@ async function checkCounts() {
   }
 }
 
+// Rule 6: the handoff stays bounded and links its retained archive.
+async function checkHandoffBudget() {
+  const lines = await readLines('HANDOFF.md');
+  if (lines.length > 8000) {
+    fail(
+      'HANDOFF.md',
+      lines.length,
+      `handoff is ${lines.length} lines; the budget is 8000 — rotate the oldest span into HANDOFF-ARCHIVE.md`,
+    );
+  }
+  let archiveExists = true;
+  try {
+    await stat(path.join(repo, 'HANDOFF-ARCHIVE.md'));
+  } catch {
+    archiveExists = false;
+  }
+  if (archiveExists && !lines.join('\n').includes('HANDOFF-ARCHIVE.md')) {
+    fail('HANDOFF.md', 0, 'HANDOFF-ARCHIVE.md exists but HANDOFF.md does not link to it');
+  }
+}
+
 const active = await activeChanges();
 await checkPlaceholders();
 await checkPointer(active);
 await checkLinks();
 await checkStatus(active);
 await checkCounts();
+await checkHandoffBudget();
 
 if (failures.length) {
   for (const f of failures.sort()) console.error(`spec-governance: ${f}`);

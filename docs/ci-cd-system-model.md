@@ -285,7 +285,7 @@ Do not start by building a generic Forge-hosted scheduler. GitHub Actions alread
 - Project release check: [`src/release/engine/prepare.rs`](../src/release/engine/prepare.rs), [release readiness docs](release-readiness.md).
 - Unified operator timeline: [`src/api/admin/history.rs`](../src/api/admin/history.rs), Delivery page, [timeline spec](../openspec/specs/web-project-delivery-timeline/spec.md). It joins existing records on demand and reports per-source scope/availability; it does not add persistence or remote polling.
 - Staged delivery and provider ownership: [`src/delivery/handlers.rs`](../src/delivery/handlers.rs), [project-to-production spec](../openspec/specs/project-to-production-workflow/spec.md), [`docs/adapter-contracts/publish-provider.md`](adapter-contracts/publish-provider.md).
-- Remaining service/runtime/facade work: [consolidation roadmap](../ROADMAP.md#forge-source-consolidation-and-retirement), [current HANDOFF](../HANDOFF.md#remaining-consolidation-work).
+- Remaining service/runtime/facade work: [consolidation roadmap](../ROADMAP.md#forge-source-consolidation-and-retirement), [current HANDOFF](../HANDOFF-ARCHIVE.md#remaining-consolidation-work).
 
 ## 12. Evidence limits
 

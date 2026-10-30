@@ -197,20 +197,29 @@ jobs:
 
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned contract schema validator
+        run: python3 -m pip install -r requirements-dev.txt
       - name: Build Forge
         run: cargo build
       - name: Install the declared security checker
         run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Warm the workspace before the Gate
+        run: |
+          cargo fetch --locked
+          cargo test --workspace --all-targets --no-run
       - name: Real Forge gate verdict
         run: |
-          ./target/debug/forge gate . --timeout-secs 2400
+          ./target/debug/forge gate . --timeout-secs 3000
           ./target/debug/forge gate status .
 
   artifact:

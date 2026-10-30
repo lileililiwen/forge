@@ -87,7 +87,7 @@ pub(super) mod tests {
         assert_eq!(rehearsal.plan_version, 1);
         assert_eq!(rehearsal.profile, "rust-product");
         assert_eq!(rehearsal.rule_pack_version, "forge-baseline/1.0.0");
-        assert_eq!(rehearsal.manifest_digest, "sha256:2c456f0e82a570fb");
+        assert_eq!(rehearsal.manifest_digest, "sha256:22de224fcc18f1b8");
         assert_eq!(rehearsal.default_timeout_ms, 60000);
         assert_eq!(rehearsal.source_size_max_lines, Some(1000));
         assert_eq!(rehearsal.blocking_policy.review_required_blocks, Some(true));
@@ -107,9 +107,9 @@ pub(super) mod tests {
         assert!(by_id["source-file-size"].required);
         assert_eq!(by_id["build"].command_source, "manifest");
         assert_eq!(by_id["tests"].selected_by, "manifest");
-        assert_eq!(by_id["tests"].timeout_ms, 600000);
-        assert_eq!(by_id["declared-verification"].timeout_ms, 600000);
-        assert_eq!(by_id["build"].timeout_ms, 60000);
+        assert_eq!(by_id["tests"].timeout_ms, 900000);
+        assert_eq!(by_id["declared-verification"].timeout_ms, 900000);
+        assert_eq!(by_id["build"].timeout_ms, 300000);
         assert!(rehearsal.planned_checks.iter().all(|check| !check.exempt));
         assert!(rehearsal.unbound_required_checks.is_empty());
         assert_eq!(rehearsal.exemption_budget.cap, 2);
@@ -151,10 +151,11 @@ pub(super) mod tests {
         assert!(text.contains("command=manifest"), "{text}");
         assert!(text.contains("timeout=60000ms"), "{text}");
         assert!(text.contains("review_required_blocks=true"), "{text}");
-        assert!(text.contains("sha256:2c456f0e82a570fb"), "{text}");
+        assert!(text.contains("sha256:22de224fcc18f1b8"), "{text}");
         assert!(text.contains("forge-baseline/1.0.0"), "{text}");
         assert!(text.contains("checks (8 planned)"), "{text}");
-        assert!(text.contains("timeout=600000ms"), "{text}");
+        assert!(text.contains("timeout=900000ms"), "{text}");
+        assert!(text.contains("timeout=300000ms"), "{text}");
         // The prediction may prove a block, never a pass: the wording
         // names the unknown and says the document is not an outcome.
         assert!(text.contains("undetermined-before-execution"), "{text}");

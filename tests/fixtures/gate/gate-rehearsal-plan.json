@@ -36,7 +36,7 @@
     "RULES_DRIFT_NEW",
     "SPEC_PURPOSE_PLACEHOLDER"
   ],
-  "manifest_digest": "sha256:2c456f0e82a570fb",
+  "manifest_digest": "sha256:22de224fcc18f1b8",
   "not_scheduled": [
     "a11y",
     "browser",
@@ -54,7 +54,7 @@
       "id": "build",
       "required": true,
       "selected_by": "manifest",
-      "timeout_ms": 60000
+      "timeout_ms": 300000
     },
     {
       "command_source": "manifest",
@@ -62,7 +62,7 @@
       "id": "declared-verification",
       "required": true,
       "selected_by": "manifest",
-      "timeout_ms": 600000
+      "timeout_ms": 900000
     },
     {
       "command_source": "manifest",
@@ -110,7 +110,7 @@
       "id": "tests",
       "required": true,
       "selected_by": "manifest",
-      "timeout_ms": 600000
+      "timeout_ms": 900000
     }
   ],
   "profile": "rust-product",

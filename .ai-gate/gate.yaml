@@ -15,12 +15,13 @@ blocking:
   - REVIEW_REQUIRED
 
 # Per-check execution deadlines. Unlisted checks take the runtime default
-# (60s). Both test-bearing checks run the same fast suite (~190s), declared
-# through `.project.json verification.command` and `scripts/check-tests.sh`
-# respectively, so both get the same 600000ms deadline.
+# (60s). `build` compiles the workspace and `tests`/`declared-verification`
+# run the fast suite, so a cold runner needs more than the local warm path.
+# The CI gate job also warms the workspace before invoking the runtime.
 timeouts:
-  tests: 600000
-  declared-verification: 600000
+  build: 300000
+  tests: 900000
+  declared-verification: 900000
 
 commands:
   # Generated from .project.json verification.command by workspace-governance/scripts/bind_verification_command.py.

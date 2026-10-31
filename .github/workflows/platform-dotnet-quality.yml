@@ -68,4 +68,5 @@ jobs:
         with:
           name: dotnet-conformance-logs
           path: modules/dotnet-platform-libs/tests/Platform.ConsumerConformance/.logs
+          include-hidden-files: true
           if-no-files-found: ignore

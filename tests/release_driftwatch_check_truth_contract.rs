@@ -226,6 +226,7 @@ fn adapter_report(case: &Case) -> String {
         "tool_version": "0.9.9",
         "contract": "0.1.0",
         "source_revision": case.source_revision,
+        "checkers": 1,
         "findings": [{
             "id": case.id,
             "category": "documentation",

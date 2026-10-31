@@ -226,23 +226,26 @@ fn operator_override_runs_exactly_that_binary() {
 }
 
 #[test]
-fn blocked_gate_document_lowers_the_verdict_as_evidence() {
+fn blocked_checker_document_lowers_the_verdict_as_evidence() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("registry.db");
     let bins = tmp.path().join("bins");
     fs::create_dir_all(&bins).unwrap();
     let log = tmp.path().join("stub.log");
-    // Answers only the gate surface; exits non-zero like a real blocked
-    // gate (exit-code authority) while keeping the document on stdout.
-    write_bin(
-        &bins,
-        "driftwatchdog",
+    // The policy adapter's one surface is the checker composition. The stub
+    // answers it with the alerting fixture while exiting non-zero, which must
+    // still be evidence rather than "unavailable".
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/driftwatch/checker-report-alerting.json");
+    let body = format!(
         "#!/bin/sh\n\
          if [ \"$1\" = \"--version\" ]; then echo 'driftwatchdog 0.4.2'; exit 0; fi\n\
          echo \"$@\" >> \"$DRIFTWATCH_STUB_LOG\"\n\
-         printf '%s' '{\"status\":\"FAIL\",\"blocked\":true,\"failures\":[\"quality\"],\"pending_reviews\":[],\"not_applicable\":[],\"manifest_digest\":\"sha\",\"rule_pack_version\":1,\"results\":[{\"gate_id\":\"build\",\"source\":\"ci\",\"status\":\"PASS\",\"severity\":\"info\",\"findings\":[],\"evidence\":[],\"missing_evidence\":[]},{\"gate_id\":\"quality\",\"source\":\"driftwatch\",\"status\":\"FAIL\",\"severity\":\"error\",\"findings\":[],\"evidence\":[],\"missing_evidence\":[\"tests:run\"],\"diagnostic\":\"product tests failing\",\"remediation\":\"run cargo test\"}]}'\n\
+         /bin/cat '{}'\n\
          exit 1\n",
+        fixture.display()
     );
+    write_bin(&bins, "driftwatchdog", &body);
     let proj = rust_proj(tmp.path());
     fs::write(proj.join("gate.toml"), "[gate]\nprofile = \"product\"\n").unwrap();
     let mut cmd = Command::new(forge_bin());
@@ -257,36 +260,30 @@ fn blocked_gate_document_lowers_the_verdict_as_evidence() {
         .args(["doctor", proj.to_str().unwrap()]);
     let out = cmd.output().expect("forge doctor");
     let findings = doctor_dw_findings(&out);
-    let quality = findings
+    let auth = findings
         .iter()
-        .find(|f| f["id"] == "driftwatch-quality")
-        .unwrap_or_else(|| panic!("blocked gate maps to fail findings: {findings:?}"));
-    assert_eq!(quality["status"], "fail");
-    assert!(quality["evidence"]
-        .to_string()
-        .contains("missing=tests:run"));
-    assert_eq!(
-        findings
-            .iter()
-            .filter(|f| f["id"] == "driftwatch-build")
-            .count(),
-        0
-    );
+        .find(|f| f["id"].as_str().is_some_and(|id| id.contains("AUTH-001")))
+        .unwrap_or_else(|| panic!("alerting checker maps to a fail finding: {findings:?}"));
+    assert_eq!(auth["status"], "fail");
+    assert!(auth["id"].as_str().unwrap().contains("AUTH-001"));
     let rollup = findings
         .iter()
         .find(|f| f["id"] == "driftwatch-policy")
         .expect("reported plane carries the rollup finding");
     assert_eq!(
         rollup["status"], "fail",
-        "a parseable gate document is evidence, never 'unavailable': {rollup}"
+        "a parseable checker document is evidence, never 'unavailable': {rollup}"
     );
     let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(value["doctor"]["healthy"], false);
     let recorded = fs::read_to_string(&log).unwrap();
-    assert!(recorded.contains("gate --format json"), "{recorded}");
     assert!(
-        !recorded.contains("--dry-run"),
-        "the gate JSON writer is only reached without --dry-run (see tests/fixtures/driftwatch/NOTES.md): {recorded}"
+        recorded.contains("check --dry-run --format json"),
+        "{recorded}"
+    );
+    assert!(
+        !recorded.contains("gate --format json"),
+        "the policy plane does not run the project Gate: {recorded}"
     );
 }
 

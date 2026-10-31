@@ -568,6 +568,7 @@ pub(super) mod tests {
             tool_version: "0.1.0".to_string(),
             contract: crate::policy::POLICY_CONTRACT_VERSION.to_string(),
             source_revision: None,
+            checkers: 1,
             findings,
         }
     }
@@ -707,6 +708,7 @@ pub(super) mod tests {
             tool_version: "0.1.0".to_string(),
             contract: crate::policy::POLICY_CONTRACT_VERSION.to_string(),
             source_revision: Some(past),
+            checkers: 1,
             findings: vec![PolicyFinding {
                 id: "AUTH-001".to_string(),
                 category: "security".to_string(),

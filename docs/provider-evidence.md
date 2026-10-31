@@ -9,7 +9,7 @@ a healthy result.
 
 | Id | Boundary | Live binary (default) | Override |
 | --- | --- | --- | --- |
-| `driftwatch-policy` | `check --dry-run --format json` (`gate --format json` for gate-managed projects — whose only side effect is a `gate_runs` row in the project's own `.driftwatch/` store), project as working directory; ordered binary probe `driftwatchdog` → `driftwatch` | `driftwatchdog` / `driftwatch` | `FORGE_DRIFTWATCH_BIN` |
+| `driftwatch-policy` | `check --dry-run --format json`, project as working directory; ordered binary probe `driftwatchdog` → `driftwatch`, then the built `target/{debug,release}/driftwatchdog` in a source checkout | `driftwatchdog` / `driftwatch` | `FORGE_DRIFTWATCH_BIN` |
 | `gate-runtime` | `forge gate --dry-run` using the bundled engine; validates the resolved baseline and project extensions without running checks or persisting a verdict. A valid plan records `supported`; invalid project configuration or an unavailable Forge execution records `unavailable`. This provider row describes command support only and never claims a gate pass. | `forge` | none |
 | `oidc-identity` | in-memory challenge/callback/claims/mint/validate/terminate | none (no external binary) | n/a |
 | `analytics` | `health --provider <p> --project <id> --project-ref <ref> --plane <plane>` | `forge-analytics-adapter` | `FORGE_ANALYTICS_BIN` |

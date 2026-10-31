@@ -47,27 +47,41 @@ pub fn first_binary_on_path(path_env: &OsStr, candidates: &[&str]) -> Option<Pat
     })
 }
 
-/// Where the adapter sends `dir`: gate-managed projects run the gate
-/// surface, everything else the checker surface. The checker side uses
-/// the sibling's documented no-persistence composition
-/// (`check --dry-run --format json` emits the same versioned document
-/// while writing nothing). The gate side has no such composition: the
-/// sibling's `gate --dry-run` renders the human-readable plan and exits
-/// before its JSON writer — verified live against
-/// `driftwatchdog/commands/gate.rs` and captured in
-/// `tests/fixtures/driftwatch/NOTES.md` — so Forge runs the real
-/// `gate --format json`, whose only Forge-visible side effect is a
-/// `gate_runs` row in the project's own `.driftwatch/` store (sibling
-/// state, never Forge registry state). One source of truth for the
-/// adapter and the provider probe.
-pub fn policy_surface_args(dir: &Path) -> Vec<&'static str> {
-    let gate_managed =
-        dir.join("gate.toml").is_file() || dir.join(".ai-gate").join("gate.yaml").is_file();
-    if gate_managed {
-        vec!["gate", "--format", "json"]
-    } else {
-        vec!["check", "--dry-run", "--format", "json"]
-    }
+/// The built policy runtime inside a source checkout, when it exists.
+/// The debug profile is tried before release; an unpublished or
+/// non-executable placeholder is skipped so a dead file is never selected.
+pub(super) fn source_checkout_binary(root: &Path) -> Option<PathBuf> {
+    ["debug", "release"].iter().find_map(|profile| {
+        let candidate = root
+            .join("target")
+            .join(profile)
+            .join(format!("driftwatchdog{}", std::env::consts::EXE_SUFFIX));
+        let meta = fs::metadata(&candidate).ok()?;
+        if !meta.is_file() {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o111 == 0 {
+                return None;
+            }
+        }
+        Some(candidate)
+    })
+}
+
+/// The policy adapter's one surface: the checker composition.
+///
+/// `check --dry-run --format json` emits the versioned document and writes
+/// nothing, so doctor and the provider probe can read the configured
+/// checkers without a side effect or a full Gate run. The Gate has its own
+/// evidence path (`gate-evidence` in doctor, `forge gate` elsewhere); running
+/// the whole Gate inside the policy plane duplicated it and timed out on any
+/// real project. The document mapping still accepts a gate document for
+/// callers that pass one explicitly.
+pub fn policy_surface_args(_dir: &Path) -> Vec<&'static str> {
+    vec!["check", "--dry-run", "--format", "json"]
 }
 
 /// Invoke DriftWatch for `dir` and return the normalized outcome.
@@ -75,13 +89,13 @@ pub fn policy_surface_args(dir: &Path) -> Vec<&'static str> {
 /// Binary resolution is an ordered probe: the explicit
 /// `FORGE_DRIFTWATCH_BIN` override runs exactly that binary (no further
 /// probing), otherwise the first executable hit of
-/// [`DRIFTWATCH_BINARY_CANDIDATES`] wins. The project directory is the
-/// working directory — Forge never sends the sibling's grammar a
-/// fabricated `--project` flag — and the surface follows the project:
-/// gate-managed directories run `gate --format json`, everything else
+/// [`DRIFTWATCH_BINARY_CANDIDATES`] wins, then the built
+/// `target/{debug,release}/driftwatchdog` in a source checkout. The project
+/// directory is the working directory — Forge never sends the sibling's
+/// grammar a fabricated `--project` flag — and the surface is always
 /// `check --dry-run --format json` (the sibling's `checker-machine-output`
-/// contract; see [`policy_surface_args`] for why only the checker side
-/// has a no-persistence composition).
+/// contract; see [`policy_surface_args`]). The Gate has its own evidence
+/// path and is never run as a policy probe.
 ///
 /// Classification: a parseable document — including one reporting a
 /// blocked gate or a failing checker, whatever the process exit code —
@@ -204,15 +218,20 @@ fn resolve_binary(config: &DriftWatchConfig) -> Result<OsString, String> {
         return Ok(binary.clone());
     }
     let path_env = std::env::var_os("PATH").unwrap_or_default();
-    first_binary_on_path(&path_env, DRIFTWATCH_BINARY_CANDIDATES)
-        .map(|found| found.into_os_string())
-        .ok_or_else(|| {
-            format!(
-                "no driftwatch binary found: tried '{}' (FORGE_DRIFTWATCH_BIN unset); local \
-                 workflows continue without the policy plane",
-                DRIFTWATCH_BINARY_CANDIDATES.join("', '")
-            )
-        })
+    if let Some(found) = first_binary_on_path(&path_env, DRIFTWATCH_BINARY_CANDIDATES) {
+        return Ok(found.into_os_string());
+    }
+    // Driftwatchdog is a Cargo workspace member: a source checkout that ran
+    // `cargo build` has the runtime next to Forge without a PATH edit.
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if let Some(found) = source_checkout_binary(checkout) {
+        return Ok(found.into_os_string());
+    }
+    Err(format!(
+        "no driftwatch binary found: tried '{}' on PATH and          '{}/target/{{debug,release}}/driftwatchdog' in the checkout          (FORGE_DRIFTWATCH_BIN unset); local workflows continue without the policy plane",
+        DRIFTWATCH_BINARY_CANDIDATES.join("', '"),
+        checkout.display()
+    ))
 }
 
 fn binary_display_name(target: &OsStr) -> String {
@@ -335,6 +354,11 @@ pub(super) fn map_checker_document(
         tool_version: doc_version(&value).unwrap_or(tool_version),
         contract: POLICY_CONTRACT_VERSION.to_string(),
         source_revision: source_revision_for(dir),
+        checkers: value
+            .get("checkers")
+            .and_then(|checkers| checkers.as_array())
+            .map(|checkers| checkers.len())
+            .unwrap_or(0),
         findings,
     };
     if let Some(root) = project_root {
@@ -461,6 +485,11 @@ pub(super) fn map_gate_document(
         tool_version: doc_version(&value).unwrap_or(tool_version),
         contract: POLICY_CONTRACT_VERSION.to_string(),
         source_revision: source_revision_for(dir),
+        checkers: value
+            .get("results")
+            .and_then(|results| results.as_array())
+            .map(|results| results.len())
+            .unwrap_or(0),
         findings,
     };
     // The gate document reports no project field; scrub Forge's own

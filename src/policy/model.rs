@@ -149,6 +149,10 @@ pub struct PolicyReport {
     pub contract: String,
     pub source_revision: Option<DateTime<Utc>>,
     pub findings: Vec<PolicyFinding>,
+    /// How many checkers produced the report. Zero means no policy rule was
+    /// configured: the plane ran, but it had nothing to judge.
+    #[serde(default)]
+    pub checkers: usize,
 }
 #[derive(Debug)]
 pub(super) struct CapturedOutput {

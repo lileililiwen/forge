@@ -56,12 +56,10 @@ the contract string in `checker-report-alerting.json`).
 - `driftwatchdog gate --dry-run --format json` → **not** the gate
   document: `gate.rs` early-returns after printing
   `gate-status`-free human plan text (`gate-dryrun-plan.txt`) and
-  exits 0, never reaching its JSON writer. The change design's
-  assumption of a persisted-nothing JSON composition for `gate` is
-  therefore false; Forge's gate surface is the real
-  `gate --format json` (see `src/policy/mod.rs::policy_surface_args`).
-  The checker surface keeps its genuine no-persistence composition
-  `check --dry-run --format json`.
+  exits 0, never reaching its JSON writer. The policy plane therefore
+  uses only the checker surface's genuine no-persistence composition,
+  `check --dry-run --format json`; the Gate has its own evidence path
+  and is no longer run as a policy probe.
 - `gate` in a project without `gate.toml` / `.ai-gate/gate.yaml`
   prints text ("nothing to gate") and exits 0 without a document;
   a `.ai-gate/gate.yaml` targeting a foreign runtime likewise prints

@@ -7,7 +7,7 @@ pub(super) mod tests {
     use crate::policy::constants::{DRIFTWATCH_BINARY_CANDIDATES, POLICY_CONTRACT_VERSION};
     use crate::policy::driftwatch::{
         first_binary_on_path, map_checker_document, map_gate_document, observation_is_stale,
-        policy_surface_args, run_driftwatch, source_revision_for,
+        policy_surface_args, run_driftwatch, source_checkout_binary, source_revision_for,
     };
     use crate::policy::model::{
         DriftWatchConfig, PolicyFinding, PolicyObservation, PolicyOutcome, PolicyReport,
@@ -27,6 +27,7 @@ pub(super) mod tests {
             tool_version: "0.1.0".to_string(),
             contract: POLICY_CONTRACT_VERSION.to_string(),
             source_revision: None,
+            checkers: 1,
             findings: Vec::new(),
         }
     }
@@ -175,6 +176,27 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn source_checkout_resolves_the_built_policy_runtime() {
+        let tmp = TempDir::new().unwrap();
+        let debug = tmp.path().join("target/debug");
+        fs::create_dir_all(&debug).unwrap();
+        let debug_bin = write_script(&debug, "driftwatchdog", "#!/bin/sh\nexit 0\n");
+        assert_eq!(source_checkout_binary(tmp.path()), Some(debug_bin.clone()));
+
+        let release = tmp.path().join("target/release");
+        fs::create_dir_all(&release).unwrap();
+        let release_bin = write_script(&release, "driftwatchdog", "#!/bin/sh\nexit 0\n");
+        fs::remove_file(&debug_bin).unwrap();
+        assert_eq!(source_checkout_binary(tmp.path()), Some(release_bin));
+
+        assert_eq!(
+            source_checkout_binary(&tmp.path().join("missing")),
+            None,
+            "a checkout without a built runtime must not invent one"
+        );
+    }
+
+    #[test]
     fn first_binary_on_path_prefers_driftwatchdog_then_alias() {
         let tmp = TempDir::new().unwrap();
         let bin = tmp.path().join("bin");
@@ -218,24 +240,16 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn surface_follows_gate_manifests() {
+    fn policy_surface_is_the_checker_composition() {
+        let expected = vec!["check", "--dry-run", "--format", "json"];
         let tmp = TempDir::new().unwrap();
-        assert_eq!(
-            policy_surface_args(tmp.path()),
-            vec!["check", "--dry-run", "--format", "json"]
-        );
+        assert_eq!(policy_surface_args(tmp.path()), expected);
         fs::write(tmp.path().join("gate.toml"), "[gate]\n").unwrap();
-        assert_eq!(
-            policy_surface_args(tmp.path()),
-            vec!["gate", "--format", "json"]
-        );
+        assert_eq!(policy_surface_args(tmp.path()), expected);
         let tmp2 = TempDir::new().unwrap();
         fs::create_dir_all(tmp2.path().join(".ai-gate")).unwrap();
         fs::write(tmp2.path().join(".ai-gate/gate.yaml"), "version: 1\n").unwrap();
-        assert_eq!(
-            policy_surface_args(tmp2.path()),
-            vec!["gate", "--format", "json"]
-        );
+        assert_eq!(policy_surface_args(tmp2.path()), expected);
     }
 
     #[test]

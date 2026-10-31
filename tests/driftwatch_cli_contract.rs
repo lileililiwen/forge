@@ -4,12 +4,11 @@
 //! stub scripts that emit the verbatim sibling documents captured in
 //! `tests/fixtures/driftwatch/` (see `NOTES.md` there). Covers what the
 //! fabricated pre-alignment surface could never prove: only supported
-//! flags are sent (no `--project`), the gate surface for gate-managed
-//! projects is the real `gate --format json` (its `--dry-run` sibling
-//! composition prints a human plan, never JSON), a parseable document
-//! is findings whatever the exit code, an unknown contract names the
-//! version instead of ever reading PASS, and the ordered binary probe
-//! resolves `driftwatchdog` before the `driftwatch` alias.
+//! flags are sent (no `--project`), the policy plane sends the checker
+//! composition for every project, a parseable document is findings
+//! whatever the exit code, an unknown contract names the version instead
+//! of ever reading PASS, and the ordered binary probe resolves
+//! `driftwatchdog` before the `driftwatch` alias.
 
 use std::borrow::Cow;
 use std::fs;
@@ -191,8 +190,11 @@ fn only_supported_flags_are_sent_and_the_gate_surface_is_real() {
         .collect();
     assert_eq!(
         invocations,
-        vec!["check --dry-run --format json", "gate --format json"],
-        "Forge must send exactly the surfaces the sibling supports"
+        vec![
+            "check --dry-run --format json",
+            "check --dry-run --format json"
+        ],
+        "the policy plane always sends the checker composition"
     );
     assert!(
         !log.contains("--project"),

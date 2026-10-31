@@ -438,6 +438,11 @@ fn driftwatch_check_from_verdict(verdict: &PolicyVerdict, revision: &str) -> Cap
             vec!["driftwatch report belongs to an older source revision".to_string()],
             "driftwatch report is stale relative to the current source revision".to_string(),
         ),
+        PolicyConclusion::NotConfigured => (
+            CHECK_DISABLED,
+            vec!["no driftwatch checkers configured; no policy rule was judged".to_string()],
+            "driftwatch has no configured checkers; release does not require one".to_string(),
+        ),
         PolicyConclusion::Unjudged => (
             CHECK_UNAVAILABLE,
             vec![
@@ -462,7 +467,7 @@ fn driftwatch_check_from_verdict(verdict: &PolicyVerdict, revision: &str) -> Cap
     CapturedCheck {
         kind: "driftwatch".to_string(),
         status: status.to_string(),
-        applicable: true,
+        applicable: status != CHECK_DISABLED,
         evidence,
         detail,
         source_revision: revision.to_string(),

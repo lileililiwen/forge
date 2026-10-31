@@ -450,7 +450,9 @@ pub enum PolicyConclusion {
     Failing,
     /// The report belongs to an older source state than the one judged.
     Stale,
-    /// No rule applied, so nothing was judged.
+    /// No checker was configured, so the plane had nothing to judge.
+    NotConfigured,
+    /// Rules were configured but none applied, so nothing was judged.
     Unjudged,
     /// Applicable rules warned; none failed.
     Warning,
@@ -465,6 +467,7 @@ impl PolicyConclusion {
         match self {
             PolicyConclusion::Failing => FindingStatus::Fail,
             PolicyConclusion::Stale => FindingStatus::Warn,
+            PolicyConclusion::NotConfigured => FindingStatus::Warn,
             PolicyConclusion::Unjudged => FindingStatus::Unavailable,
             PolicyConclusion::Warning => FindingStatus::Warn,
             PolicyConclusion::Passed => FindingStatus::Pass,
@@ -514,6 +517,8 @@ impl PolicyVerdict {
             PolicyConclusion::Failing
         } else if stale {
             PolicyConclusion::Stale
+        } else if report.checkers == 0 {
+            PolicyConclusion::NotConfigured
         } else if applicable == 0 {
             PolicyConclusion::Unjudged
         } else if !warning.is_empty() {
@@ -643,15 +648,22 @@ fn aggregate_rollup(report: &PolicyReport, stale: bool) -> Rollup {
     // shared verdict: the status, the counts and the wording stay
     // exactly as they were.
     let verdict = PolicyVerdict::judge(report, stale);
-    let detail = format!(
-        "driftwatch {} (contract {}) reported {} finding(s): {} pass, {} warn, {} fail",
-        report.tool_version,
-        report.contract,
-        report.findings.len(),
-        verdict.passed,
-        verdict.warning.len(),
-        verdict.failing.len()
-    );
+    let detail = if report.checkers == 0 {
+        format!(
+            "driftwatch {} (contract {}) ran with no configured checkers; no policy rule was judged",
+            report.tool_version, report.contract
+        )
+    } else {
+        format!(
+            "driftwatch {} (contract {}) reported {} finding(s): {} pass, {} warn, {} fail",
+            report.tool_version,
+            report.contract,
+            report.findings.len(),
+            verdict.passed,
+            verdict.warning.len(),
+            verdict.failing.len()
+        )
+    };
     let status = verdict.conclusion.to_finding_status();
     let evidence = if stale {
         vec![format!(
@@ -703,6 +715,7 @@ mod policy_verdict_tests {
             tool_version: "0.9.9".to_string(),
             contract: "0.1.0".to_string(),
             source_revision: None,
+            checkers: 1,
             findings,
         }
     }
@@ -742,6 +755,19 @@ mod policy_verdict_tests {
         assert_eq!(verdict.passed, 0);
         assert_eq!(verdict.failing, Vec::<String>::new());
         assert_eq!(verdict.warning, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_report_with_no_configured_checkers_is_not_configured() {
+        let mut report = report(Vec::new());
+        report.checkers = 0;
+        let verdict = PolicyVerdict::judge(&report, false);
+        assert_eq!(verdict.conclusion, PolicyConclusion::NotConfigured);
+        assert_eq!(
+            verdict.conclusion.to_finding_status(),
+            FindingStatus::Warn,
+            "an empty configuration is a warning, never unavailable or a pass"
+        );
     }
 
     #[test]

@@ -33,6 +33,8 @@ pub mod freshness;
 pub mod gaps;
 pub mod model;
 pub mod observation;
+#[cfg(test)]
+pub mod policy_no_checkers_tests;
 pub mod probes;
 pub mod runner;
 

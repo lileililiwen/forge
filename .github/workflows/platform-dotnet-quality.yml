@@ -62,3 +62,10 @@ jobs:
       - name: Verify in-tree platform module registry and UI token paths
         working-directory: modules/workspace-governance
         run: python3 -m unittest discover -s tests -p 'test_platform_module_paths.py' -v
+      - name: Upload conformance logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-conformance-logs
+          path: modules/dotnet-platform-libs/tests/Platform.ConsumerConformance/.logs
+          if-no-files-found: ignore

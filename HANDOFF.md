@@ -2,6 +2,34 @@
 
 ## Latest delivery
 
+### Release `v0.1.1` published (2026-10-31)
+
+The first real CI runs against the pushed tree exposed runner-only failures
+that local checks could not see. They were fixed as follow-up commits to
+`publish-green-recovery`: shellcheck needed an explicit shell for extracted
+workflow blocks; the driftwatch npm launcher was ignored by the root `**/bin/`
+rule; the installer test inherited the runner's `GITHUB_PATH`; the dotnet
+quality job needed `openspec` and `ripgrep`; and the gate job needed full git
+history, longer per-check budgets, and no test-binary warm step (the runner ran
+out of disk).
+
+With those fixes, CI run `41149560702` passed every job. Tag `v0.1.1` then
+triggered run `41152111025`, whose `release` job published the verified archive.
+
+| Check | Result | Evidence |
+|---|---|---|
+| CI on `main` | PASS, all jobs | `gh run view 41149560702`: every job `success`, including `test` and `gate`. |
+| Tagged CI | PASS, all jobs + release | `gh run view 41152111025`: `test`, `gate` and `release` all `success`. |
+| Published release | `Forge 0.1.1` (`v0.1.1`) | `gh release view v0.1.1`: archive `forge-0.1.1-x86_64-unknown-linux-gnu.tar.gz` and its `.sha256`, published `2026-10-31T01:08:47Z`. |
+| Install URL | HTTP 200 | `curl -I` returns `200`; the archive is 9,980,621 bytes. |
+| Published install | PASS | `gh release download` + `scripts/install.sh` verified the checksum, installed to a scratch prefix, and `forge --version` printed `forge 0.1.1`. |
+| `forge module list` on the installed binary | Correct refusal | `module-catalog-unavailable ... use a Forge source checkout` — the installed-binary contract. |
+
+Remaining, not release-gating: `platform-dotnet-quality` still fails at its
+`conformance.sh` test step (`[ENV BLOCKER] test`). The workflow now uploads
+`tests/Platform.ConsumerConformance/.logs` on failure so the next run names the
+cause. The module's `pack`, `restore` and `build` steps pass in CI.
+
 ### `publish-green-recovery` implemented and archived (2026-10-30)
 
 The first real CI run against the pushed tree (`41074528336`) exposed failures

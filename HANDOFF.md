@@ -2,6 +2,47 @@
 
 ## Latest delivery
 
+### `native-project-profile` implemented and archived (2026-10-31)
+
+Forge could not inspect or register itself. `forge.yaml` names
+`profile: rust-product`, the governance profile attached to the `rust-web`
+descriptor, not a Forge profile id. `forge doctor .` reported `profile-known`
+FAIL and `forge register .` refused, so `forge check .` could not run on the
+flagship repository; CI generated a scratch project instead.
+
+`ProfileSupportStatus` now has a third value, `Native`: known, registrable and
+assessable, never generated. `rust-product` is a native descriptor for Forge's
+Cargo workspace. Resolution accepts it with no capabilities (registration
+path), refuses capability requests, and generation refuses it before staging.
+Doctor judges it against `Cargo.toml`, and the checker/API no longer report a
+native profile as a planned gap. The CI surfaces job now runs
+`forge register .` and `forge check forge` on this repository.
+
+`.project.json` also moves from `evidence_status: verified` to `implemented`:
+doctor's `release-evidence` check named `verified` as assertion-without-evidence
+because the gate export has zero verified fields.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Native descriptor | PASS | `forge profile inspect rust-product` reports `support_status: native`; `list_profiles` still has only the six supported profiles. |
+| Registration and check | PASS | `forge register .` registered `forge`; `forge check forge --format json` emitted a `forge-checker/0.1.0` document with alerts. |
+| Generation refusal | PASS | `forge new … --profile rust-product` exited 1 with `unsupported-profile` naming the native stack; the destination was not created. |
+| Doctor findings | PASS | `forge doctor .` reports `[PASS] profile-known` and `[PASS] features-compatible`; `build-config` is judged against `Cargo.toml`. Remaining findings are warnings plus the optional policy plane `UNAVAILABLE` (no driftwatch binary). |
+| Source size | PASS | `src/doctor/doctor_tests.rs` stayed under 1,000 lines by moving the native test to `doctor_native_tests.rs` under `#[cfg(test)]`; `product_code_quality.py` passes. |
+| Repository test suite | PASS, 4377 tests / 0 failed | `bash scripts/check-tests.sh` exited 0 across 253 suites. |
+| Formatting and lints | PASS | `cargo fmt --check` and clippy `-D warnings` exited 0. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 at `2026-10-31T06:38:18Z`. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. |
+
+Not delivered: `forge doctor .` still returns `not healthy` because the optional
+policy plane cannot run without a `driftwatch` binary; that is a separate
+applicability decision, not a profile failure. Counts moved to 229 archived
+changes / 172 canonical specs.
+
+Implementation/archive commit: `2f38810` (`feat: add native profiles and
+dogfood the doctor`). This HANDOFF-only update is the second commit. No active
+OpenSpec change remains.
+
 ### Release `v0.1.1` published (2026-10-31)
 
 The first real CI runs against the pushed tree exposed runner-only failures

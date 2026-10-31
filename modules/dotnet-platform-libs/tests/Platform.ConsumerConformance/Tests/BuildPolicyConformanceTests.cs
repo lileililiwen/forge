@@ -241,12 +241,14 @@ public sealed class BuildPolicyConformanceTests
         // absent from a local build and present on CI. The unreferenced fixture
         // is checked under the same CI setting: without it, a repository or SDK
         // default could be what produces the value.
+        // GitHub Actions exports CI=true to every step; pin the query to a
+        // local build rather than inheriting the runner's environment.
         Assert.Equal(
             string.Empty,
-            QuerySingleProperty(Fixture("Applied"), "ContinuousIntegrationBuild")["ContinuousIntegrationBuild"]);
+            QuerySingleProperty(Fixture("Applied"), "ContinuousIntegrationBuild", "-p:CI=false")["ContinuousIntegrationBuild"]);
         Assert.Equal(
             string.Empty,
-            QuerySingleProperty(Fixture("Unreferenced"), "ContinuousIntegrationBuild", "-p:CI=true")["ContinuousIntegrationBuild"]);
+            QuerySingleProperty(Fixture("Unreferenced"), "ContinuousIntegrationBuild", "-p:CI=false")["ContinuousIntegrationBuild"]);
         Assert.Equal(
             "true",
             QuerySingleProperty(Fixture("Applied"), "ContinuousIntegrationBuild", "-p:CI=true")["ContinuousIntegrationBuild"]);

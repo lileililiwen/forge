@@ -113,6 +113,9 @@ ADAPTED_SOURCE_PATHS = WHITESPACE_ONLY_ADAPTATIONS | {
     b"scripts/test-workspace-bootstrap.sh",
     b"tests/Platform.Architecture.Tests/DependencyDirectionTests.cs",
     b"tests/scripts/test_consumer_nuget.py",
+    # GitHub Actions exports CI=true; the conformance test's local-build
+    # assertion is pinned with -p:CI=false so it no longer inherits it.
+    b"tests/Platform.ConsumerConformance/Tests/BuildPolicyConformanceTests.cs",
     *MOVED_PATHS,
 }
 ADDED_DESTINATION_PATHS: set[bytes] = {

@@ -2,6 +2,48 @@
 
 ## Latest delivery
 
+### `in-tree-policy-runtime` implemented and archived (2026-10-31)
+
+`driftwatchdog` is a workspace member, but the policy adapter probed only
+`PATH`, so `forge doctor .` reported the policy plane `UNAVAILABLE` on the
+checkout that had just built it. The resolver now falls back to
+`<checkout>/target/{debug,release}/driftwatchdog` after `FORGE_DRIFTWATCH_BIN`
+and `PATH`.
+
+The second half of the false negative was the surface. For gate-managed
+projects the adapter ran `gate --format json`, i.e. the whole Gate (build plus
+suite) inside `doctor`, which timed out at 60 seconds. The policy plane now
+always runs the checker composition `check --dry-run --format json`; the Gate
+has its own evidence path and its own verb.
+
+A checker run with no configured checkers was mapped to `Unjudged`
+(`UNAVAILABLE`), which kept a project with an empty `driftwatch.toml` unhealthy
+forever. `PolicyReport` now carries the checker count: zero is `NotConfigured`
+(`WARN`, "ran with no configured checkers"), while a configured rule that does
+not apply remains `Unjudged` (`UNAVAILABLE`). The release lane maps
+`NotConfigured` to a disabled check.
+
+| Check | Result | Evidence |
+|---|---|---|
+| In-tree runtime | PASS | With no `PATH` edit, doctor selected `target/debug/driftwatchdog`, ran the checker composition in ~0.07 s and reported the policy warning. |
+| Doctor verdict | PASS | `forge doctor .` now reports `verdict: healthy`. |
+| Checker surface | PASS | Plain and gate-managed projects both invoke `check --dry-run --format json`; `driftwatch_cli_contract` 8 passed and `driftwatch_cli_alignment_contract` 10 passed. |
+| Empty configuration | PASS | `no_configured_checkers` tests pass; `checkers = 0` is `WARN`, a configured non-applicable rule stays `UNAVAILABLE`. |
+| Resolution order | PASS | `cargo test -p forge --lib policy::` 57 passed, covering override, `PATH` and checkout fallback. |
+| Release mapping | PASS | `release_driftwatch_check_truth_contract` passes; no checkers is a disabled check, not a block. |
+| Repository test suite | PASS, 4380 tests / 0 failed | `bash scripts/check-tests.sh` exited 0 across 253 suites. |
+| Formatting and lints | PASS | `cargo fmt --check` and clippy `-D warnings` exited 0. |
+| Repository Gate | PASS, 8/8 | `forge gate . --timeout-secs 1800` exited 0 at `2026-10-31T08:41:22Z`. |
+| OpenSpec and whitespace | PASS | Name preflight `PASS`; strict validation `173 passed, 0 failed`; `check-spec-governance` `PASS`; `git diff --check` clean. |
+
+Not delivered: the release archive still does not ship `driftwatchdog`, so an
+installed Forge without a runtime keeps reporting the plane unavailable.
+Counts moved to 230 archived changes / 172 canonical specs.
+
+Implementation/archive commit: `7eb125b` (`fix: resolve and run the in-tree
+policy runtime`). This HANDOFF-only update is the second commit. No active
+OpenSpec change remains.
+
 ### `native-project-profile` implemented and archived (2026-10-31)
 
 Forge could not inspect or register itself. `forge.yaml` names

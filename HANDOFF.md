@@ -25,10 +25,11 @@ triggered run `41152111025`, whose `release` job published the verified archive.
 | Published install | PASS | `gh release download` + `scripts/install.sh` verified the checksum, installed to a scratch prefix, and `forge --version` printed `forge 0.1.1`. |
 | `forge module list` on the installed binary | Correct refusal | `module-catalog-unavailable ... use a Forge source checkout` — the installed-binary contract. |
 
-Remaining, not release-gating: `platform-dotnet-quality` still fails at its
-`conformance.sh` test step (`[ENV BLOCKER] test`). The workflow now uploads
-`tests/Platform.ConsumerConformance/.logs` on failure so the next run names the
-cause. The module's `pack`, `restore` and `build` steps pass in CI.
+`platform-dotnet-quality` also failed only under CI: GitHub Actions exports
+`CI=true`, and the conformance test's local-build assertion inherited it. The
+query is pinned with `-p:CI=false`; run `41155926611` passes all 139 tests. The
+workflow also uploads the hidden `.logs` directory on failure so the next
+diagnosis starts from the failing output.
 
 ### `publish-green-recovery` implemented and archived (2026-10-30)
 

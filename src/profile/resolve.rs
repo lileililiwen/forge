@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::capabilities::SERVER_SIDE_CAPABILITIES;
-use super::catalog::{mvp_profiles, planned_profiles};
+use super::catalog::{mvp_profiles, native_profiles, planned_profiles};
 use super::model::{
     PreflightReport, ProfileDescriptor, ProfileSupportStatus, ResolvedProfile, WorkspaceMapping,
 };
@@ -27,6 +27,10 @@ pub fn list_profiles() -> Vec<ProfileDescriptor> {
 /// whether the id is selectable through resolution or generation.
 pub fn inspect_profile(id: &str) -> Result<ProfileDescriptor, ForgeError> {
     if let Some(p) = mvp_profiles().into_iter().find(|p| p.id == id) {
+        check_build_command(&p)?;
+        return Ok(p);
+    }
+    if let Some(p) = native_profiles().into_iter().find(|p| p.id == id) {
         check_build_command(&p)?;
         return Ok(p);
     }
@@ -633,6 +637,25 @@ pub(super) mod tests {
         let text = err.to_string();
         assert!(text.contains("flutter-client"), "{text}");
         assert!(text.contains("planned"), "{text}");
+    }
+
+    #[test]
+    fn native_profile_is_known_registrable_and_not_generatable() {
+        let native = inspect_profile("rust-product").expect("native profile is known");
+        assert_eq!(native.support_status, ProfileSupportStatus::Native);
+        assert!(
+            list_profiles()
+                .iter()
+                .all(|profile| profile.id != "rust-product"),
+            "a native profile must not be selectable"
+        );
+        assert!(
+            resolve_profile("rust-product", &[]).is_ok(),
+            "registration resolves a native profile with no capabilities"
+        );
+        let err = resolve_profile("rust-product", &strings(&["auth"]))
+            .expect_err("a native profile has no generated features");
+        assert_eq!(err.code(), "incompatible-profile");
     }
 
     #[test]

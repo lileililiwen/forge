@@ -374,6 +374,14 @@ fn readiness_check(dir: &Path) -> StatusCheck {
             summary: format!("profile `{profile}` has certified native-template support"),
             reason: String::new(),
         },
+        Ok(descriptor) if descriptor.support_status == ProfileSupportStatus::Native => StatusCheck {
+            id: "readiness",
+            state: STATE_HEALTHY,
+            summary: format!(
+                "profile `{profile}` is a native project stack maintained and built natively"
+            ),
+            reason: String::new(),
+        },
         Ok(_) => StatusCheck {
             id: "readiness",
             state: STATE_ISSUES,

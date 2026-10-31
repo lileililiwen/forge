@@ -14,10 +14,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use forge::profile::{is_supported, list_profiles};
+use forge::profile::{inspect_profile, list_profiles, ProfileSupportStatus};
 
-/// `(profile, expected build definition)` for every supported profile.
-const MATRIX: [(&str, &[&str]); 6] = [
+/// `(profile, expected build definition)` for every profile the doctor judges.
+const MATRIX: [(&str, &[&str]); 7] = [
     ("aspnet-web", &["*.csproj"]),
     ("flutter-app", &["pubspec.yaml"]),
     ("nextjs-web", &["package.json"]),
@@ -31,6 +31,7 @@ const MATRIX: [(&str, &[&str]); 6] = [
         ],
     ),
     ("react-web", &["package.json"]),
+    ("rust-product", &["Cargo.toml"]),
     ("rust-web", &["Cargo.toml"]),
 ];
 
@@ -140,11 +141,17 @@ fn the_doctors_table_matches_the_pinned_matrix_in_both_directions() {
         );
     }
 
-    // Every profile the doctor judges is a supported profile.
+    // Every profile the doctor judges is either selectable or native.
     for profile in forge::doctor::build_definition_profiles() {
+        let descriptor = inspect_profile(profile).unwrap_or_else(|_| {
+            panic!("the doctor judges '{profile}', which the catalogue does not know")
+        });
         assert!(
-            is_supported(profile),
-            "the doctor judges '{profile}', which the catalogue does not support"
+            matches!(
+                descriptor.support_status,
+                ProfileSupportStatus::Supported | ProfileSupportStatus::Native
+            ),
+            "the doctor judges '{profile}', which is neither supported nor native"
         );
     }
 }

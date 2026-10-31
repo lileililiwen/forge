@@ -26,6 +26,8 @@ pub mod assessment;
 pub mod claim_evidence_tests;
 pub mod delivery;
 pub mod delivery_tests;
+#[cfg(test)]
+pub mod doctor_native_tests;
 pub mod doctor_tests;
 pub mod freshness;
 pub mod gaps;

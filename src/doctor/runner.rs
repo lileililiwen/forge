@@ -77,7 +77,7 @@ pub fn run_doctor(
             "profile-known",
             FindingStatus::Pass,
             vec![format!(
-                "profile '{}' matches a versioned MVP descriptor",
+                "profile '{}' matches a versioned profile descriptor",
                 manifest.project.profile
             )],
             true,

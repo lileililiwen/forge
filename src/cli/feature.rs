@@ -646,6 +646,7 @@ pub(super) fn render_profile_human(p: &forge::profile::ProfileDescriptor) -> Str
             match p.support_status {
                 forge::profile::ProfileSupportStatus::Supported => "supported",
                 forge::profile::ProfileSupportStatus::Planned => "planned",
+                forge::profile::ProfileSupportStatus::Native => "native",
             },
             p.adapter,
             p.language,

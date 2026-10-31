@@ -4,7 +4,7 @@ Forge is a language-agnostic developer control plane and software assembly platf
 
 ## Status
 
-Implemented baseline: the 24 baseline capabilities, five archived audit/foundation follow-ups, ten archived sibling-integration packages (orders 30–39, newest `gate-evidence-export-consumption`) and the later publish, portal, portfolio, catalog and studio packages — including the `portal-browser-sign-in` browser OIDC sign-in and `portal-accessible-responsive-ui` responsive/accessibility portal work — are implemented, archived and promoted to their canonical specs. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 228 archived OpenSpec changes and 172 promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. Native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
+Implemented baseline: the 24 baseline capabilities, five archived audit/foundation follow-ups, ten archived sibling-integration packages (orders 30–39, newest `gate-evidence-export-consumption`) and the later publish, portal, portfolio, catalog and studio packages — including the `portal-browser-sign-in` browser OIDC sign-in and `portal-accessible-responsive-ui` responsive/accessibility portal work — are implemented, archived and promoted to their canonical specs. The repository began with [Requirements & Product Design v0.3](requirement.md); it now ships a Rust Core/CLI workspace (`src/`, `cargo build` produces `./target/debug/forge`) with a SQLite-backed registry, 229 archived OpenSpec changes and 172 promoted canonical specs under [openspec/specs/](openspec/specs/), plus contract and cross-surface test suites. The requirements document version is not a delivered Forge release. Native profile matrix, packaging/CI and real provider round trips remain separately qualified, with per-cycle evidence recorded in [HANDOFF.md](HANDOFF.md).
 
 ## Consolidated tooling crates
 
@@ -178,6 +178,10 @@ describes descriptors, compatibility and toolchain presence; only
 profiles with native-tool evidence are claimed as verified (see
 [release readiness](docs/release-readiness.md)).
 
+`rust-product` is a **native** profile: it describes Forge's own Cargo
+workspace, is registrable and assessable, and is never generated.
+`forge profile inspect rust-product` shows it; `forge profile list` remains the
+selectable supported set.
 
 ## Project metadata for agent discovery
 

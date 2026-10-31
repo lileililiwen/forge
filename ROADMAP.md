@@ -1,6 +1,6 @@
 # Forge roadmap
 
-Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) and the later publish, portal, portfolio, catalog and studio packages listed under [Later packages](#later-packages) are implemented, archived and promoted to their canonical specs — 228 archived changes and 172 canonical specs. The completed source consolidation now proceeds to Forge's Quality portal UX. Sibling portability is deferred; remaining packages are dependency-ordered in the consolidation section below. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
+Status: 24 baseline entries plus five audit/foundation follow-ups are implemented and archived, and all ten sibling-integration packages (orders 30 through 39 — `driftwatch-cli-alignment`, `external-checker-emission`, `workspace-governance-adapter-consumption`, `fleet-registry-observation`, `supervised-agent-adapters`, `jenkins-deploy-adapter-consumption`, `workspace-metadata-emission`, `gate-runtime-evidence`, `gate-evidence-export`, and `gate-evidence-export-consumption`) plus the independent inventory and container fleet package (`forge-independent-project-inventory-fleet`) and the later publish, portal, portfolio, catalog and studio packages listed under [Later packages](#later-packages) are implemented, archived and promoted to their canonical specs — 229 archived changes and 172 canonical specs. The completed source consolidation now proceeds to Forge's Quality portal UX. Sibling portability is deferred; remaining packages are dependency-ordered in the consolidation section below. The follow-ups address runtime/test hardening, native/release evidence, real provider evidence, specification governance, standalone governance-provider switching, read-only fleet observation from the workspace registry, supervised agent-runtime delegation, the executable Jenkins deploy executor boundary, sibling-compatible workspace metadata at generation, the real Driftwatchdog CLI surface for the policy plane, Driftwatchdog's evidence-export verb consumed by Forge, and the portable inventory contract that decouples the Forge fleet from workspace-governance. Versions are delivery targets, not release promises. [requirement.md](requirement.md) is authoritative; [coverage](docs/requirements-coverage.md) accounts for every numbered section.
 
 ## Scope (as delivered)
 
@@ -119,16 +119,13 @@ unsafe generic shell execution.
 - **Catalog, remediation and provider:** [project-catalog-query-contract](openspec/specs/project-catalog-query-contract/spec.md), [project-evidence-gap-assessment](openspec/specs/project-evidence-gap-assessment/spec.md), [project-local-remediation-plans](openspec/specs/project-local-remediation-plans/spec.md), [project-query-consumer-surfaces](openspec/specs/project-query-consumer-surfaces/spec.md), [project-semantic-description-review](openspec/specs/project-semantic-description-review/spec.md), [github-project-metadata-adapter](openspec/specs/github-project-metadata-adapter/spec.md), [github-cli-project-workflows](openspec/specs/github-cli-project-workflows/spec.md).
 - **Platform, profiles and governance:** [governance-provider-contract](openspec/specs/governance-provider-contract/spec.md) (including the archived `governance-vocabulary-consumption` requirement), [profile-and-release-readiness](openspec/specs/profile-and-release-readiness/spec.md) (including `profile-matrix-evidence`), [standard-pack-registry-and-snapshots](openspec/specs/standard-pack-registry-and-snapshots/spec.md), [site-studio-preview-refinement](openspec/specs/site-studio-preview-refinement/spec.md), [react-web-live-preview](openspec/specs/react-web-live-preview/spec.md), [readiness](openspec/specs/readiness/spec.md) (the archived `post-mvp-readiness` review).
 
-### Proposed native-project profile
+### Native project profile (delivered)
 
-`forge doctor .` reports `profile-known` as FAIL and `forge register .` refuses
-Forge's own `forge.yaml`, because `profile: rust-product` is the governance
-profile attached to the `rust-web` descriptor rather than an MVP profile that
-`inspect_profile` can resolve. A correct fix decides either that a native,
-non-generatable project is a distinct profile class, or that Doctor and the
-registry read the governance profile from `.project.json`. Both change the
-profile/registry contract, so neither is claimed here. Until then, Forge's own
-checker surface is exercised in CI against a generated, registered project.
+`rust-product` is a native profile: known to `inspect_profile`, registrable and
+assessable, and never generated. `forge doctor .` now passes its profile checks
+and the CI surfaces job registers and checks this repository directly, instead
+of a generated project. See
+[profile-registry](openspec/specs/profile-registry/spec.md).
 
 ## Release acceptance
 

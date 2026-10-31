@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 /// owning-domain entry point (resolution, preflight, generation);
 /// [`ProfileSupportStatus::Planned`] is reserved on the roadmap and
 /// inspectable, but operations that require generation evidence fail
-/// before any mutation.
+/// before any mutation. [`ProfileSupportStatus::Native`] describes a
+/// project Forge owns and builds with its own toolchain: it is known,
+/// registrable and assessable, but has no scaffold by design.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProfileSupportStatus {
@@ -17,10 +19,13 @@ pub enum ProfileSupportStatus {
     Supported,
     /// Reserved on the roadmap; no tested template, not selectable.
     Planned,
+    /// A native project's stack: known, not generatable.
+    Native,
 }
 /// Versioned descriptor for one profile. The `support_status` field
 /// disambiguates a `Supported` profile (selectable, has a tested template)
-/// from a `Planned` candidate (discoverable, not yet implemented).
+/// from a `Planned` candidate (discoverable, not yet implemented) and a
+/// `Native` project (known, maintained outside the generator).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProfileDescriptor {
     pub id: String,

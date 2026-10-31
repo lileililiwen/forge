@@ -692,6 +692,26 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn native_profile_rendering_refuses_before_writes() {
+        let tmp = TempDir::new().unwrap();
+        let target = dest(&tmp, "forge-native");
+        let request = normalize_explicit(
+            Some("rust-product"),
+            Some("forge-native"),
+            None,
+            &[],
+            &target,
+            None,
+        )
+        .expect("a known native profile normalizes");
+        let err = render_files(&request).expect_err("a native profile has no scaffold");
+        assert_eq!(err.code(), "unsupported-profile");
+        let text = err.to_string();
+        assert!(text.contains("native"), "{text}");
+        assert!(!target.exists(), "refusal must write nothing");
+    }
+
+    #[test]
     fn compatible_generation_defaults_to_gate_pack_and_explicit_versions_stay_pinned() {
         let tmp = TempDir::new().unwrap();
         let plain = normalize_explicit(

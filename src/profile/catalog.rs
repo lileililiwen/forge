@@ -194,6 +194,33 @@ pub fn mvp_profiles() -> Vec<ProfileDescriptor> {
     mvp_profiles_supported()
 }
 
+/// Projects Forge owns and builds natively. They are known to inspection,
+/// registration and doctor, but never selectable for generation: a native
+/// project has no scaffold and no generated capability set.
+pub fn native_profiles() -> Vec<ProfileDescriptor> {
+    vec![descriptor_with_status(
+        "rust-product",
+        "0.1.0",
+        ProfileSupportStatus::Native,
+        "adapter-rust",
+        "rust",
+        "cargo",
+        Some("stable"),
+        &[],
+        &[],
+        &["src/", "crates/", "modules/", "Cargo.toml"],
+        &["split-modules", "cargo-workspace"],
+        "cargo build --workspace",
+        "cargo test --workspace",
+        None,
+        None,
+        &[],
+        false,
+        "Forge's own native Rust control plane (the `rust-product` governance \
+         profile); maintained and built natively, never generated",
+    )]
+}
+
 /// Reserved specialist profiles that are on the roadmap but not yet
 /// implemented. They are inspectable so the catalog stays discoverable,
 /// but resolution, preflight and generation refuse them with

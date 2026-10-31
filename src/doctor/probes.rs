@@ -145,6 +145,7 @@ const BUILD_DEFINITIONS: &[(&str, BuildDefinition)] = &[
         ]),
     ),
     ("react-web", BuildDefinition::File("package.json")),
+    ("rust-product", BuildDefinition::File("Cargo.toml")),
     ("rust-web", BuildDefinition::File("Cargo.toml")),
 ];
 

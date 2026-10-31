@@ -23,15 +23,22 @@ fn template_files(
     kit: Option<&KitContext>,
 ) -> Result<Vec<(String, String)>, ForgeError> {
     let descriptor = inspect_profile(&request.profile)?;
-    if descriptor.support_status == crate::profile::ProfileSupportStatus::Planned {
-        return Err(ForgeError::UnsupportedProfile {
-            reason: format!(
+    if descriptor.support_status != crate::profile::ProfileSupportStatus::Supported {
+        let reason = match descriptor.support_status {
+            crate::profile::ProfileSupportStatus::Native => format!(
+                "profile '{}' is a native project stack with no Forge scaffold; it \
+                 describes a project Forge maintains and builds natively, and is never \
+                 generated; no files were written",
+                request.profile
+            ),
+            _ => format!(
                 "profile '{}' is reserved on the catalog as a planned candidate \
                  with no tested template; generation refuses planned profiles \
                  and no files were written",
                 request.profile
             ),
-        });
+        };
+        return Err(ForgeError::UnsupportedProfile { reason });
     }
     let build = descriptor.build_command.clone();
     let test = descriptor.test_command.clone();

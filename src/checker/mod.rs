@@ -248,7 +248,10 @@ pub fn readiness_alerts(profile: Option<&str>) -> Vec<CheckerAlert> {
         Ok(descriptor) => descriptor,
         Err(_) => return Vec::new(),
     };
-    if descriptor.support_status == ProfileSupportStatus::Supported {
+    if matches!(
+        descriptor.support_status,
+        ProfileSupportStatus::Supported | ProfileSupportStatus::Native
+    ) {
         return Vec::new();
     }
     vec![CheckerAlert {
@@ -561,6 +564,7 @@ mod tests {
     #[test]
     fn readiness_supported_and_unknown_profiles_emit_nothing() {
         assert!(readiness_alerts(Some("rust-web")).is_empty());
+        assert!(readiness_alerts(Some("rust-product")).is_empty());
         assert!(readiness_alerts(Some("totally-unknown")).is_empty());
         assert!(readiness_alerts(None).is_empty());
     }

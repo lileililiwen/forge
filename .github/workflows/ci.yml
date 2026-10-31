@@ -189,9 +189,8 @@ jobs:
       - name: Read-only surfaces (doctor, checker, fleet, providers)
         run: |
           ./target/debug/forge doctor .
-          ./target/debug/forge new "$RUNNER_TEMP/forge-surfaces" --profile rust-web
-          ./target/debug/forge register "$RUNNER_TEMP/forge-surfaces"
-          ./target/debug/forge check forge-surfaces --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
+          ./target/debug/forge register .
+          ./target/debug/forge check forge --format json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "alerts" in d, sorted(d.keys())'
           ./target/debug/forge fleet list
           ./target/debug/forge provider matrix
 

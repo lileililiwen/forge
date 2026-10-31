@@ -215,10 +215,8 @@ jobs:
         run: cargo build
       - name: Install the declared security checker
         run: cargo install cargo-audit --locked --version 0.22.2
-      - name: Warm the workspace before the Gate
-        run: |
-          cargo fetch --locked
-          cargo test --workspace --all-targets --no-run
+      - name: Fetch dependencies before the Gate
+        run: cargo fetch --locked
       - name: Real Forge gate verdict
         run: |
           ./target/debug/forge gate . --timeout-secs 3000
